@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.mcp.McpConfig;
@@ -148,13 +149,10 @@ public final class MainProject extends AbstractProject {
             When reviewing the pull request, please address the following points:
             - Explain your understanding of what this PR is intended to do.
             - Does it accomplish its goals in the simplest way possible?
-            - Does it conform to the project coding standards?
             - What parts are the trickiest and how could they be simplified?
             - What additional tests, if any, would add the most value?
 
-            Conclude with a summary of:
-            - Blockers (serious functional or design issues)
-            - Additional areas for improvement, ordered by priority
+            Conclude with a summary of serious functional or design issues ONLY.
             """
                     .stripIndent();
 
@@ -733,7 +731,7 @@ public final class MainProject extends AbstractProject {
     public boolean isGitHubRepo() {
         if (!hasGit()) return false; // hasGit from AbstractProject
         var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
-        String remoteUrl = gitRepo.getRemoteUrl("origin");
+        String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
     }
@@ -1519,7 +1517,7 @@ public final class MainProject extends AbstractProject {
         Path pathForRecentProjectsMap = projectDir;
         boolean isWorktree = false;
 
-        if (GitRepo.hasGitRepo(projectDir)) {
+        if (GitRepoFactory.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
@@ -1592,7 +1590,7 @@ public final class MainProject extends AbstractProject {
         Path mainProjectPathKey = projectDir;
         boolean isWorktree = false;
 
-        if (GitRepo.hasGitRepo(projectDir)) {
+        if (GitRepoFactory.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {

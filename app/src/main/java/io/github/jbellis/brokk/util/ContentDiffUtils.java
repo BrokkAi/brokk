@@ -8,6 +8,8 @@ import com.github.difflib.patch.DeleteDelta;
 import com.github.difflib.patch.InsertDelta;
 import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
+import java.util.Arrays;
+import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -26,7 +28,7 @@ public class ContentDiffUtils {
         var diffLines = diff.lines().toList();
         var patch = UnifiedDiffUtils.parseUnifiedDiff(diffLines);
         try {
-            var oldLines = oldContent.lines().toList();
+            var oldLines = toLines(oldContent);
             var newLines = patch.applyTo(oldLines);
             return String.join("\n", newLines);
         } catch (PatchFailedException e) {
@@ -62,8 +64,8 @@ public class ContentDiffUtils {
      */
     public static DiffComputationResult computeDiffResult(
             String oldContent, String newContent, String oldName, String newName, int contextLines) {
-        var oldLines = oldContent.lines().toList();
-        var newLines = newContent.lines().toList();
+        var oldLines = toLines(oldContent);
+        var newLines = toLines(newContent);
 
         Patch<String> patch = DiffUtils.diff(oldLines, newLines);
         if (patch.getDeltas().isEmpty()) {
@@ -107,5 +109,11 @@ public class ContentDiffUtils {
         var diffLines = UnifiedDiffUtils.generateUnifiedDiff(oldName, newName, oldLines, patch, contextLines);
         var diffText = String.join("\n", diffLines);
         return new DiffComputationResult(diffText, added, deleted);
+    }
+
+    private static List<String> toLines(String content) {
+        // Split on any line break, preserving trailing empty strings
+        // which indicate a final newline.
+        return Arrays.asList(content.split("\\R", -1));
     }
 }

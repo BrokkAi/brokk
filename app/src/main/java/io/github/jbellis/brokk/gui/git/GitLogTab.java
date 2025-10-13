@@ -213,7 +213,9 @@ public class GitLogTab extends JPanel {
             contextManager.submitBackgroundTask("Fetching all remotes", () -> {
                 try {
                     var pm = new IoProgressMonitor(contextManager.getIo());
-                    getRepo().fetchAll(pm); // network call
+                    // network call
+                    GitRepo gitRepo = getRepo();
+                    gitRepo.remote().fetchAll((ProgressMonitor) pm);
                     IConsoleIO iConsoleIO = contextManager.getIo();
                     iConsoleIO.showNotification(IConsoleIO.NotificationRole.INFO, "Fetch finished");
                 } catch (GitAPIException ex) {
@@ -669,7 +671,8 @@ public class GitLogTab extends JPanel {
                         canPull = hasUpstream; // canPull is true if there's an upstream
                         if (hasUpstream) {
                             try {
-                                unpushedCommitIds.addAll(getRepo().getUnpushedCommitIds(branchName));
+                                GitRepo gitRepo = getRepo();
+                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(branchName));
                                 canPush = !unpushedCommitIds.isEmpty(); // Push if unpushed commits and upstream exists
                             } catch (GitAPIException e) {
                                 logger.warn(

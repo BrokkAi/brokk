@@ -303,7 +303,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                         JOptionPane.WARNING_MESSAGE);
             } else {
                 tempProjectPanelForRetention.applyPolicy(); // This saves the policy
-                // No need to call parentProjectPanel.parentDialog.getChrome().getContextManager().reloadModelsAsync();
+                // No need to call parentProjectPanel.parentDialog.getChrome().getContextManager().reloadService();
                 // or parentProjectPanel.parentDialog.refreshGlobalModelsPanelPostPolicyChange();
                 // because this is a standalone dialog, Chrome isn't fully set up perhaps, and there's no SettingsDialog
                 // instance.

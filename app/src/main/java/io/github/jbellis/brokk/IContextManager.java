@@ -149,6 +149,10 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    default void appendTasksToTaskList(List<String> tasks) {
+        throw new UnsupportedOperationException();
+    }
+
     default Context pushContext(Function<Context, Context> contextGenerator) {
         throw new UnsupportedOperationException();
     }

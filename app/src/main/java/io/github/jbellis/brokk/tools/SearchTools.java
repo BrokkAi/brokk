@@ -5,7 +5,6 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.usages.FuzzyResult;
@@ -14,7 +13,7 @@ import io.github.jbellis.brokk.analyzer.usages.UsageHit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -563,7 +562,7 @@ public class SearchTools {
         }
 
         var projectRoot = contextManager.getProject().getRoot();
-        if (!GitRepo.hasGitRepo(projectRoot)) {
+        if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
 
@@ -845,15 +844,7 @@ public class SearchTools {
         }
 
         var io = contextManager.getIo();
-        // Append tasks to Task List Panel (if running in Chrome UI)
-        try {
-            ((Chrome) io).appendTasksToTaskList(tasks);
-        } catch (ClassCastException ignored) {
-            // Not running in Chrome UI; skip appending
-        }
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+        contextManager.appendTasksToTaskList(tasks);
 
         var lines = java.util.stream.IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))

@@ -356,10 +356,11 @@ public class CreatePullRequestDialog extends JDialog {
                         this.mergeBaseCommit);
 
                 // Check if source branch needs push (for UI indicator)
-                boolean needsPush = gitRepo.branchNeedsPush(sourceBranch);
+                boolean needsPush = gitRepo.remote().branchNeedsPush(sourceBranch);
                 final int unpushedCount;
                 if (needsPush) {
-                    unpushedCount = gitRepo.getUnpushedCommitIds(sourceBranch).size();
+                    unpushedCount =
+                            gitRepo.remote().getUnpushedCommitIds(sourceBranch).size();
                 } else {
                     unpushedCount = 0;
                 }
@@ -617,7 +618,7 @@ public class CreatePullRequestDialog extends JDialog {
     private BufferSource.StringSource createBufferSource(GitRepo repo, String commitSHA, ProjectFile f)
             throws GitAPIException {
         var content = repo.getFileContent(commitSHA, f);
-        return new BufferSource.StringSource(content, commitSHA, f.toString());
+        return new BufferSource.StringSource(content, commitSHA, f.toString(), commitSHA);
     }
 
     private List<ProjectFile> getOrderedFilesForDiff(@Nullable ProjectFile priorityFile) {
@@ -650,7 +651,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         if ("deleted".equals(status)) {
             leftSrc = createBufferSource(gitRepo, mergeBaseSha, file);
-            rightSrc = new BufferSource.StringSource("", "Source Branch (Deleted)", file.toString());
+            rightSrc = new BufferSource.StringSource("", "Source Branch (Deleted)", file.toString(), sourceCommitIsh);
         } else {
             // For "added" files, createBufferSource(gitRepo, mergeBaseSha, file) will attempt to load from merge base.
             // Assumes GitRepo.getFileContent handles non-existent files gracefully (e.g., returns empty string).

@@ -260,9 +260,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         assert SwingUtilities.isEventDispatchThread();
         tasksToggle.setSelected(true);
         terminalToggle.setSelected(false);
+
         if (activeTaskList == null) {
             activeTaskList = new TaskListPanel(chrome);
+        } else {
+            // Panel already exists (and may already be showing). Make sure it reloads from the manager
+            // so newly appended tasks are visible immediately.
+            activeTaskList.refreshFromManager();
         }
+
         drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
         drawerContentPanel.revalidate();
         drawerContentPanel.repaint();

@@ -56,28 +56,28 @@ public class DiffGutterComponent extends JComponent {
     //   Blame is rendered to the LEFT of line numbers with layout:
     //     authorText (truncated to BLAME_AUTHOR_WIDTH_SAMPLE) + BLAME_SEPARATOR_SPACING + " · " + dateText
     //
-    /** Left padding for gutter content (line numbers, blame) */
-    private static final int GUTTER_LEFT_PADDING = 4;
-    /** Right padding for gutter in unified mode */
-    private static final int GUTTER_RIGHT_PADDING_UNIFIED = 6;
-    /** Right padding for gutter in side-by-side mode */
-    private static final int GUTTER_RIGHT_PADDING_SIDE_BY_SIDE = 8;
-    /** Gap between left and right columns in unified mode */
-    private static final int COLUMN_GAP = 4;
+    /** Base left padding for gutter content at 12pt font */
+    private static final int BASE_GUTTER_LEFT_PADDING = 4;
+    /** Base right padding for gutter in unified mode at 12pt font */
+    private static final int BASE_GUTTER_RIGHT_PADDING_UNIFIED = 6;
+    /** Base right padding for gutter in side-by-side mode at 12pt font */
+    private static final int BASE_GUTTER_RIGHT_PADDING_SIDE_BY_SIDE = 8;
+    /** Base gap between left and right columns in unified mode at 12pt font */
+    private static final int BASE_COLUMN_GAP = 4;
+    /** Reference font size for padding calculations (12pt) */
+    private static final float REFERENCE_FONT_SIZE = 12f;
 
     // Blame rendering constants
-    /** Maximum character width for author name display (approximately 15 characters) */
-    private static final String BLAME_AUTHOR_WIDTH_SAMPLE = "123456789012345";
-    /** Total blame area width sample (approximately 25 characters for author + date + separator) */
-    private static final String BLAME_TOTAL_WIDTH_SAMPLE = "0123456789012345678901234";
-    /** Padding after blame area */
-    private static final int BLAME_AREA_PADDING = 8;
+    /** Maximum character width for author name display (approximately 8 characters) */
+    private static final String BLAME_AUTHOR_WIDTH_SAMPLE = "12345678";
+    /** Total blame area width sample (approximately 16 characters for author + date + separator) */
+    private static final String BLAME_TOTAL_WIDTH_SAMPLE = "1234567890123456";
+    /** Padding after blame area at reference font size (space between date and line numbers) */
+    private static final int BASE_BLAME_AREA_PADDING = 12;
     /** Spacing between author and date separator */
     private static final int BLAME_SEPARATOR_SPACING = 2;
-    /** Minimum font size for blame text */
-    private static final float BLAME_MIN_FONT_SIZE = 10f;
-    /** Font size reduction from main font for blame text */
-    private static final float BLAME_FONT_SIZE_REDUCTION = 2f;
+    /** Blame font size as ratio of main font (1.0 = same as main font) */
+    private static final float BLAME_FONT_SIZE_RATIO = 1.0f;
 
     /** Display mode for the gutter component */
     public enum DisplayMode {
@@ -499,11 +499,13 @@ public class DiffGutterComponent extends JComponent {
                     // Paint line number (1-based)
                     String lineNumber = String.valueOf(documentLine + 1);
                     int gutterWidth = getWidth();
-                    int rightPadding = 8; // Space before the border
+                    float fontSize = textArea.getFont().getSize2D();
+                    int rightPadding = scalePadding(BASE_GUTTER_RIGHT_PADDING_SIDE_BY_SIDE, fontSize);
+                    int leftPadding = scalePadding(BASE_GUTTER_LEFT_PADDING, fontSize);
                     int textX = gutterWidth - fm.stringWidth(lineNumber) - rightPadding;
 
                     g.setColor(fg);
-                    g.drawString(lineNumber, Math.max(4, textX), lineY + fontAscent);
+                    g.drawString(lineNumber, Math.max(leftPadding, textX), lineY + fontAscent);
 
                     // Paint blame (if enabled)
                     if (showBlame) {
@@ -602,11 +604,12 @@ public class DiffGutterComponent extends JComponent {
 
         int textY = lineY + fontAscent;
         int gutterWidth = getWidth();
+        float fontSize = textArea.getFont().getSize2D();
 
         int columnWidth = fm.stringWidth("9999");
-        int columnGap = COLUMN_GAP;
-        int baseLeftPadding = GUTTER_LEFT_PADDING;
-        int rightPadding = GUTTER_RIGHT_PADDING_UNIFIED;
+        int columnGap = scalePadding(BASE_COLUMN_GAP, fontSize);
+        int baseLeftPadding = scalePadding(BASE_GUTTER_LEFT_PADDING, fontSize);
+        int rightPadding = scalePadding(BASE_GUTTER_RIGHT_PADDING_UNIFIED, fontSize);
 
         // Compute blame font metrics (will be used later if line has valid blame)
         Font blameDrawFont = null;
@@ -614,16 +617,15 @@ public class DiffGutterComponent extends JComponent {
         if (showBlame) {
             blameDrawFont = (blameFont != null)
                     ? blameFont
-                    : getFont()
-                            .deriveFont(
-                                    Math.max(BLAME_MIN_FONT_SIZE, getFont().getSize2D() - BLAME_FONT_SIZE_REDUCTION));
+                    : getFont().deriveFont(getFont().getSize2D() * BLAME_FONT_SIZE_RATIO);
             bfm = g.getFontMetrics(blameDrawFont);
         }
 
         // Reserve fixed width for blame area based on sample text
         int blameAreaWidth = 0;
         if (showBlame && bfm != null) {
-            blameAreaWidth = bfm.stringWidth(BLAME_TOTAL_WIDTH_SAMPLE) + BLAME_AREA_PADDING;
+            int blamePadding = scalePadding(BASE_BLAME_AREA_PADDING, fontSize);
+            blameAreaWidth = bfm.stringWidth(BLAME_TOTAL_WIDTH_SAMPLE) + blamePadding;
         }
 
         // Left padding includes blame area width
@@ -741,8 +743,7 @@ public class DiffGutterComponent extends JComponent {
 
         // Prepare small font lazily
         if (blameFont == null) {
-            blameFont = getFont()
-                    .deriveFont(Math.max(BLAME_MIN_FONT_SIZE, getFont().getSize2D() - BLAME_FONT_SIZE_REDUCTION));
+            blameFont = getFont().deriveFont(getFont().getSize2D() * BLAME_FONT_SIZE_RATIO);
         }
 
         Font oldFont = g.getFont();
@@ -768,14 +769,15 @@ public class DiffGutterComponent extends JComponent {
         g.setColor(tinted);
 
         // Draw author (truncated to fit in fixed width)
-        int authorX = GUTTER_LEFT_PADDING;
+        float fontSize = textArea.getFont().getSize2D();
+        int authorX = scalePadding(BASE_GUTTER_LEFT_PADDING, fontSize);
         int authorMaxWidth = bf.stringWidth(BLAME_AUTHOR_WIDTH_SAMPLE);
         String displayAuthor = truncateToWidth(author, authorMaxWidth, bf);
         g.drawString(displayAuthor, authorX, textY);
 
         // Draw separator and date at fixed position (aligned)
         if (!date.isBlank()) {
-            int separatorX = GUTTER_LEFT_PADDING + authorMaxWidth + BLAME_SEPARATOR_SPACING;
+            int separatorX = authorX + authorMaxWidth + BLAME_SEPARATOR_SPACING;
             g.drawString(" · " + date, separatorX, textY);
         }
 
@@ -829,25 +831,51 @@ public class DiffGutterComponent extends JComponent {
         return formatter.format(commitTime);
     }
 
+    /**
+     * Allow external callers to set the font used to render blame snippets. The gutter keeps an internal derived font
+     * for blame rendering; exposing this setter makes it possible to sync the blame font with a requested editor font
+     * size.
+     */
+    public void setBlameFont(Font f) {
+        // Assign the blameFont used for rendering blame lines and refresh UI
+        this.blameFont = f;
+        // Ensure layout and painting update with the new font
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Scale a padding value based on current font size relative to reference font size (12pt). Uses linear scaling so
+     * padding shrinks/grows proportionally with font size.
+     */
+    private int scalePadding(int basePadding, float fontSize) {
+        if (fontSize <= 0) return basePadding;
+        float ratio = fontSize / REFERENCE_FONT_SIZE;
+        return Math.max(1, Math.round(basePadding * ratio));
+    }
+
     /** Get the preferred width for the gutter component. */
     public int getPreferredWidth() {
+        float fontSize = textArea.getFont().getSize2D();
+
         if (displayMode == DisplayMode.SIDE_BY_SIDE_SINGLE) {
             // Simple width calculation for side-by-side mode
 
             FontMetrics fm = textArea.getFontMetrics(textArea.getFont());
             int maxLineNumber = textArea.getLineCount();
             int maxDigits = String.valueOf(maxLineNumber).length();
-            int numberWidth = fm.stringWidth("9") * Math.max(3, maxDigits); // At least 3 digits wide
-            int leftPadding = GUTTER_LEFT_PADDING;
-            int rightPadding = GUTTER_RIGHT_PADDING_SIDE_BY_SIDE;
+            // Use actual digits needed, no arbitrary minimums
+            int numberWidth = fm.stringWidth("9") * maxDigits;
+            int leftPadding = scalePadding(BASE_GUTTER_LEFT_PADDING, fontSize);
+            int rightPadding = scalePadding(BASE_GUTTER_RIGHT_PADDING_SIDE_BY_SIDE, fontSize);
 
-            // Reserve fixed width for blame based on sample text
+            // Reserve width for blame based on sample text
             int blameExtra = 0;
             if (showBlame) {
-                Font bf = getFont()
-                        .deriveFont(Math.max(BLAME_MIN_FONT_SIZE, getFont().getSize2D() - BLAME_FONT_SIZE_REDUCTION));
+                Font bf = getFont().deriveFont(getFont().getSize2D() * BLAME_FONT_SIZE_RATIO);
                 FontMetrics bfm = textArea.getFontMetrics(bf);
-                blameExtra = bfm.stringWidth(BLAME_TOTAL_WIDTH_SAMPLE) + BLAME_AREA_PADDING;
+                int blamePadding = scalePadding(BASE_BLAME_AREA_PADDING, fontSize);
+                blameExtra = bfm.stringWidth(BLAME_TOTAL_WIDTH_SAMPLE) + blamePadding;
             }
 
             return leftPadding + blameExtra + numberWidth + rightPadding;
@@ -855,17 +883,17 @@ public class DiffGutterComponent extends JComponent {
             // Dual column width calculation for unified mode
             FontMetrics fm = textArea.getFontMetrics(textArea.getFont());
             int columnWidth = fm.stringWidth("9999");
-            int columnGap = COLUMN_GAP;
-            int baseLeftPadding = GUTTER_LEFT_PADDING;
-            int rightPadding = GUTTER_RIGHT_PADDING_UNIFIED;
+            int columnGap = scalePadding(BASE_COLUMN_GAP, fontSize);
+            int baseLeftPadding = scalePadding(BASE_GUTTER_LEFT_PADDING, fontSize);
+            int rightPadding = scalePadding(BASE_GUTTER_RIGHT_PADDING_UNIFIED, fontSize);
 
-            // Reserve fixed width for blame based on sample text (even when unifiedDocument is null)
+            // Reserve width for blame based on sample text (even when unifiedDocument is null)
             int blameExtra = 0;
             if (showBlame) {
-                Font bf = getFont()
-                        .deriveFont(Math.max(BLAME_MIN_FONT_SIZE, getFont().getSize2D() - BLAME_FONT_SIZE_REDUCTION));
+                Font bf = getFont().deriveFont(getFont().getSize2D() * BLAME_FONT_SIZE_RATIO);
                 FontMetrics bfm = textArea.getFontMetrics(bf);
-                blameExtra = bfm.stringWidth(BLAME_TOTAL_WIDTH_SAMPLE) + BLAME_AREA_PADDING;
+                int blamePadding = scalePadding(BASE_BLAME_AREA_PADDING, fontSize);
+                blameExtra = bfm.stringWidth(BLAME_TOTAL_WIDTH_SAMPLE) + blamePadding;
             }
 
             return baseLeftPadding + blameExtra + columnWidth + columnGap + columnWidth + rightPadding;

@@ -1655,20 +1655,36 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     io.github.jbellis.brokk.difftool.ui.BufferSource leftSource, rightSource;
 
                     if ("deleted".equals(status)) {
+                        // Deleted: left side has content from base, right side is empty (but still track head SHA for
+                        // blame)
                         leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                                repo.getFileContent(prBaseSha, projectFile),
+                                prBaseSha,
+                                projectFile.toString(),
+                                prBaseSha);
                         rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                "", prHeadSha + " (Deleted)", projectFile.toString());
+                                "", prHeadSha + " (Deleted)", projectFile.toString(), prHeadSha);
                     } else if ("new".equals(status)) {
+                        // New: left side is empty (but still track base SHA for blame), right side has content from
+                        // head
                         leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                "", prBaseSha + " (New)", projectFile.toString());
+                                "", prBaseSha + " (New)", projectFile.toString(), prBaseSha);
                         rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                                repo.getFileContent(prHeadSha, projectFile),
+                                prHeadSha,
+                                projectFile.toString(),
+                                prHeadSha);
                     } else { // modified
                         leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                                repo.getFileContent(prBaseSha, projectFile),
+                                prBaseSha,
+                                projectFile.toString(),
+                                prBaseSha);
                         rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                                repo.getFileContent(prHeadSha, projectFile),
+                                prHeadSha,
+                                projectFile.toString(),
+                                prHeadSha);
                     }
                     builder.addComparison(leftSource, rightSource);
                 }
@@ -1842,7 +1858,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             try {
                 var repo = getRepo();
                 repo.checkout(localBranchName);
-                repo.pull(); // Pull changes from its tracked upstream
+                // Pull changes from its tracked upstream
+                repo.remote().pull();
 
                 SwingUtilities.invokeLater(() -> {
                     gitLogTab.update();

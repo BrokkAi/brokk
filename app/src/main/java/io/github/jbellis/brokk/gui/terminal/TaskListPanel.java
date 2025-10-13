@@ -7,20 +7,15 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.TaskListData;
-import io.github.jbellis.brokk.TaskListEntryDto;
 import io.github.jbellis.brokk.TaskResult;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.tasks.TaskList;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -39,10 +34,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -72,8 +65,6 @@ import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
@@ -84,8 +75,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable UUID sessionIdAtLoad = null;
     private @Nullable IContextManager registeredContextManager = null;
 
-    private final DefaultListModel<@Nullable TaskItem> model = new DefaultListModel<>();
-    private final JList<TaskItem> list = new JList<>(model);
+    private final DefaultListModel<TaskList.TaskItem> model = new DefaultListModel<>();
+    private final JList<TaskList.TaskItem> list = new JList<>(model);
     private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
@@ -435,10 +426,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         add(controls, BorderLayout.SOUTH);
 
-        // Ensure correct initial layout with wrapped rows after the panel becomes visible
+        // Ensure correct initial layout and reload tasks when the panel becomes visible
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                 SwingUtilities.invokeLater(() -> {
+                    // Reload tasks from the ContextManager so newly appended tasks appear
+                    loadTasksForCurrentSession();
                     list.revalidate();
                     list.repaint();
                 });
@@ -490,63 +483,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    /**
-     * Automatically commits any modified files with a message that incorporates the provided task description. -
-     * Suggests a commit message via GitWorkflow and combines it with the taskDescription. - Commits all modified files
-     * as a single commit. - Reports success/failure on the EDT and refreshes relevant Git UI.
-     */
-    public static void autoCommitChanges(Chrome chrome, String taskDescription) {
-        var cm = chrome.getContextManager();
-        var repo = cm.getProject().getRepo();
-        java.util.Set<GitRepo.ModifiedFile> modified;
-        try {
-            modified = repo.getModifiedFiles();
-        } catch (GitAPIException e) {
-            chrome.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error");
-            return;
-        }
-        if (modified.isEmpty()) {
-            chrome.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "No changes to commit for task: " + taskDescription);
-            return;
-        }
-
-        cm.submitExclusiveAction(() -> {
-            try {
-                var workflowService = new GitWorkflow(cm);
-                var filesToCommit =
-                        modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
-
-                String suggested = workflowService.suggestCommitMessage(filesToCommit);
-                String message;
-                if (suggested.isBlank()) {
-                    message = taskDescription;
-                } else if (!taskDescription.isBlank()
-                        && !suggested.toLowerCase(Locale.ROOT).contains(taskDescription.toLowerCase(Locale.ROOT))) {
-                    message = suggested + " - " + taskDescription;
-                } else {
-                    message = suggested;
-                }
-
-                var commitResult = workflowService.commit(filesToCommit, message);
-
-                SwingUtilities.invokeLater(() -> {
-                    var gitRepo = (GitRepo) repo;
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
-                                    + commitResult.firstLine());
-                    chrome.updateCommitPanel();
-                    chrome.updateLogTab();
-                    chrome.selectCurrentBranchInLogTab();
-                });
-            } catch (Exception e) {
-                chrome.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error");
-            }
-            return null;
-        });
-    }
-
     private void addTask() {
         var raw = input.getText();
         if (raw == null) return;
@@ -555,7 +491,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                model.addElement(new TaskItem(text, false));
+                model.addElement(new TaskList.TaskItem(text, false));
                 added++;
             }
         }
@@ -640,8 +576,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     continue; // skip pending task
                 }
                 if (idx >= 0 && idx < model.getSize()) {
-                    var it = model.get(idx);
-                    model.set(idx, new TaskItem(it.text(), !it.done()));
+                    var it = requireNonNull(model.get(idx));
+                    model.set(idx, new TaskList.TaskItem(it.text(), !it.done()));
                     changed = true;
                 }
             }
@@ -677,8 +613,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void openEditDialog(int index) {
-        TaskItem current = model.get(index);
-        if (current == null) return;
+        TaskList.TaskItem current = requireNonNull(model.get(index));
 
         java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
         javax.swing.JDialog dialog = (owner != null)
@@ -711,7 +646,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (newText != null) {
                 newText = newText.strip();
                 if (!newText.isEmpty() && !newText.equals(current.text())) {
-                    model.set(index, new TaskItem(newText, current.done()));
+                    model.set(index, new TaskList.TaskItem(newText, current.done()));
                     saveTasksForCurrentSession();
                     list.revalidate();
                     list.repaint();
@@ -760,8 +695,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         int sel = list.getSelectedIndex();
         if (sel >= 0 && sel < model.getSize()) {
-            TaskItem it = model.get(sel);
-            selectedIsDone = it != null && it.done();
+            TaskList.TaskItem it = requireNonNull(model.get(sel));
+            selectedIsDone = it.done();
         }
 
         // Remove/Toggle disabled if no selection OR selection includes running/pending
@@ -785,8 +720,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
         for (int i = 0; i < model.getSize(); i++) {
-            TaskItem it2 = model.get(i);
-            if (it2 != null && it2.done()) {
+            TaskList.TaskItem it2 = requireNonNull(model.get(i));
+            if (it2.done()) {
                 anyCompleted = true;
                 break;
             }
@@ -811,95 +746,43 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
         }
 
-        var sessionManager = chrome.getContextManager().getProject().getSessionManager();
-        Executor edt = SwingUtilities::invokeLater;
-
-        sessionManager.readTaskList(sid).whenComplete((data, ex) -> {
-            if (ex != null) {
-                logger.debug("Failed loading tasks for session {}", sid, ex);
-                edt.execute(() -> {
-                    try {
-                        if (!sid.equals(this.sessionIdAtLoad)) {
-                            return;
-                        }
-                        model.clear();
-                        clearExpansionOnStructureChange();
-                        updateButtonStates();
-                        chrome.toolError("Unable to load task list: " + ex.getMessage(), "Task List");
-                    } finally {
-                        isLoadingTasks = false;
-                    }
-                });
-            } else {
-                edt.execute(() -> {
-                    try {
-                        // Ignore stale results if the session has changed since this request started
-                        if (!sid.equals(this.sessionIdAtLoad)) {
-                            return;
-                        }
-                        model.clear();
-                        for (TaskListEntryDto dto : data.tasks()) {
-                            if (!dto.text().isBlank()) {
-                                model.addElement(new TaskItem(dto.text(), dto.done()));
-                            }
-                        }
-                        clearExpansionOnStructureChange();
-                        updateButtonStates();
-                    } finally {
-                        isLoadingTasks = false;
-                        clearExpansionOnStructureChange();
-                    }
-                });
+        try {
+            var cm = chrome.getContextManager();
+            var data = cm.getTaskList();
+            // Only populate if still the same sessionId
+            if (!sid.equals(this.sessionIdAtLoad)) {
+                return;
             }
-        });
+            model.clear();
+            for (var dto : data.tasks()) {
+                if (!dto.text().isBlank()) {
+                    // dto is already the domain type used by the model
+                    model.addElement(dto);
+                }
+            }
+            clearExpansionOnStructureChange();
+            updateButtonStates();
+        } finally {
+            isLoadingTasks = false;
+            clearExpansionOnStructureChange();
+        }
     }
 
     private void saveTasksForCurrentSession() {
         if (isLoadingTasks) return;
-        UUID sid = this.sessionIdAtLoad;
-        if (sid == null) {
-            sid = getCurrentSessionId();
-            this.sessionIdAtLoad = sid;
-        }
 
-        var sessionManager = chrome.getContextManager().getProject().getSessionManager();
-
-        var dtos = new ArrayList<TaskListEntryDto>(model.size());
+        var dtos = new ArrayList<TaskList.TaskItem>(model.size());
         for (int i = 0; i < model.size(); i++) {
-            TaskItem it = model.get(i);
-            if (it != null && !it.text().isBlank()) {
-                dtos.add(new TaskListEntryDto(it.text(), it.done()));
+            var it = requireNonNull(model.get(i));
+            if (!it.text().isBlank()) {
+                // it is already the domain type, but copy defensively
+                dtos.add(new TaskList.TaskItem(it.text(), it.done()));
             }
         }
-        var data = new TaskListData(java.util.List.copyOf(dtos));
+        var data = new TaskList.TaskListData(java.util.List.copyOf(dtos));
 
-        final UUID sidFinal = sid;
-        sessionManager.writeTaskList(sidFinal, data).whenComplete((ignored, ex) -> {
-            if (ex != null) {
-                logger.warn("Failed saving tasks for session {}", sidFinal, ex);
-                chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List");
-            }
-        });
-    }
-
-    /** Append a collection of tasks to the end of the current list and persist them for the active session. */
-    public void appendTasks(List<String> tasks) {
-        if (tasks.isEmpty()) {
-            return;
-        }
-        boolean added = false;
-        for (var t : tasks) {
-            var text = t.strip();
-            if (!text.isEmpty()) {
-                model.addElement(new TaskItem(text, false));
-                added = true;
-            }
-        }
-        if (added) {
-            clearExpansionOnStructureChange();
-            saveTasksForCurrentSession();
-            updateButtonStates();
-        }
+        // Persist via ContextManager
+        chrome.getContextManager().setTaskList(data);
     }
 
     private void runArchitectOnSelected() {
@@ -934,8 +817,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var toRun = new ArrayList<Integer>(selected.length);
         for (int idx : selected) {
             if (idx >= 0 && idx < model.getSize()) {
-                TaskItem it = model.get(idx);
-                if (it != null && !it.done()) {
+                TaskList.TaskItem it = requireNonNull(model.get(idx));
+                if (!it.done()) {
                     toRun.add(idx);
                 }
             }
@@ -981,8 +864,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             startNextIfAny();
             return;
         }
-        TaskItem item = model.get(idx);
-        if (item == null || item.done()) {
+        TaskList.TaskItem item = requireNonNull(model.get(idx));
+        if (item.done()) {
             startNextIfAny();
             return;
         }
@@ -1009,32 +892,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var cm = chrome.getContextManager();
 
-        runArchitectOnTaskAsync(idx, cm, originalPrompt);
+        runArchitectOnTaskAsync(idx, cm);
     }
 
-    void runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
+    void runArchitectOnTaskAsync(int idx, ContextManager cm) {
         // Submit an LLM action that will perform optional search + architect work off the EDT.
         cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Executing Task command...");
             TaskResult result;
-            try (var scope = cm.beginTask(originalPrompt, false)) {
-                result = runArchitectOnTaskInternal(cm, originalPrompt, scope);
-            } catch (Exception ex) {
+            try {
+                result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive, queueActive);
+            } catch (RuntimeException ex) {
                 logger.error("Internal error running architect", ex);
                 SwingUtilities.invokeLater(this::finishQueueOnError);
                 return;
             } finally {
                 chrome.hideOutputSpinner();
                 cm.checkBalanceAndNotify();
-            }
-
-            // do this AFTER the TaskScope closes with both search + architect results
-            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                // Only auto-commit if we're processing multiple tasks as part of a queue
-                if (queueActive) {
-                    autoCommitChanges(chrome, originalPrompt);
-                    cm.compressHistory(); // synchronous compress (avoid deadlock with async variant)
-                }
             }
 
             SwingUtilities.invokeLater(() -> {
@@ -1045,11 +919,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
 
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                        var it = model.get(idx);
-                        if (it != null) {
-                            model.set(idx, new TaskItem(it.text(), true));
-                            saveTasksForCurrentSession();
-                        }
+                        var it = requireNonNull(model.get(idx));
+                        model.set(idx, new TaskList.TaskItem(it.text(), true));
+                        saveTasksForCurrentSession();
                     }
                 } finally {
                     // Clear running, advance queue
@@ -1061,16 +933,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             });
         });
-    }
-
-    private @NotNull TaskResult runArchitectOnTaskInternal(
-            ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
-        var planningModel = requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_PRO));
-        var codeModel = requireNonNull(
-                cm.getService().getModel(chrome.getInstructionsPanel().getSelectedModel()));
-
-        var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, originalPrompt, scope);
-        return architectAgent.executeWithSearch(scope);
     }
 
     private void startNextIfAny() {
@@ -1121,6 +983,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     public void enablePlay() {
         updateButtonStates();
+    }
+
+    /**
+     * Public refresh hook to reload the list model from the ContextManager. Safe to call from any thread. If we're
+     * already on the EDT, refresh immediately.
+     */
+    public void refreshFromManager() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            loadTasksForCurrentSession();
+        } else {
+            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+        }
     }
 
     /**
@@ -1224,7 +1098,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             // Snapshot the items being moved
-            var items = new ArrayList<TaskItem>(indices.length);
+            var items = new ArrayList<TaskList.TaskItem>(indices.length);
             for (int i : indices) {
                 if (i >= 0 && i < model.size()) {
                     items.add(model.get(i));
@@ -1312,10 +1186,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (idx < 0 || idx >= model.size()) {
                 continue;
             }
-            TaskItem task = model.get(idx);
-            if (task == null) {
-                continue;
-            }
+            TaskList.TaskItem task = requireNonNull(model.get(idx));
             taskTexts.add(task.text());
         }
 
@@ -1327,7 +1198,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String combinedText = String.join(" | ", taskTexts);
 
         // Create the new combined task (always marked as not done)
-        TaskItem combinedTask = new TaskItem(combinedText, false);
+        TaskList.TaskItem combinedTask = new TaskList.TaskItem(combinedText, false);
 
         // Replace the first task with the combined task
         model.set(firstIdx, combinedTask);
@@ -1388,8 +1259,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        TaskItem original = model.get(idx);
-        if (original == null) return;
+        TaskList.TaskItem original = requireNonNull(model.get(idx));
 
         var textArea = new JTextArea();
         textArea.setLineWrap(true);
@@ -1418,9 +1288,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         // Replace the original with the first line; insert remaining lines after; mark all as not done
-        model.set(idx, new TaskItem(lines.getFirst(), false));
+        model.set(idx, new TaskList.TaskItem(lines.getFirst(), false));
         for (int i = 1; i < lines.size(); i++) {
-            model.add(idx + i, new TaskItem(lines.get(i), false));
+            model.add(idx + i, new TaskList.TaskItem(lines.get(i), false));
         }
 
         // Select the new block
@@ -1471,7 +1341,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Fire a lightweight contentsChanged for visible rows by setting each element to itself.
             // This forces BasicListUI to recompute row heights for just the visible range.
             for (int i = Math.max(0, first); i <= last && i < size; i++) {
-                TaskItem it = model.get(i);
+                TaskList.TaskItem it = model.get(i);
                 // set the same object to trigger a change event without altering data
                 model.set(i, it);
             }
@@ -1511,8 +1381,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Count how many completed tasks would be removed (exclude the running task for safety)
         int completedCount = 0;
         for (int i = 0; i < model.size(); i++) {
-            TaskItem it = model.get(i);
-            if (it != null && it.done()) {
+            TaskList.TaskItem it = requireNonNull(model.get(i));
+            if (it.done()) {
                 if (runningIndex != null && i == runningIndex) {
                     continue;
                 }
@@ -1540,8 +1410,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean removedAny = false;
         // Remove from bottom to top to keep indices valid
         for (int i = model.size() - 1; i >= 0; i--) {
-            TaskItem it = model.get(i);
-            if (it != null && it.done()) {
+            TaskList.TaskItem it = requireNonNull(model.get(i));
+            if (it.done()) {
                 // Do not remove the running task even if marked done (safety)
                 if (runningIndex != null && i == runningIndex) {
                     continue;
@@ -1567,10 +1437,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var taskTexts = new ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx >= 0 && idx < model.getSize()) {
-                var item = model.get(idx);
-                if (item != null) {
-                    taskTexts.add(item.text());
-                }
+                var item = requireNonNull(model.get(idx));
+                taskTexts.add(item.text());
             }
         }
 
@@ -1612,9 +1480,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    private record TaskItem(String text, boolean done) {}
-
-    private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskItem> {
+    private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskList.TaskItem> {
         private final JCheckBox check = new JCheckBox();
         private final WrappedTextView view = new WrappedTextView();
 
@@ -1635,7 +1501,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public Component getListCellRendererComponent(
-                JList<? extends TaskItem> list, TaskItem value, int index, boolean isSelected, boolean cellHasFocus) {
+                JList<? extends TaskList.TaskItem> list,
+                TaskList.TaskItem value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
 
             boolean isRunningRow = (!value.done()
                     && TaskListPanel.this.runningIndex != null

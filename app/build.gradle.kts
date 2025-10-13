@@ -70,7 +70,6 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(libs.jtokkit)
-    implementation(libs.jlama.core)
 
     // Console and logging
     implementation(libs.bundles.logging)
@@ -297,13 +296,14 @@ tasks.withType<JavaExec>().configureEach {
 tasks.withType<Test> {
     useJUnitPlatform()
 
-    // Use a single forked JVM for all tests (for TreeSitter native library isolation)
-    // On Windows, use only 1 fork to avoid CI issues; on other platforms use 6
-    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else 6
+    // On Windows, use only 1 fork to avoid CI issues; on other platforms use half core count
+    // (half b/c spinning up JVMs is also slow so right now this is a good balance; as we add tests we will want to revisit)
+    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else maxOf(6, Runtime.getRuntime().availableProcessors() / 2)
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(
         "-ea",  // Enable assertions
+        "-Xmx1G",  // minimum heap size
         "--add-modules=jdk.incubator.vector",
         "-Dbrokk.devmode=true",
         "-XX:+HeapDumpOnOutOfMemoryError",

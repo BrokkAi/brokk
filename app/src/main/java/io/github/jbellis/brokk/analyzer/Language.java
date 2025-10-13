@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.util.Environment;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -52,6 +53,9 @@ public interface Language {
     boolean providesInterproceduralAnalysis();
 
     default boolean shouldDisableLsp() {
+        if (Environment.isWindows()) {
+            return true;
+        }
         var raw = System.getenv("BRK_NO_LSP");
         if (raw == null) return false;
         var value = raw.trim().toLowerCase(Locale.ROOT);

@@ -2,6 +2,8 @@ package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -15,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -430,7 +433,8 @@ public final class ConflictInspector {
 
     /**
      * Derive the OTHER commit id for a SQUASH merge when MERGE_HEAD is absent by: - finding a stage-3 (theirs) blob in
-     * the index, then - scanning local branches for a tip commit whose tree contains that blob.
+     * the index, then - scanning local branches for a tip commit whose tree contains that blob. If no stage-3 entries
+     * exist, fall back to ORIG_HEAD, then FETCH_HEAD, then HEAD.
      */
     private static String deriveOtherForSquash(GitRepo repo, Repository repository) throws GitAPIException {
         DirCache dirCache;
@@ -451,28 +455,69 @@ public final class ConflictInspector {
             }
         }
 
-        if (theirBlob == null) {
-            throw new IllegalStateException("Unable to derive OTHER commit for SQUASH: no stage-3 entries in index");
+        // If we have a stage-3 blob, try to resolve OTHER by scanning local branches
+        if (theirBlob != null) {
+            for (var branch : repo.listLocalBranches()) {
+                try {
+                    var tip = repository.resolve(branch);
+                    if (tip == null) continue;
+                    try {
+                        // If this succeeds, the blob is present in this branch tip's tree; treat as OTHER.
+                        findPathForBlobInCommit(repository, tip.getName(), theirBlob, requireNonNull(anyIndexPath));
+                        logger.debug("deriveOtherForSquash: resolved OTHER={} via branch {}", tip.getName(), branch);
+                        return tip.getName();
+                    } catch (GitRepo.GitRepoException ignore) {
+                        // not found in this branch tip; continue scanning
+                    }
+                } catch (Exception ex) {
+                    // resolve failure; ignore and continue
+                }
+            }
+            logger.warn("deriveOtherForSquash: stage-3 blob present but not found in any local branch; falling back");
+        } else {
+            logger.debug("deriveOtherForSquash: no stage-3 entries in index; attempting fallbacks");
         }
 
-        for (var branch : repo.listLocalBranches()) {
+        // Fallbacks when MERGE_HEAD is absent and no stage-3 available or not resolvable:
+        var gitDir = repository.getDirectory().toPath();
+
+        // 1) ORIG_HEAD (single-line SHA) if present
+        var origHead = gitDir.resolve("ORIG_HEAD");
+        if (Files.exists(origHead)) {
             try {
-                var tip = repository.resolve(branch);
-                if (tip == null) continue;
-                try {
-                    // If this succeeds, the blob is present in this branch tip's tree; treat as OTHER.
-                    findPathForBlobInCommit(repository, tip.getName(), theirBlob, requireNonNull(anyIndexPath));
-                    logger.debug("deriveOtherForSquash: resolved OTHER={} via branch {}", tip.getName(), branch);
-                    return tip.getName();
-                } catch (GitRepo.GitRepoException ignore) {
-                    // not found in this branch tip; continue scanning
-                }
-            } catch (Exception ex) {
-                // resolve failure; ignore and continue
+                var other = readSingleHead(origHead, MergeAgent.MergeMode.SQUASH);
+                logger.debug("deriveOtherForSquash: using ORIG_HEAD={}", other);
+                return other;
+            } catch (RuntimeException e) {
+                logger.warn("deriveOtherForSquash: failed reading ORIG_HEAD: {}", e.getMessage());
             }
         }
 
-        throw new IllegalStateException("Unable to determine other side commit for SQUASH (MERGE_HEAD missing)");
+        // 2) FETCH_HEAD: first token of first non-empty line is a commit id
+        var fetchHead = gitDir.resolve("FETCH_HEAD");
+        if (Files.exists(fetchHead)) {
+            try {
+                var maybe = Files.readAllLines(fetchHead, StandardCharsets.UTF_8).stream()
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .map(s -> Iterables.get(
+                                Splitter.on(Pattern.compile("\\s+")).split(s), 0))
+                        .filter(s -> s.matches("^[0-9a-fA-F]{7,40}$"))
+                        .findFirst();
+                if (maybe.isPresent()) {
+                    var other = maybe.get();
+                    logger.debug("deriveOtherForSquash: using FETCH_HEAD={}", other);
+                    return other;
+                }
+            } catch (IOException e) {
+                logger.warn("deriveOtherForSquash: failed reading FETCH_HEAD: {}", e.getMessage());
+            }
+        }
+
+        // 3) Final fallback: HEAD (best-effort to avoid crashing the UI)
+        var head = repo.resolve("HEAD").getName();
+        logger.warn("deriveOtherForSquash: could not determine OTHER; falling back to HEAD={}", head);
+        return head;
     }
 
     /** Return the first parent commit id (hex) of the given commit, or null if none. */

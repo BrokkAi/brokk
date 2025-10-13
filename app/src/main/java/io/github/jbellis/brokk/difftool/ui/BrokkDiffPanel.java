@@ -45,9 +45,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.JToggleButton;
@@ -55,6 +57,7 @@ import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -350,6 +353,32 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 "previousChange",
                 this::navigateToPreviousChange);
 
+        // Register font size adjustment shortcuts (using same keybindings as MOP zoom)
+        var zoomInKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.zoomIn",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var zoomInEqualsKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.zoomInAlt",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var zoomOutKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.zoomOut",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var resetZoomKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.resetZoom",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        KeyboardShortcutUtil.registerGlobalShortcut(
+                this, zoomInKeyStroke, "increaseFontSize", this::increaseEditorFont);
+        KeyboardShortcutUtil.registerGlobalShortcut(
+                this, zoomInEqualsKeyStroke, "increaseFontSize", this::increaseEditorFont);
+        KeyboardShortcutUtil.registerGlobalShortcut(
+                this, zoomOutKeyStroke, "decreaseFontSize", this::decreaseEditorFont);
+        KeyboardShortcutUtil.registerGlobalShortcut(this, resetZoomKeyStroke, "resetFontSize", this::resetEditorFont);
+
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
@@ -379,6 +408,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
     private final MaterialButton captureDiffButton = new MaterialButton();
+
+    // Font size adjustment buttons
+    private final MaterialButton btnDecreaseFont = new MaterialButton();
+    private final MaterialButton btnResetFont = new MaterialButton();
+    private final MaterialButton btnIncreaseFont = new MaterialButton();
+
+    // Editor font size state with predefined sizes (standard sizes with 2pt minimum increments)
+    private static final float[] FONT_SIZES = {8f, 10f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f};
+    private static final int DEFAULT_FONT_INDEX = 2; // 12f
+    private static final float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES[DEFAULT_FONT_INDEX];
+    private int currentFontIndex = -1; // -1 = uninitialized
+
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
@@ -797,6 +838,54 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         updateToolbarForViewMode();
 
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
+
+        // Font size controls (positioned before capture button)
+        var zoomOutKs = GlobalUiSettings.getKeybinding(
+                "view.zoomOut",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var resetZoomKs = GlobalUiSettings.getKeybinding(
+                "view.resetZoom",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var zoomInKs = GlobalUiSettings.getKeybinding(
+                "view.zoomIn",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        btnDecreaseFont.setText("A");
+        btnDecreaseFont.setFont(new Font(btnDecreaseFont.getFont().getName(), Font.PLAIN, 10));
+        btnDecreaseFont.setToolTipText(
+                "Decrease editor font size (" + KeyboardShortcutUtil.formatKeyStroke(zoomOutKs) + ")");
+        btnDecreaseFont.setBorderPainted(false);
+        btnDecreaseFont.setContentAreaFilled(false);
+        btnDecreaseFont.setFocusPainted(false);
+        btnDecreaseFont.addActionListener(e -> decreaseEditorFont());
+
+        btnResetFont.setText("A");
+        btnResetFont.setFont(new Font(btnResetFont.getFont().getName(), Font.PLAIN, 14));
+        btnResetFont.setToolTipText(
+                "Reset editor font size (" + KeyboardShortcutUtil.formatKeyStroke(resetZoomKs) + ")");
+        btnResetFont.setBorderPainted(false);
+        btnResetFont.setContentAreaFilled(false);
+        btnResetFont.setFocusPainted(false);
+        btnResetFont.addActionListener(e -> resetEditorFont());
+
+        btnIncreaseFont.setText("A");
+        btnIncreaseFont.setFont(new Font(btnIncreaseFont.getFont().getName(), Font.PLAIN, 18));
+        btnIncreaseFont.setToolTipText(
+                "Increase editor font size (" + KeyboardShortcutUtil.formatKeyStroke(zoomInKs) + ")");
+        btnIncreaseFont.setBorderPainted(false);
+        btnIncreaseFont.setContentAreaFilled(false);
+        btnIncreaseFont.setFocusPainted(false);
+        btnIncreaseFont.addActionListener(e -> increaseEditorFont());
+
+        toolBar.add(btnDecreaseFont);
+        toolBar.add(Box.createHorizontalStrut(4));
+        toolBar.add(btnResetFont);
+        toolBar.add(Box.createHorizontalStrut(4));
+        toolBar.add(btnIncreaseFont);
+        toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(captureDiffButton);
 
         return toolBar;
@@ -834,12 +923,29 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setEnabled(true);
 
         // Update blame menu item enabled state
-        // Blame is only available for working tree diffs in git repos (not for historical commit diffs)
+        // Blame is available for working tree diffs and for StringSource-based diffs with revision metadata
         // Note: We don't modify isSelected() here - that represents user preference and should persist across file
         // changes
         boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
-        boolean isWorkingTree = currentDiffPanel != null && isWorkingTreeDiff(currentDiffPanel);
-        menuShowBlame.setEnabled(isGitRepo && isWorkingTree);
+        boolean canShowBlame = false;
+        if (isGitRepo && currentDiffPanel != null) {
+            // Check if it's a working tree diff
+            boolean isWorkingTree = isWorkingTreeDiff(currentDiffPanel);
+            // Check if current file has revision metadata for blame
+            boolean hasRevisionMetadata = false;
+            if (currentFileIndex >= 0 && currentFileIndex < fileComparisons.size()) {
+                var comparison = fileComparisons.get(currentFileIndex);
+                if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+                    hasRevisionMetadata = true;
+                }
+                if (comparison.rightSource instanceof BufferSource.StringSource rightSS
+                        && rightSS.revisionSha() != null) {
+                    hasRevisionMetadata = true;
+                }
+            }
+            canShowBlame = isWorkingTree || hasRevisionMetadata;
+        }
+        menuShowBlame.setEnabled(canShowBlame);
 
         // Update save button text, enable state, and visibility
         // Compute the exact number of panels that would be saved by saveAll():
@@ -1262,8 +1368,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
         // This must happen before applyTheme() and diff() which can trigger layout calculations
         // Note: Always set state explicitly to sync cached panels with current menu state
-        // Blame is only supported for working tree diffs with valid file paths
-        boolean canShowBlame = isWorkingTreeDiff(cachedPanel) && resolveTargetPath(cachedPanel) != null;
+        // Blame is supported for both working tree diffs and commit diffs with revision metadata
+        boolean isWorkingTree = isWorkingTreeDiff(cachedPanel);
+        boolean hasRevisionMetadata = false;
+        if (fileIndex >= 0 && fileIndex < fileComparisons.size()) {
+            var comparison = fileComparisons.get(fileIndex);
+            if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+                hasRevisionMetadata = true;
+            }
+            if (comparison.rightSource instanceof BufferSource.StringSource rightSS && rightSS.revisionSha() != null) {
+                hasRevisionMetadata = true;
+            }
+        }
+        boolean canShowBlame = (isWorkingTree || hasRevisionMetadata) && resolveTargetPath(cachedPanel) != null;
         boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
         if (cachedPanel instanceof BufferDiffPanel bp) {
             var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
@@ -1281,6 +1398,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
+        // Ensure currentFontIndex is initialized (lazily) from the visible editor before applying it.
+        // This probes the panel's editor for a realistic starting font size (fallback handled internally).
+        ensureEditorFontSizeInitialized(cachedPanel);
+        // Apply current editor font size to the panel so theme application doesn't override it
+        if (currentFontIndex >= 0) {
+            applySizeToSinglePanel(cachedPanel, FONT_SIZES[currentFontIndex]);
+        }
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
         // Theme application can trigger document events that incorrectly mark documents as dirty
@@ -1481,7 +1605,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // No-op: filename label removed from toolbar
     }
 
-    private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {
+    private void performUndoRedo(Consumer<AbstractContentPanel> action) {
         var panel = getCurrentContentPanel();
         if (panel != null) {
             // Disable undo/redo buttons FIRST
@@ -1639,6 +1763,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
+        // Ensure newly-created panel respects the current editor font size (if we've initialized it)
+        if (currentFontIndex >= 0) {
+            applySizeToSinglePanel(panel, FONT_SIZES[currentFontIndex]);
+        }
 
         // Ensure creation context is set for debugging (only for BufferDiffPanel)
         if (panel instanceof BufferDiffPanel bufferPanel) {
@@ -1780,6 +1908,318 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Suggest garbage collection
         System.gc();
+    }
+
+    /** Find the closest font size index for a given font size. */
+    private static int findClosestFontIndex(float targetSize) {
+        int closestIndex = DEFAULT_FONT_INDEX;
+        float minDiff = Math.abs(FONT_SIZES[DEFAULT_FONT_INDEX] - targetSize);
+
+        for (int i = 0; i < FONT_SIZES.length; i++) {
+            float diff = Math.abs(FONT_SIZES[i] - targetSize);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestIndex = i;
+            }
+        }
+        return closestIndex;
+    }
+
+    /**
+     * Lazily initialize the currentFontIndex from saved font size, then from a panel or component if not saved. Accepts
+     * either an IDiffPanel (preferred) or any Component (e.g., AbstractContentPanel is a Component). If no saved font
+     * size and no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
+     */
+    private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
+        if (currentFontIndex >= 0) return;
+
+        // Try to load from saved font size first
+        float savedFontSize = GlobalUiSettings.getDiffFontSize();
+        if (savedFontSize > 0) {
+            currentFontIndex = findClosestFontIndex(savedFontSize);
+            return;
+        }
+
+        float size = DEFAULT_FALLBACK_FONT_SIZE;
+
+        Component comp = null;
+        try {
+            if (panelOrComponent instanceof IDiffPanel idp) {
+                comp = idp.getComponent();
+            } else if (panelOrComponent instanceof Component c) {
+                comp = c;
+            }
+            if (comp != null) {
+                var editorOpt = findEditorInComponent(comp);
+                if (editorOpt.isPresent()) {
+                    try {
+                        size = editorOpt.get().getFont().getSize2D();
+                    } catch (Exception ignored) {
+                        // ignore and use fallback
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Defensive: don't let any unexpected runtime errors prevent initialization
+            logger.debug("Failed to derive editor font size from component", e);
+        }
+
+        // Find closest index
+        currentFontIndex = findClosestFontIndex(size);
+    }
+
+    /**
+     * Apply a specific font size to a single panel's editors and gutters. Handles UnifiedDiffPanel, BufferDiffPanel,
+     * and generic panels with comprehensive logic.
+     *
+     * @param panel The panel to update
+     * @param size The font size to apply
+     */
+    private void applySizeToSinglePanel(@Nullable IDiffPanel panel, float size) {
+        if (panel == null) return;
+        Component root = panel.getComponent();
+
+        // Special-case UnifiedDiffPanel: use its public getters for reliable access
+        if (panel instanceof UnifiedDiffPanel up) {
+            try {
+                setEditorFont(up.getTextArea(), size);
+            } catch (Exception e) {
+                logger.debug("Unified text area update failed", e);
+            }
+
+            try {
+                var gutter = up.getGutterComponent();
+                if (gutter != null) {
+                    setGutterFonts(gutter, size);
+                }
+            } catch (Exception e) {
+                logger.debug("Unified gutter update failed", e);
+            }
+
+            return;
+        }
+
+        // Special-case BufferDiffPanel: ensure both LEFT and RIGHT FilePanels are updated
+        if (panel instanceof BufferDiffPanel bp) {
+            try {
+                updateFilePanelFonts(bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT), size);
+            } catch (Exception ignored) {
+                // Best-effort: ignore left panel font application errors
+            }
+
+            try {
+                updateFilePanelFonts(bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT), size);
+            } catch (Exception ignored) {
+                // Best-effort: ignore right panel font application errors
+            }
+
+            return;
+        }
+
+        // Generic handling (fallback): find first RSyntaxTextArea and first DiffGutterComponent in component subtree
+        findEditorInComponent(root).ifPresent(editor -> setEditorFont(editor, size));
+        findGutterInComponent(root).ifPresent(gutter -> setGutterFonts(gutter, size));
+    }
+
+    /**
+     * Apply font size from current index to every visible code editor and gutter (cached panels + visible panel). This
+     * is the central helper for immediately applying font changes across all panels.
+     */
+    private void applyEditorFontSize() {
+        if (currentFontIndex < 0) return;
+
+        float fontSize = FONT_SIZES[currentFontIndex];
+        // Save the actual font size
+        GlobalUiSettings.saveDiffFontSize(fontSize);
+
+        // Apply to cached panels
+        for (var p : panelCache.nonNullValues()) {
+            try {
+                applySizeToSinglePanel(p, fontSize);
+            } catch (Exception e) {
+                logger.debug("Failed applying font size to cached panel", e);
+            }
+        }
+
+        // Apply to currently visible panel too
+        if (currentDiffPanel != null) {
+            try {
+                applySizeToSinglePanel(currentDiffPanel, fontSize);
+            } catch (Exception e) {
+                logger.debug("Failed applying font size to current panel", e);
+            }
+        }
+
+        // Force a UI refresh
+        SwingUtilities.invokeLater(() -> {
+            revalidate();
+            repaint();
+        });
+    }
+
+    /** Increase font size to next preset size and apply to cached/current panels. */
+    private void increaseEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        if (currentFontIndex >= FONT_SIZES.length - 1) return; // Already at maximum
+        currentFontIndex++;
+        applyEditorFontSize();
+    }
+
+    /** Decrease font size to previous preset size and apply to cached/current panels. */
+    private void decreaseEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        if (currentFontIndex <= 0) return; // Already at minimum
+        currentFontIndex--;
+        applyEditorFontSize();
+    }
+
+    /** Reset font size to default and apply to cached/current panels. */
+    private void resetEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        if (currentFontIndex == DEFAULT_FONT_INDEX) return; // Already at default
+        currentFontIndex = DEFAULT_FONT_INDEX;
+        applyEditorFontSize();
+    }
+
+    /**
+     * Set the font for an editor and update its syntax scheme while preserving colors.
+     *
+     * @param editor The editor to update
+     * @param size The font size to apply
+     */
+    private void setEditorFont(RSyntaxTextArea editor, float size) {
+        try {
+            Font base = editor.getFont();
+            Font newFont =
+                    (base != null) ? base.deriveFont(size) : editor.getFont().deriveFont(size);
+            editor.setFont(newFont);
+            updateSyntaxSchemeFonts(editor, newFont);
+            editor.revalidate();
+            editor.repaint();
+        } catch (Exception ex) {
+            logger.debug("Could not apply font to editor", ex);
+        }
+    }
+
+    /**
+     * Set the font for a gutter including line numbers and blame information.
+     *
+     * @param gutter The gutter to update
+     * @param size The font size to apply
+     */
+    private void setGutterFonts(DiffGutterComponent gutter, float size) {
+        try {
+            Font gbase = gutter.getFont();
+            if (gbase != null) {
+                Font gf = gbase.deriveFont(size);
+                gutter.setFont(gf);
+                try {
+                    gutter.setBlameFont(gf);
+                } catch (Throwable ignored) {
+                    // Best-effort: ignore if setBlameFont not supported
+                }
+            } else {
+                gutter.setFont(gutter.getFont().deriveFont(size));
+            }
+            gutter.revalidate();
+            gutter.repaint();
+            // Ensure parent container (scroll pane) recalculates layout for new gutter width
+            var parent = gutter.getParent();
+            if (parent != null) {
+                parent.revalidate();
+            }
+        } catch (Exception ex) {
+            logger.debug("Could not apply font to gutter", ex);
+        }
+    }
+
+    /**
+     * Update fonts for a FilePanel (editor, gutter, and viewport cache).
+     *
+     * @param filePanel The FilePanel to update
+     * @param size The font size to apply
+     */
+    private void updateFilePanelFonts(@Nullable FilePanel filePanel, float size) {
+        if (filePanel == null) return;
+
+        try {
+            setEditorFont(filePanel.getEditor(), size);
+        } catch (Exception ex) {
+            logger.debug("Could not apply font to file panel editor", ex);
+        }
+
+        try {
+            setGutterFonts(filePanel.getGutterComponent(), size);
+        } catch (Exception ex) {
+            logger.debug("Could not apply font to file panel gutter", ex);
+        }
+
+        try {
+            filePanel.invalidateViewportCache();
+        } catch (Exception ignored) {
+            // Best-effort: ignore cache invalidation errors
+        }
+
+        // Ensure scroll pane recalculates layout for new gutter width
+        try {
+            filePanel.getScrollPane().revalidate();
+        } catch (Exception ignored) {
+            // Best-effort: ignore scroll pane revalidation errors
+        }
+    }
+
+    /**
+     * Update all token styles in the syntax scheme to use the new font while preserving colors. This ensures consistent
+     * font sizing across all syntax elements (keywords, identifiers, etc.).
+     */
+    private void updateSyntaxSchemeFonts(RSyntaxTextArea editor, Font newFont) {
+        try {
+            var scheme = editor.getSyntaxScheme();
+            if (scheme == null) return;
+
+            // Update font for each token type style while preserving colors
+            for (int i = 0; i < scheme.getStyleCount(); i++) {
+                var style = scheme.getStyle(i);
+                if (style != null && style.font != null) {
+                    // Preserve font style (bold, italic) but use new size
+                    int fontStyle = style.font.getStyle();
+                    style.font = newFont.deriveFont(fontStyle);
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Could not update syntax scheme fonts", ex);
+        }
+    }
+
+    /** Recursively search the component tree for the first RSyntaxTextArea instance and return it. */
+    private Optional<RSyntaxTextArea> findEditorInComponent(Component c) {
+        if (c instanceof RSyntaxTextArea rte) {
+            return Optional.of(rte);
+        }
+        if (c instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                var res = findEditorInComponent(child);
+                if (res.isPresent()) return res;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Recursively search the component tree for the first DiffGutterComponent instance and return it. */
+    private Optional<DiffGutterComponent> findGutterInComponent(Component c) {
+        if (c instanceof DiffGutterComponent dg) {
+            return Optional.of(dg);
+        }
+        if (c instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                var res = findGutterInComponent(child);
+                if (res.isPresent()) return res;
+            }
+        }
+        return Optional.empty();
     }
 
     /**
@@ -2072,11 +2512,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBlameForPanel(IDiffPanel panel, boolean show) {
-        logger.debug(
-                "updateBlameForPanel called: panel={}, show={}",
-                panel.getClass().getSimpleName(),
-                show);
-
         if (!show) {
             if (panel instanceof BufferDiffPanel bp) {
                 var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
@@ -2099,11 +2534,35 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        final java.nio.file.Path finalTargetPath = targetPath;
-        var rightBlameFuture = blameService.requestBlame(targetPath);
+        // Get current file comparison to extract revision metadata
+        var currentComparison = fileComparisons.get(currentFileIndex);
 
+        // Extract revision information from BufferSources
+        String leftRevision = null;
+        String rightRevision = null;
+
+        if (currentComparison.leftSource instanceof BufferSource.StringSource leftStringSource) {
+            leftRevision = leftStringSource.revisionSha();
+        }
+        if (currentComparison.rightSource instanceof BufferSource.StringSource rightStringSource) {
+            rightRevision = rightStringSource.revisionSha();
+        }
+
+        final java.nio.file.Path finalTargetPath = targetPath;
+
+        // Request blame for right side (use revision if available, otherwise working tree)
+        CompletableFuture<Map<Integer, BlameService.BlameInfo>> rightBlameFuture;
+        if (rightRevision != null) {
+            rightBlameFuture = blameService.requestBlameForRevision(targetPath, rightRevision);
+        } else {
+            rightBlameFuture = blameService.requestBlame(targetPath);
+        }
+
+        // Request blame for left side (use revision if available, otherwise HEAD or empty)
         CompletableFuture<Map<Integer, BlameService.BlameInfo>> leftBlameFuture;
-        if (blameService.fileExistsInRevision(targetPath, "HEAD")) {
+        if (leftRevision != null) {
+            leftBlameFuture = blameService.requestBlameForRevision(targetPath, leftRevision);
+        } else if (blameService.fileExistsInRevision(targetPath, "HEAD")) {
             leftBlameFuture = blameService.requestBlameForRevision(targetPath, "HEAD");
         } else {
             leftBlameFuture = CompletableFuture.completedFuture(Map.of());

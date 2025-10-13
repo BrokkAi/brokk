@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -276,6 +277,14 @@ public class MergeAgent {
             return interruptedResult("Merge cancelled by user.");
         } catch (ExecutionException e) {
             logger.warn("Failed to compute THEIR commit explanations: {}", e.getMessage(), e);
+        }
+
+        // Ensure test files that participated in or were referenced by the merge are available in the Workspace prior
+        // to verification
+        var testFilesFromChanges = testFilesReferencedInOursAndTheirs(repo);
+        if (!testFilesFromChanges.isEmpty()) {
+            logger.debug("Adding test file(s) to the Workspace before verification: {}", testFilesFromChanges);
+            cm.addFiles(testFilesFromChanges);
         }
 
         // Run verification step if configured
@@ -585,8 +594,48 @@ public class MergeAgent {
     private Set<ProjectFile> allConflictFilesInWorkspace() {
         // Include all files participating from the conflict set
         return conflicts.stream()
-                .flatMap(fc -> Stream.of(fc.ourFile(), fc.theirFile()).filter(f -> f != null))
+                .flatMap(fc -> Stream.of(fc.ourFile(), fc.theirFile()).filter(Objects::nonNull))
                 .collect(Collectors.toSet());
+    }
+
+    // Collect test files changed on either side (ours/theirs), even if they didn't conflict.
+    // Prefer comparing each side to the merge base when available; otherwise fall back to the side's first-parent diff.
+    private Set<ProjectFile> testFilesReferencedInOursAndTheirs(GitRepo repo) throws GitAPIException {
+        List<ProjectFile> oursChanged;
+        List<ProjectFile> theirsChanged;
+
+        if (baseCommitId != null) {
+            oursChanged = repo.listFilesChangedBetweenCommits(conflict.ourCommitId(), baseCommitId);
+            theirsChanged = repo.listFilesChangedBetweenCommits(otherCommitId, baseCommitId);
+        } else {
+            oursChanged = changedFilesFromParent(repo, conflict.ourCommitId());
+            theirsChanged = changedFilesFromParent(repo, otherCommitId);
+        }
+
+        return Stream.concat(oursChanged.stream(), theirsChanged.stream())
+                .filter(ContextManager::isTestFile)
+                .collect(Collectors.toSet());
+    }
+
+    // Best-effort: compute files changed in a single commit by diffing it against its first parent.
+    private List<ProjectFile> changedFilesFromParent(GitRepo repo, String commitId) throws GitAPIException {
+        try (var rw = new RevWalk(repo.getGit().getRepository())) {
+            var repoImpl = repo.getGit().getRepository();
+            var oid = repoImpl.resolve(commitId);
+            if (oid == null) {
+                logger.warn("Unable to resolve commitId {}", commitId);
+                return List.of();
+            }
+            var commit = rw.parseCommit(oid);
+            if (commit.getParentCount() == 0) {
+                return List.of();
+            }
+            var parent = commit.getParent(0);
+            return repo.listFilesChangedBetweenCommits(commitId, parent.getName());
+        } catch (IOException e) {
+            logger.warn("Failed to compute changed files for {} against its parent: {}", commitId, e.toString());
+            return List.of();
+        }
     }
 
     private TaskResult interruptedResult(String message) {

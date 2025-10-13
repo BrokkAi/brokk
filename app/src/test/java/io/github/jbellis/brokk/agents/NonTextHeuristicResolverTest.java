@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
@@ -29,7 +30,7 @@ public class NonTextHeuristicResolverTest {
 
     @BeforeEach
     void setUp() throws GitAPIException, IOException {
-        GitRepo.initRepo(tempRepoDir);
+        GitRepoFactory.initRepo(tempRepoDir);
         repo = new GitRepo(tempRepoDir);
     }
 
