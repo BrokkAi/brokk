@@ -1182,14 +1182,21 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // CI exclusions moved to Code Intelligence tab above; preserve layout spacing
         row += 2;
 
+        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
+        buttonsPanel.add(inferBuildDetailsButton);
+
+        var verifyBuildButton = new MaterialButton("Verify Configuration");
+        verifyBuildButton.addActionListener(e -> verifyBuildConfiguration());
+        buttonsPanel.add(verifyBuildButton);
+
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 0.0;
         gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.NONE;
         gbc.anchor = GridBagConstraints.WEST;
-        inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
-        buildPanel.add(inferBuildDetailsButton, gbc);
+        buildPanel.add(buttonsPanel, gbc);
 
         // Check if initial build details inference is running
         CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
@@ -1259,6 +1266,164 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         inferBuildDetailsButton.setEnabled(true);
         inferBuildDetailsButton.setToolTipText(null);
         buildProgressBar.setVisible(false);
+    }
+
+    private void verifyBuildConfiguration() {
+        var verifyDialog = new JDialog(parentDialog, "Verifying Build Configuration", true);
+        verifyDialog.setSize(600, 400);
+        verifyDialog.setLocationRelativeTo(parentDialog);
+
+        var outputArea = new JTextArea();
+        outputArea.setEditable(false);
+        outputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        var scrollPane = new JScrollPane(outputArea);
+
+        var progressBar = new JProgressBar();
+        progressBar.setIndeterminate(true);
+
+        var closeButton = new MaterialButton("Close");
+        closeButton.setEnabled(false);
+        closeButton.addActionListener(e -> verifyDialog.dispose());
+
+        var bottomPanel = new JPanel(new BorderLayout(5, 5));
+        bottomPanel.add(progressBar, BorderLayout.CENTER);
+        bottomPanel.add(closeButton, BorderLayout.EAST);
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        verifyDialog.setLayout(new BorderLayout(5, 5));
+        verifyDialog.add(scrollPane, BorderLayout.CENTER);
+        verifyDialog.add(bottomPanel, BorderLayout.SOUTH);
+
+        SwingWorker<String, String> worker = new SwingWorker<>() {
+            @Override
+            protected String doInBackground() throws InterruptedException {
+                var project = chrome.getProject();
+                var root = project.getRoot();
+
+                // Step 1: Build/Lint command
+                String buildCmd = buildCleanCommandField.getText().trim();
+                if (!buildCmd.isEmpty()) {
+                    publish("--- Verifying Build/Lint Command ---\n");
+                    publish("$ " + buildCmd + "\n");
+                    try {
+                        Environment.instance.runShellCommand(
+                                buildCmd, root, line -> publish(line + "\n"), Environment.DEFAULT_TIMEOUT, project);
+                        publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
+                    } catch (Environment.SubprocessException e) {
+                        publish("\nERROR: Build/Lint command failed.\n");
+                        publish(e.getMessage() + "\n");
+                        publish(e.getOutput() + "\n");
+                        return "Build/Lint command failed.";
+                    }
+                } else {
+                    publish("--- Skipping empty Build/Lint Command ---\n\n");
+                }
+
+                // Step 2: Test All command
+                String testAllCmd = allTestsCommandField.getText().trim();
+                if (!testAllCmd.isEmpty()) {
+                    publish("--- Verifying Test All Command ---\n");
+                    publish("$ " + testAllCmd + "\n");
+                    try {
+                        Environment.instance.runShellCommand(
+                                testAllCmd, root, line -> publish(line + "\n"), Environment.DEFAULT_TIMEOUT, project);
+                        publish("\nSUCCESS: Test All command completed successfully.\n\n");
+                    } catch (Environment.SubprocessException e) {
+                        publish("\nERROR: Test All command failed.\n");
+                        publish(e.getMessage() + "\n");
+                        publish(e.getOutput() + "\n");
+                        return "Test All command failed.";
+                    }
+                } else {
+                    publish("--- Skipping empty Test All Command ---\n\n");
+                }
+
+                // Step 3: Test Some command
+                String testSomeTemplate = someTestsCommandField.getText().trim();
+                if (!testSomeTemplate.isEmpty()) {
+                    publish("--- Verifying Test Some Command Template ---\n");
+                    publish("Template: " + testSomeTemplate + "\n");
+                    String listKey;
+                    List<String> items = List.of("placeholder");
+                    if (testSomeTemplate.contains("{{#files}}")) {
+                        listKey = "files";
+                        items = List.of("src/test/java/com/example/Placeholder.java");
+                    } else if (testSomeTemplate.contains("{{#fqclasses}}")) {
+                        listKey = "fqclasses";
+                        items = List.of("com.example.Placeholder");
+                    } else if (testSomeTemplate.contains("{{#classes}}")) {
+                        listKey = "classes";
+                        items = List.of("Placeholder");
+                    } else {
+                        publish(
+                                "\nWARNING: 'Test Some' command does not contain {{#files}}, {{#classes}}, or {{#fqclasses}}.\n");
+                        publish("Cannot perform mock interpolation. Will run the command as-is.\n");
+                        listKey = null;
+                    }
+
+                    String interpolatedCmd;
+                    if (listKey != null) {
+                        interpolatedCmd = BuildAgent.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
+                        publish("Interpolated command with placeholder: " + interpolatedCmd + "\n");
+                    } else {
+                        interpolatedCmd = testSomeTemplate;
+                    }
+
+                    publish("$ " + interpolatedCmd + "\n");
+                    try {
+                        Environment.instance.runShellCommand(
+                                interpolatedCmd, root, line -> publish(line + "\n"), Environment.DEFAULT_TIMEOUT, project);
+                        publish(
+                                "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
+                    } catch (Environment.FailureException e) {
+                        publish(
+                                "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
+                        publish("This confirms the command and template syntax are valid.\n\n");
+                        // This is the expected success path.
+                    } catch (Environment.SubprocessException e) {
+                        publish("\nERROR: 'Test Some' command failed to execute.\n");
+                        publish("This may indicate an invalid executable or a syntax error in the command.\n");
+                        publish(e.getMessage() + "\n");
+                        publish(e.getOutput() + "\n");
+                        return "'Test Some' command is invalid.";
+                    }
+                } else {
+                    publish("--- Skipping empty Test Some Command ---\n\n");
+                }
+
+                return "Verification successful!";
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                for (String chunk : chunks) {
+                    outputArea.append(chunk);
+                }
+            }
+
+            @Override
+            protected void done() {
+                progressBar.setVisible(false);
+                closeButton.setEnabled(true);
+                try {
+                    String result = get();
+                    outputArea.append("\n--- VERIFICATION COMPLETE ---\n");
+                    outputArea.append(result);
+                } catch (Exception e) {
+                    logger.error("Error during build verification", e);
+                    if (e instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                        outputArea.append("\n--- VERIFICATION CANCELLED ---\n");
+                    } else {
+                        outputArea.append("\n--- An unexpected error occurred during verification ---\n");
+                        outputArea.append(e.toString());
+                    }
+                }
+                outputArea.setCaretPosition(outputArea.getDocument().getLength());
+            }
+        };
+        worker.execute();
+        verifyDialog.setVisible(true); // This blocks until dialog is closed
     }
 
     private void runBuildAgent() {

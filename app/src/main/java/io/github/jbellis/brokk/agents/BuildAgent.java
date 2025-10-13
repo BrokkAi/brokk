@@ -532,7 +532,7 @@ public class BuildAgent {
      * Interpolates a Mustache template with the given list of items. Supports {{files}} and {{classes}} variables with
      * {{^-last}} separators.
      */
-    private static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         if (template.isEmpty()) {
             return "";
         }
