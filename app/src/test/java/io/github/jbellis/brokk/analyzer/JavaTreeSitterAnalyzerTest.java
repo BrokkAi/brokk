@@ -162,12 +162,14 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceNotFoundTest() {
-        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("A.NonExistent", true));
+        var opt = analyzer.getClassSource("A.NonExistent", true);
+        assertTrue(opt.isEmpty());
     }
 
     @Test
     public void getClassSourceNonexistentTest() {
-        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("NonExistentClass", true));
+        var opt = analyzer.getClassSource("NonExistentClass", true);
+        assertTrue(opt.isEmpty());
     }
 
     @Test

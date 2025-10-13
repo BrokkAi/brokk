@@ -477,8 +477,8 @@ public class GitRepo implements Closeable, IGitRepo {
             // HEAD (unchanged) files
             ObjectId headTreeId = null;
             try {
-                headTreeId = resolve("HEAD^{tree}");
-            } catch (GitRepoException e) {
+                headTreeId = resolveToObject("HEAD^{tree}");
+            } catch (GitAPIException e) {
                 // HEAD^{tree} might not exist in empty repos - this is allowed
                 logger.debug("HEAD^{{tree}} not resolvable: {}", e.getMessage());
             }
@@ -521,7 +521,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Get the current commit ID (HEAD) */
     @Override
     public String getCurrentCommitId() throws GitAPIException {
-        var head = resolve("HEAD");
+        var head = resolveToCommit("HEAD");
         return head.getName();
     }
 
@@ -531,7 +531,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public String shortHash(String rev) {
         try {
-            var id = resolve(rev);
+            var id = resolveToObject(rev);
             try (var reader = repository.newObjectReader()) {
                 var abbrev = reader.abbreviate(id);
                 return abbrev.name();
@@ -1010,7 +1010,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return The result of the merge operation.
      */
     public MergeResult mergeIntoHead(String branchName) throws GitAPIException {
-        var result = git.merge().include(resolve(branchName)).call();
+        var result = git.merge().include(resolveToCommit(branchName)).call();
 
         logger.trace("Merge result status: {}", result.getMergeStatus());
         logger.trace("isSuccessful(): {}", result.getMergeStatus().isSuccessful());
@@ -1048,7 +1048,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Perform squash merge
-        ObjectId resolvedBranch = resolve(branchName);
+        ObjectId resolvedBranch = resolveToCommit(branchName);
 
         // Check repository state before merge
         var status = git.status().call();
@@ -1145,7 +1145,7 @@ public class GitRepo implements Closeable, IGitRepo {
             checkout(tempRebaseBranchName);
 
             // Rebase the temporary branch onto target
-            ObjectId resolvedTarget = resolve(targetBranch);
+            ObjectId resolvedTarget = resolveToCommit(targetBranch);
             var rebaseResult = git.rebase().setUpstream(resolvedTarget).call();
 
             if (!isRebaseSuccessful(rebaseResult)) {
@@ -1230,15 +1230,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Revert a specific commit */
     public void revertCommit(String commitId) throws GitAPIException {
-        try {
-            var resolvedCommit = repository.resolve(commitId);
-            if (resolvedCommit == null) {
-                throw new GitRepoException("Unable to resolve commit: " + commitId, new NoSuchElementException());
-            }
-            git.revert().include(resolvedCommit).call();
-        } catch (IOException e) {
-            throw new GitRepoException("Unable to resolve" + commitId, e);
-        }
+        var resolvedCommit = resolveToCommit(commitId);
+        git.revert().include(resolvedCommit).call();
         invalidateCaches();
     }
 
@@ -1253,7 +1246,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Cherry-picks a commit onto the current HEAD (typically the current branch). */
     public CherryPickResult cherryPickCommit(String commitId) throws GitAPIException {
-        var objectId = resolve(commitId);
+        var objectId = resolveToCommit(commitId);
         var result = git.cherryPick().include(objectId).call();
         invalidateCaches();
         return result;
@@ -1319,7 +1312,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @throws GitAPIException if there's an error accessing Git data.
      */
     public Optional<CommitInfo> getLocalCommitInfo(String commitId) throws GitAPIException {
-        var objectId = resolve(commitId);
+        var objectId = resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var revCommit = revWalk.parseCommit(objectId);
@@ -1340,7 +1333,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
         if (!branchName.isEmpty()) {
             try {
-                logCommand.add(resolve(branchName));
+                logCommand.add(resolveToCommit(branchName));
             } catch (MissingObjectException | IncorrectObjectTypeException e) {
                 throw new GitWrappedIOException(e);
             }
@@ -1358,7 +1351,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * in that commit.
      */
     public List<ProjectFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        var commitObjectId = resolve(commitId);
+        var commitObjectId = resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(commitObjectId);
@@ -1393,8 +1386,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public List<ProjectFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
             throws GitAPIException {
-        var newObjectId = resolve(newCommitId);
-        var oldObjectId = resolve(oldCommitId);
+        var newObjectId = resolveToCommit(newCommitId);
+        var oldObjectId = resolveToCommit(oldCommitId);
 
         if (newObjectId.equals(oldObjectId)) {
             logger.debug(
@@ -1428,8 +1421,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Deprecated
     public List<ProjectFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId)
             throws GitAPIException {
-        var firstCommitObj = resolve(firstCommitId);
-        var lastCommitObj = resolve(lastCommitId + "^"); // Note the parent operator here
+        var firstCommitObj = resolveToCommit(firstCommitId);
+        var lastCommitObj = resolveToCommit(lastCommitId + "^"); // Note the parent operator here
 
         try (var revWalk = new RevWalk(repository)) {
             var firstCommit = revWalk.parseCommit(firstCommitObj); // "new"
@@ -1457,7 +1450,7 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public ObjectId resolve(String revstr) throws GitAPIException {
+    public ObjectId resolveToObject(String revstr) throws GitAPIException {
         try {
             var id = repository.resolve(revstr);
             if (id == null) {
@@ -1465,7 +1458,42 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             return id;
         } catch (IOException e) {
-            throw new GitRepoException("Unable to resolve " + revstr, e);
+            throw new GitWrappedIOException("Unable to resolve " + revstr, e);
+        }
+    }
+
+    @Override
+    public ObjectId resolveToCommit(String revstr) throws GitAPIException {
+        // Prefer JGit rev-spec peeling first
+        try {
+            var commitId = repository.resolve(revstr.endsWith("^{commit}") ? revstr : (revstr + "^{commit}"));
+            if (commitId != null) {
+                return commitId;
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException("Unable to resolve commit-ish " + revstr, e);
+        }
+
+        // Fallback: resolve to any object and try to peel with RevWalk
+        var anyId = resolveToObject(revstr);
+        try (var rw = new RevWalk(repository)) {
+            try {
+                var commit = rw.parseCommit(anyId);
+                return commit.getId();
+            } catch (IncorrectObjectTypeException e) {
+                try {
+                    var any = rw.parseAny(anyId);
+                    var peeled = rw.peel(any);
+                    if (peeled instanceof RevCommit rc) {
+                        return rc.getId();
+                    }
+                    throw new GitStateException("Reference does not resolve to a commit: " + revstr);
+                } catch (IOException ioEx) {
+                    throw new GitWrappedIOException("Unable to peel object to commit for " + revstr, ioEx);
+                }
+            } catch (IOException e) {
+                throw new GitWrappedIOException("Unable to parse commit-ish " + revstr, e);
+            }
         }
     }
 
@@ -1663,7 +1691,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Returns the full (multi-line) commit message for the given commit id. */
     public String getCommitFullMessage(String commitId) throws GitAPIException {
-        var objId = resolve(commitId);
+        var objId = resolveToCommit(commitId);
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(objId);
             return commit.getFullMessage();
@@ -1677,7 +1705,7 @@ public class GitRepo implements Closeable, IGitRepo {
         var commits = new LinkedHashSet<CommitInfo>();
         var path = toRepoRelativePath(file);
         try {
-            var headId = resolve("HEAD");
+            var headId = resolveToCommit("HEAD");
             try (var revWalk = new RevWalk(repository)) {
                 var diffconfig = repository.getConfig().get(DiffConfig.KEY);
                 revWalk.setTreeFilter(FollowFilter.create(path, diffconfig));
@@ -1903,7 +1931,11 @@ public class GitRepo implements Closeable, IGitRepo {
 
     static class GitWrappedIOException extends GitAPIException {
         public GitWrappedIOException(IOException e) {
-            super(e.getMessage(), e);
+            this(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+        }
+
+        public GitWrappedIOException(String message, IOException e) {
+            super(message, e);
         }
     }
 
@@ -1950,16 +1982,16 @@ public class GitRepo implements Closeable, IGitRepo {
      * branch names, tags, commit IDs, etc.
      */
     public @Nullable String getMergeBase(String revA, String revB) throws GitAPIException {
-        var idA = resolve(revA);
-        var idB = resolve(revB);
+        var idA = resolveToCommit(revA);
+        var idB = resolveToCommit(revB);
         var mb = computeMergeBase(idA, idB);
         return mb == null ? null : mb.getName();
     }
 
     /** Returns true if the given commit is reachable from the specified base ref (e.g., "HEAD" or a branch name). */
     public boolean isCommitReachableFrom(String commitId, String baseRef) throws GitAPIException {
-        var commitObj = resolve(commitId);
-        var baseObj = resolve(baseRef);
+        var commitObj = resolveToCommit(commitId);
+        var baseObj = resolveToCommit(baseRef);
         try (var revWalk = new RevWalk(repository)) {
             RevCommit commit = revWalk.parseCommit(commitObj);
             RevCommit base = revWalk.parseCommit(baseObj);
@@ -2048,8 +2080,8 @@ public class GitRepo implements Closeable, IGitRepo {
             String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget)
             throws GitAPIException {
         List<RevCommit> commits = new ArrayList<>();
-        ObjectId sourceHead = resolve(sourceBranchName);
-        ObjectId targetHead = resolve(targetBranchName);
+        ObjectId sourceHead = resolveToCommit(sourceBranchName);
+        ObjectId targetHead = resolveToCommit(targetBranchName);
 
         // targetHead can be null if the target branch doesn't exist (e.g. creating a PR to a new remote branch)
 
@@ -2102,9 +2134,9 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
             throws GitAPIException {
-        ObjectId sourceHeadId = resolve(sourceBranch);
+        ObjectId sourceHeadId = resolveToCommit(sourceBranch);
 
-        ObjectId targetHeadId = resolve(targetBranch); // Can be null if target branch doesn't exist
+        ObjectId targetHeadId = resolveToCommit(targetBranch); // Can be null if target branch doesn't exist
         logger.debug(
                 "Resolved source branch '{}' to {}, target branch '{}' to {}",
                 sourceBranch,
@@ -2245,8 +2277,8 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new WorktreeDirtyException("Target worktree has uncommitted changes.");
         }
 
-        ObjectId worktreeBranchId = resolve(worktreeBranchName);
-        ObjectId targetBranchId = resolve(targetBranchName);
+        ObjectId worktreeBranchId = resolveToCommit(worktreeBranchName);
+        ObjectId targetBranchId = resolveToCommit(targetBranchName);
 
         // Create a unique temporary directory for the worktree inside .git/worktrees
         // to avoid cross-device issues and for easier cleanup.

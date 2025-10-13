@@ -217,7 +217,7 @@ public final class BrokkCli implements Callable<Integer> {
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
                     var defaultBranch = gitRepo.getDefaultBranch();
-                    var commitId = gitRepo.resolve(defaultBranch).getName();
+                    var commitId = gitRepo.resolveToCommit(defaultBranch).getName();
                     gitRepo.worktrees().addWorktreeDetached(worktreePath, commitId);
                     System.out.println("Successfully created detached worktree at " + worktreePath);
                     System.out.println("Checked out from " + defaultBranch + " at commit " + commitId);

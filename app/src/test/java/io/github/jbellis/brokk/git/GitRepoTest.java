@@ -11,6 +11,7 @@ import java.util.Optional;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -1782,5 +1783,109 @@ public class GitRepoTest {
         var config = repo.getGit().getRepository().getConfig();
         config.setString("remote", remoteName, "url", remoteUrl);
         config.save();
+    }
+
+    // --- Tests for resolveToCommit across ref-ish scenarios ---
+
+    @Test
+    void testResolveToCommit_Scenarios() throws Exception {
+        // 1) Branch name: returns commits from that branch
+        String currentBranch = repo.getCurrentBranch();
+        String headCommit = repo.getCurrentCommitId();
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(currentBranch).getName(),
+                "Branch name should resolve to its HEAD commit");
+
+        // 2) Remote branch: returns commits from that remote-tracking branch
+        configureOriginRemote();
+        String remoteBranchName = "remote-test-branch";
+        repo.getGit().branchCreate().setName(remoteBranchName).call();
+        repo.getGit().checkout().setName(remoteBranchName).call();
+        createCommit("remote.txt", "remote content", "Remote branch commit");
+        String remoteBranchHead = repo.getCurrentCommitId();
+
+        // Simulate refs/remotes/origin/<branch>
+        simulateRemoteBranch(remoteBranchName, remoteBranchHead);
+
+        // Should resolve the remote-tracking ref
+        assertEquals(
+                remoteBranchHead,
+                repo.resolveToCommit("origin/" + remoteBranchName).getName(),
+                "Remote-tracking branch should resolve to its commit");
+
+        // Switch back to original branch
+        repo.getGit().checkout().setName(currentBranch).call();
+
+        // 3) Lightweight tag: returns commits reachable from that commit
+        String liteTag = "v-lite";
+        repo.getGit().tag().setName(liteTag).call(); // lightweight tag on current HEAD
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(liteTag).getName(),
+                "Lightweight tag should resolve (peel) to the tagged commit");
+
+        // 4) Annotated tag: ensure no IncorrectObjectTypeException and peels correctly
+        String annotatedTag = "v-annot";
+        repo.getGit().tag().setName(annotatedTag).setMessage("Annotated tag").call(); // annotated tag on HEAD
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(annotatedTag).getName(),
+                "Annotated tag should peel to the underlying commit");
+
+        // 5) Tag-of-tag: create a tag pointing to the annotated tag object, then peel to commit
+        var annotRef = repo.getGit().getRepository().findRef("refs/tags/" + annotatedTag);
+        assertNotNull(annotRef, "Annotated tag ref should exist");
+        String tagOfTag = "v-annot-of-tag";
+        try (RevWalk rw = new RevWalk(repo.getGit().getRepository())) {
+            var annotRevObj = rw.parseAny(annotRef.getObjectId()); // point to the tag object itself
+            repo.getGit()
+                    .tag()
+                    .setObjectId(annotRevObj)
+                    .setName(tagOfTag)
+                    .setMessage("Tag of tag")
+                    .call();
+        }
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(tagOfTag).getName(),
+                "Tag-of-tag should ultimately peel to the underlying commit");
+
+        // 6) Tag pointing to non-commit (e.g., a tree) should yield a clear error
+        ObjectId headTreeId = repo.resolveToObject("HEAD^{tree}");
+        String treeTag = "tree-tag";
+        try (RevWalk rw2 = new RevWalk(repo.getGit().getRepository())) {
+            var headTreeRevObj = rw2.parseAny(headTreeId);
+            repo.getGit()
+                    .tag()
+                    .setObjectId(headTreeRevObj)
+                    .setName(treeTag)
+                    .setMessage("Points to a tree")
+                    .call();
+        }
+        var nonCommitEx = assertThrows(GitRepo.GitStateException.class, () -> repo.resolveToCommit(treeTag));
+        assertTrue(
+                nonCommitEx.getMessage().toLowerCase(java.util.Locale.ROOT).contains("does not resolve to a commit"),
+                "Expected a clear error when tag does not resolve to a commit");
+
+        // 7) Raw commit SHA works
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(headCommit).getName(),
+                "Raw commit SHA should resolve to the same commit");
+
+        // 8) Abbreviated commit SHA works (assuming uniqueness in this repository)
+        String abbrev = headCommit.substring(0, Math.min(7, headCommit.length()));
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(abbrev).getName(),
+                "Abbreviated commit SHA should resolve to the full commit");
+
+        // 9) Raw annotated-tag object SHA should peel and work
+        String annotatedTagObjSha = annotRef.getObjectId().getName();
+        assertEquals(
+                headCommit,
+                repo.resolveToCommit(annotatedTagObjSha).getName(),
+                "Raw annotated-tag object SHA should peel to the commit");
     }
 }

@@ -89,7 +89,7 @@ public final class ConflictAnnotator {
         String oursCommitId;
         try {
             if ("HEAD".equals(oursRefForHeader)) {
-                oursCommitId = repo.resolve("HEAD").getName();
+                oursCommitId = repo.resolveToCommit("HEAD").getName();
             } else {
                 oursCommitId = oursRefForHeader;
             }

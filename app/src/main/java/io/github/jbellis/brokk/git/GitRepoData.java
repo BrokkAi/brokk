@@ -180,7 +180,7 @@ public class GitRepoData {
             return "";
         }
 
-        var objId = repo.resolve(commitId);
+        var objId = repo.resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(objId);
@@ -253,7 +253,7 @@ public class GitRepoData {
             return null;
         }
 
-        var objId = repo.resolve(objectId);
+        var objId = repo.resolveToCommit(objectId);
 
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(objId);

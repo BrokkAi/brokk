@@ -76,7 +76,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final int PRIORITY_LOW = 1;
 
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::firstStartByteForSelection)
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> firstStartByteForSelection(cu))
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(cu -> cu.kind().name());
@@ -808,14 +809,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public Optional<String> getClassSource(String fqName, boolean includeComments) {
-        var cu = getDefinition(fqName)
-                .filter(CodeUnit::isClass)
-                .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
+        var cuOpt = getDefinition(fqName).filter(CodeUnit::isClass);
+        if (cuOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        var cu = cuOpt.get();
 
         var ranges = rangesOf(cu);
-
         if (ranges.isEmpty()) {
-            throw new SymbolNotFoundException("Source range not found for class: " + fqName);
+            return Optional.empty();
         }
 
         // For classes, expect one primary definition range (already expanded with comments)

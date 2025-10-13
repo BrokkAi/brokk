@@ -210,8 +210,8 @@ public class GitRepoRemote {
         var branchRef = "refs/heads/" + branchName;
         var remoteRef = "refs/remotes/" + targetRemoteBranchName;
 
-        var localObjectId = repo.resolve(branchRef);
-        var remoteObjectId = repo.resolve(remoteRef);
+        var localObjectId = repo.resolveToCommit(branchRef);
+        var remoteObjectId = repo.resolveToCommit(remoteRef);
 
         try (var revWalk = new RevWalk(repository)) {
             try {

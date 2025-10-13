@@ -34,7 +34,37 @@ public interface IGitRepo {
     /** Invalidate refs and tracked-files caches */
     default void invalidateCaches() {}
 
-    default ObjectId resolve(String s) throws GitAPIException {
+    /**
+     * Resolves any Git rev-spec (branch, tag, SHA, ref expression) to a Git object id without enforcing type.
+     *
+     * <p>Unlike {@code resolveToCommit}, this may return the id of a commit, tag, tree, or blob, depending on the given
+     * rev-spec. Implementations should rely on the repository's resolver (e.g., JGit's {@code Repository.resolve}) and
+     * must not auto-peel or coerce to a specific object type.
+     *
+     * <p>Use this when general object semantics are needed (for example, resolving {@code HEAD^{tree}}).
+     *
+     * @param s a ref-ish/rev-spec to resolve (e.g., "HEAD", "main", "v1.2.3", "deadbeef", "HEAD^{tree}")
+     * @return the resolved non-null object id
+     * @throws GitAPIException if the rev-spec cannot be resolved or an I/O error occurs
+     */
+    default ObjectId resolveToObject(String s) throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Resolves a "commit-ish" ref to a commit object id, peeling tags as necessary.
+     *
+     * <p>This guarantees the returned id refers to a commit. Implementations should peel annotated tags and tag chains
+     * to the underlying commit and throw if the ref ultimately does not reference a commit (e.g., it resolves to a tree
+     * or blob).
+     *
+     * <p>Use this for APIs that require commit semantics (log, merge, rebase, diff between commits, etc.).
+     *
+     * @param s a ref-ish/rev-spec expected to resolve to a commit (e.g., "HEAD", "main", "v1.2.3")
+     * @return the resolved commit id
+     * @throws GitAPIException if the ref cannot be resolved to a commit object
+     */
+    default ObjectId resolveToCommit(String s) throws GitAPIException {
         throw new UnsupportedOperationException();
     }
 
