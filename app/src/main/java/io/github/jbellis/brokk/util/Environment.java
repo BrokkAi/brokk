@@ -7,13 +7,17 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -272,10 +276,9 @@ public class Environment {
         return combinedOutput;
     }
 
-    private static String readStream(java.io.InputStream in, java.util.function.Consumer<String> outputConsumer) {
-        var lines = new java.util.ArrayList<String>();
-        try (var reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+    private static String readStream(InputStream in, Consumer<String> outputConsumer) {
+        var lines = new ArrayList<String>();
+        try (var reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 outputConsumer.accept(line);

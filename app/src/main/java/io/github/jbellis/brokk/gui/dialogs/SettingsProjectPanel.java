@@ -998,46 +998,53 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var buildPanel = new JPanel(new GridBagLayout());
         buildPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 2, 2, 2);
+        gbc.insets = new Insets(5, 0, 5, 0); // Spacing between titled boxes
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
         int row = 0;
 
         // Add banner at the top
         gbc.gridx = 0;
         gbc.gridy = row++;
-        gbc.gridwidth = 2;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(2, 2, 2, 2);
         buildPanel.add(bannerPanel, gbc);
-        gbc.gridwidth = 1; // Reset gridwidth
+        gbc.insets = new Insets(5, 0, 5, 0);
 
-        // Primary language at top
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Primary language:"), gbc);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(primaryLanguageComboBox, gbc);
+        // --- 1. Language Configuration Panel ---
+        var languagePanel = new JPanel(new GridBagLayout());
+        languagePanel.setBorder(BorderFactory.createTitledBorder("Language Configuration"));
+        var langGbc = new GridBagConstraints();
+        langGbc.insets = new Insets(2, 2, 2, 2);
+        langGbc.fill = GridBagConstraints.HORIZONTAL;
+        int langRow = 0;
 
-        // JDK selection controls (visible only if primary language is Java)
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(setJavaHomeCheckbox, gbc);
+        // Primary language
+        langGbc.gridx = 0;
+        langGbc.gridy = langRow;
+        langGbc.weightx = 0.0;
+        langGbc.anchor = GridBagConstraints.WEST;
+        langGbc.fill = GridBagConstraints.NONE;
+        languagePanel.add(new JLabel("Primary language:"), langGbc);
+        langGbc.gridx = 1;
+        langGbc.gridy = langRow++;
+        langGbc.weightx = 1.0;
+        langGbc.fill = GridBagConstraints.HORIZONTAL;
+        languagePanel.add(primaryLanguageComboBox, langGbc);
+
+        // JDK selection controls
+        langGbc.gridx = 0;
+        langGbc.gridy = langRow;
+        langGbc.weightx = 0.0;
+        langGbc.fill = GridBagConstraints.NONE;
+        languagePanel.add(setJavaHomeCheckbox, langGbc);
 
         jdkSelector.setEnabled(false);
         jdkSelector.setBrowseParent(parentDialog);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(jdkSelector, gbc);
+        langGbc.gridx = 1;
+        langGbc.gridy = langRow++;
+        langGbc.weightx = 1.0;
+        langGbc.fill = GridBagConstraints.HORIZONTAL;
+        languagePanel.add(jdkSelector, langGbc);
 
         primaryLanguageComboBox.addActionListener(e -> {
             var sel = (Language) primaryLanguageComboBox.getSelectedItem();
@@ -1046,56 +1053,68 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 populateJdkControlsFromProject();
             }
         });
-
-        // Initial visibility based on current project setting
         updateJdkControlsVisibility(project.getBuildLanguage());
-
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
-        // Build/Lint Command (moved below primary language)
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        buildPanel.add(new JLabel("Build/Lint Command:"), gbc);
-        gbc.gridx = 1;
         gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        buildPanel.add(buildCleanCommandField, gbc);
+        buildPanel.add(languagePanel, gbc);
 
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        buildPanel.add(new JLabel("Test All Command:"), gbc);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        buildPanel.add(allTestsCommandField, gbc);
+        // --- 2. Build Configuration Panel ---
+        var buildConfigPanel = new JPanel(new GridBagLayout());
+        buildConfigPanel.setBorder(BorderFactory.createTitledBorder("Build Configuration"));
+        var buildGbc = new GridBagConstraints();
+        buildGbc.insets = new Insets(2, 2, 2, 2);
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
+        int buildRow = 0;
 
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        buildPanel.add(new JLabel("Test Some Command:"), gbc);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        buildPanel.add(someTestsCommandField, gbc);
+        // Build/Lint Command
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildGbc.anchor = GridBagConstraints.WEST;
+        buildConfigPanel.add(new JLabel("Build/Lint Command:"), buildGbc);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildConfigPanel.add(buildCleanCommandField, buildGbc);
+
+        // Test All Command
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildConfigPanel.add(new JLabel("Test All Command:"), buildGbc);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildConfigPanel.add(allTestsCommandField, buildGbc);
+
+        // Test Some Command
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildConfigPanel.add(new JLabel("Test Some Command:"), buildGbc);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildConfigPanel.add(someTestsCommandField, buildGbc);
         var testSomeInfo = new JLabel(
                 "<html>Mustache variables {{#files}}, {{#classes}}, or {{#fqclasses}} will be interpolated with filenames, class names, or fully-qualified class names, respectively</html>");
         testSomeInfo.setFont(testSomeInfo
                 .getFont()
                 .deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.insets = new Insets(0, 2, 8, 2);
-        buildPanel.add(testSomeInfo, gbc);
-        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.insets = new Insets(0, 2, 8, 2);
+        buildConfigPanel.add(testSomeInfo, buildGbc);
+        buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Code Agent Tests:"), gbc);
+        // Code Agent Tests
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildGbc.anchor = GridBagConstraints.WEST;
+        buildGbc.fill = GridBagConstraints.NONE;
+        buildConfigPanel.add(new JLabel("Code Agent Tests:"), buildGbc);
         var testScopeGroup = new ButtonGroup();
         testScopeGroup.add(runAllTestsRadio);
         testScopeGroup.add(runTestsInWorkspaceRadio);
@@ -1103,33 +1122,69 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         radioPanel.setOpaque(false);
         radioPanel.add(runAllTestsRadio);
         radioPanel.add(runTestsInWorkspaceRadio);
-        gbc.gridx = 1;
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
+        buildConfigPanel.add(radioPanel, buildGbc);
+
+        // Run Command Timeout
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildGbc.anchor = GridBagConstraints.WEST;
+        buildGbc.fill = GridBagConstraints.NONE;
+        buildConfigPanel.add(new JLabel("Run Command Timeout (sec):"), buildGbc);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
+        buildConfigPanel.add(buildTimeoutSpinner, buildGbc);
+
+        // Infer/Verify buttons
+        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        inferBuildDetailsButton.setActionCommand(ACTION_INFER);
+        buttonsPanel.add(inferBuildDetailsButton);
+        var verifyBuildButton = new MaterialButton("Verify Configuration");
+        verifyBuildButton.addActionListener(e -> verifyBuildConfiguration());
+        buttonsPanel.add(verifyBuildButton);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 0.0;
+        buildGbc.weighty = 0.0;
+        buildGbc.fill = GridBagConstraints.NONE;
+        buildGbc.anchor = GridBagConstraints.WEST;
+        buildConfigPanel.add(buttonsPanel, buildGbc);
+
+        // Progress bar for Build Agent
+        JPanel progressWrapper = new JPanel(new BorderLayout());
+        progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
+        progressWrapper.add(buildProgressBar, BorderLayout.CENTER);
+        buildProgressBar.setIndeterminate(true);
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
+        buildGbc.anchor = GridBagConstraints.EAST;
+        buildConfigPanel.add(progressWrapper, buildGbc);
+
         gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(radioPanel, gbc);
+        buildPanel.add(buildConfigPanel, gbc);
 
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Run Command Timeout (sec):"), gbc);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(buildTimeoutSpinner, gbc);
+        // --- 3. Shell Configuration Panel ---
+        var shellConfigPanel = new JPanel(new GridBagLayout());
+        shellConfigPanel.setBorder(BorderFactory.createTitledBorder("Shell Configuration"));
+        var shellGbc = new GridBagConstraints();
+        shellGbc.insets = new Insets(2, 2, 2, 2);
+        shellGbc.fill = GridBagConstraints.HORIZONTAL;
+        int shellRow = 0;
 
-        // Executor configuration section
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Execute with:"), gbc);
-
-        // Path field + dropdown in same row
+        // Execute with
+        shellGbc.gridx = 0;
+        shellGbc.gridy = shellRow;
+        shellGbc.weightx = 0.0;
+        shellGbc.anchor = GridBagConstraints.WEST;
+        shellGbc.fill = GridBagConstraints.NONE;
+        shellConfigPanel.add(new JLabel("Execute with:"), shellGbc);
         var executorSelectPanel = new JPanel(new GridBagLayout());
         var gbcInner = new GridBagConstraints();
         gbcInner.fill = GridBagConstraints.HORIZONTAL;
@@ -1140,89 +1195,57 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcInner.anchor = GridBagConstraints.WEST;
         gbcInner.insets = new Insets(0, 5, 0, 0);
         executorSelectPanel.add(commonExecutorsComboBox, gbcInner);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(executorSelectPanel, gbc);
+        shellGbc.gridx = 1;
+        shellGbc.gridy = shellRow++;
+        shellGbc.weightx = 1.0;
+        shellGbc.fill = GridBagConstraints.HORIZONTAL;
+        shellConfigPanel.add(executorSelectPanel, shellGbc);
 
-        // Default args row
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Default parameters:"), gbc);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(executorArgsField, gbc);
+        // Default parameters
+        shellGbc.gridx = 0;
+        shellGbc.gridy = shellRow;
+        shellGbc.weightx = 0.0;
+        shellGbc.fill = GridBagConstraints.NONE;
+        shellConfigPanel.add(new JLabel("Default parameters:"), shellGbc);
+        shellGbc.gridx = 1;
+        shellGbc.gridy = shellRow++;
+        shellGbc.weightx = 1.0;
+        shellGbc.fill = GridBagConstraints.HORIZONTAL;
+        shellConfigPanel.add(executorArgsField, shellGbc);
 
-        // Test / Reset buttons + info
+        // Test / Reset buttons
         var executorInfoLabel = new JLabel(
                 "<html>Custom executors work in all modes. Approved executors work in sandbox mode. Default args: \""
                         + DEFAULT_EXECUTOR_ARGS + "\"</html>");
         executorInfoLabel.setFont(executorInfoLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, executorInfoLabel.getFont().getSize() * 0.9f));
-
         var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         executorTestPanel.add(testExecutorButton);
         executorTestPanel.add(Box.createHorizontalStrut(5));
         executorTestPanel.add(resetExecutorButton);
         executorTestPanel.add(Box.createHorizontalStrut(10));
         executorTestPanel.add(executorInfoLabel);
-        gbc.gridx = 1;
+        shellGbc.gridx = 1;
+        shellGbc.gridy = shellRow++;
+        shellGbc.weightx = 1.0;
+        shellGbc.fill = GridBagConstraints.HORIZONTAL;
+        shellGbc.anchor = GridBagConstraints.WEST;
+        shellConfigPanel.add(executorTestPanel, shellGbc);
+
         gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-        buildPanel.add(executorTestPanel, gbc);
+        buildPanel.add(shellConfigPanel, gbc);
 
-        // CI exclusions moved to Code Intelligence tab above; preserve layout spacing
-        row += 2;
-
-        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
-        buttonsPanel.add(inferBuildDetailsButton);
-
-        var verifyBuildButton = new MaterialButton("Verify Configuration");
-        verifyBuildButton.addActionListener(e -> verifyBuildConfiguration());
-        buttonsPanel.add(verifyBuildButton);
-
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 0.0;
-        gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.WEST;
-        buildPanel.add(buttonsPanel, gbc);
-
-        // Check if initial build details inference is running
+        // Agent running check, listeners, and glue
         CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
         boolean initialAgentRunning = !detailsFuture.isDone();
 
-        // --- Progress Bar for Build Agent ---
-        // Create a wrapper panel with fixed height to reserve space
-        JPanel progressWrapper = new JPanel(new BorderLayout());
-        progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
-        progressWrapper.add(buildProgressBar, BorderLayout.CENTER);
-        buildProgressBar.setIndeterminate(true);
-
-        buildProgressBar.setVisible(initialAgentRunning); // Show progress bar if initial agent is running
-        gbc.gridx = 1; // Align with input fields (right column)
-        gbc.gridy = row++; // Next available row
-        gbc.fill = GridBagConstraints.HORIZONTAL; // Let progress bar fill width
-        gbc.anchor = GridBagConstraints.EAST;
-        buildPanel.add(progressWrapper, gbc);
-        // Initialize button based on the state of the initial build agent
+        buildProgressBar.setVisible(initialAgentRunning);
         if (initialAgentRunning) {
-            setButtonToInferenceInProgress(false); // false = don't set Cancel text (initial agent)
+            setButtonToInferenceInProgress(false);
 
-            // Add a listener to reset the button when the initial agent completes
             detailsFuture.whenCompleteAsync((result, ex) -> {
                 SwingUtilities.invokeLater(() -> {
-                    // inferBuildDetailsButton is non-null
                     if (manualInferBuildTaskFuture == null) {
                         setButtonToReadyState();
                     }
@@ -1231,14 +1254,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         inferBuildDetailsButton.addActionListener(e -> runBuildAgent());
-
-        // Initialize executor UI components
         initializeExecutorUI();
 
-        // Vertical glue to push all build panel content up
         gbc.gridx = 0;
         gbc.gridy = row;
-        gbc.gridwidth = 2;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
         buildPanel.add(Box.createVerticalGlue(), gbc);
@@ -1372,7 +1391,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     publish("$ " + interpolatedCmd + "\n");
                     try {
                         Environment.instance.runShellCommand(
-                                interpolatedCmd, root, line -> publish(line + "\n"), Environment.DEFAULT_TIMEOUT, project);
+                                interpolatedCmd,
+                                root,
+                                line -> publish(line + "\n"),
+                                Environment.DEFAULT_TIMEOUT,
+                                project);
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
                     } catch (Environment.FailureException e) {
