@@ -188,6 +188,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final HistoryOutputPanel historyOutputPanel;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
+    private final JTabbedPane rightTabbedPanel; // Instructions and other right-side tabs
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
@@ -445,6 +446,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
 
+        // Create right-side tabbed panel with Instructions as first tab
+        rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
+        rightTabbedPanel.addTab("Instructions", null, instructionsPanel);
+        rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
+        
         // Create terminal drawer panel
         instructionsDrawerSplit = new DrawerSplitPanel();
         // Ensure bottom area doesn't get squeezed to near-zero height on first layout after swaps
@@ -452,8 +458,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         instructionsDrawerSplit.setMinimumSize(new Dimension(200, 325));
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
-        // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setParentComponent(instructionsPanel);
+        // Attach tabbed panel (left) and drawer (right)
+        instructionsDrawerSplit.setParentComponent(rightTabbedPanel);
         instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
 
         // Attach the combined instructions+drawer split as the bottom component
