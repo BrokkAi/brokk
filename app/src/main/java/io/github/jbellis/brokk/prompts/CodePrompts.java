@@ -83,6 +83,51 @@ public abstract class CodePrompts {
                 """;
     }
 
+    public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
+        return instructionsFlags(
+                ctx.getContextManager().getProject(),
+                ctx
+                        .getEditableFragments()
+                        .flatMap(f -> f.files().stream())
+                        .collect(Collectors.toSet()));
+    }
+
+    public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
+        var flags = new HashSet<InstructionsFlags>();
+        var languages = project.getAnalyzerLanguages();
+
+        // we'll inefficiently read the files every time this method is called but at least we won't do it twice
+        var fileContents = editableFiles.stream()
+                .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
+
+        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
+        var unsupported = fileContents.keySet().stream()
+                .filter(f -> {
+                    var ext = f.extension();
+                    return ext.isEmpty()
+                            || languages.stream()
+                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
+                })
+                .collect(Collectors.toSet());
+        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
+        if (false) {
+            flags.add(InstructionsFlags.SYNTAX_AWARE);
+        } else {
+            IContextManager.logger.debug("Syntax-unsupported files are {}", unsupported);
+        }
+
+        // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
+        var hasMergeMarkers = fileContents.values().stream()
+                .filter(s -> s.contains("BRK_CONFLICT_BEGIN_") && s.contains("BRK_CONFLICT_END_"))
+                .collect(Collectors.toSet());
+        if (!hasMergeMarkers.isEmpty()) {
+            flags.add(InstructionsFlags.MERGE_AGENT_MARKERS);
+            IContextManager.logger.debug("Files with merge markers: {}", hasMergeMarkers);
+        }
+
+        return flags;
+    }
+
     public String codeReminder(Service service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
 
@@ -221,7 +266,7 @@ public abstract class CodePrompts {
         messages.addAll(List.of(editableUserMessage, new AiMessage("Thank you for the editable context.")));
 
         // Add *rules + examples* inline (no forged dialog). Leave <goal> blank here; the caller's `request` follows.
-        var flags = IContextManager.instructionsFlags(project, Set.of(file));
+        var flags = instructionsFlags(project, Set.of(file));
         var rules = instructions("", flags, "");
         messages.add(new UserMessage(rules));
         messages.add(new AiMessage("Ok, I will follow these edit rules."));
@@ -335,7 +380,7 @@ public abstract class CodePrompts {
                 .formatted(reminder);
     }
 
-    public UserMessage codeRequest(IContextManager cm, String input, String reminder) {
+    public UserMessage codeRequest(Context ctx, String input, String reminder) {
         var instructions =
                 """
         <instructions>
@@ -366,7 +411,7 @@ public abstract class CodePrompts {
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions");
-        return new UserMessage(instructions + instructions(input, cm.instructionsFlags(), reminder));
+        return new UserMessage(instructions + instructions(input, instructionsFlags(ctx), reminder));
     }
 
     public UserMessage askRequest(String input) {
