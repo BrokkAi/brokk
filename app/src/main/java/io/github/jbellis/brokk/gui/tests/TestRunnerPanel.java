@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
@@ -62,7 +63,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     private final @Nullable Chrome chrome;
     private final MaterialButton runAllButton = new MaterialButton();
+    private final MaterialButton stopButton = new MaterialButton();
     private final AtomicBoolean testProcessRunning = new AtomicBoolean(false);
+    private volatile @Nullable Process activeTestProcess;
 
     // Model
     private final DefaultListModel<RunEntry> runListModel;
@@ -140,6 +143,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
         runAllButton.addActionListener(e -> runAllTests());
         leftToolbar.add(runAllButton);
+
+        stopButton.setIcon(Icons.STOP);
+        stopButton.setMargin(new Insets(0, 0, 0, 0));
+        stopButton.setToolTipText("Stop the currently running test process.");
+        stopButton.addActionListener(e -> stopTests());
+        stopButton.setEnabled(false);
+        stopButton.setVisible(false);
+        leftToolbar.add(stopButton);
+
         topToolbar.add(leftToolbar, BorderLayout.WEST);
 
         add(topToolbar, BorderLayout.NORTH);
@@ -661,19 +673,25 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return;
         }
         if (details == null || details.equals(BuildAgent.BuildDetails.EMPTY)) {
-            chrome.toolError(
-                    "No build details configured. Open Settings ▸ Build to configure it.", "Run Tests");
+            chrome.toolError("No build details configured. Open Settings ▸ Build to configure it.", "Run Tests");
             return;
         }
 
         String command = BuildAgent.getBuildLintSomeCommand(chrome.getContextManager(), details, testFiles);
         if (command.isBlank()) {
-            chrome.toolError(
-                    "Could not determine test command for the selected files.", "Run Tests");
+            chrome.toolError("Could not determine test command for the selected files.", "Run Tests");
             return;
         }
 
         executeTests(command, testFiles.size());
+    }
+
+    private void stopTests() {
+        var process = activeTestProcess;
+        if (process != null && process.isAlive()) {
+            process.destroyForcibly();
+            appendToActiveRun("\n--- TEST EXECUTION CANCELLED BY USER ---\n");
+        }
     }
 
     private void executeTests(String command, int fileCount) {
@@ -685,6 +703,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             chrome.toolError("A test process is already running.", "Test Runner");
             return;
         }
+        runOnEdt(() -> {
+            stopButton.setVisible(true);
+            stopButton.setEnabled(true);
+            Color stopColor = ThemeColors.getColor(false, "git_badge_background");
+            stopButton.setBackground(stopColor);
+        });
 
         String runId = beginRun(fileCount, command, Instant.now());
         var project = chrome.getProject();
@@ -695,16 +719,28 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         command,
                         project.getRoot(),
                         line -> appendToRun(runId, line + "\n"),
-                        Environment.UNLIMITED_TIMEOUT);
+                        Environment.UNLIMITED_TIMEOUT,
+                        project,
+                        process -> activeTestProcess = process);
                 completeRun(runId, 0, Instant.now());
             } catch (Environment.SubprocessException e) {
                 appendToRun(runId, "\n" + e.getMessage() + "\n" + e.getOutput() + "\n");
+                completeRun(runId, -1, Instant.now());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // Retain interrupted status
+                appendToRun(runId, "\n--- TEST EXECUTION INTERRUPTED ---\n");
                 completeRun(runId, -1, Instant.now());
             } catch (Exception e) {
                 appendToRun(runId, "\nError: " + e + "\n");
                 completeRun(runId, -1, Instant.now());
             } finally {
                 testProcessRunning.set(false);
+                activeTestProcess = null;
+                runOnEdt(() -> {
+                    stopButton.setEnabled(false);
+                    stopButton.setVisible(false);
+                    stopButton.setBackground(UIManager.getColor("Button.background"));
+                });
             }
             return null;
         });

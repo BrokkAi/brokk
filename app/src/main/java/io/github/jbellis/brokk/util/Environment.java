@@ -52,7 +52,7 @@ public class Environment {
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
             (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null);
+                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null, null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -80,7 +80,7 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null, null);
     }
 
     /**
@@ -91,7 +91,18 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, Consumer<String> outputConsumer, Duration timeout, @Nullable IProject project)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project);
+        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project, null);
+    }
+
+    public String runShellCommand(
+            String command,
+            Path root,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable IProject project,
+            @Nullable Consumer<Process> processConsumer)
+            throws SubprocessException, InterruptedException {
+        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project, processConsumer);
     }
 
     /**
@@ -107,7 +118,7 @@ public class Environment {
             Duration timeout,
             @Nullable IProject project)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project, null);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
@@ -117,9 +128,15 @@ public class Environment {
             boolean sandbox,
             Duration timeout,
             Consumer<String> outputConsumer,
-            @Nullable IProject project)
+            @Nullable IProject project,
+            @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        logger.debug("Running internal `{}` in `{}` (sandbox={})", command, root, sandbox);
+        logger.debug(
+                "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
+                command,
+                root,
+                sandbox,
+                processConsumer != null);
 
         String[] shellCommand;
         if (sandbox) {
@@ -210,6 +227,9 @@ public class Environment {
         Process process;
         try {
             process = pb.start();
+            if (processConsumer != null) {
+                processConsumer.accept(process);
+            }
         } catch (IOException e) {
             var shell = isWindows() ? "cmd.exe" : "/bin/sh";
             throw new StartupException(
