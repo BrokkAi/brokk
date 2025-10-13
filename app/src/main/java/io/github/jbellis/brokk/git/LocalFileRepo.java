@@ -2,7 +2,11 @@ package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
 import java.util.List;
@@ -40,7 +44,7 @@ public class LocalFileRepo implements IGitRepo {
 
     @Override
     public Set<ProjectFile> getTrackedFiles() {
-        Set<ProjectFile> trackedFiles = new HashSet<>();
+        var trackedFiles = new HashSet<ProjectFile>();
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
                 @Override
@@ -66,21 +70,16 @@ public class LocalFileRepo implements IGitRepo {
                 public FileVisitResult visitFileFailed(Path file, IOException exc) {
                     if (exc instanceof AccessDeniedException) {
                         logger.warn("Skipping inaccessible file/directory: {}", file, exc);
-                        // If it's a directory causing the issue, skip its subtree
                         if (Files.isDirectory(file)) {
                             return FileVisitResult.SKIP_SUBTREE;
                         }
-                        // If it's a file, just skip this file
                         return FileVisitResult.CONTINUE;
                     }
-                    // For other IOExceptions, log the error and decide whether to continue or terminate
-                    // For now, we log and continue, but termination might be safer depending on the error type.
                     logger.error("Error visiting file: {}", file, exc);
-                    return FileVisitResult.CONTINUE; // or return FileVisitResult.TERMINATE;
+                    return FileVisitResult.CONTINUE;
                 }
             });
         } catch (IOException e) {
-            // shouldn't happen -- our visitor methods handle IOExceptions internally
             logger.error("Unexpected error walking directory tree starting at {}", root, e);
             return Set.of();
         }

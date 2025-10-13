@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.context;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
@@ -12,6 +11,8 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
@@ -182,6 +183,35 @@ public class Context {
         return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action);
     }
 
+    /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
+    public List<ProjectFile> getMostRelevantFiles(int topK) {
+        var ineligibleSources = fragments.stream()
+                .filter(f -> !f.isEligibleForAutoContext())
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+
+        record WeightedFile(ProjectFile file, double weight) {}
+
+        var weightedSeeds = fragments.stream()
+                .filter(f -> !f.files().isEmpty())
+                .flatMap(fragment -> {
+                    double weight = Math.sqrt(1.0 / fragment.files().size());
+                    return fragment.files().stream().map(file -> new WeightedFile(file, weight));
+                })
+                .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
+
+        if (weightedSeeds.isEmpty()) {
+            return List.of();
+        }
+
+        var gitDistanceResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
+        return gitDistanceResults.stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .filter(file -> !ineligibleSources.contains(file))
+                .limit(topK)
+                .toList();
+    }
+
     /**
      * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
      * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
@@ -189,39 +219,19 @@ public class Context {
     public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        // Collect ineligible sources from fragments not eligible for auto-context
-        var ineligibleSources = fragments.stream()
-                .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.files().stream())
-                .collect(Collectors.toSet());
-
-        // All file fragments have a weight of 1.0 each; virtuals share a weight of 1.0
-        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
-        var fileFragments = fragments.stream().filter(f -> f.getType().isPath()).toList();
-        var virtuals = fragments.stream().filter(f -> f.getType().isVirtual()).toList();
-
-        fileFragments.stream().flatMap(cf -> cf.files().stream()).forEach(f -> weightedSeeds.put(f, 1.0));
-        int virtualCount = Math.max(1, virtuals.size());
-        virtuals.stream()
-                .flatMap(cf -> cf.files().stream())
-                .forEach(f -> weightedSeeds.merge(f, 1.0 / virtualCount, Double::sum));
-
-        if (weightedSeeds.isEmpty()) {
+        var relevantFiles = getMostRelevantFiles(topK);
+        if (relevantFiles.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
 
-        var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
-
         List<String> targetFqns = new ArrayList<>();
-        for (var sourceFile : pagerankResults) {
-            boolean eligible = !ineligibleSources.contains(sourceFile);
-            if (!eligible) continue;
-
-            targetFqns.addAll(analyzer.getDeclarationsInFile(sourceFile).stream()
+        for (var sourceFile : relevantFiles) {
+            targetFqns.addAll(analyzer.topLevelCodeUnitsOf(sourceFile).stream()
                     .map(CodeUnit::fqName)
                     .toList());
             if (targetFqns.size() >= topK) break;
         }
+
         if (targetFqns.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
@@ -276,8 +286,7 @@ public class Context {
                 .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
 
         Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual() && f.getType().isEditable())
-                .map(f -> (ContextFragment) f);
+                .filter(f -> f.getType().isVirtual() && f.getType().isEditable());
 
         return Streams.concat(
                 editableVirtuals, otherEditablePathFragments, sortedProjectFiles.map(ContextFragment.class::cast));

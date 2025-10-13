@@ -30,6 +30,7 @@ import org.eclipse.jgit.lib.Constants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+/** Code that uses LLMs to interact with Git goes here, instead of GitRepo. */
 public final class GitWorkflow {
     private static final Logger logger = LogManager.getLogger(GitWorkflow.class);
     private static final int EXPLAIN_COMMIT_FILE_LIMIT = 50;

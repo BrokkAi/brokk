@@ -20,6 +20,8 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
+import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -1902,13 +1904,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
+        if (!project.hasGit()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
+            return;
+        }
+
         submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
-                var topClasses = AnalyzerUtil.combinedRankingFor(project, Map.of()).stream()
-                        .limit(10)
-                        .toList();
+                var topClasses =
+                        GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES)
+                                .stream()
+                                .limit(10)
+                                .toList();
 
                 if (topClasses.isEmpty()) {
                     io.showNotification(
