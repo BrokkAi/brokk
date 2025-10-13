@@ -7,8 +7,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Locale;
 import javax.swing.*;
-import org.jetbrains.annotations.Nullable;
 import org.apache.commons.text.WordUtils;
+import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
 
@@ -173,7 +173,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
-    /** Elide a string with "..." using Apache Commons Text WordUtils.abbreviate, sized to fit within maxWidth pixels. */
+    /**
+     * Elide a string with "..." using Apache Commons Text WordUtils.abbreviate, sized to fit within maxWidth pixels.
+     */
     private static String elide(String text, FontMetrics fm, int maxWidth) {
         if (maxWidth <= 0) return "";
         if (text.isEmpty()) return "";
