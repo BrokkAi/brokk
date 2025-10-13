@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -438,7 +439,7 @@ public class SearchTools {
         }
 
         var projectRoot = contextManager.getProject().getRoot();
-        if (!GitRepo.hasGitRepo(projectRoot)) {
+        if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
 

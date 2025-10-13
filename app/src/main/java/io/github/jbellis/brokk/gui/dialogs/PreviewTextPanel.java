@@ -399,15 +399,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                         .toList()
                                         .getLast();
 
+                                // Always prefer the class over constructor here
                                 if (identifier.equals(clickedIdentifier)
                                         || simpleIdentifier.equals(clickedIdentifier)) {
                                     // Exact match with the clicked token
-                                    addedShortNames.putIfAbsent(clickedIdentifier, unit);
+                                    addedShortNames.compute(
+                                            clickedIdentifier,
+                                            (key, value) -> value == null ? unit : value.isClass() ? value : unit);
                                 } else {
                                     // Fallback: does the clicked text contain this identifier as a whole word?
                                     var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
                                     if (p.matcher(clickedIdentifier).find()) {
-                                        addedShortNames.putIfAbsent(clickedIdentifier, unit);
+                                        addedShortNames.compute(
+                                                clickedIdentifier,
+                                                (key, value) -> value == null ? unit : value.isClass() ? value : unit);
                                     }
                                 }
                             }
@@ -417,75 +422,112 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                 // up when clicking on the type. These both refer to the same usages, thus will be
                                 // duplicates.
                                 final var codeUnit = addedShortNames.get(identifier);
-                                // Check if another code unit shares this name and is a class
-                                final var isConstructor = codeUnit.isFunction()
-                                        && addedShortNames.values().stream()
-                                                .anyMatch(x -> !x.equals(codeUnit)
-                                                        && x.isClass()
-                                                        && identifier.endsWith(x.shortName()));
-
-                                if (!isConstructor) {
-                                    final String extension;
-                                    if (file.getFileName().contains(".")) {
-                                        extension =
-                                                Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
-                                    } else {
-                                        extension = null;
-                                    }
-
-                                    capabilitiesMap.entrySet().stream()
-                                            .filter(entry -> entry.getKey()
-                                                    .getExtensions()
-                                                    .contains(extension))
-                                            .findFirst()
-                                            .ifPresent(entry -> {
-                                                final var capabilities = entry.getValue();
-                                                var usagesAvailable = capabilities.hasUsages();
-                                                var usageItem = new JMenuItem("<html>Capture usages of <code>"
-                                                        + identifier + "</code></html>");
-                                                dynamicMenuItems.add(usageItem); // Track for removal
-                                                usageItem.setEnabled(usagesAvailable);
-                                                if (usagesAvailable) {
-                                                    // Use a local variable for the action listener lambda
-                                                    usageItem.addActionListener(action -> {
-                                                        cm.submitBackgroundTask(
-                                                                "Capture Usages",
-                                                                () -> cm.usageForIdentifier(codeUnit.fqName(), true));
-                                                    });
-                                                } else {
-                                                    usageItem.setToolTipText(
-                                                            "Code intelligence does not support usage capturing for this language.");
-                                                }
-
-                                                var analyzer =
-                                                        cm.getAnalyzerWrapper().getNonBlocking();
-                                                boolean sourceCodeAvailable = analyzer != null
-                                                        && SourceCaptureUtil.isSourceCaptureAvailable(
-                                                                codeUnit, capabilities.hasSource(), analyzer);
-
-                                                var sourceItem = new JMenuItem("<html>Capture source of <code>"
-                                                        + identifier + "</code></html>");
-                                                dynamicMenuItems.add(sourceItem);
-
-                                                sourceItem.setEnabled(sourceCodeAvailable);
-                                                if (sourceCodeAvailable) {
-                                                    // Use shared utility for consistent behavior
-                                                    sourceItem.addActionListener(action -> {
-                                                        SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm);
-                                                    });
-                                                } else {
-                                                    sourceItem.setToolTipText(
-                                                            analyzer == null
-                                                                    ? "Code intelligence is still initializing."
-                                                                    : "Source capture not available for this language/symbol.");
-                                                }
-                                            });
+                                final String extension;
+                                if (file.getFileName().contains(".")) {
+                                    extension = Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
+                                } else {
+                                    extension = null;
                                 }
+
+                                capabilitiesMap.entrySet().stream()
+                                        .filter(entry ->
+                                                entry.getKey().getExtensions().contains(extension))
+                                        .findFirst()
+                                        .ifPresent(entry -> {
+                                            final var capabilities = entry.getValue();
+                                            var usagesAvailable = capabilities.hasUsages();
+                                            createUsagesMenuItems(identifier, usagesAvailable, codeUnit);
+
+                                            var analyzer =
+                                                    cm.getAnalyzerWrapper().getNonBlocking();
+                                            boolean sourceCodeAvailable = analyzer != null
+                                                    && SourceCaptureUtil.isSourceCaptureAvailable(
+                                                            codeUnit, capabilities.hasSource(), analyzer);
+                                            createSourceMenuItems(identifier, sourceCodeAvailable, codeUnit, analyzer);
+                                        });
                             }
                         }
                     } catch (BadLocationException ex) {
                         logger.warn(
                                 "Error getting line text for usage capture menu items based on offset {}", offset, ex);
+                    }
+                }
+
+                private void createSourceMenuItems(
+                        String identifier,
+                        boolean sourceCodeAvailable,
+                        CodeUnit codeUnit,
+                        @Nullable IAnalyzer analyzer) {
+                    JMenuItem sourceItem =
+                            new JMenuItem("<html>Capture source of <code>" + identifier + "</code></html>");
+                    dynamicMenuItems.add(sourceItem);
+                    JMenuItem constructorSourceItem = null;
+                    // In case this item is a constructor, speculatively create the variable
+                    var constructorCu = new CodeUnit(
+                            codeUnit.source(),
+                            CodeUnitType.FUNCTION,
+                            codeUnit.packageName(),
+                            codeUnit.shortName() + "." + identifier);
+                    var hasConstructorSourceCode = codeUnit.isClass()
+                            && analyzer != null
+                            && SourceCaptureUtil.isSourceCaptureAvailable(constructorCu, sourceCodeAvailable, analyzer);
+
+                    if (hasConstructorSourceCode) {
+                        constructorSourceItem = new JMenuItem(
+                                "<html>Capture source of <code>" + identifier + "</code> (constructor)</html>");
+                        dynamicMenuItems.add(constructorSourceItem);
+                        constructorSourceItem.setEnabled(sourceCodeAvailable);
+                    }
+
+                    sourceItem.setEnabled(sourceCodeAvailable);
+                    if (sourceCodeAvailable) {
+                        // Use shared utility for consistent behavior
+                        sourceItem.addActionListener(action -> {
+                            SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm);
+                        });
+                        if (constructorSourceItem != null) {
+                            constructorSourceItem.addActionListener(action -> {
+                                cm.submitBackgroundTask(
+                                        "Capture Usages",
+                                        () -> SourceCaptureUtil.captureSourceForCodeUnit(constructorCu, cm));
+                            });
+                        }
+                    } else {
+                        var tooltip = analyzer == null
+                                ? "Code intelligence is still initializing."
+                                : "Source capture not available for this language/symbol.";
+                        sourceItem.setToolTipText(tooltip);
+                    }
+                }
+
+                private void createUsagesMenuItems(String identifier, boolean usagesAvailable, CodeUnit codeUnit) {
+                    JMenuItem usageItem =
+                            new JMenuItem("<html>Capture usages of <code>" + identifier + "</code></html>");
+                    JMenuItem constructorUsageItem = null;
+                    usageItem.setEnabled(usagesAvailable);
+                    dynamicMenuItems.add(usageItem); // Track for removal
+                    if (codeUnit.isClass()) {
+                        constructorUsageItem = new JMenuItem(
+                                "<html>Capture usages of <code>" + identifier + "</code> (constructor)</html>");
+                        dynamicMenuItems.add(constructorUsageItem);
+                        constructorUsageItem.setEnabled(usagesAvailable);
+                    }
+                    if (usagesAvailable) {
+                        // Use a local variable for the action listener lambda
+                        usageItem.addActionListener(action -> {
+                            cm.submitBackgroundTask(
+                                    "Capture Usages", () -> cm.usageForIdentifier(codeUnit.fqName(), true));
+                        });
+                        if (constructorUsageItem != null) {
+                            usageItem.addActionListener(action -> {
+                                cm.submitBackgroundTask(
+                                        "Capture Usages",
+                                        () -> cm.usageForIdentifier(codeUnit.fqName() + "." + identifier, true));
+                            });
+                        }
+                    } else {
+                        usageItem.setToolTipText(
+                                "Code intelligence does not support usage capturing for this language.");
                     }
                 }
 

@@ -138,14 +138,49 @@ The dependency analysis runs automatically in CI and will fail builds on critica
 
 ### Static Analysis
 
-#### ErrorProne (Java modules: analyzer-api, app)
-- **Configuration**: Custom checks enabled in `build.gradle.kts` for enhanced error detection
-- **Scope**: Applied to analyzer-api and app modules (Java code only)
+The build uses ErrorProne for compile-time bug detection with conditional NullAway analysis:
 
-#### NullAway (app module)
-- **Null safety analysis**: Static analysis to prevent NullPointerExceptions
-- **Configuration**: Configured with project-specific null safety rules
-- **Scope**: Applied to app module only where most business logic resides
+#### ErrorProne & NullAway
+
+- **Regular builds** (`./gradlew build`, `test`): Fast - basic ErrorProne checks only (~10-30% overhead)
+- **Full analysis** (`./gradlew check`): Slow - includes NullAway dataflow analysis (~20-50% overhead)
+
+#### Running Static Analysis Locally
+
+```bash
+# Fast: NullAway + spotless only (no tests, ~1-2 min)
+./gradlew analyze
+
+# Slow: Full verification with tests (complete CI validation)
+./gradlew check
+```
+
+#### Git Hook Setup (Pre-Push)
+
+To automatically run static analysis before pushing (recommended):
+
+```bash
+# Method 1: Multi-line heredoc (copy all lines together)
+cat > .git/hooks/pre-push << 'EOF'
+#!/bin/sh
+echo "Running static analysis (NullAway + spotless)..."
+./gradlew analyze spotlessCheck
+EOF
+chmod +x .git/hooks/pre-push
+
+# Method 2: One-liner (easier to copy-paste)
+echo '#!/bin/sh\necho "Running static analysis (NullAway + spotless)..."\n./gradlew analyze spotlessCheck' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+```
+
+The pre-push hook will block the push if any errors are found, ensuring code quality before sharing changes.
+
+#### Usage Summary
+
+- `./gradlew build` → Fast compilation, basic ErrorProne only
+- `./gradlew test` → Fast tests without expensive null analysis
+- `./gradlew analyze` → Static analysis only (NullAway + spotless, no tests)
+- `./gradlew check` → Full verification (tests + NullAway + spotless)
+- CI automatically runs `check` for complete validation
 
 The build system uses aggressive multi-level caching for optimal performance:
 

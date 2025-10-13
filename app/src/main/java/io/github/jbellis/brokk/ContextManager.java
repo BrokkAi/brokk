@@ -713,16 +713,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var textFragments = textFiles.stream()
                 .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
                 .toList();
-        addPathFragments(textFragments);
+        if (!textFragments.isEmpty()) {
+            addPathFragments(textFragments);
+        }
 
         var binaryFragments = binaryFiles.stream()
                 .map(pf -> new ContextFragment.ImageFileFragment(pf, this))
                 .toList();
-        addPathFragments(binaryFragments);
+        if (!binaryFragments.isEmpty()) {
+            addPathFragments(binaryFragments);
+        }
     }
 
     /** Add the given files to editable. */
     public void addPathFragments(List<? extends PathFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return;
+        }
         pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
         String message = "Edit " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);

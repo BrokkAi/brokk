@@ -114,7 +114,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
         org.eclipse.jgit.lib.ObjectId objectId = null;
         try {
-            objectId = repo.resolve(sha);
+            objectId = repo.resolveToCommit(sha);
             // Try to parse the commit to ensure its data is present
             try (org.eclipse.jgit.revwalk.RevWalk revWalk =
                     new org.eclipse.jgit.revwalk.RevWalk(repo.getGit().getRepository())) {
@@ -1858,7 +1858,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             try {
                 var repo = getRepo();
                 repo.checkout(localBranchName);
-                repo.pull(); // Pull changes from its tracked upstream
+                // Pull changes from its tracked upstream
+                repo.remote().pull();
 
                 SwingUtilities.invokeLater(() -> {
                     gitLogTab.update();

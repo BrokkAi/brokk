@@ -111,17 +111,13 @@ public class MultiAnalyzer
     @Override
     public Optional<String> getClassSource(String fqcn, boolean includeComments) {
         for (var delegate : delegates.values()) {
-            try {
-                final var maybeSource =
-                        delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
-                if (maybeSource.isPresent()) {
-                    return maybeSource;
-                }
-            } catch (SymbolNotFoundException e) {
-                // pass
+            final var maybeSource =
+                    delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
+            if (maybeSource.isPresent()) {
+                return maybeSource;
             }
         }
-        throw new SymbolNotFoundException("Class source not found for " + fqcn + " in any analyzer.");
+        return Optional.empty();
     }
 
     @Override

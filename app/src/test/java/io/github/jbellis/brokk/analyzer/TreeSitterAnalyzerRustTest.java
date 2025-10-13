@@ -547,19 +547,11 @@ public class TreeSitterAnalyzerRustTest {
         // The base `getClassSource` uses `getDefinition`, so it depends on which CU is returned for "Point".
         // Let's assume the `struct_item` is primary for `getClassSource("Point")`.
 
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("distance", true)); // function, not class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("_module_.ORIGIN", true)); // field, not class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("Color.Red", true)); // enum variant, not class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("Shape.ID", true)); // associated const, not class
-        assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("NonExistent", true));
+        assertTrue(rsAnalyzer.getClassSource("distance", true).isEmpty()); // function, not class
+        assertTrue(rsAnalyzer.getClassSource("_module_.ORIGIN", true).isEmpty()); // field, not class
+        assertTrue(rsAnalyzer.getClassSource("Color.Red", true).isEmpty()); // enum variant, not class
+        assertTrue(rsAnalyzer.getClassSource("Shape.ID", true).isEmpty()); // associated const, not class
+        assertTrue(rsAnalyzer.getClassSource("NonExistent", true).isEmpty());
     }
 
     @Test

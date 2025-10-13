@@ -959,7 +959,7 @@ public final class GitUiUtil {
     private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
         ObjectId objectId = null;
         try {
-            objectId = repo.resolve(sha);
+            objectId = repo.resolveToCommit(sha);
             // Try to parse the commit to ensure its data is present
             try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
                 revWalk.parseCommit(objectId);
@@ -988,7 +988,7 @@ public final class GitUiUtil {
                 "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
         try {
             var fetchCommand = repo.getGit().fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
-            repo.applyGitHubAuthentication(fetchCommand, repo.getRemoteUrl(remoteName));
+            repo.applyGitHubAuthentication(fetchCommand, repo.remote().getUrl(remoteName));
             fetchCommand.call();
             // After fetch, verify again
             if (isCommitLocallyAvailable(repo, sha)) {

@@ -158,4 +158,56 @@ class ContextManagerTest {
         var textAfterQuietPush = fragmentAfterQuietPush.text();
         assertEquals("original content", textAfterQuietPush, "PathFragment should not have reloaded file content");
     }
+
+    @Test
+    public void testAddPathFragmentsEmptyIsNoOp() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-empty-pathfrags");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+        cm.createHeadless();
+
+        var beforeSize = cm.getContextHistoryList().size();
+
+        // Call with empty fragments
+        cm.addPathFragments(List.of());
+
+        var afterSize = cm.getContextHistoryList().size();
+        assertEquals(beforeSize, afterSize, "Empty addPathFragments should be a no-op");
+    }
+
+    @Test
+    public void testAddFilesEmptyIsNoOp() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-empty-files");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+        cm.createHeadless();
+
+        var beforeSize = cm.getContextHistoryList().size();
+
+        // Empty set of files
+        cm.addFiles(Set.of());
+
+        var afterSize = cm.getContextHistoryList().size();
+        assertEquals(beforeSize, afterSize, "Empty addFiles should be a no-op");
+    }
+
+    @Test
+    public void testAddFilesNonEmptyPushesContext() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-nonempty-files");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+        cm.createHeadless();
+
+        var beforeSize = cm.getContextHistoryList().size();
+
+        // Create one text file and add it
+        var pf = new ProjectFile(tempDir, "Sample.java");
+        pf.create();
+        pf.write("class Sample {}");
+
+        cm.addFiles(Set.of(pf));
+
+        var afterSize = cm.getContextHistoryList().size();
+        assertEquals(beforeSize + 1, afterSize, "Adding a file should push a new context");
+    }
 }

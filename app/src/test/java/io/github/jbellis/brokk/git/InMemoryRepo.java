@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.ObjectId;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -68,11 +67,6 @@ public class InMemoryRepo implements IGitRepo {
     @Override
     public void invalidateCaches() {
         // No-op for this simple implementation
-    }
-
-    @Override
-    public ObjectId resolve(String s) throws GitAPIException {
-        throw new UnsupportedOperationException("SimpleFileTrackerRepo.resolve not implemented");
     }
 
     @Override

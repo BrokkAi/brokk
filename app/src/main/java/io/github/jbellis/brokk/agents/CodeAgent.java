@@ -21,8 +21,12 @@ import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -712,6 +716,50 @@ public class CodeAgent {
         // Base success/failure decision on raw build result, not processed output
         if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
+            if (!es.javaLintDiagnostics().isEmpty()) {
+                // Write one markdown file per source file to capture pre-lint findings and sources.
+                try {
+                    var tmp = System.getProperty("java.io.tmpdir");
+                    var timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HH-mm")
+                            .format(LocalDateTime.now(ZoneId.systemDefault()));
+                    var subdir = Path.of(tmp, "brokk", "codeagent-" + timestamp);
+                    Files.createDirectories(subdir);
+
+                    for (var entry : es.javaLintDiagnostics().entrySet()) {
+                        ProjectFile pf = entry.getKey();
+                        var list = entry.getValue();
+                        var diagsString =
+                                list.stream().map(JavaDiagnostic::description).collect(Collectors.joining("\n"));
+
+                        var unique = System.currentTimeMillis() + "-"
+                                + UUID.randomUUID().toString().substring(0, 8);
+                        var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
+                        var out = subdir.resolve(fileName);
+
+                        var markdownContent =
+                                """
+                                # False Positive for %s
+
+                                %s
+
+                                # Source
+
+                                ```java
+                                %s
+                                ```
+                                """
+                                        .formatted(
+                                                pf.getFileName(),
+                                                diagsString,
+                                                pf.read().orElse(""));
+
+                        Files.writeString(out, markdownContent);
+                        logger.info("Wrote pre-lint findings for {} to {}", pf.getFileName(), out.toString());
+                    }
+                } catch (IOException e) {
+                    logger.warn("Failed to write pre-lint diagnostics file(s)", e);
+                }
+            }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
@@ -1054,37 +1102,9 @@ public class CodeAgent {
             }
         });
 
-        // If no diagnostics, continue. Otherwise, ask LLM to fix syntax/identifier issues first.
-        if (perFileProblems.isEmpty()) {
-            var nextEs = es.withJavaLintDiagnostics(perFileProblems);
-            return new Step.Continue(cs, nextEs);
-        }
-
-        // Build a concise diagnostic summary for the LLM
-        var summary = perFileProblems.entrySet().stream()
-                .sorted(Comparator.comparing(e -> e.getKey().toString()))
-                .flatMap(e -> e.getValue().stream().map(CodeAgent.JavaDiagnostic::description))
-                .collect(Collectors.joining("\n"));
-
-        var prompt =
-                """
-                Java syntax or identifier errors were detected in the edited files. Please fix these before we proceed to the full build.
-
-                %s
-                """
-                        .stripIndent()
-                        .formatted(summary);
-
-        var nextRequest = new UserMessage(prompt);
-        var nextCs = new ConversationState(
-                cs.taskMessages(), nextRequest, cs.taskMessages().size());
-
-        // Save diagnostics and record a "build failure" so we reset the per-turn baseline and stop before verifying
-        var withDiags = es.withJavaLintDiagnostics(perFileProblems);
-        var nextEs = withDiags.afterBuildFailure(summary);
-
-        report("Java parse errors detected; asking LLM to fix syntax/identifier issues before building.");
-        return new Step.Retry(nextCs, nextEs);
+        // Save diagnostics per-file and continue (non-blocking pre-lint)
+        var nextEs = es.withJavaLintDiagnostics(perFileProblems);
+        return new Step.Continue(cs, nextEs);
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
