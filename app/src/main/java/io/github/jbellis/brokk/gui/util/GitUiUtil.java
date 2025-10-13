@@ -959,7 +959,7 @@ public final class GitUiUtil {
     private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
         ObjectId objectId = null;
         try {
-            objectId = repo.resolve(sha);
+            objectId = repo.resolveToCommit(sha);
             // Try to parse the commit to ensure its data is present
             try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
                 revWalk.parseCommit(objectId);

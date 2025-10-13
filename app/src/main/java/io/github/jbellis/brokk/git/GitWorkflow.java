@@ -253,7 +253,7 @@ public final class GitWorkflow {
         var parentRev = rev + "^";
         try {
             // If parent cannot be resolved (e.g., rev is a root commit), fall back to the empty tree.
-            repo.resolve(parentRev);
+            repo.resolveToObject(parentRev);
             return parentRev;
         } catch (GitAPIException e) {
             return Constants.EMPTY_TREE_ID.getName();

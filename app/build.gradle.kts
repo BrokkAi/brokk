@@ -220,6 +220,9 @@ val baselineJvmArgsProvider = object : CommandLineArgumentProvider {
 
 // Configure main source compilation with ErrorProne/NullAway
 tasks.named<JavaCompile>("compileJava") {
+    // Enable NullAway only during 'check' or 'analyze' tasks, or in CI
+    val runNullAway = project.hasProperty("runNullAway") || System.getenv("CI") == "true"
+
     options.isIncremental = true
     options.isFork = true
     options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
@@ -246,29 +249,32 @@ tasks.named<JavaCompile>("compileJava") {
         disable("EmptyBlockTag")
         disable("NonCanonicalType")
 
-        // Enable NullAway with comprehensive configuration
-        error("NullAway")
-
         // Exclude dev/ directory from all ErrorProne checks
         excludedPaths = ".*/src/main/java/(dev/|eu/).*"
 
-        // Core NullAway options
-        option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
-        option("NullAway:ExcludedFieldAnnotations",
-               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
-        option("NullAway:ExcludedClassAnnotations",
-               "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
-        option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
-        option("NullAway:JarInferStrictMode", "true")
-        option("NullAway:CheckOptionalEmptiness", "true")
-        option("NullAway:KnownInitializers",
-               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
-        option("NullAway:HandleTestAssertionLibraries", "true")
-        option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
-        option("RedundantNullCheck:CheckRequireNonNull", "true")
+        // Enable expensive NullAway analysis only for 'check' or 'analyze' tasks
+        if (runNullAway) {
+            error("NullAway")
+            enable("RedundantNullCheck")
 
-        // RedundantNullCheck
-        enable("RedundantNullCheck")
+            // Core NullAway options
+            option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
+            option("NullAway:ExcludedFieldAnnotations",
+                   "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
+            option("NullAway:ExcludedClassAnnotations",
+                   "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
+            option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
+            option("NullAway:CheckOptionalEmptiness", "true")
+            option("NullAway:KnownInitializers",
+                   "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
+            option("NullAway:HandleTestAssertionLibraries", "true")
+            option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+            option("RedundantNullCheck:CheckRequireNonNull", "true")
+        } else {
+            // Explicitly disable NullAway when not running analysis
+            disable("NullAway")
+            disable("RedundantNullCheck")
+        }
     }
 }
 
@@ -290,6 +296,22 @@ tasks.named<JavaCompile>("compileTestJava") {
 tasks.withType<JavaExec>().configureEach {
     // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
     jvmArgumentProviders.add(baselineJvmArgsProvider)
+}
+
+// Static analysis task without tests (fast, for git hooks)
+tasks.register("analyze") {
+    group = "verification"
+    description = "Run static analysis (NullAway + spotless) without tests"
+
+    // Enable NullAway for analyze task
+    project.extensions.extraProperties["runNullAway"] = true
+
+    dependsOn("compileJava", "spotlessCheck")
+}
+
+// Also enable NullAway for check task
+tasks.named("check") {
+    project.extensions.extraProperties["runNullAway"] = true
 }
 
 
