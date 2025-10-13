@@ -236,8 +236,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final InstructionsPanel instructionsPanel;
     private final io.github.jbellis.brokk.gui.terminal.TaskListPanel taskListPanel;
 
-    // Right-hand drawer (tools) - split and content
-    private DrawerSplitPanel instructionsDrawerSplit;
+    // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
     private @Nullable TerminalDrawerPanel terminalDrawer = null;
 
     /** Default constructor sets up the UI. */
@@ -462,22 +461,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addTab("Terminal", null, terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
-        // Create drawer split panel but do NOT attach a TerminalDrawerPanel to the drawer.
-        // Use a small placeholder panel to preserve layout without the terminal drawer UI.
-        instructionsDrawerSplit = new DrawerSplitPanel();
-        // Ensure bottom area doesn't get squeezed to near-zero height on first layout after swaps
-        // This is the minimum height for the Instructions+Drawer when the workspace is hidden.
-        instructionsDrawerSplit.setMinimumSize(new Dimension(200, 325));
+        // No right-side drawer; the rightTabbedPanel occupies full right side
+        rightTabbedPanel.setMinimumSize(new Dimension(200, 325));
 
-        // Attach tabbed panel (parent) and a lightweight placeholder as the drawer component.
-        instructionsDrawerSplit.setParentComponent(rightTabbedPanel);
-        var drawerPlaceholder = new JPanel();
-        drawerPlaceholder.setPreferredSize(new Dimension(200, 325));
-        instructionsDrawerSplit.setDrawerComponent(drawerPlaceholder);
-
-        // Attach the combined instructions+drawer split as the bottom component
+        // Attach the combined components as the bottom component
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+        workspaceInstructionsSplit.setBottomComponent(rightTabbedPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
         // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
         workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
@@ -2218,22 +2207,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Persist Terminal drawer open/proportion globally
-        instructionsDrawerSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (instructionsDrawerSplit.isShowing()) {
-                int total = instructionsDrawerSplit.getWidth();
-                if (total > 0) {
-                    double prop = Math.max(
-                            0.05,
-                            Math.min(0.95, (double) instructionsDrawerSplit.getDividerLocation() / (double) total));
-                    GlobalUiSettings.saveTerminalDrawerProportion(prop);
-                    GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
-                }
-            }
-        });
-        instructionsDrawerSplit.addPropertyChangeListener("dividerSize", e -> {
-            GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
-        });
+        // Terminal drawer removed; no persistence listeners required.
     }
 
     @Override
@@ -3031,7 +3005,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         int maxFromTop = Math.max(0, tsTotal - tsDivider);
                         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
                         instructionsHeightPx = Math.min(
-                                Math.max(minBottom, instructionsDrawerSplit.getMinimumSize().height), maxFromTop);
+                                Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
                     }
                 } catch (Exception ignored) {
                     // Defensive; we'll clamp during restore regardless
@@ -3039,8 +3013,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
 
-                // Swap to Instructions-only in the bottom
-                mainVerticalSplitPane.setBottomComponent(instructionsDrawerSplit);
+                // Swap to Instructions-only in the bottom (now using the rightTabbedPanel directly)
+                mainVerticalSplitPane.setBottomComponent(rightTabbedPanel);
 
                 // Revalidate layout, then set the main divider so bottom == pinned Instructions height
                 mainVerticalSplitPane.revalidate();
@@ -3049,9 +3023,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 this.workspaceCollapsed = true;
             } else {
-                // Ensure the workspace split bottom points to the instructions drawer, then restore it as bottom
+                // Ensure the workspace split bottom points to the instructions area (rightTabbedPanel), then restore it as bottom
                 try {
-                    topSplitPane.setBottomComponent(instructionsDrawerSplit);
+                    topSplitPane.setBottomComponent(rightTabbedPanel);
                 } catch (Exception ignored) {
                     // If it's already set due to prior operations, ignore
                 }
