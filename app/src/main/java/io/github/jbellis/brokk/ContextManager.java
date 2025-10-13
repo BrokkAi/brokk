@@ -101,7 +101,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         var io = getIo();
         if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.getTerminalDrawer().openTerminalAndPasteText(cmd));
+            SwingUtilities.invokeLater(() -> {
+                if (chrome.getTerminalDrawer() != null) {
+                    chrome.getTerminalDrawer().openTerminalAndPasteText(cmd);
+                } else {
+                    logger.error("unable to paste tests into terminal because it has not been set");
+                }
+            });
         }
     }
 
