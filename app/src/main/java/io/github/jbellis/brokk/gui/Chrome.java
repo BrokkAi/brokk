@@ -458,7 +458,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
         
         // Create and add TerminalPanel as third tab
-        var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(this, () -> {}, false, getProject().getRoot());
+        var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(this, () -> {}, true, getProject().getRoot());
         rightTabbedPanel.addTab("Terminal", null, terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
         
