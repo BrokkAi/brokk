@@ -32,6 +32,12 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
+import java.awt.dnd.DnDConstants;
+import java.awt.dnd.DropTarget;
+import java.awt.dnd.DropTargetAdapter;
+import java.awt.dnd.DropTargetDragEvent;
+import java.awt.dnd.DropTargetDropEvent;
+import java.awt.dnd.DropTargetEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
@@ -98,6 +104,68 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
     private @Nullable SplitButton branchSplitButton;
+
+    private static class ContextAreaContainer extends JPanel {
+        private boolean isDragOver = false;
+
+        ContextAreaContainer() {
+            super(new BorderLayout());
+        }
+
+        void setDragOver(boolean dragOver) {
+            if (this.isDragOver != dragOver) {
+                this.isDragOver = dragOver;
+                repaint();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (isDragOver) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    // semi-transparent overlay
+                    g2.setColor(new Color(0x1F6FEB));
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+
+                    // dashed border
+                    g2.setComposite(AlphaComposite.SrcOver);
+                    Stroke dashed =
+                            new BasicStroke(3, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10, new float[] {9}, 0);
+                    g2.setStroke(dashed);
+                    g2.drawRoundRect(4, 4, getWidth() - 9, getHeight() - 9, 12, 12);
+
+                    // Text
+                    String text = "Drop to add to Workspace";
+                    g2.setFont(getFont().deriveFont(Font.BOLD, 16f));
+                    FontMetrics fm = g2.getFontMetrics();
+                    int textWidth = fm.stringWidth(text);
+                    g2.drawString(
+                            text,
+                            (getWidth() - textWidth) / 2,
+                            (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
+                } finally {
+                    g2.dispose();
+                }
+            }
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            Dimension pref = getPreferredSize();
+            return new Dimension(Integer.MAX_VALUE, pref.height);
+        }
+
+        @Override
+        public boolean contains(int x, int y) {
+            // Treat the entire rectangular bounds of the component as the hit area for mouse events,
+            // which is important for drag-and-drop on a non-opaque component.
+            return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
+        }
+    }
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
     private @Nullable JPanel optionsPanel;
@@ -805,22 +873,62 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 new Font(Font.DIALOG, Font.BOLD, 12));
 
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
-        var titledContainer = new JPanel(new BorderLayout()) {
-            @Override
-            public Dimension getMaximumSize() {
-                Dimension pref = getPreferredSize();
-                return new Dimension(Integer.MAX_VALUE, pref.height);
+        var titledContainer = new ContextAreaContainer();
+        titledContainer.setOpaque(false);
+        var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
+        titledContainer.setTransferHandler(transferHandler);
+        var dropTargetListener = new DropTargetAdapter() {
+            private boolean canImport(DropTargetDragEvent e) {
+                // The file drop handler only cares about the file list flavor.
+                return e.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
             }
 
             @Override
-            public boolean contains(int x, int y) {
-                // Treat the entire rectangular bounds of the component as the hit area for mouse events,
-                // which is important for drag-and-drop on a non-opaque component.
-                return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
+            public void dragEnter(DropTargetDragEvent e) {
+                if (canImport(e)) {
+                    titledContainer.setDragOver(true);
+                    e.acceptDrag(e.getDropAction());
+                } else {
+                    e.rejectDrag();
+                }
+            }
+
+            @Override
+            public void dragOver(DropTargetDragEvent e) {
+                if (canImport(e)) {
+                    e.acceptDrag(e.getDropAction());
+                } else {
+                    titledContainer.setDragOver(false);
+                    e.rejectDrag();
+                }
+            }
+
+            @Override
+            public void dragExit(DropTargetEvent e) {
+                titledContainer.setDragOver(false);
+            }
+
+            @Override
+            public void drop(DropTargetDropEvent e) {
+                titledContainer.setDragOver(false);
+
+                var transferable = e.getTransferable();
+                var support = new TransferHandler.TransferSupport(titledContainer, transferable);
+                if (transferHandler.canImport(support)) {
+                    e.acceptDrop(e.getDropAction());
+                    if (!transferHandler.importData(support)) {
+                        e.dropComplete(false);
+                    } else {
+                        e.dropComplete(true);
+                    }
+                } else {
+                    e.rejectDrop();
+                    e.dropComplete(false);
+                }
             }
         };
-        titledContainer.setOpaque(false);
-        titledContainer.setTransferHandler(FileDropHandlerFactory.createFileDropHandler(this.chrome));
+        titledContainer.setDropTarget(
+                new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
         titledContainer.setBorder(
                 BorderFactory.createCompoundBorder(contextTitledBorder, BorderFactory.createEmptyBorder(0, 0, 0, 0)));
         titledContainer.add(container, BorderLayout.CENTER);

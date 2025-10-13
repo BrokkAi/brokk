@@ -37,7 +37,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         setOpaque(false);
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
-        setTransferHandler(FileDropHandlerFactory.createFileDropHandler(chrome));
     }
 
     /**
