@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.junit.jupiter.api.AfterEach;
@@ -1863,9 +1864,10 @@ public class GitRepoTest {
                     .setMessage("Points to a tree")
                     .call();
         }
-        var nonCommitEx = assertThrows(GitRepo.GitStateException.class, () -> repo.resolveToCommit(treeTag));
-        assertTrue(
-                nonCommitEx.getMessage().toLowerCase(java.util.Locale.ROOT).contains("does not resolve to a commit"),
+        var nonCommitEx = assertThrows(GitRepo.GitWrappedIOException.class, () -> repo.resolveToCommit(treeTag));
+        assertInstanceOf(
+                IncorrectObjectTypeException.class,
+                nonCommitEx.getCause(),
                 "Expected a clear error when tag does not resolve to a commit");
 
         // 7) Raw commit SHA works
