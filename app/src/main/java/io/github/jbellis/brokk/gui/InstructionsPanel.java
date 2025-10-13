@@ -122,24 +122,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
+        }
+
+        @Override
+        protected void paintChildren(Graphics g) {
+            super.paintChildren(g);
             if (isDragOver) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    // semi-transparent overlay
-                    g2.setColor(new Color(0x1F6FEB));
-                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
+                    Color panelBg = UIManager.getColor("Panel.background");
+                    if (panelBg == null) {
+                        panelBg = getBackground();
+                        if (panelBg == null) {
+                            panelBg = Color.LIGHT_GRAY;
+                        }
+                    }
+
+                    // use panel background directly for the overlay
+                    g2.setColor(panelBg);
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.95f));
                     g2.fillRect(0, 0, getWidth(), getHeight());
 
-                    // dashed border
+                    // dashed border with accent color for highlight
+                    Color accent = UIManager.getColor("Component.focusColor");
+                    if (accent == null) {
+                        accent = new Color(0x1F6FEB);
+                    }
+                    g2.setColor(accent);
                     g2.setComposite(AlphaComposite.SrcOver);
-                    Stroke dashed =
-                            new BasicStroke(3, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10, new float[] {9}, 0);
-                    g2.setStroke(dashed);
+                    g2.setStroke(
+                            new BasicStroke(3, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10, new float[] {9}, 0));
                     g2.drawRoundRect(4, 4, getWidth() - 9, getHeight() - 9, 12, 12);
 
                     // Text
                     String text = "Drop to add to Workspace";
+                    g2.setColor(readableTextForBackground(panelBg));
                     g2.setFont(getFont().deriveFont(Font.BOLD, 16f));
                     FontMetrics fm = g2.getFontMetrics();
                     int textWidth = fm.stringWidth(text);
@@ -165,6 +183,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // which is important for drag-and-drop on a non-opaque component.
             return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
         }
+    }
+
+    /** Pick a readable text color (white or dark) against the given background color. */
+    private static Color readableTextForBackground(Color background) {
+        double r = background.getRed() / 255.0;
+        double g = background.getGreen() / 255.0;
+        double b = background.getBlue() / 255.0;
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
     }
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
