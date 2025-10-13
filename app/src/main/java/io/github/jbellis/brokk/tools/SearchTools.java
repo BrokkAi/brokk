@@ -12,7 +12,6 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
-import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.analyzer.usages.FuzzyResult;
 import io.github.jbellis.brokk.analyzer.usages.FuzzyUsageFinder;
 import io.github.jbellis.brokk.analyzer.usages.UsageHit;
