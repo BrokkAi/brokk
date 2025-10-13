@@ -99,7 +99,7 @@
         {#if copyStatus === 'copying'}
           ⏳
         {:else if copyStatus === 'success'}
-          ✅
+          V
         {:else if copyStatus === 'error'}
           ❌
         {:else}

@@ -84,3 +84,4 @@ test-projects
 # For swe-bench-live testing
 .venv
 swe_bench_repos/
+swe_bench_repos_full/

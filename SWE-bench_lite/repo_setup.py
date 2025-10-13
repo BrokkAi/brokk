@@ -102,7 +102,7 @@ def clone_and_setup_repo(instance: Dict[str, Any], repos_dir: Path) -> Optional[
             "git", "clone", repo_url, str(repo_dir)
         ], capture_output=True, text=True, check=True)
         
-        logger.info(f"   ✅ Repository cloned successfully")
+        logger.info(f"   V Repository cloned successfully")
         
         # Checkout the specific commit
         logger.info(f"   Checking out commit: {base_commit}")
@@ -111,23 +111,23 @@ def clone_and_setup_repo(instance: Dict[str, Any], repos_dir: Path) -> Optional[
             "git", "checkout", base_commit
         ], cwd=repo_dir, capture_output=True, text=True, check=True)
         
-        logger.info(f"   ✅ Commit checked out successfully")
+        logger.info(f"   V Commit checked out successfully")
         
         # Remove origin remote to prevent accidental pushes
         subprocess.run([
             "git", "remote", "remove", "origin"
         ], cwd=repo_dir, capture_output=True, text=True)
         
-        logger.info(f"   ✅ Repository setup complete: {repo_dir}")
+        logger.info(f"   V Repository setup complete: {repo_dir}")
         return repo_dir
         
     except subprocess.CalledProcessError as e:
-        logger.error(f"   ❌ Git command failed: {e}")
+        logger.error(f"   X Git command failed: {e}")
         logger.error(f"   stdout: {e.stdout}")
         logger.error(f"   stderr: {e.stderr}")
         return None
     except Exception as e:
-        logger.error(f"   💥 Unexpected error: {e}")
+        logger.error(f"   X Unexpected error: {e}")
         return None
 
 
@@ -154,8 +154,8 @@ def setup_repositories_for_instances(
     if max_repos:
         instances = instances[:max_repos]
     
-    logger.info(f"🚀 Setting up {len(instances)} repositories in {repos_dir}")
-    logger.info(f"⚡ Using {max_workers} parallel workers for faster cloning")
+    logger.info(f"Setting up {len(instances)} repositories in {repos_dir}")
+    logger.info(f"Using {max_workers} parallel workers for faster cloning")
     
     # Debug: Check instances structure
     logger.debug(f"Instances type: {type(instances)}")
@@ -179,7 +179,7 @@ def setup_repositories_for_instances(
         # Update progress (thread-safe)
         with progress_lock:
             completed_count[0] += 1
-            logger.info(f"📊 Progress: {completed_count[0]}/{len(instances)}")
+            logger.info(f"i) Progress: {completed_count[0]}/{len(instances)}")
         
         # Return result
         if repo_path:
@@ -210,7 +210,7 @@ def setup_repositories_for_instances(
             except Exception as e:
                 logger.error(f"💥 Unexpected error in parallel task: {e}")
     
-    logger.info(f"✅ Successfully set up {len(successful_repos)}/{len(instances)} repositories")
+    logger.info(f"V Successfully set up {len(successful_repos)}/{len(instances)} repositories")
     return successful_repos
 
 
@@ -321,11 +321,11 @@ Examples:
     
     # Print summary
     print(f"\n🎉 Repository setup completed!")
-    print(f"📊 Successfully set up: {len(successful_repos)} repositories")
+    print(f"i) Successfully set up: {len(successful_repos)} repositories")
     print(f"📁 Repository directory: {repos_dir}")
     print(f"📋 Mapping file: {mapping_file}")
     
-    print(f"\n🚀 Next steps:")
+    print(f"\nNext steps:")
     print(f"1. Use the repository paths with swe_bench_lite_runner.py:")
     print(f"   python swe_bench_lite_runner.py \\")
     print(f"       --split {args.split} \\")

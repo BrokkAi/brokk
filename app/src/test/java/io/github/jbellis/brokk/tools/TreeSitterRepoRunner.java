@@ -253,7 +253,7 @@ public class TreeSitterRepoRunner {
                 // Write incremental reports immediately
                 try {
                     results.saveIncrementalResult(project, language, result, outputDir, timestamp);
-                    System.out.println("📊 Incremental results saved");
+                    System.out.println("i) Incremental results saved");
                 } catch (Exception e) {
                     System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
                 }
@@ -279,7 +279,7 @@ public class TreeSitterRepoRunner {
                     var failedResult =
                             new BaselineResult(maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", null, 0, 0);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
-                    System.out.println("📊 Incremental failure result saved");
+                    System.out.println("i) Incremental failure result saved");
                 } catch (Exception ex) {
                     System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
                 }
@@ -290,7 +290,7 @@ public class TreeSitterRepoRunner {
                 try {
                     var failedResult = new BaselineResult(0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), null, 0, 0);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
-                    System.out.println("📊 Incremental failure result saved");
+                    System.out.println("i) Incremental failure result saved");
                 } catch (Exception ex) {
                     System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
                 }
@@ -441,7 +441,7 @@ public class TreeSitterRepoRunner {
             var result = runProjectBaseline(testProject != null ? testProject : "custom", testLanguage);
 
             var target = testProject != null ? testProject : testDirectory.toString();
-            System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
+            System.out.printf("V SUCCESS: %s (%s)%n", target, testLanguage);
             System.out.printf("Files processed: %d%n", result.filesProcessed);
             System.out.printf("Analysis time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
             System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
@@ -937,7 +937,7 @@ public class TreeSitterRepoRunner {
         }
 
         if (fileCount > 0) {
-            System.out.printf("✅ Cleaned %d report files from %s%n", fileCount, outputDir.toAbsolutePath());
+            System.out.printf("V Cleaned %d report files from %s%n", fileCount, outputDir.toAbsolutePath());
         } else {
             System.out.println("📭 No report files found to clean in " + outputDir.toAbsolutePath());
         }

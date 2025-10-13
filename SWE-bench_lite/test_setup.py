@@ -18,7 +18,7 @@ def test_java_version():
     try:
         result = subprocess.run(["java", "-version"], capture_output=True, text=True)
         if "version \"21" in result.stderr or "version \"22" in result.stderr:
-            print("✅ Java 21+ detected")
+            print("V Java 21+ detected")
             return True
         else:
             print("❌ Java 21+ required, found older version")
@@ -33,7 +33,7 @@ def test_brokk_cli_exists():
     print("🔍 Testing Brokk CLI script...")
     cli_path = Path("cli")
     if cli_path.exists() and cli_path.is_file():
-        print("✅ Brokk CLI script found")
+        print("V Brokk CLI script found")
         return True
     else:
         print("❌ Brokk CLI script not found")
@@ -47,7 +47,7 @@ def test_shadow_jar_exists():
     if lib_dir.exists():
         jar_files = list(lib_dir.glob("brokk-*.jar"))
         if jar_files:
-            print(f"✅ Shadow JAR found: {jar_files[0].name}")
+            print(f"V Shadow JAR found: {jar_files[0].name}")
             return True
     
     print("❌ Shadow JAR not found")
@@ -67,7 +67,7 @@ def test_brokk_cli_help():
     try:
         result = subprocess.run(["./cli", "--help"], capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
-            print("✅ Brokk CLI help works")
+            print("V Brokk CLI help works")
             return True
         else:
             print("❌ Brokk CLI help failed")
@@ -104,7 +104,7 @@ def test_brokk_cli_simple():
         ], cwd=test_dir, capture_output=True, text=True, timeout=30)
         
         if result.returncode == 0:
-            print("✅ Brokk CLI simple request works")
+            print("V Brokk CLI simple request works")
             return True
         else:
             print("❌ Brokk CLI simple request failed")
@@ -126,7 +126,7 @@ def test_python_dependencies():
     print("🔍 Testing Python dependencies...")
     try:
         import datasets
-        print("✅ datasets library found")
+        print("V datasets library found")
         return True
     except ImportError:
         print("❌ datasets library not found")
@@ -162,7 +162,7 @@ def main():
     passed = sum(results)
     total = len(results)
     
-    print("📊 Test Summary")
+    print("i) Test Summary")
     print("=" * 50)
     print(f"Passed: {passed}/{total}")
     

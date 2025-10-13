@@ -19,26 +19,31 @@ SWE-bench-lite is a benchmark for evaluating code generation models on real-worl
 
 1. **Clone Real Repositories**: Download actual GitHub repositories for each problem
 2. **Checkout Specific Commits**: Work with the exact code state when the issue was reported
-3. **Run Brokk CLI**: Use Brokk's AI agents to solve the problems
-4. **Generate Patches**: Capture actual code changes as git diffs
-5. **Submit Results**: Generate `preds.json` and `results.json` files for PR submission to the SWE-bench repository
+3. **Run Brokk CLI**: Use Brokk via the CLI (BrokkCli) to solve the problems
+4. **Generate Patches**: Capture code changes as git diffs (ignores hidden folders like `.brokk`)
+5. **Submit Results**: Generate `preds.json` and `results.json` files for PR submission to the SWE-bench repository. Also generate diagnostics.json for timestamp, machine resource usage, average/min/max problem solution times.
 
 ### Key Components
 
 - **`repo_setup.py`**: Clones repositories and sets up the evaluation environment
 - **`evaluate_brokk.py`**: Runs Brokk CLI on each problem and captures results
 - **`requirements.txt`**: Python dependencies for the evaluation scripts
-- **Brokk CLI**: The AI-powered code analysis and modification tool
+- **Brokk CLI**: How we interface with Brokk programmatically. This is somewhat inefficient because it has to be loaded up each time the `./cli ...` command is run.
+- **`reset_repos.py`**: Reset each repository so that `evaluate_brokk.py` can be run again. Note that changes are legitimate changes to the codebase folder under `swe_bench_repos/specific_project_pid` so it's not like it's all in memory. Hence, the disk files must be reset. I have a flag in `evaluate_brokk.py` to do this anyways, but it's here.
 
 ## Prerequisites
 
 ### System Requirements
 
 - **Java 21+**: Required for Brokk CLI
-- **Python 3.8+**: For evaluation scripts
+- **Python 3.8+**: For evaluation scripts and setting up repos
 - **Git**: For repository cloning and diff generation
 - **Gradle**: For building Brokk CLI
-- **8GB+ RAM**: Recommended for large repositories
+- **16GB+ RAM**: Recommended for large repositories
+- **Network connection**: ideally fast/wired, there's a large amount of data that needs to be set up. There's a lot of Django issues. You might think this requires only one repo, but the program has to fetch a specific commit for each, meaning you end up with one unique one per. This essentially means 300 (if you do the full Verified dataset, not limiting it by `--max_repos 20` for instance) full datasets. You'll need some disk space too (TODO: specify how much)
+- **Linux**: Not tested on Windows/Max, so use at your own risk
+
+If you can set this up on a cloud instance with good network bandwith and a good set of CPUs, it'll probably go pretty fast.
 
 ### Brokk CLI Setup
 
@@ -53,15 +58,8 @@ SWE-bench-lite is a benchmark for evaluating code generation models on real-worl
    ./cli --help
    ```
 
-3. **Configure Brokk**: Set up API keys through the Brokk GUI:
-   ```bash
-   # Start Brokk GUI to configure API keys
-   ./cli --gui
-   # Or use the GUI application directly
-   java -jar app/build/libs/brokk-*.jar
-   ```
-   
-   **Note**: API keys are configured through the Brokk GUI interface, not environment variables.
+3. **Configure Brokk**: Set up API keys through the Brokk GUI.
+
 
 ### Python Environment Setup
 
@@ -76,12 +74,6 @@ SWE-bench-lite is a benchmark for evaluating code generation models on real-worl
    pip install -r SWE-bench_lite/requirements.txt
    ```
 
-3. **Test Your Setup**:
-   ```bash
-   # Run the setup test script to verify everything is working
-   python3 SWE-bench_lite/test_setup.py
-   ```
-
 ## Quick Start
 
 ### 1. Set Up Repositories
@@ -94,11 +86,13 @@ python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --repos_dir swe_
 python3 SWE-bench_lite/repo_setup.py --split test --max_repos 20 --max_workers 10 --repos_dir swe_bench_repos
 ```
 
+If you want to clone the whole dataset of 300 repos, do not specify a `--max_repos` kwarg.
+
 This will:
 - Load the SWE-bench-lite dataset
 - Clone GitHub repositories **in parallel** for much faster setup
 - Checkout the specific commits mentioned in the dataset
-- Create a mapping file (`instance_to_repo_mapping.json`)
+- Create a mapping file (`instance_to_repo_mapping.json`) -- this is very important to have! Is created at the end of `repo_setup.py`'s execution.
 
 **Performance Tip**: Use `--max_workers 10` or higher for much faster cloning (5-10x speedup on good connections)!
 
@@ -112,15 +106,16 @@ python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 3 --repos_
 This will:
 - Run Brokk CLI on each repository with the problem statement
 - Capture git diffs as model patches
-- Generate a `preds.json` file in SWE-bench format
-- Provide detailed progress updates
+- Generate `preds.json` and `results.json`  in SWE-bench format, will also generate `diagnostics.json`
+- Provide detailed progress updates, surface's Brokk's info via the CLI
 
 ### 3. View Results
 
 ```bash
 # Check the generated predictions
-cat preds.json
+cat swe_bench_tests/XXX_date_time_model_folder/preds.json
 ```
+(`results.json` isn't very interesting to look at, just success statistics)
 
 ## Repository Setup
 
@@ -152,20 +147,7 @@ python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --max_workers 2 
 
 ### Parallel Cloning Performance
 
-The setup script now uses **parallel cloning** with ThreadPoolExecutor for massive speedup:
-
-| Workers | Speed Improvement | Best For |
-|---------|------------------|----------|
-| 1       | Baseline (slow)  | Debugging only |
-| 5       | ~4-5x faster     | Default, safe for all connections |
-| 10      | ~8-10x faster    | Good internet connections |
-| 15-20   | ~12-15x faster   | Excellent connections, powerful machine |
-
-**Example**: Cloning 50 repositories:
-- **Sequential (1 worker)**: ~25-30 minutes
-- **Default (5 workers)**: ~5-6 minutes
-- **Fast (10 workers)**: ~2-3 minutes
-- **Maximum (20 workers)**: ~1.5-2 minutes
+The setup script uses **parallel cloning** with ThreadPoolExecutor for massive speedup.
 
 **Recommendation**: Start with `--max_workers 10` and adjust based on your network speed and system resources.
 
@@ -205,6 +187,9 @@ python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 5 --repos_
 
 # Evaluate specific instance
 python3 SWE-bench_lite/evaluate_brokk.py --instance_id matplotlib__matplotlib-18869 --repos_dir swe_bench_repos
+
+# Evaluate all avaliable instances with a few retries (recommended!)
+python3 SWE-bench_lite/evaluate_brokk.py --split test --repos_dir swe_bench_repos --max_retries 2
 ```
 
 ### Advanced Options
@@ -242,9 +227,9 @@ For each instance, the script:
 3. **Sets Up Configuration**: Copies template `project.properties` to `.brokk/` directory
 4. **Records Initial State**: Captures the initial git commit and status
 5. **Runs Brokk CLI**: Executes `./cli --project . --deepscan --code "problem statement"`
-6. **Automatic File Request Detection** (NEW):
+6. **Automatic File Request Detection**:
    - If Brokk completes without changes but requests specific files
-   - The script automatically detects requested file paths
+   - The script automatically detects requested file paths (scans for `\`is/valid/filepath/file.txt\``)
    - Retries with those files added via `--edit` flags
    - Repeats up to `--max_retries` times (default: 1)
 7. **Captures Changes**: Detects any modifications made by Brokk
@@ -333,7 +318,7 @@ Contains summary statistics in SWE-bench format:
 
 **Note**: `resolved_instances` and `unresolved_instances` require running actual SWE-bench tests to determine which patches correctly fix the issues. Until tests are run, all completed instances are marked as unresolved.
 
-#### 3. `diagnostics.json` - Performance Metrics (NEW)
+#### 3. `diagnostics.json` - Performance Metrics
 
 Contains detailed performance and system information:
 
@@ -376,18 +361,9 @@ Contains detailed performance and system information:
 
 To submit your results to SWE-bench:
 
-1. **Generate Predictions**: Run the evaluation (creates timestamped directory with all files)
-2. **Evaluate Patches**: Use SWE-bench evaluation tools to test the patches:
-   ```bash
-   # Install SWE-bench evaluation tools
-   pip install swe-bench
-   
-   # Evaluate your predictions (updates results.json with actual test results)
-   cd swe_bench_tests/20250113_143022_brokk-cli/
-   swe-bench-eval --predictions_path preds.json --log_dir test_results/
-   ```
-3. **Create Pull Request**: Submit `preds.json` and updated `results.json` to SWE-bench repository
-4. **Review Process**: Your submission will be reviewed and merged if valid
+1. **Generate Predictions**: Run the evaluation (creates `.json` files)
+2. **Create Pull Request**: Submit `preds.json` and updated `results.json` to SWE-bench-live/submissions repository
+3. **Review Process**: Your submission will be reviewed and merged if valid
 
 **Note**: The `results.json` generated by the evaluation script marks all instances as "unresolved" until actual tests are run. After running SWE-bench evaluation tools, the file will be updated with correct resolved/unresolved counts.
 
@@ -418,100 +394,7 @@ To submit your results to SWE-bench:
 python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --repos_dir swe_bench_repos
 ```
 
-#### 2. "Brokk CLI execution timed out"
-
-**Problem**: Brokk CLI is hanging and not responding.
-
-**Most Common Cause**: Brokk API keys not configured through the GUI.
-
-**Solutions**:
-
-1. **Configure API keys through Brokk GUI**:
-   ```bash
-   # Start Brokk GUI to configure API keys
-   ./cli --gui
-   # Or use the GUI application directly
-   java -jar app/build/libs/brokk-*.jar
-   ```
-
-2. **Test Brokk CLI with configured keys**:
-   ```bash
-   # This should work without hanging after GUI configuration
-   cd /path/to/simple/project
-   ./cli --ask "What is this project?"
-   ```
-
-3. **Check Brokk configuration**:
-```bash
-   # Verify Brokk CLI can start
-   ./cli --help
-```
-
-**Other Possible Causes**:
-- Large repository causing memory issues
-- Network connectivity issues for AI model calls
-- Model rate limiting
-
-#### 2a. "Brokk CLI appears to hang with no logs"
-
-**What we added**:
-- The evaluator now streams Brokk's stdout/stderr live and kills Brokk after inactivity.
-- Java CLI prints explicit phase markers: "[BROKK] PHASE: ..." for Deep Scan and Action.
-
-**Controls/Knobs**:
-- `BROKK_INACTIVITY_TIMEOUT` (seconds). Default 180. Increase for large repos.
-  ```bash
-  export BROKK_INACTIVITY_TIMEOUT=480
-  python3 SWE-bench_lite/evaluate_brokk.py --instance_id sympy__sympy-22005 --repos_dir swe_bench_repos
-  ```
-
-**What to look for**:
-- Last printed phase marker tells where it stalled: Deep Scan vs Action.
-- Live stderr often shows model/network errors otherwise swallowed.
-
-**If killed by inactivity watchdog**:
-- Re-run with a higher timeout for heavy repos.
-- Verify model/API keys and network connectivity.
-- Try running Brokk directly in the repo:
-  ```bash
-  cd swe_bench_repos/<repo>
-  ../../cli --project . --deepscan --code "<problem>"
-  ```
-
-**Debug Steps**:
-```bash
-# Check if Brokk CLI works on a simple case
-cd /path/to/simple/project
-timeout 30 ./cli --ask "What is this project?"
-
-# Check Brokk CLI configuration
-./cli --help
-```
-
-#### 3. "Repository has uncommitted changes"
-
-**Problem**: The repository has modifications before Brokk runs.
-
-**Solution**: This is usually just the `.brokk/` directory created by previous runs. It's safe to ignore.
-
-#### 4. "No changes detected"
-
-**Problem**: Brokk CLI completed but didn't modify any files.
-
-**Possible Causes**:
-- The problem doesn't require code changes
-- Brokk couldn't understand the problem statement
-- The solution was already implemented
-
-**Investigation**:
-```bash
-# Check what Brokk CLI actually did
-cd swe_bench_repos/matplotlib__matplotlib_matplotlib__matplotlib-18869
-git log --oneline -5
-git status
-```
-
-#### 5. "Dataset not found"
+#### 2. "Dataset not found"
 
 **Problem**: SWE-bench-lite dataset directory is missing.
 
@@ -593,59 +476,6 @@ git diff
 git log --oneline -3
 ```
 
-## SWE-bench Submission Workflow
-
-### Complete Evaluation Process
-
-The full SWE-bench evaluation process involves several steps:
-
-1. **Generate Predictions**: Use this setup to create `preds.json`
-2. **Evaluate Patches**: Use SWE-bench evaluation tools to generate `results.json`
-3. **Submit Results**: Create a PR to the SWE-bench repository
-
-### Step-by-Step Submission
-
-#### 1. Generate Predictions
-
-```bash
-# Set up repositories
-python3 SWE-bench_lite/repo_setup.py --split test --max_repos 10 --repos_dir swe_bench_repos
-
-# Run evaluation
-python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 10 --repos_dir swe_bench_repos
-
-# This creates preds.json
-```
-
-#### 2. Evaluate Patches
-
-Use the official SWE-bench evaluation tools to generate `results.json`:
-
-```bash
-# Install SWE-bench evaluation tools
-pip install swe-bench
-
-# Evaluate your predictions
-swe-bench-eval --predictions_path preds.json --log_dir results/
-```
-
-#### 3. Submit to SWE-bench
-
-1. **Fork the SWE-bench repository**: https://github.com/princeton-nlp/SWE-bench
-2. **Create a new branch**: `git checkout -b brokk-submission`
-3. **Add your files**:
-   ```bash
-   git add preds.json results.json
-   git commit -m "Add Brokk CLI evaluation results"
-   ```
-4. **Create Pull Request**: Submit PR to the main SWE-bench repository
-5. **Review Process**: Your submission will be reviewed and merged if valid
-
-### Required Files for Submission
-
-- **`preds.json`**: Generated by `evaluate_brokk.py`
-- **`results.json`**: Generated by SWE-bench evaluation tools
-- **Model metadata**: Include model name, version, and configuration details
 
 ## Advanced Usage
 
@@ -709,7 +539,6 @@ brokk/
 │   ├── evaluate_brokk.py  # Evaluation script
 │   ├── test_setup.py      # Setup verification script
 │   ├── requirements.txt   # Python dependencies
-│   ├── preds.json         # Generated predictions
 │   └── SWE-bench.md       # This documentation
 ├── swe_bench_repos/       # Cloned repositories
 │   ├── instance_to_repo_mapping.json
@@ -722,14 +551,27 @@ brokk/
 │   └── litellm_config.yaml # AI model configuration
 ```
 
-## Contributing
+### Output Directory (`swe_bench_tests/`)
 
-To improve the SWE-bench-lite evaluation:
+When running `evaluate_brokk.py`, all predictions and results are saved to a subdirectory under `swe_bench_tests/` by default. The structure is as follows:
 
-1. **Report Issues**: Document any problems with specific instances
-2. **Improve Error Handling**: Add better error messages and recovery
-3. **Add Metrics**: Implement additional evaluation metrics
-4. **Optimize Performance**: Reduce evaluation time and memory usage
----
+- The directory is named automatically by timestamp and model name, for example:  
+  `swe_bench_tests/20240605_120300_brokk-cli-test/`
+- The following files are generated in the output directory:
+    - `preds.json` – The model's patch predictions for each instance
+    - `results.json` – Summary statistics and outcome for each instance
+    - `diagnostics.json` – Runtime statistics and system information (memory, CPU, etc.)
 
-For more information about Brokk CLI itself, see the main project documentation.
+
+Otherwise, results appear in `swe_bench_tests/{timestamp}_{model_name}/` by default.
+
+**Example output directory structure:**
+```
+swe_bench_tests/
+└── 20240605_120300_brokk-cli-test/
+    ├── preds.json
+    ├── results.json
+    └── diagnostics.json
+```
+
+See the end of `evaluate_brokk.py` for summary and descriptions of each output file.
