@@ -8,6 +8,7 @@ import java.awt.event.MouseEvent;
 import java.util.Locale;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
+import org.apache.commons.text.WordUtils;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
 
@@ -172,9 +173,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
-    /** Elide a string with "..." if it doesn't fit within maxWidth pixels. */
+    /** Elide a string with "..." using Apache Commons Text WordUtils.abbreviate, sized to fit within maxWidth pixels. */
     private static String elide(String text, FontMetrics fm, int maxWidth) {
         if (maxWidth <= 0) return "";
+        if (text.isEmpty()) return "";
         if (fm.stringWidth(text) <= maxWidth) return text;
 
         final String ellipsis = "...";
@@ -182,16 +184,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         int available = maxWidth - ellipsisWidth;
         if (available <= 0) return ellipsis;
 
-        int lo = 0, hi = text.length();
-        while (lo < hi) {
-            int mid = (lo + hi + 1) >>> 1;
-            if (fm.stringWidth(text.substring(0, mid)) <= available) {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        return text.substring(0, lo) + ellipsis;
+        // Estimate how many characters fit into the available pixel width.
+        final String sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        int avgCharWidth = Math.max(1, fm.stringWidth(sample) / sample.length());
+        int maxChars = Math.max(1, available / avgCharWidth);
+
+        // Abbreviate to the estimated character limit.
+        // WordUtils.abbreviate will truncate at a word boundary *after* the lower limit,
+        // but not exceeding the upper limit.
+        // We pass maxChars for both to get a hard limit close to our estimate.
+        return WordUtils.abbreviate(text, maxChars, maxChars, ellipsis);
     }
 
     /** Pick a readable text color (white or dark) against the given background color. */
