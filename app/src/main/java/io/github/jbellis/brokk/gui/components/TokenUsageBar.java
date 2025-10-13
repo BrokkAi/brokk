@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.components;
 
-import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import java.awt.*;
@@ -25,7 +24,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     // Hover state for highlight
     private boolean hovered = false;
 
-    public TokenUsageBar(Chrome chrome) {
+    public TokenUsageBar() {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
@@ -110,14 +109,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             g2d.dispose();
         }
     }
-
-    @Override
-    public boolean contains(int x, int y) {
-        // Treat the entire rectangular bounds of the component as the hit area for mouse events,
-        // which is important for drag-and-drop on a non-opaque component.
-        return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
-    }
-
+    
     private void drawText(Graphics2D g2d, int width, int height, int fillWidth) {
         // Consider "no context" when token count or max is zero/invalid.
         boolean hasContext = currentTokens > 0 && maxTokens > 0;
