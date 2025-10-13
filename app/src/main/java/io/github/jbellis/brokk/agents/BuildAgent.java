@@ -244,6 +244,15 @@ public class BuildAgent {
     private List<ChatMessage> buildPrompt() {
         List<ChatMessage> messages = new ArrayList<>();
 
+        String wrapperScriptInstruction;
+        if (Environment.isWindows()) {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+        } else {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
+        }
+
         // System Prompt
         messages.add(new SystemMessage(
                 """
@@ -271,7 +280,7 @@ public class BuildAgent {
                                        | **pytest**        | `pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
                                        | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
 
-                                       Prefer the repository-local *wrapper script* when it exists in the project root (e.g. `./gradlew`, `./mvnw`).
+                                       %s
                                        Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
 
@@ -282,6 +291,7 @@ public class BuildAgent {
                                        Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                                        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
                                        """
+                        .formatted(wrapperScriptInstruction)
                         .stripIndent()));
 
         // Add existing history
