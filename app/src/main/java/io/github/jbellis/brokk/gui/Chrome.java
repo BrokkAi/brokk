@@ -188,6 +188,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final HistoryOutputPanel historyOutputPanel;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
+
     private final JTabbedPane rightTabbedPanel; // Instructions and other right-side tabs
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
@@ -450,14 +451,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
         rightTabbedPanel.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
         rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
-        
+
         // Create and add TaskListPanel as second tab (with list icon)
         taskListPanel = new io.github.jbellis.brokk.gui.terminal.TaskListPanel(this);
         rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
-        
+
         // Create and add TerminalPanel as third tab (with terminal icon)
-        var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(this, () -> {}, true, getProject().getRoot());
+        var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(
+                this, () -> {}, true, getProject().getRoot());
         rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
@@ -3004,8 +3006,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         int tsDivider = topSplitPane.getDividerSize();
                         int maxFromTop = Math.max(0, tsTotal - tsDivider);
                         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                        instructionsHeightPx = Math.min(
-                                Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
+                        instructionsHeightPx =
+                                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
                     }
                 } catch (Exception ignored) {
                     // Defensive; we'll clamp during restore regardless
@@ -3023,7 +3025,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 this.workspaceCollapsed = true;
             } else {
-                // Ensure the workspace split bottom points to the instructions area (rightTabbedPanel), then restore it as bottom
+                // Ensure the workspace split bottom points to the instructions area (rightTabbedPanel), then restore it
+                // as bottom
                 try {
                     topSplitPane.setBottomComponent(rightTabbedPanel);
                 } catch (Exception ignored) {
@@ -3104,9 +3107,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         mainVerticalSplitPane.setDividerLocation(safeDivider);
     }
 
-    /** Updates the terminal font size for all active terminals.
+    /**
+     * Updates the terminal font size for all active terminals.
      *
-     * Note: TerminalDrawerPanel is no longer attached on the right side; this method is a no-op.
+     * <p>Note: TerminalDrawerPanel is no longer attached on the right side; this method is a no-op.
      */
     public void updateTerminalFontSize() {
         SwingUtilities.invokeLater(() -> {
