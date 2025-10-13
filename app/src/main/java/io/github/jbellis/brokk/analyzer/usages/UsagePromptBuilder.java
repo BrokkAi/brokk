@@ -1,10 +1,9 @@
 package io.github.jbellis.brokk.analyzer.usages;
 
-import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
-
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import java.util.List;
+import org.apache.commons.text.StringEscapeUtils;
 
 /**
  * Builds a single-usage prompt record for LLM-based relevance scoring.
@@ -54,9 +53,11 @@ public final class UsagePromptBuilder {
         String candidateText = hit.snippet();
 
         // Header comments
-        sb.append("<!-- shortName: ").append(escapeXml(shortName)).append(" -->\n");
+        sb.append("<!-- shortName: ")
+                .append(StringEscapeUtils.escapeXml10(shortName))
+                .append(" -->\n");
         sb.append("<!-- codeUnit: ")
-                .append(escapeXml(codeUnitTarget.toString()))
+                .append(StringEscapeUtils.escapeXml10(codeUnitTarget.toString()))
                 .append(" -->\n");
 
         // Gather imports (best effort)
@@ -69,13 +70,13 @@ public final class UsagePromptBuilder {
 
         // Start file block
         sb.append("<file path=\"")
-                .append(escapeXml(hit.file().absPath().toString()))
+                .append(StringEscapeUtils.escapeXml10(hit.file().absPath().toString()))
                 .append("\">\n");
 
         // Imports block
         sb.append("<imports>\n");
         for (String imp : imports) {
-            sb.append(escapeXml(imp)).append("\n");
+            sb.append(StringEscapeUtils.escapeXml10(imp)).append("\n");
         }
         sb.append("</imports>\n\n");
 
@@ -83,7 +84,7 @@ public final class UsagePromptBuilder {
         sb.append("<candidates>\n");
         for (CodeUnit alt : alternativeCodeUnits) {
             if (!alt.fqName().equals(codeUnitTarget.fqName())) {
-                sb.append(escapeXml(alt.fqName())).append("\n");
+                sb.append(StringEscapeUtils.escapeXml10(alt.fqName())).append("\n");
             }
         }
         sb.append("</candidates>\n\n");
@@ -91,7 +92,7 @@ public final class UsagePromptBuilder {
         // Single usage block, no id attribute
         int beforeUsageLen = sb.length();
         sb.append("<usage>\n");
-        sb.append(escapeXml(candidateText)).append("\n");
+        sb.append(StringEscapeUtils.escapeXml10(candidateText)).append("\n");
         sb.append("</usage>\n");
         if (sb.length() > maxChars) {
             sb.setLength(beforeUsageLen);

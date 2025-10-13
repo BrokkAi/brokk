@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.agents;
 
-import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
 import static java.util.Objects.requireNonNull;
 
 import com.jakewharton.disklrucache.DiskLruCache;
@@ -35,6 +34,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -400,7 +400,7 @@ public final class MergeOneFile {
                     logger.error("Failed to read commit message for {}: {}", id, e.getMessage(), e);
                     oneLine = id;
                 }
-                lines.add("<commit id=\"" + id + "\">" + escapeXml(oneLine) + "</commit>");
+                lines.add("<commit id=\"" + id + "\">" + StringEscapeUtils.escapeXml10(oneLine) + "</commit>");
             }
             sections.add("<our_commits>\n" + String.join("\n", lines) + "\n</our_commits>");
         }
@@ -416,7 +416,7 @@ public final class MergeOneFile {
                     logger.error("Failed to read commit message for {}: {}", id, e.getMessage(), e);
                     oneLine = id;
                 }
-                lines.add("<commit id=\"" + id + "\">" + escapeXml(oneLine) + "</commit>");
+                lines.add("<commit id=\"" + id + "\">" + StringEscapeUtils.escapeXml10(oneLine) + "</commit>");
             }
             sections.add("<their_commits>\n" + String.join("\n", lines) + "\n</their_commits>");
         }
