@@ -9,7 +9,7 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.agents.NonTextResolutionMode;
+import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -1901,7 +1901,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+    public TaskScope beginTask(String input, boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
@@ -1913,17 +1913,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Backwards-compatible overload: defaults non-text handling to OFF. */
     public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, NonTextResolutionMode.OFF);
+        return beginTask(input, compressAtCommit, MergeAgent.NonTextResolutionMode.OFF);
     }
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressAtCommit;
-        private final NonTextResolutionMode nonTextMode;
+        private final MergeAgent.NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
             io.blockLlmOutput(true);
             this.compressAtCommit = compressAtCommit;
             this.nonTextMode = nonTextMode;
@@ -1935,7 +1935,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             results.add(result);
         }
 
-        public NonTextResolutionMode nonTextMode() {
+        public MergeAgent.NonTextResolutionMode nonTextMode() {
             return nonTextMode;
         }
 
