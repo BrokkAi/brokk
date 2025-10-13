@@ -197,6 +197,13 @@ python3 SWE-bench_lite/evaluate_brokk.py \
     --max_instances 2 \
     --verbose \
     --repos_dir swe_bench_repos
+
+# Increase retry attempts when Brokk requests additional files
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --max_instances 5 \
+    --max_retries 2 \
+    --repos_dir swe_bench_repos
 ```
 
 ### Evaluation Process
@@ -205,35 +212,47 @@ For each instance, the script:
 
 1. **Loads Problem Statement**: Gets the issue description from SWE-bench-lite
 2. **Changes to Repository Directory**: Navigates to the cloned repository
-3. **Records Initial State**: Captures the initial git commit and status
-4. **Runs Brokk CLI**: Executes `./cli --project . --deepscan --code "problem statement"`
-5. **Captures Changes**: Detects any modifications made by Brokk
-6. **Generates Patch**: Creates a git diff of the changes
-7. **Records Results**: Saves success/failure status and patch
+3. **Sets Up Configuration**: Copies template `project.properties` to `.brokk/` directory
+4. **Records Initial State**: Captures the initial git commit and status
+5. **Runs Brokk CLI**: Executes `./cli --project . --deepscan --code "problem statement"`
+6. **Automatic File Request Detection** (NEW):
+   - If Brokk completes without changes but requests specific files
+   - The script automatically detects requested file paths
+   - Retries with those files added via `--edit` flags
+   - Repeats up to `--max_retries` times (default: 1)
+7. **Captures Changes**: Detects any modifications made by Brokk
+8. **Generates Patch**: Creates a git diff (excluding `.brokk/` directory)
+9. **Records Results**: Saves success/failure status and patch
 
-### Real-time Status Updates
+### Automatic File Request Retry
 
-The evaluation provides detailed progress tracking:
+The evaluation script now automatically detects when Brokk requests additional files and retries with those files included. This happens when:
 
+- Brokk completes successfully but makes no code changes
+- The output contains phrases like "Please add these files" or "need to see the implementation"
+- File paths are mentioned in backticks (e.g., \`django/core/files/storage.py\`)
+
+**How it works:**
+
+1. **Initial Run**: Brokk runs with `--deepscan` but no explicit files
+2. **Detection**: Script parses stdout/stderr for file requests
+3. **Extraction**: Finds file paths in backticks or numbered lists
+4. **Validation**: Verifies files exist in the repository
+5. **Retry**: Re-runs with `--edit path/to/file.py` for each requested file
+6. **Repeat**: Can retry up to `--max_retries` times with newly requested files
+
+**Example:**
+```bash
+# Brokk first run: "Please add django/core/files/storage.py to the chat"
+# Script detects request and retries:
+# ./cli --project . --deepscan --edit django/core/files/storage.py --code "problem"
 ```
-[09:01:10] ℹ️  Loading SWE-bench-lite dataset from SWE-bench_lite
-[09:01:10] ✅ Loaded dataset with 23 dev instances and 300 test instances
-[09:01:10] ✅ Loaded repository mapping with 5 entries
-[09:01:10] ℹ️  Found 5 instances with available repositories
-[09:01:10] ℹ️  Starting evaluation of 1 instances
-[09:01:10] ℹ️  Model name: brokk-cli
 
-============================================================
-Instance 1/1: matplotlib__matplotlib-18869
-============================================================
-[09:01:10] ℹ️  Running Brokk CLI on matplotlib__matplotlib-18869
-[09:01:10] ℹ️  Repository: swe_bench_repos/matplotlib__matplotlib_matplotlib__matplotlib-18869
-[09:01:10] ℹ️  Problem: Add easily comparable version info to toplevel
-[09:01:10] ℹ️  Checking initial git status...
-[09:01:10] ℹ️  Initial commit: b7d05919865fc0c37a0164cf467d5d5513bd0ede
-[09:01:10] ℹ️  Starting Brokk CLI execution...
-[09:01:10] 🔄 Brokk CLI is analyzing the problem and generating code...
-```
+**Configuration:**
+- `--max_retries 0`: Disable automatic retries (just use deepscan)
+- `--max_retries 1`: Allow one retry with requested files (default)
+- `--max_retries 2`: Allow up to two retries for complex problems
+
 
 ## Understanding the Results
 

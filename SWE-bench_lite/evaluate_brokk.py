@@ -12,11 +12,12 @@ This script:
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from datasets import load_from_disk, DatasetDict
 import logging
 import argparse
@@ -110,35 +111,108 @@ def setup_brokk_config(repo_path: Path, template_path: Path) -> bool:
         log_error(f"Failed to setup Brokk config: {e}")
         return False
 
-def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str, template_path: Path) -> Dict[str, Any]:
+def extract_requested_files(output_text: str, repo_path: Path) -> Set[str]:
     """
-    Run Brokk CLI on a repository with the given problem statement.
+    Extract file paths that Brokk is requesting to be added to the workspace.
+    
+    Looks for patterns like:
+    - "Please add these files to the chat"
+    - Files in backticks: `path/to/file.py`
+    - Numbered lists with file paths
+    
+    Returns:
+        Set of file paths that exist in the repository
+    """
+    requested_files = set()
+    
+    # Pattern 1: Files in backticks (common in Brokk output)
+    # Match `path/to/file.py` or `django/core/files/storage.py`
+    backtick_pattern = r'`([a-zA-Z0-9_/\.-]+\.[a-zA-Z]+)`'
+    for match in re.finditer(backtick_pattern, output_text):
+        file_path = match.group(1)
+        full_path = repo_path / file_path
+        if full_path.exists() and full_path.is_file():
+            requested_files.add(file_path)
+    
+    # Pattern 2: Look for "Please add" sections and extract nearby file paths
+    # This catches patterns like:
+    # "Please add these files to the chat so I can..."
+    # "1. django/core/files/storage.py"
+    add_request_pattern = r'(?:Please add|add these|Add the following).*?(?:files?|source files?).*?(?:to|:)'
+    if re.search(add_request_pattern, output_text, re.IGNORECASE):
+        # Look for numbered lists with file paths
+        numbered_pattern = r'^\s*\d+\.\s*`?([a-zA-Z0-9_/\.-]+\.[a-zA-Z]+)`?'
+        for match in re.finditer(numbered_pattern, output_text, re.MULTILINE):
+            file_path = match.group(1)
+            full_path = repo_path / file_path
+            if full_path.exists() and full_path.is_file():
+                requested_files.add(file_path)
+    
+    return requested_files
+
+def should_retry_with_files(result: Dict[str, Any]) -> bool:
+    """
+    Determine if we should retry Brokk with additional files.
+    
+    Returns True if:
+    - Brokk succeeded but made no changes
+    - Output indicates it needs more files
+    """
+    if not result.get("success", False):
+        return False
+    
+    if result.get("changes", False):
+        return False
+    
+    # Check if output contains file request indicators
+    stdout = result.get("stdout", "")
+    stderr = result.get("stderr", "")
+    combined = stdout + "\n" + stderr
+    
+    # Look for common patterns indicating file requests
+    request_indicators = [
+        r"Please add.*files?.*to",
+        r"add these.*files?",
+        r"need to see.*implementation",
+        r"need.*full.*files?",
+        r"need access to",
+        r"No edits found or applied in response"
+    ]
+    
+    for pattern in request_indicators:
+        if re.search(pattern, combined, re.IGNORECASE):
+            return True
+    
+    return False
+
+def run_brokk_cli_internal(
+    repo_path: Path, 
+    problem_statement: str, 
+    instance_id: str, 
+    additional_files: Optional[List[str]] = None,
+    retry_attempt: int = 0
+) -> Dict[str, Any]:
+    """
+    Internal function to run Brokk CLI on a repository.
+    
+    Args:
+        repo_path: Path to the repository
+        problem_statement: The problem description to solve
+        instance_id: The instance identifier
+        additional_files: Optional list of files to add with --edit
+        retry_attempt: Current retry attempt number (for logging)
     
     Returns:
         Dictionary with success status, git diff, and any errors
     """
-    log_info(f"Running Brokk CLI on {instance_id}")
+    retry_suffix = f" (retry {retry_attempt})" if retry_attempt > 0 else ""
+    log_info(f"Running Brokk CLI on {instance_id}{retry_suffix}")
     log_info(f"Repository: {repo_path}")
     log_info(f"Problem: {problem_statement[:100]}...")
+    if additional_files:
+        log_info(f"Adding {len(additional_files)} files explicitly: {additional_files}")
     
-    # Change to the repository directory
     original_cwd = Path.cwd()
-    repo_path = Path(repo_path).resolve()
-    
-    if not repo_path.exists():
-        return {
-            "success": False,
-            "error": f"Repository path does not exist: {repo_path}",
-            "patch": ""
-        }
-    
-    # Setup .brokk/project.properties before running Brokk
-    if not setup_brokk_config(repo_path, template_path):
-        return {
-            "success": False,
-            "error": "Failed to setup Brokk configuration",
-            "patch": ""
-        }
     
     try:
         # Get initial git status
@@ -167,15 +241,22 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str, temp
         
         # Run Brokk CLI
         log_info("Starting Brokk CLI execution...")
-        log_status("🔄 Brokk CLI is analyzing the problem and generating code...", Colors.YELLOW)
+        log_status("i) Brokk CLI is analyzing the problem and generating code...", Colors.YELLOW)
         
         # Use the cli script directly
         brokk_cmd = [
             "../../cli",  # Relative path from repo to cli script
             "--project", ".",
-            "--deepscan",  # Enable deep scan for better context
-            "--code", problem_statement
+            "--lutz",     # try lutz mode instead of deepscan
         ]
+        
+        # Add explicit files if provided
+        if additional_files:
+            for file_path in additional_files:
+                brokk_cmd.extend(["--edit", file_path])
+        
+        # Add the problem statement
+        brokk_cmd.extend(["--code", problem_statement])
         
         log_info(f"Command: {' '.join(brokk_cmd)}")
         
@@ -273,7 +354,7 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str, temp
                 "execution_time": execution_time
             }
         
-        log_success(f"Changes detected: {final_status}")
+        log_success(f"Changes detected in git status: {final_status}")
         
         # Generate git diff (excluding .brokk/ directory)
         log_info("Generating git diff (excluding .brokk/)...")
@@ -286,6 +367,20 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str, temp
         )
         
         patch = diff_result.stdout
+        
+        # Check if patch is actually empty (only .brokk/ changes)
+        if not patch or patch.strip() == "":
+            log_warning("No actual code changes detected (only .brokk/ was modified)")
+            return {
+                "success": True,
+                "error": None,
+                "patch": "",
+                "changes": False,
+                "stdout": combined_stdout,
+                "stderr": combined_stderr,
+                "execution_time": execution_time
+            }
+        
         log_success(f"Generated patch ({len(patch)} characters, .brokk/ excluded)")
         
         # Also check for new commits
@@ -337,15 +432,109 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str, temp
         # Return to original directory
         os.chdir(original_cwd)
 
+def run_brokk_cli(
+    repo_path: str, 
+    problem_statement: str, 
+    instance_id: str, 
+    template_path: Path,
+    max_retries: int = 1
+) -> Dict[str, Any]:
+    """
+    Run Brokk CLI on a repository with automatic retry if files are requested.
+    
+    Args:
+        repo_path: Path to the repository
+        problem_statement: The problem description to solve
+        instance_id: The instance identifier
+        template_path: Path to the project.properties template
+        max_retries: Maximum number of retries with additional files (default: 1)
+    
+    Returns:
+        Dictionary with success status, git diff, and any errors
+    """
+    repo_path_obj = Path(repo_path).resolve()
+    
+    if not repo_path_obj.exists():
+        return {
+            "success": False,
+            "error": f"Repository path does not exist: {repo_path_obj}",
+            "patch": ""
+        }
+    
+    # Setup .brokk/project.properties before running Brokk
+    if not setup_brokk_config(repo_path_obj, template_path):
+        return {
+            "success": False,
+            "error": "Failed to setup Brokk configuration",
+            "patch": ""
+        }
+    
+    # First attempt: run without additional files
+    result = run_brokk_cli_internal(repo_path_obj, problem_statement, instance_id)
+    
+    # Track retry attempts
+    retry_count = 0
+    used_files: Set[str] = set()
+    
+    # Retry logic: if Brokk requests files and we haven't exceeded max retries
+    while retry_count < max_retries and should_retry_with_files(result):
+        # Extract requested files from output
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        combined_output = stdout + "\n" + stderr
+        
+        requested_files = extract_requested_files(combined_output, repo_path_obj)
+        
+        # Filter out files we've already tried
+        new_files = requested_files - used_files
+        
+        if not new_files:
+            log_warning(f"No new files to add for retry (already tried: {used_files})")
+            break
+        
+        log_info(f"Brokk requested {len(new_files)} file(s) - retrying with explicit context")
+        log_info(f"Files to add: {sorted(new_files)}")
+        
+        # Update tracking
+        used_files.update(new_files)
+        retry_count += 1
+        
+        # Retry with the requested files
+        result = run_brokk_cli_internal(
+            repo_path_obj, 
+            problem_statement, 
+            instance_id,
+            additional_files=sorted(new_files),
+            retry_attempt=retry_count
+        )
+    
+    # Add retry metadata to result
+    if retry_count > 0:
+        result["retry_count"] = retry_count
+        result["added_files"] = sorted(used_files)
+        if result.get("changes", False):
+            log_success(f"Retry successful! Changes made after {retry_count} retry attempt(s)")
+    
+    return result
+
 def evaluate_instances(
     instances: List[Dict[str, Any]], 
     repo_mapping: Dict[str, str],
     template_path: Path,
     max_instances: Optional[int] = None,
-    model_name: str = "brokk-cli"
+    model_name: str = "brokk-cli",
+    max_retries: int = 1
 ) -> Dict[str, Dict[str, Any]]:
     """
     Evaluate Brokk CLI on multiple instances.
+    
+    Args:
+        instances: List of SWE-bench instances to evaluate
+        repo_mapping: Mapping of instance IDs to repository paths
+        template_path: Path to project.properties template
+        max_instances: Maximum number of instances to evaluate
+        model_name: Name of the model for results
+        max_retries: Maximum retry attempts when Brokk requests files
     
     Returns:
         Dictionary in preds.json format
@@ -356,6 +545,7 @@ def evaluate_instances(
     log_info(f"Starting evaluation of {len(instances)} instances")
     log_info(f"Model name: {model_name}")
     log_info(f"Using template: {template_path}")
+    log_info(f"Max retries with requested files: {max_retries}")
     
     results = {}
     successful_evaluations = 0
@@ -384,7 +574,13 @@ def evaluate_instances(
         problem_statement = instance["problem_statement"]
         
         # Run evaluation
-        evaluation_result = run_brokk_cli(repo_path, problem_statement, instance_id, template_path)
+        evaluation_result = run_brokk_cli(
+            repo_path, 
+            problem_statement, 
+            instance_id, 
+            template_path,
+            max_retries=max_retries
+        )
         
         # Store result
         results[instance_id] = {
@@ -400,12 +596,12 @@ def evaluate_instances(
         if evaluation_result["success"]:
             successful_evaluations += 1
             if evaluation_result.get("changes", False):
-                log_success(f"✅ Instance {instance_id}: Changes made")
+                log_success(f"V Instance {instance_id}: Changes made")
             else:
-                log_warning(f"⚠️  Instance {instance_id}: No changes made")
+                log_warning(f"!  Instance {instance_id}: No changes made")
         else:
             failed_evaluations += 1
-            log_error(f"❌ Instance {instance_id}: Failed - {evaluation_result.get('error', 'Unknown error')}")
+            log_error(f"X Instance {instance_id}: Failed - {evaluation_result.get('error', 'Unknown error')}")
         
         # Progress update
         progress = (i + 1) / len(instances) * 100
@@ -455,6 +651,9 @@ Examples:
   
   # Custom model name
   python evaluate_brokk.py --split test --max_instances 3 --model_name "brokk-cli-v1.0"
+  
+  # Enable automatic retries when Brokk requests files
+  python evaluate_brokk.py --split test --max_instances 5 --max_retries 2
         """
     )
     
@@ -504,6 +703,13 @@ Examples:
         "--verbose",
         action="store_true",
         help="Enable verbose logging"
+    )
+    
+    parser.add_argument(
+        "--max_retries",
+        type=int,
+        default=1,
+        help="Maximum retry attempts when Brokk requests additional files (default: 1)"
     )
     
     args = parser.parse_args()
@@ -577,7 +783,8 @@ Examples:
         repo_mapping,
         template_path,
         args.max_instances,
-        args.model_name
+        args.model_name,
+        args.max_retries
     )
     
     # Save results

@@ -1,7 +1,7 @@
 {
-  "django__django-11564": {
+  "django__django-15213": {
     "model_name_or_path": "brokk-cli",
-    "instance_id": "django__django-11564",
-    "model_patch": ""
+    "instance_id": "django__django-15213",
+    "model_patch": "diff --git a/django/db/models/expressions.py b/django/db/models/expressions.py\nindex 8642e1f151..a291d1104a 100644\n--- a/django/db/models/expressions.py\n+++ b/django/db/models/expressions.py\n@@ -979,7 +979,20 @@ class ExpressionWrapper(SQLiteNumericMixin, Expression):\n         return super().get_group_by_cols()\n \n     def as_sql(self, compiler, connection):\n-        return compiler.compile(self.expression)\n+        try:\n+            return compiler.compile(self.expression)\n+        except EmptyResultSet:\n+            # Handle empty result sets for boolean expressions\n+            if hasattr(self.output_field, 'get_internal_type') and self.output_field.get_internal_type() == 'BooleanField':\n+                # For Q objects, check if it's negated to determine the result\n+                if hasattr(self.expression, 'negated') and self.expression.negated:\n+                    # Negated empty result set means \"match everything\" -> True\n+                    return '1', []\n+                else:\n+                    # Non-negated empty result set means \"match nothing\" -> False  \n+                    return '0', []\n+            # For non-boolean fields, re-raise the exception\n+            raise\n \n     def __repr__(self):\n         return \"{}({})\".format(self.__class__.__name__, self.expression)\n"
   }
 }
