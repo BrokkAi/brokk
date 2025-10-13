@@ -44,16 +44,16 @@ def log_status(message: str, color: str = Colors.BLUE):
     print(f"{color}[{datetime.now().strftime('%H:%M:%S')}] {message}{Colors.END}")
 
 def log_success(message: str):
-    log_status(f"✅ {message}", Colors.GREEN)
+    log_status(f"V {message}", Colors.GREEN)
 
 def log_warning(message: str):
-    log_status(f"⚠️  {message}", Colors.YELLOW)
+    log_status(f"!  {message}", Colors.YELLOW)
 
 def log_error(message: str):
-    log_status(f"❌ {message}", Colors.RED)
+    log_status(f"X {message}", Colors.RED)
 
 def log_info(message: str):
-    log_status(f"ℹ️  {message}", Colors.BLUE)
+    log_status(f"i)  {message}", Colors.BLUE)
 
 def load_swe_bench_lite_dataset(dataset_path: str = "SWE-bench_lite") -> DatasetDict:
     """Load the SWE-bench-lite dataset."""
@@ -83,7 +83,34 @@ def load_repo_mapping(mapping_file: str) -> Dict[str, str]:
         log_error(f"Failed to load repository mapping: {e}")
         sys.exit(1)
 
-def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> Dict[str, Any]:
+def setup_brokk_config(repo_path: Path, template_path: Path) -> bool:
+    """
+    Setup .brokk/project.properties from template.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        brokk_dir = repo_path / ".brokk"
+        brokk_dir.mkdir(exist_ok=True)
+        
+        config_file = brokk_dir / "project.properties"
+        
+        # Copy template
+        with open(template_path, 'r') as f:
+            template_content = f.read()
+        
+        with open(config_file, 'w') as f:
+            f.write(template_content)
+        
+        log_success(f"Set up .brokk/project.properties from template")
+        return True
+        
+    except Exception as e:
+        log_error(f"Failed to setup Brokk config: {e}")
+        return False
+
+def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str, template_path: Path) -> Dict[str, Any]:
     """
     Run Brokk CLI on a repository with the given problem statement.
     
@@ -102,6 +129,14 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
         return {
             "success": False,
             "error": f"Repository path does not exist: {repo_path}",
+            "patch": ""
+        }
+    
+    # Setup .brokk/project.properties before running Brokk
+    if not setup_brokk_config(repo_path, template_path):
+        return {
+            "success": False,
+            "error": "Failed to setup Brokk configuration",
             "patch": ""
         }
     
@@ -240,10 +275,10 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
         
         log_success(f"Changes detected: {final_status}")
         
-        # Generate git diff
-        log_info("Generating git diff...")
+        # Generate git diff (excluding .brokk/ directory)
+        log_info("Generating git diff (excluding .brokk/)...")
         diff_result = subprocess.run(
-            ["git", "diff"],
+            ["git", "diff", "--", ".", ":(exclude).brokk"],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -251,7 +286,7 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
         )
         
         patch = diff_result.stdout
-        log_success(f"Generated patch ({len(patch)} characters)")
+        log_success(f"Generated patch ({len(patch)} characters, .brokk/ excluded)")
         
         # Also check for new commits
         final_commit = subprocess.run(
@@ -305,6 +340,7 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
 def evaluate_instances(
     instances: List[Dict[str, Any]], 
     repo_mapping: Dict[str, str],
+    template_path: Path,
     max_instances: Optional[int] = None,
     model_name: str = "brokk-cli"
 ) -> Dict[str, Dict[str, Any]]:
@@ -319,6 +355,7 @@ def evaluate_instances(
     
     log_info(f"Starting evaluation of {len(instances)} instances")
     log_info(f"Model name: {model_name}")
+    log_info(f"Using template: {template_path}")
     
     results = {}
     successful_evaluations = 0
@@ -347,7 +384,7 @@ def evaluate_instances(
         problem_statement = instance["problem_statement"]
         
         # Run evaluation
-        evaluation_result = run_brokk_cli(repo_path, problem_statement, instance_id)
+        evaluation_result = run_brokk_cli(repo_path, problem_statement, instance_id, template_path)
         
         # Store result
         results[instance_id] = {
@@ -495,6 +532,15 @@ Examples:
     
     repo_mapping = load_repo_mapping(mapping_file)
     
+    # Load template path
+    template_path = Path(__file__).parent / "template_project.properties"
+    if not template_path.exists():
+        log_error(f"Template file not found: {template_path}")
+        log_error("Please ensure template_project.properties exists in SWE-bench_lite/")
+        sys.exit(1)
+    
+    log_success(f"Found template: {template_path}")
+    
     # Filter instances to only those with repositories
     available_instances = []
     for instance in instances:
@@ -529,6 +575,7 @@ Examples:
     results = evaluate_instances(
         available_instances,
         repo_mapping,
+        template_path,
         args.max_instances,
         args.model_name
     )
