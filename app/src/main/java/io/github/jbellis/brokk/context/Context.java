@@ -204,7 +204,7 @@ public class Context {
             return List.of();
         }
 
-        var pagerankResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
+        var gitDistanceResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
 
         return pagerankResults.stream()
                 .map(IAnalyzer.FileRelevance::file)
