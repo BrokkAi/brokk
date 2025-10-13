@@ -109,7 +109,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             g2d.dispose();
         }
     }
-    
+
     private void drawText(Graphics2D g2d, int width, int height, int fillWidth) {
         // Consider "no context" when token count or max is zero/invalid.
         boolean hasContext = currentTokens > 0 && maxTokens > 0;
