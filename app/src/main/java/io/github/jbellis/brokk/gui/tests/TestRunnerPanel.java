@@ -117,15 +117,23 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         // Title and toolbar (similar to TaskListPanel)
         setBorder(BorderFactory.createTitledBorder("Tests"));
-        var topToolbar = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        var border = getBorder();
+        if (border != null) {
+            var insets = border.getBorderInsets(this);
+            setMinimumSize(new java.awt.Dimension(100, insets.top + insets.bottom));
+        }
+        var topToolbar = new JPanel(new java.awt.BorderLayout());
         topToolbar.setOpaque(false);
 
+        var leftToolbar = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        leftToolbar.setOpaque(false);
         runAllButton.setIcon(Icons.FAST_FORWARD);
         runAllButton.setMargin(new Insets(0, 0, 0, 0));
         runAllButton.setToolTipText(
                 "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
         runAllButton.addActionListener(e -> runAllTests());
-        topToolbar.add(runAllButton);
+        leftToolbar.add(runAllButton);
+        topToolbar.add(leftToolbar, BorderLayout.WEST);
 
         add(topToolbar, BorderLayout.NORTH);
 
@@ -906,4 +914,5 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             super.replace(offset, length, text, attrs);
         }
     }
+
 }
