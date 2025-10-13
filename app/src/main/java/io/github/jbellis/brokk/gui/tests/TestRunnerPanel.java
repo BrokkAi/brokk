@@ -115,7 +115,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runListScrollPane = new JScrollPane(
                 runList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         runListScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        runListScrollPane.setMinimumSize(new java.awt.Dimension(100, 150));
+        runListScrollPane.setMinimumSize(new java.awt.Dimension(100, 60));
         runListScrollPane.setPreferredSize(new java.awt.Dimension(100, 150));
 
         // Title and toolbar (similar to TaskListPanel)
@@ -156,7 +156,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         outputScrollPane = new JScrollPane(
                 outputArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        outputScrollPane.setMinimumSize(new java.awt.Dimension(100, 200));
+        outputScrollPane.setMinimumSize(new java.awt.Dimension(100, 60));
         outputScrollPane.setPreferredSize(new java.awt.Dimension(100, 200));
         outputScrollPane.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 200));
 
@@ -164,6 +164,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         splitPane.setResizeWeight(0.3);
         splitPane.setDividerLocation(150);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
+        splitPane.setMinimumSize(new java.awt.Dimension(100, 200));
+        
+        setMinimumSize(new java.awt.Dimension(100, 200));
 
         add(splitPane, BorderLayout.CENTER);
 
