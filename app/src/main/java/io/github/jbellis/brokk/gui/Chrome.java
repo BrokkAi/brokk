@@ -446,19 +446,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
 
-        // Create right-side tabbed panel with Instructions as first tab
+        // Create right-side tabbed panel with Instructions as first tab (with icons)
         rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
-        rightTabbedPanel.addTab("Instructions", null, instructionsPanel);
+        rightTabbedPanel.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
         rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
         
-        // Create and add TaskListPanel as second tab
+        // Create and add TaskListPanel as second tab (with list icon)
         taskListPanel = new io.github.jbellis.brokk.gui.terminal.TaskListPanel(this);
-        rightTabbedPanel.addTab("Tasks", null, taskListPanel);
+        rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
         
-        // Create and add TerminalPanel as third tab
+        // Create and add TerminalPanel as third tab (with terminal icon)
         var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(this, () -> {}, true, getProject().getRoot());
-        rightTabbedPanel.addTab("Terminal", null, terminalPanel);
+        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
         // No right-side drawer; the rightTabbedPanel occupies full right side
