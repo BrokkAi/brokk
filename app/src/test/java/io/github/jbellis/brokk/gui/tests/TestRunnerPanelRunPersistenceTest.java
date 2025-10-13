@@ -80,7 +80,7 @@ public class TestRunnerPanelRunPersistenceTest {
 
         // Assert the newest run is selected in panel2
         JList<?> runList2 = getField(panel2, "runList", JList.class);
-        assertEquals(model2.getSize() - 1, runList2.getSelectedIndex(), "Newest run should be selected after restore");
+        assertEquals(0, runList2.getSelectedIndex(), "Newest run should be selected after restore");
 
         // Assert the output area displays the newest run's output
         JTextArea outputArea2 = getField(panel2, "outputArea", JTextArea.class);
@@ -88,7 +88,7 @@ public class TestRunnerPanelRunPersistenceTest {
         assertTrue(outputArea2.getText().contains(expectedOutput), "Output area should display newest run's output");
 
         // Validate completion status (exitCode and completedAt) is restored
-        Object restoredNewestRunEntry = model2.getElementAt(model2.getSize() - 1);
+        Object restoredNewestRunEntry = model2.getElementAt(0);
         Field completedAtField = restoredNewestRunEntry.getClass().getDeclaredField("completedAt");
         completedAtField.setAccessible(true);
         assertNotNull(completedAtField.get(restoredNewestRunEntry), "Restored newest run should have completedAt set");
@@ -129,6 +129,8 @@ public class TestRunnerPanelRunPersistenceTest {
                     "Output " + i
             ));
         }
+        // Reverse to be newest-to-oldest, to match snapshotRuns order
+        java.util.Collections.reverse(recordsToSave);
         store.save(recordsToSave);
 
         int customMaxRuns = 7; // Set a custom maxRuns
@@ -145,12 +147,12 @@ public class TestRunnerPanelRunPersistenceTest {
             Field idField = runEntry.getClass().getDeclaredField("id");
             idField.setAccessible(true);
             String restoredId = (String) idField.get(runEntry);
-            // The (initialRuns - customMaxRuns) offset ensures we check the latest runs
-            assertEquals("id-" + (initialRuns - customMaxRuns + i), restoredId);
+            // The list is newest-to-oldest, so we expect id-(initialRuns - 1 - i)
+            assertEquals("id-" + (initialRuns - 1 - i), restoredId);
         }
 
         JList<?> runList = getField(panel, "runList", JList.class);
-        assertEquals(model.getSize() - 1, runList.getSelectedIndex(), "Newest run should be selected after restore with custom maxRuns");
+        assertEquals(0, runList.getSelectedIndex(), "Newest run should be selected after restore with custom maxRuns");
 
         JTextArea outputArea = getField(panel, "outputArea", JTextArea.class);
         // Check output of the newest restored run

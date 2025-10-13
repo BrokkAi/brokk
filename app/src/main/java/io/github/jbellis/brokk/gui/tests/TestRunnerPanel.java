@@ -2,10 +2,17 @@ package io.github.jbellis.brokk.gui.tests;
 
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.analyzer.Languages;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
+import java.awt.Insets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -49,6 +56,9 @@ import org.jetbrains.annotations.Nullable;
 public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TestRunnerPanel.class);
 
+    private final @Nullable Chrome chrome;
+    private final MaterialButton runAllButton = new MaterialButton();
+
     // Model
     private final DefaultListModel<RunEntry> runListModel;
     private final JList<RunEntry> runList;
@@ -78,8 +88,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Limit stored output size to avoid unbounded JSON growth
     private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
 
-    public TestRunnerPanel(TestRunsStore runsStore) {
+    public TestRunnerPanel(TestRunsStore runsStore) { this(null, runsStore); }
+    public TestRunnerPanel(Chrome chrome, TestRunsStore runsStore) {
         super(new BorderLayout(0, 0));
+        this.chrome = chrome;
         this.runsStore = runsStore;
         runListModel = new DefaultListModel<>();
         runsById = new ConcurrentHashMap<>();
@@ -89,6 +101,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runList = new JList<>(runListModel);
         runList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         runList.setCellRenderer(new RunEntryRenderer());
+        runList.setVisibleRowCount(5);
         runList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 updateOutputForSelectedRun();
@@ -99,6 +112,22 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         runListScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        runListScrollPane.setMinimumSize(new java.awt.Dimension(100, 150));
+        runListScrollPane.setPreferredSize(new java.awt.Dimension(100, 150));
+
+        // Title and toolbar (similar to TaskListPanel)
+        setBorder(BorderFactory.createTitledBorder("Tests"));
+        var topToolbar = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        topToolbar.setOpaque(false);
+
+        runAllButton.setIcon(Icons.FAST_FORWARD);
+        runAllButton.setMargin(new Insets(0, 0, 0, 0));
+        runAllButton.setToolTipText(
+                "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
+        runAllButton.addActionListener(e -> runAllTests());
+        topToolbar.add(runAllButton);
+
+        add(topToolbar, BorderLayout.NORTH);
 
         outputArea = new JTextArea();
         document = new DisplayOnlyDocument();
@@ -117,10 +146,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        outputScrollPane.setMinimumSize(new java.awt.Dimension(100, 200));
+        outputScrollPane.setPreferredSize(new java.awt.Dimension(100, 200));
+        outputScrollPane.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 200));
 
-        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, runListScrollPane, outputScrollPane);
-        splitPane.setDividerLocation(300);
+        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, runListScrollPane, outputScrollPane);
         splitPane.setResizeWeight(0.3);
+        splitPane.setDividerLocation(150);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
 
         add(splitPane, BorderLayout.CENTER);
@@ -135,6 +167,19 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
         } catch (Exception e) {
             logger.warn("Failed to load persisted test runs: {}", e.getMessage(), e);
+        }
+
+        // Enable/disable Run All based on current build details availability
+        if (chrome != null) {
+            try {
+                var details = chrome.getProject().loadBuildDetails();
+                runAllButton.setEnabled(details != null && !details.equals(BuildAgent.BuildDetails.EMPTY)
+                        && details.testAllCommand() != null && !details.testAllCommand().isBlank());
+            } catch (Exception ex) {
+                runAllButton.setEnabled(false);
+            }
+        } else {
+            runAllButton.setEnabled(false);
         }
     }
 
@@ -252,14 +297,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void doRestore(List<RunRecord> records) {
-        int start = Math.max(0, records.size() - maxRuns);
-        List<RunRecord> slice = records.subList(start, records.size());
+        // Records are newest-to-oldest. We want to keep up to maxRuns of the newest.
+        int count = Math.min(records.size(), maxRuns);
+        List<RunRecord> slice = records.subList(0, count);
 
         runsById.clear();
         runListModel.clear();
 
         String lastRunningId = null;
-        for (RunRecord r : slice) {
+        // To build a newest-to-oldest model, we process the slice from newest to oldest and add to the model.
+        for (var r : slice) {
             var run = new RunEntry(r.id(), r.fileCount(), r.command(), Instant.ofEpochMilli(r.startedAtMillis()));
             String out = r.output();
             if (!out.isEmpty()) {
@@ -269,8 +316,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 run.complete(r.exitCode(), Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())));
             }
             runsById.put(r.id(), run);
-            // Insert so that newest ends up at the top
-            runListModel.add(0, run);
+            runListModel.addElement(run);
             if (run.isRunning()) {
                 lastRunningId = r.id();
             }
@@ -322,7 +368,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     RunEntry removed = runListModel.remove(last);
                     runsById.remove(removed.id);
                 }
-                // Keep selection on the active run for clarity
+                // Keep selection on the active run for clarity, unless it was just dropped
                 if (currentActiveRunId != null) {
                     int idx = -1;
                     for (int i = 0; i < runListModel.size(); i++) {
@@ -333,6 +379,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     }
                     if (idx >= 0) {
                         runList.setSelectedIndex(idx);
+                    } else {
+                        // The active run was dropped by retention
+                        currentActiveRunId = null;
+                        runList.setSelectedIndex(0); // Select the newest run instead
                     }
                 }
             } else {
@@ -561,6 +611,67 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         } else {
             SwingUtilities.invokeLater(() -> applyColors(bgFinal, fgFinal));
         }
+    }
+
+    private void runAllTests() {
+        if (chrome == null) {
+            logger.debug("Run All Tests clicked without Chrome context; ignoring.");
+            return;
+        }
+        // Guard basic configuration
+        var project = chrome.getProject();
+        BuildAgent.BuildDetails details;
+        try {
+            details = project.loadBuildDetails();
+        } catch (Exception e) {
+            chrome.toolError("Failed to load build details: " + e.getMessage(), "Run All Tests");
+            return;
+        }
+        if (details == null || details.equals(BuildAgent.BuildDetails.EMPTY) || details.testAllCommand().isBlank()) {
+            chrome.toolError("No 'Test All Command' configured. Open Settings ▸ Build to configure it.", "Run All Tests");
+            return;
+        }
+
+        String command = prefixWithJavaHomeIfNeeded(project, details.testAllCommand());
+
+        String runId = beginRun(0, command, Instant.now());
+
+        var cm = chrome.getContextManager();
+        cm.submitBackgroundTask("Run all tests", () -> {
+            try {
+                Environment.instance.runShellCommand(
+                        command,
+                        project.getRoot(),
+                        line -> appendToRun(runId, line + "\n"),
+                        Environment.UNLIMITED_TIMEOUT);
+                completeRun(runId, 0, Instant.now());
+            } catch (Environment.SubprocessException e) {
+                appendToRun(runId, "\n" + e.getMessage() + "\n" + e.getOutput() + "\n");
+                completeRun(runId, -1, Instant.now());
+            } catch (Exception e) {
+                appendToRun(runId, "\nError: " + e + "\n");
+                completeRun(runId, -1, Instant.now());
+            }
+            return null;
+        });
+    }
+
+    private static String prefixWithJavaHomeIfNeeded(io.github.jbellis.brokk.AbstractProject project, String command) {
+        if (command == null || command.isBlank()) {
+            return command;
+        }
+        if (project.getBuildLanguage() != Languages.JAVA) {
+            return command;
+        }
+        String jdk = project.getJdk();
+        if (BuildAgent.JAVA_HOME_SENTINEL.equals(jdk)) {
+            var env = System.getenv("JAVA_HOME");
+            jdk = (env == null || env.isBlank()) ? null : env;
+        }
+        if (jdk == null || jdk.isBlank()) {
+            return command;
+        }
+        return "JAVA_HOME=" + jdk + " " + command;
     }
 
     private void applyThemeColorsFromUIManager() {

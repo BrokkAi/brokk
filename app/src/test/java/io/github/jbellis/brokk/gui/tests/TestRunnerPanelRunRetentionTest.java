@@ -36,11 +36,12 @@ public class TestRunnerPanelRunRetentionTest {
     void retainsOnlyMostRecent50Runs_andUpdatesSelectionAndOutput() throws Exception {
         var panel = new TestRunnerPanel( new InMemoryTestRunsStore());
 
-        // Create 55 runs
+        // Create 55 runs, completing each one so that the newest is always active and selected.
         List<String> runIds = new ArrayList<>();
         for (int i = 0; i < 55; i++) {
             String id = panel.beginRun(1, "cmd " + i, Instant.now());
             runIds.add(id);
+            panel.completeRun(id, 0, Instant.now());
         }
         // Ensure all EDT actions from beginRun are processed
         waitForEdt();
@@ -75,7 +76,7 @@ public class TestRunnerPanelRunRetentionTest {
 
         // Assert the newest run is selected
         JList<?> runList = getField(panel, "runList", JList.class);
-        assertEquals(model.getSize() - 1, runList.getSelectedIndex(), "Newest run should be selected");
+        assertEquals(0, runList.getSelectedIndex(), "Newest run should be selected");
 
         // Append output to the newest run and verify it appears in the output area
         String newestId = runIds.get(runIds.size() - 1);

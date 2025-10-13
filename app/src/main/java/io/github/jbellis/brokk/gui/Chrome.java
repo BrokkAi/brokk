@@ -10,6 +10,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.agents.BlitzForge;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -19,6 +20,8 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
+import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -38,8 +41,11 @@ import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.*;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -195,6 +201,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
+    private final TestRunnerPanel testRunnerPanel;
     private final DependenciesPanel dependenciesPanel;
 
     // Git
@@ -309,9 +316,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         showNotification(
                 NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
+        // Test runner persistence and panel
+        var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
+        var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
+        this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
+
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager, this.testRunnerPanel);
         dependenciesPanel = new DependenciesPanel(this);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
@@ -912,6 +924,58 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
         logger.trace("updateGitRepo: finished");
+    }
+
+    /** Executes a set of test files and streams the output to the test runner panel. */
+    public void runTests(Set<ProjectFile> testFiles) {
+        contextManager.submitBackgroundTask("Running tests", () -> {
+            // Simple heuristic for Gradle projects to build the test command
+            var command = new ArrayList<String>();
+            command.add("./gradlew");
+            command.add("test");
+            testFiles.forEach(pf -> {
+                // Convert file path to a fully-qualified class name for the --tests filter
+                String path = pf.getRelPath().toString().replace('\\', '/');
+                String classname = path
+                        .replaceFirst("^src/test/java/", "")
+                        .replaceFirst("^src/test/kotlin/", "")
+                        .replace('/', '.')
+                        .replaceAll("\\.java$", "")
+                        .replaceAll("\\.kt$", "");
+                command.add("--tests");
+                command.add(classname);
+            });
+
+            String runId = null;
+            try {
+                final String commandString = String.join(" ", command);
+                runId = testRunnerPanel.beginRun(testFiles.size(), commandString, java.time.Instant.now());
+
+                var pb = new ProcessBuilder(command);
+                pb.directory(getProject().getRoot().toFile());
+                pb.redirectErrorStream(true);
+
+                var process = pb.start();
+                try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        testRunnerPanel.appendToRun(runId, line + "\n");
+                    }
+                }
+                int exitCode = process.waitFor();
+                testRunnerPanel.completeRun(runId, exitCode, java.time.Instant.now());
+            } catch (Exception e) {
+                logger.error("Error running tests", e);
+                if (runId != null) {
+                    final String errorMessage = "\n--- ERROR RUNNING TESTS ---\n" + e.getMessage();
+                    testRunnerPanel.appendToRun(runId, errorMessage);
+                    testRunnerPanel.completeRun(runId, -1, java.time.Instant.now());
+                } else {
+                    toolError("Error running tests: " + e.getMessage());
+                }
+            }
+            return null;
+        });
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */

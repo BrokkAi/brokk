@@ -35,9 +35,10 @@ public class TestRunnerPanelRunSelectionAfterDropTest {
         var panel = new TestRunnerPanel(new InMemoryTestRunsStore());
         panel.setMaxRuns(5);
 
-        // Seed with 5 runs
+        // Seed with 5 runs, completing them so none are "active".
         for (int i = 0; i < 5; i++) {
-            panel.beginRun(1, "init " + i, Instant.now());
+            String id = panel.beginRun(1, "init " + i, Instant.now());
+            panel.completeRun(id, 0, Instant.now());
         }
         waitForEdt();
 
@@ -58,10 +59,12 @@ public class TestRunnerPanelRunSelectionAfterDropTest {
         runList.setSelectedIndex(1);
         waitForEdt();
 
-        // Push new runs until the previously selected run is dropped by retention
+        // Push new runs until the previously selected run is dropped by retention.
+        // Complete them so the selection logic is predictable.
         String newestId = null;
         for (int i = 5; i < 10; i++) {
             newestId = panel.beginRun(1, "push " + i, Instant.now());
+            panel.completeRun(newestId, 0, Instant.now());
             waitForEdt();
         }
 
@@ -79,8 +82,8 @@ public class TestRunnerPanelRunSelectionAfterDropTest {
         }
         assertFalse(idsInList.contains(oldSelectedId), "Previously selected run should be evicted from the list model");
 
-        // Selection should be updated to the newest run (last index)
-        assertEquals(model.getSize() - 1, runList.getSelectedIndex(), "Selection should point to the newest run");
+        // Selection should be updated to the newest run (top of the list)
+        assertEquals(0, runList.getSelectedIndex(), "Selection should point to the newest run");
 
         // Appending to the newest run should reflect in the output area
         String appended = "Newest run output\n";
