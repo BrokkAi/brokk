@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Languages;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -24,8 +25,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -59,6 +62,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     private final @Nullable Chrome chrome;
     private final MaterialButton runAllButton = new MaterialButton();
+    private final AtomicBoolean testProcessRunning = new AtomicBoolean(false);
 
     // Model
     private final DefaultListModel<RunEntry> runListModel;
@@ -639,11 +643,53 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
 
         String command = prefixWithJavaHomeIfNeeded(project, details.testAllCommand());
+        executeTests(command, 0);
+    }
 
-        String runId = beginRun(0, command, Instant.now());
+    public void runTests(Set<ProjectFile> testFiles) {
+        if (chrome == null) {
+            logger.debug("Run Tests clicked without Chrome context; ignoring.");
+            return;
+        }
+        // Guard basic configuration
+        var project = chrome.getProject();
+        BuildAgent.BuildDetails details;
+        try {
+            details = project.loadBuildDetails();
+        } catch (Exception e) {
+            chrome.toolError("Failed to load build details: " + e.getMessage(), "Run Tests");
+            return;
+        }
+        if (details == null || details.equals(BuildAgent.BuildDetails.EMPTY)) {
+            chrome.toolError(
+                    "No build details configured. Open Settings ▸ Build to configure it.", "Run Tests");
+            return;
+        }
 
+        String command = BuildAgent.getBuildLintSomeCommand(chrome.getContextManager(), details, testFiles);
+        if (command.isBlank()) {
+            chrome.toolError(
+                    "Could not determine test command for the selected files.", "Run Tests");
+            return;
+        }
+
+        executeTests(command, testFiles.size());
+    }
+
+    private void executeTests(String command, int fileCount) {
+        if (chrome == null) {
+            logger.warn("executeTests called without Chrome context; ignoring.");
+            return;
+        }
+        if (!testProcessRunning.compareAndSet(false, true)) {
+            chrome.toolError("A test process is already running.", "Test Runner");
+            return;
+        }
+
+        String runId = beginRun(fileCount, command, Instant.now());
+        var project = chrome.getProject();
         var cm = chrome.getContextManager();
-        cm.submitBackgroundTask("Run all tests", () -> {
+        cm.submitBackgroundTask("Running tests", () -> {
             try {
                 Environment.instance.runShellCommand(
                         command,
@@ -657,6 +703,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             } catch (Exception e) {
                 appendToRun(runId, "\nError: " + e + "\n");
                 completeRun(runId, -1, Instant.now());
+            } finally {
+                testProcessRunning.set(false);
             }
             return null;
         });

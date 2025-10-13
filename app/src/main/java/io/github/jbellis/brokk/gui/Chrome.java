@@ -928,54 +928,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Executes a set of test files and streams the output to the test runner panel. */
     public void runTests(Set<ProjectFile> testFiles) {
-        contextManager.submitBackgroundTask("Running tests", () -> {
-            // Simple heuristic for Gradle projects to build the test command
-            var command = new ArrayList<String>();
-            command.add("./gradlew");
-            command.add("test");
-            testFiles.forEach(pf -> {
-                // Convert file path to a fully-qualified class name for the --tests filter
-                String path = pf.getRelPath().toString().replace('\\', '/');
-                String classname = path.replaceFirst("^src/test/java/", "")
-                        .replaceFirst("^src/test/kotlin/", "")
-                        .replace('/', '.')
-                        .replaceAll("\\.java$", "")
-                        .replaceAll("\\.kt$", "");
-                command.add("--tests");
-                command.add(classname);
-            });
-
-            String runId = null;
-            try {
-                final String commandString = String.join(" ", command);
-                runId = testRunnerPanel.beginRun(testFiles.size(), commandString, java.time.Instant.now());
-
-                var pb = new ProcessBuilder(command);
-                pb.directory(getProject().getRoot().toFile());
-                pb.redirectErrorStream(true);
-
-                var process = pb.start();
-                try (var reader =
-                        new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        testRunnerPanel.appendToRun(runId, line + "\n");
-                    }
-                }
-                int exitCode = process.waitFor();
-                testRunnerPanel.completeRun(runId, exitCode, java.time.Instant.now());
-            } catch (Exception e) {
-                logger.error("Error running tests", e);
-                if (runId != null) {
-                    final String errorMessage = "\n--- ERROR RUNNING TESTS ---\n" + e.getMessage();
-                    testRunnerPanel.appendToRun(runId, errorMessage);
-                    testRunnerPanel.completeRun(runId, -1, java.time.Instant.now());
-                } else {
-                    toolError("Error running tests: " + e.getMessage());
-                }
-            }
-            return null;
-        });
+        testRunnerPanel.runTests(testFiles);
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */
