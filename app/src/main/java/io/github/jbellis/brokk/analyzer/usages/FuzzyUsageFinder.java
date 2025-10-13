@@ -41,7 +41,7 @@ public final class FuzzyUsageFinder {
     public static FuzzyUsageFinder create(IContextManager ctx) {
         var service = ctx.getService();
         var quickestModel = service.quickestModel();
-        var llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false);
+        var llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false, false, false);
         return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), service, llm);
     }
 
