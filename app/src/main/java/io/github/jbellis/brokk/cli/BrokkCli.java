@@ -2,6 +2,9 @@ package io.github.jbellis.brokk.cli;
 
 import static java.util.Objects.requireNonNull;
 
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
@@ -125,6 +128,30 @@ public final class BrokkCli implements Callable<Integer> {
     private boolean merge = false;
 
     @CommandLine.Option(
+            names = "--search-workspace",
+            description = "Run Search agent in benchmark mode to find relevant context for a query. Outputs JSON report to stdout.")
+    private boolean searchWorkspace = false;
+
+    @CommandLine.Option(
+            names = "--query",
+            description = "Natural language query for --search-workspace mode. Describes what to find in the codebase.")
+    @Nullable
+    private String query;
+
+    @SuppressWarnings("UnusedVariable")
+    @CommandLine.Option(
+            names = "--commit",
+            description = "Git commit hash to checkout for --search-workspace mode. Creates a temporary detached worktree.")
+    @Nullable
+    private String commit;
+
+    @SuppressWarnings("UnusedVariable")
+    @CommandLine.Option(
+            names = "--disable-context-scan",
+            description = "Skip the initial deep context scan in --search-workspace mode.")
+    private boolean disableContextScan = false;
+
+    @CommandLine.Option(
             names = "--worktree",
             description = "Create a detached worktree at the given path, from the default branch's HEAD.")
     @Nullable
@@ -162,15 +189,28 @@ public final class BrokkCli implements Callable<Integer> {
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
+        if (searchWorkspace) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge, --search-workspace) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge, --search-workspace) or --worktree is required.");
             return 1;
+        }
+
+        // Validate --search-workspace requirements
+        if (searchWorkspace) {
+            if (query == null || query.isBlank()) {
+                System.err.println("--search-workspace requires --query to be specified.");
+                return 1;
+            }
+            if (codeModelName != null) {
+                System.err.println("--codemodel is not valid with --search-workspace.");
+                return 1;
+            }
         }
 
         // Extra rules for model overrides
@@ -213,14 +253,18 @@ public final class BrokkCli implements Callable<Integer> {
         if (worktreePath != null) {
             worktreePath = worktreePath.toAbsolutePath();
             if (Files.exists(worktreePath)) {
-                System.out.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
+                if (!searchWorkspace) {
+                    System.out.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
+                }
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
                     var defaultBranch = gitRepo.getDefaultBranch();
                     var commitId = gitRepo.resolveToCommit(defaultBranch).getName();
                     gitRepo.worktrees().addWorktreeDetached(worktreePath, commitId);
-                    System.out.println("Successfully created detached worktree at " + worktreePath);
-                    System.out.println("Checked out from " + defaultBranch + " at commit " + commitId);
+                    if (!searchWorkspace) {
+                        System.out.println("Successfully created detached worktree at " + worktreePath);
+                        System.out.println("Checked out from " + defaultBranch + " at commit " + commitId);
+                    }
                 } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
                     System.err.println("Error creating worktree: " + e.getMessage());
                     return 1;
@@ -307,10 +351,12 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    ContextFragment.getSummary(cm.topContext().allFragments()));
+            if (!searchWorkspace) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        ContextFragment.getSummary(cm.topContext().allFragments()));
+            }
 
             String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
                     .filter(s -> s != null && !s.isBlank())
@@ -319,35 +365,102 @@ public final class BrokkCli implements Callable<Integer> {
             var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
             var agent = new ContextAgent(cm, scanModel, goalForScan);
             var recommendations = agent.getRecommendations(false);
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
+            if (!searchWorkspace) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
+            }
 
             if (recommendations.success()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Deep Scan suggested "
-                                + recommendations.fragments().stream()
-                                        .map(ContextFragment::shortDescription)
-                                        .toList());
+                if (!searchWorkspace) {
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Deep Scan suggested "
+                                    + recommendations.fragments().stream()
+                                            .map(ContextFragment::shortDescription)
+                                            .toList());
+                }
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
                             cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
+                            if (!searchWorkspace) {
+                                io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
+                            }
                         }
                         default -> cm.addSummaries(fragment.files(), Set.of());
                     }
                 }
             } else {
-                io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+                if (!searchWorkspace) {
+                    io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+                }
             }
         }
 
         // --- Run Action ---
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                ContextFragment.getSummary(cm.topContext().allFragments()));
+        if (searchWorkspace) {
+            long startTime = System.currentTimeMillis();
+            TaskResult searchResult;
+            boolean success;
+
+            try (var scope = cm.beginTask(requireNonNull(query), false)) {
+                var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                var agent = new SearchAgent(query, cm, searchModel, EnumSet.of(Terminal.WORKSPACE));
+                searchResult = agent.execute();
+                scope.append(searchResult);
+                success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
+            } catch (Throwable th) {
+                System.err.println("Fatal error during SearchAgent execution: " + getStackTrace(th));
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                var json = String.format(
+                        "{\"query\": \"%s\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": %d, \"success\": false, \"error\": \"%s\"}",
+                        escapeJson(query),
+                        elapsedTime,
+                        escapeJson(th.getMessage() != null ? th.getMessage() : th.getClass().getName()));
+                System.out.println(json);
+                return 2;
+            }
+
+            long elapsedTime = System.currentTimeMillis() - startTime;
+
+            var messages = searchResult.output().messages();
+            int turns = countTurns(messages);
+            var aiMessages = messages.stream()
+                    .filter(msg -> msg.type() == ChatMessageType.AI)
+                    .map(msg -> (AiMessage) msg)
+                    .toList();
+            String foundFile = extractFoundFile(project.getRepo().getTrackedFiles(), aiMessages);
+
+            if (foundFile.isEmpty()) {
+                var files = cm.topContext().allFragments()
+                        .flatMap(f -> f.files().stream())
+                        .map(ProjectFile::toString)
+                        .distinct()
+                        .sorted()
+                        .toList();
+                if (!files.isEmpty()) {
+                    foundFile = files.getFirst();
+                }
+            }
+
+            var json = String.format(
+                    "{\"query\": \"%s\", \"found_file\": \"%s\", \"turns\": %d, \"elapsed_ms\": %d, \"success\": %b}",
+                    escapeJson(query),
+                    escapeJson(foundFile),
+                    turns,
+                    elapsedTime,
+                    success);
+            System.out.println(json);
+
+            return 0;
+        }
+
+        if (!searchWorkspace) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    ContextFragment.getSummary(cm.topContext().allFragments()));
+        }
 
         TaskResult result = null;
         // Decide scope action/input
@@ -391,19 +504,25 @@ public final class BrokkCli implements Callable<Integer> {
                     var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
                     var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
                     if (conflictOpt.isEmpty()) {
-                        System.out.println(
-                                "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
+                        if (!searchWorkspace) {
+                            System.out.println(
+                                    "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
+                        }
                         return 1;
                     }
                     var conflict = conflictOpt.get();
-                    System.out.println(conflict);
+                    if (!searchWorkspace) {
+                        System.out.println(conflict);
+                    }
                     MergeAgent mergeAgent = new MergeAgent(
                             cm, planningModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
                     try {
                         result = mergeAgent.execute();
                         scope.append(result);
                     } catch (Exception e) {
-                        io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
+                        if (!searchWorkspace) {
+                            io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
+                        }
                         return 1;
                     }
                     return 0; // merge is terminal for this CLI command
@@ -426,37 +545,49 @@ public final class BrokkCli implements Callable<Integer> {
                             tasksData.tasks().stream().filter(t -> !t.done()).toList();
 
                     if (!pendingTasks.isEmpty()) {
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Executing " + pendingTasks.size() + " task" + (pendingTasks.size() == 1 ? "" : "s")
-                                        + " from Task List...");
+                        if (!searchWorkspace) {
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Executing " + pendingTasks.size() + " task" + (pendingTasks.size() == 1 ? "" : "s")
+                                            + " from Task List...");
+                        }
 
                         for (var task : pendingTasks) {
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+                            if (!searchWorkspace) {
+                                io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+                            }
 
                             var taskResult = cm.executeTask(task, true, true);
                             scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 
                             if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                                io.toolError(taskResult.stopDetails().explanation(), "Task failed: " + task.text());
+                                if (!searchWorkspace) {
+                                    io.toolError(taskResult.stopDetails().explanation(), "Task failed: " + task.text());
+                                }
                                 break; // Stop on first failure
                             }
                         }
                     } else {
-                        io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
+                        if (!searchWorkspace) {
+                            io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
+                        }
                     }
                 }
             } catch (Throwable th) {
-                io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
+                if (!searchWorkspace) {
+                    io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
+                }
                 return 1; // internal error
             }
         }
 
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            io.toolError(
-                    result.stopDetails().explanation(),
-                    result.stopDetails().reason().toString());
+            if (!searchWorkspace) {
+                io.toolError(
+                        result.stopDetails().explanation(),
+                        result.stopDetails().reason().toString());
+            }
             // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
             // harness see how we did
         }
@@ -606,5 +737,34 @@ public final class BrokkCli implements Callable<Integer> {
             sb.append("\n");
         }
         return sb.toString();
+    }
+
+    private int countTurns(List<ChatMessage> messages) {
+        return (int) messages.stream()
+                .filter(msg -> msg.type() == ChatMessageType.AI)
+                .count();
+    }
+
+    private String extractFoundFile(Set<ProjectFile> trackedFiles, List<AiMessage> aiMessages) {
+        if (aiMessages.isEmpty()) {
+            return "";
+        }
+
+        var lastAiMessage = aiMessages.getLast();
+
+        var messageText = lastAiMessage.text();
+        if (messageText == null || messageText.isBlank()) {
+            return "";
+        }
+
+        return trackedFiles.stream()
+                .map(ProjectFile::toString)
+                .filter(messageText::contains)
+                .findFirst()
+                .orElse("");
+    }
+
+    private String escapeJson(String raw) {
+        return raw.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }
