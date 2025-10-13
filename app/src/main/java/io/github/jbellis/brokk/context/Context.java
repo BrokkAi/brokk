@@ -205,8 +205,7 @@ public class Context {
         }
 
         var gitDistanceResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
-
-        return pagerankResults.stream()
+        return gitDistanceResults.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
                 .limit(topK)

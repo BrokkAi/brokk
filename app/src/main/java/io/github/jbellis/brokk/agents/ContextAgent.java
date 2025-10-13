@@ -23,7 +23,6 @@ import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitDistance;
-import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
@@ -403,7 +402,7 @@ public class ContextAgent {
                     return LlmRecommendation.EMPTY;
                 }
                 // Sort by importance and cut off least-important half
-                var sorted = GitDistance.sortByImportance(current, (GitRepo) cm.getRepo());
+                var sorted = GitDistance.sortByImportance(current, cm.getRepo());
                 int keep = max(1, (sorted.size() + 1) / 2); // keep top half (round up)
                 current = new ArrayList<>(sorted.subList(0, keep));
                 logger.debug("{} group context too large; halving to {} files and retrying.", type, current.size());

@@ -2,13 +2,19 @@ package io.github.jbellis.brokk.analyzer.ranking;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.analyzer.BrokkFile;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.testutil.TestProject;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
@@ -58,7 +64,8 @@ public class GitDistanceMostImportantTest {
                     results.get(i - 1).score() >= results.get(i).score(), "Results must be sorted descending by score");
         }
 
-        var scores = results.stream().collect(Collectors.toMap(r -> r.file().getFileName(), r -> r.score()));
+        var scores =
+                results.stream().collect(Collectors.toMap(r -> r.file().getFileName(), IAnalyzer.FileRelevance::score));
 
         assertEquals("UserService.java", results.getFirst().file().getFileName());
 
@@ -74,14 +81,14 @@ public class GitDistanceMostImportantTest {
     }
 
     @Test
-    public void testSortByImportanceEmpty() throws Exception {
+    public void testSortByImportanceEmpty() {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var results = GitDistance.sortByImportance(List.of(), testRepo);
         assertTrue(results.isEmpty(), "Empty input should yield empty results");
     }
 
     @Test
-    public void testSortByImportanceSubset() throws Exception {
+    public void testSortByImportanceSubset() {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var user = new ProjectFile(testProject.getRoot(), "User.java");
         var userRepo = new ProjectFile(testProject.getRoot(), "UserRepository.java");
@@ -99,11 +106,10 @@ public class GitDistanceMostImportantTest {
     }
 
     @Test
-    public void testSortByImportanceAllFiles() throws Exception {
+    public void testSortByImportanceAllFiles() {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var allFiles = testRepo.getTrackedFiles().stream()
-                .sorted((a, b) ->
-                        a.getFileName().toString().compareTo(b.getFileName().toString()))
+                .sorted(Comparator.comparing(BrokkFile::getFileName))
                 .toList();
 
         var results = GitDistance.sortByImportance(allFiles, testRepo);
@@ -118,9 +124,49 @@ public class GitDistanceMostImportantTest {
                     allFiles.contains(prev) && allFiles.contains(curr), "All results should be from the input files");
         }
 
-        assertEquals(
-                "UserService.java",
-                results.getFirst().getFileName().toString(),
-                "UserService should be most important");
+        assertEquals("UserService.java", results.getFirst().getFileName(), "UserService should be most important");
+    }
+
+    @Test
+    public void testSortByImportanceIncludesUnscoredFilesWithLocalRepo() throws Exception {
+        Path temp = Files.createTempDirectory("brokk-localrepo-test")
+                .toAbsolutePath()
+                .normalize();
+        try {
+            // Create a few files in a non-git directory
+            var a = new ProjectFile(temp, "A.java");
+            var b = new ProjectFile(temp, "B.java");
+            var c = new ProjectFile(temp, "C.java");
+
+            a.write("class A {}");
+            b.write("class B {}");
+            c.write("class C {}");
+
+            IGitRepo repo = new LocalFileRepo(temp);
+
+            var input = List.of(a, b, c);
+            var results = GitDistance.sortByImportance(input, repo);
+
+            // Should not be empty and should include all input files (since none have scores)
+            assertFalse(results.isEmpty(), "Results should not be empty");
+            assertEquals(input.size(), results.size(), "All input files should be present in the results");
+
+            // With no git history, order should be preserved
+            assertEquals(input, results, "Order should be preserved when there are no scores");
+        } finally {
+            deleteRecursively(temp);
+        }
+    }
+
+    private static void deleteRecursively(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        try (var paths = Files.walk(root)) {
+            paths.sorted((p1, p2) -> p2.getNameCount() - p1.getNameCount()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                }
+            });
+        }
     }
 }

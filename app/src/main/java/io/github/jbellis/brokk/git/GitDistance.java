@@ -69,10 +69,6 @@ public final class GitDistance {
     public static List<IAnalyzer.FileRelevance> getMostImportantFilesScored(GitRepo repo, int k)
             throws GitAPIException {
         var commits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
-        if (commits.isEmpty()) {
-            return List.of();
-        }
-
         var scores = computeImportanceScores(repo, commits);
 
         return scores.entrySet().stream()
@@ -96,11 +92,7 @@ public final class GitDistance {
      * @param maxResults the maximum number of commits to fetch per file.
      * @return a sorted list of unique commits (newest first).
      */
-    private static List<CommitInfo> getCommitsForFiles(GitRepo repo, Collection<ProjectFile> files, int maxResults) {
-        if (files.isEmpty()) {
-            return List.of();
-        }
-
+    static List<CommitInfo> getCommitsForFiles(GitRepo repo, Collection<ProjectFile> files, int maxResults) {
         try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             return pool.submit(() -> files.parallelStream()
                             .flatMap(file -> {
@@ -130,23 +122,26 @@ public final class GitDistance {
      * @param repo the Git repository wrapper.
      * @return the input files sorted by importance (most important first).
      */
-    public static List<ProjectFile> sortByImportance(Collection<ProjectFile> files, GitRepo repo) {
-        if (files.isEmpty()) {
-            return List.of();
+    public static List<ProjectFile> sortByImportance(Collection<ProjectFile> files, IGitRepo repo) {
+        if (!(repo instanceof GitRepo gr)) {
+            return List.copyOf(files);
         }
 
-        var commits = getCommitsForFiles(repo, files, Integer.MAX_VALUE);
-
+        var commits = getCommitsForFiles(gr, files, Integer.MAX_VALUE);
         Map<ProjectFile, Double> scores;
         try {
-            scores = computeImportanceScores(repo, commits);
+            scores = computeImportanceScores(gr, commits);
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }
 
+        // Score-less files sort to the end
         return files.stream()
-                .filter(scores::containsKey)
-                .sorted((a, b) -> Double.compare(requireNonNull(scores.get(b)), requireNonNull(scores.get(a))))
+                .sorted((a, b) -> {
+                    double sb = scores.getOrDefault(b, Double.NEGATIVE_INFINITY);
+                    double sa = scores.getOrDefault(a, Double.NEGATIVE_INFINITY);
+                    return Double.compare(sb, sa);
+                })
                 .toList();
     }
 
@@ -164,24 +159,24 @@ public final class GitDistance {
 
         try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             pool.submit(() -> commits.parallelStream().forEach(commit -> {
+                        List<ProjectFile> changedFiles = null;
                         try {
-                            var changedFiles = repo.listFilesChangedInCommit(commit.id());
-                            if (changedFiles.isEmpty()) {
-                                return;
-                            }
-
-                            var t_c = commit.date();
-                            var age = Duration.between(t_c, t_latest);
-                            double ageMillis = age.toMillis();
-
-                            double weight = Math.pow(2, -(ageMillis / halfLifeMillis));
-
-                            for (var file : changedFiles) {
-                                scores.merge(file, weight, Double::sum);
-                            }
-
+                            changedFiles = repo.listFilesChangedInCommit(commit.id());
                         } catch (GitAPIException e) {
                             throw new RuntimeException("Error processing commit: " + commit.id(), e);
+                        }
+                        if (changedFiles.isEmpty()) {
+                            return;
+                        }
+
+                        var t_c = commit.date();
+                        var age = Duration.between(t_c, t_latest);
+                        double ageMillis = age.toMillis();
+
+                        double weight = Math.pow(2, -(ageMillis / halfLifeMillis));
+
+                        for (var file : changedFiles) {
+                            scores.merge(file, weight, Double::sum);
                         }
                     }))
                     .get();
