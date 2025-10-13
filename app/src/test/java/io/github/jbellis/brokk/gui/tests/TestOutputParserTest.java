@@ -34,8 +34,13 @@ public class TestOutputParserTest {
             return outputs.getOrDefault(testName, new StringBuilder()).toString();
         }
 
-        List<String> started() { return started; }
-        List<Completed> completed() { return completed; }
+        List<String> started() {
+            return started;
+        }
+
+        List<Completed> completed() {
+            return completed;
+        }
     }
 
     private static void feedLines(TestOutputParser parser, String... lines) {
@@ -55,7 +60,8 @@ public class TestOutputParserTest {
         var parser = new TestOutputParser(listener);
 
         String tn = "com.example.MyTest > testThing";
-        feedLines(parser,
+        feedLines(
+                parser,
                 "com.example.MyTest > testThing STARTED",
                 "stdout from test\nsecond line",
                 "com.example.MyTest > testThing PASSED");
@@ -82,11 +88,7 @@ public class TestOutputParserTest {
         String tFail = "com.example.FooTest > willFail";
         String tSkip = "com.example.FooTest > willSkip";
 
-        feedLines(parser,
-                tFail + " STARTED",
-                tFail + " FAILED",
-                tSkip + " STARTED",
-                tSkip + " SKIPPED");
+        feedLines(parser, tFail + " STARTED", tFail + " FAILED", tSkip + " STARTED", tSkip + " SKIPPED");
 
         assertTrue(listener.started().contains(tFail));
         assertTrue(listener.started().contains(tSkip));
@@ -115,9 +117,8 @@ public class TestOutputParserTest {
         var parser = new TestOutputParser(listener);
 
         String cls = "com.example.BarTest";
-        feedLines(parser,
-                "[INFO] Running " + cls,
-                "[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0 - in " + cls);
+        feedLines(
+                parser, "[INFO] Running " + cls, "[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0 - in " + cls);
 
         assertEquals(List.of(cls), listener.started());
         assertEquals(1, listener.completed().size());
@@ -134,7 +135,8 @@ public class TestOutputParserTest {
         var parser = new TestOutputParser(listener);
 
         String cls = "com.example.BazTest";
-        feedLines(parser,
+        feedLines(
+                parser,
                 "[INFO] Running " + cls,
                 "[INFO] Tests run: 1, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 0.012 s - in " + cls);
 
@@ -149,9 +151,7 @@ public class TestOutputParserTest {
         var parser = new TestOutputParser(listener);
 
         String cls = "com.example.NoInSuffixTest";
-        feedLines(parser,
-                "Running " + cls,
-                "Tests run: 2, Failures: 0, Errors: 0, Skipped: 1");
+        feedLines(parser, "Running " + cls, "Tests run: 2, Failures: 0, Errors: 0, Skipped: 1");
 
         assertEquals(1, listener.completed().size());
         var c = listener.completed().getFirst();
@@ -167,7 +167,8 @@ public class TestOutputParserTest {
         String a = "pkg.A > m1";
         String b = "pkg.B > m2";
 
-        feedLines(parser,
+        feedLines(
+                parser,
                 a + " STARTED",
                 "A: first line",
                 b + " STARTED",
@@ -184,7 +185,9 @@ public class TestOutputParserTest {
 
         assertTrue(outA.contains("A: first line"));
         assertFalse(outA.contains("interleaved generic line"), "generic line should not be attributed to A");
-        assertTrue(outB.contains("interleaved generic line"), "generic line should be attributed to latest started test (B)");
+        assertTrue(
+                outB.contains("interleaved generic line"),
+                "generic line should be attributed to latest started test (B)");
     }
 
     @Test
@@ -204,11 +207,7 @@ public class TestOutputParserTest {
         var parser = new TestOutputParser(listener);
 
         String tn = "pkg.ChunkTest > chunked";
-        feedAsSingleChunk(parser,
-                tn + " STARTED",
-                "log a",
-                "log b",
-                tn + " PASSED");
+        feedAsSingleChunk(parser, tn + " STARTED", "log a", "log b", tn + " PASSED");
 
         assertEquals(List.of(tn), listener.started());
         assertEquals(1, listener.completed().size());

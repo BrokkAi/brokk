@@ -126,8 +126,7 @@ public class TestRunnerPanelRunPersistenceTest {
                     Instant.now().minusSeconds(initialRuns - i),
                     Instant.now().minusSeconds(initialRuns - i - 1),
                     0,
-                    "Output " + i
-            ));
+                    "Output " + i));
         }
         // Reverse to be newest-to-oldest, to match snapshotRuns order
         java.util.Collections.reverse(recordsToSave);
@@ -157,7 +156,9 @@ public class TestRunnerPanelRunPersistenceTest {
         JTextArea outputArea = getField(panel, "outputArea", JTextArea.class);
         // Check output of the newest restored run
         String expectedOutput = "Output " + (initialRuns - 1);
-        assertTrue(outputArea.getText().contains(expectedOutput), "Output area should display newest restored run's output");
+        assertTrue(
+                outputArea.getText().contains(expectedOutput),
+                "Output area should display newest restored run's output");
     }
 
     @Test

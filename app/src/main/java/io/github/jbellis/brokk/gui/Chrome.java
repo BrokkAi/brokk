@@ -9,8 +9,8 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -20,8 +20,6 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
-import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
-import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -31,6 +29,8 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
+import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -936,8 +936,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             testFiles.forEach(pf -> {
                 // Convert file path to a fully-qualified class name for the --tests filter
                 String path = pf.getRelPath().toString().replace('\\', '/');
-                String classname = path
-                        .replaceFirst("^src/test/java/", "")
+                String classname = path.replaceFirst("^src/test/java/", "")
                         .replaceFirst("^src/test/kotlin/", "")
                         .replace('/', '.')
                         .replaceAll("\\.java$", "")
@@ -956,7 +955,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 pb.redirectErrorStream(true);
 
                 var process = pb.start();
-                try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                try (var reader =
+                        new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         testRunnerPanel.appendToRun(runId, line + "\n");

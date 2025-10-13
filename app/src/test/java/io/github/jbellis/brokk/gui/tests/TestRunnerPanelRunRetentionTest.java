@@ -34,7 +34,7 @@ public class TestRunnerPanelRunRetentionTest {
 
     @Test
     void retainsOnlyMostRecent50Runs_andUpdatesSelectionAndOutput() throws Exception {
-        var panel = new TestRunnerPanel( new InMemoryTestRunsStore());
+        var panel = new TestRunnerPanel(new InMemoryTestRunsStore());
 
         // Create 55 runs, completing each one so that the newest is always active and selected.
         List<String> runIds = new ArrayList<>();

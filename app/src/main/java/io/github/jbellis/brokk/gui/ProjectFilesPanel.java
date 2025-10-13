@@ -3,9 +3,8 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
-
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
 
 public class ProjectFilesPanel extends JPanel {
     private final ProjectTree projectTree;
@@ -35,5 +34,4 @@ public class ProjectFilesPanel extends JPanel {
     public void showFileInTree(ProjectFile projectFile) {
         projectTree.selectAndExpandToFile(projectFile);
     }
-
 }

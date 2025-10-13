@@ -1,12 +1,14 @@
 package io.github.jbellis.brokk.gui.tests;
 
-import io.github.jbellis.brokk.gui.GuiTheme;
-import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.components.MaterialButton;
-import io.github.jbellis.brokk.gui.util.Icons;
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Languages;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -25,7 +27,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-import static java.util.Objects.requireNonNull;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -48,10 +49,10 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Run-centric Test Runner panel.
  *
- * Left: list of runs with status, start time, file count, duration.
- * Right: raw output for the selected run (live for active run).
+ * <p>Left: list of runs with status, start time, file count, duration. Right: raw output for the selected run (live for
+ * active run).
  *
- * Thread-safety: public mutating methods marshal updates to the EDT.
+ * <p>Thread-safety: public mutating methods marshal updates to the EDT.
  */
 public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TestRunnerPanel.class);
@@ -88,7 +89,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Limit stored output size to avoid unbounded JSON growth
     private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
 
-    public TestRunnerPanel(TestRunsStore runsStore) { this(null, runsStore); }
+    public TestRunnerPanel(TestRunsStore runsStore) {
+        this(null, runsStore);
+    }
+
     public TestRunnerPanel(Chrome chrome, TestRunsStore runsStore) {
         super(new BorderLayout(0, 0));
         this.chrome = chrome;
@@ -108,9 +112,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
         });
 
-        runListScrollPane = new JScrollPane(runList,
-                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        runListScrollPane = new JScrollPane(
+                runList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         runListScrollPane.setBorder(BorderFactory.createEmptyBorder());
         runListScrollPane.setMinimumSize(new java.awt.Dimension(100, 150));
         runListScrollPane.setPreferredSize(new java.awt.Dimension(100, 150));
@@ -150,9 +153,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         Font mono = new Font(Font.MONOSPACED, Font.PLAIN, base.getSize());
         outputArea.setFont(mono);
 
-        outputScrollPane = new JScrollPane(outputArea,
-                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        outputScrollPane = new JScrollPane(
+                outputArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
         outputScrollPane.setMinimumSize(new java.awt.Dimension(100, 200));
         outputScrollPane.setPreferredSize(new java.awt.Dimension(100, 200));
@@ -181,8 +183,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         if (chrome != null) {
             try {
                 var details = chrome.getProject().loadBuildDetails();
-                runAllButton.setEnabled(details != null && !details.equals(BuildAgent.BuildDetails.EMPTY)
-                        && details.testAllCommand() != null && !details.testAllCommand().isBlank());
+                runAllButton.setEnabled(details != null
+                        && !details.equals(BuildAgent.BuildDetails.EMPTY)
+                        && details.testAllCommand() != null
+                        && !details.testAllCommand().isBlank());
             } catch (Exception ex) {
                 runAllButton.setEnabled(false);
             }
@@ -200,9 +204,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Snapshot the most recent runs as RunRecord objects in display order.
-     * Returns up to 'limit' runs from the top of the list (newest -> oldest).
-     * EDT safety: reads the Swing model on the EDT; if called off-EDT, blocks on invokeAndWait.
+     * Snapshot the most recent runs as RunRecord objects in display order. Returns up to 'limit' runs from the top of
+     * the list (newest -> oldest). EDT safety: reads the Swing model on the EDT; if called off-EDT, blocks on
+     * invokeAndWait.
      */
     public List<RunRecord> snapshotRuns(int limit) {
         if (limit <= 0) {
@@ -241,15 +245,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     run.startedAt.toEpochMilli(),
                     run.completedAt != null ? run.completedAt.toEpochMilli() : null,
                     run.exitCode,
-                    output
-            ));
+                    output));
         }
         return out;
     }
 
     /**
-     * Trigger a background save of the current runs snapshot if a store is present.
-     * Snapshots on the EDT, performs I/O in a daemon thread, and logs exceptions.
+     * Trigger a background save of the current runs snapshot if a store is present. Snapshots on the EDT, performs I/O
+     * in a daemon thread, and logs exceptions.
      */
     private void triggerSave() {
         var store = runsStore;
@@ -272,22 +275,22 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void startSaveThread(TestRunsStore store, List<RunRecord> snapshot) {
-        Thread t = new Thread(() -> {
-            try {
-                store.save(snapshot);
-            } catch (Exception e) {
-                logger.warn("Failed to save test runs: {}", e.getMessage(), e);
-            }
-        }, "TestRunnerPanel-SaveRuns");
+        Thread t = new Thread(
+                () -> {
+                    try {
+                        store.save(snapshot);
+                    } catch (Exception e) {
+                        logger.warn("Failed to save test runs: {}", e.getMessage(), e);
+                    }
+                },
+                "TestRunnerPanel-SaveRuns");
         t.setDaemon(true);
         t.start();
     }
 
     /**
-     * Restore runs into the UI. Preserves order (oldest -> newest),
-     * truncates to maxRuns most recent, rebuilds state, selects newest,
-     * and updates the output area accordingly.
-     * EDT safety: uses runOnEdt to mutate Swing state.
+     * Restore runs into the UI. Preserves order (oldest -> newest), truncates to maxRuns most recent, rebuilds state,
+     * selects newest, and updates the output area accordingly. EDT safety: uses runOnEdt to mutate Swing state.
      */
     public void restoreRuns(List<RunRecord> records) {
         if (records.isEmpty()) {
@@ -423,9 +426,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return id;
     }
 
-    /**
-     * Append output to a specific run.
-     */
+    /** Append output to a specific run. */
     public void appendToRun(String runId, String text) {
         if (text.isEmpty()) return;
         var run = runsById.get(runId);
@@ -452,9 +453,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /**
-     * Append output to the active run. If no active run exists, creates a generic one.
-     */
+    /** Append output to the active run. If no active run exists, creates a generic one. */
     public void appendToActiveRun(String text) {
         if (text.isEmpty()) return;
 
@@ -466,9 +465,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         appendToRun(runId, text);
     }
 
-    /**
-     * Complete the run, setting exit code and completion time.
-     */
+    /** Complete the run, setting exit code and completion time. */
     public void completeRun(String runId, int exitCode, Instant completedAt) {
         runOnEdt(() -> {
             var run = runsById.get(runId);
@@ -519,9 +516,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Sets the maximum number of runs to retain in the list.
-     * If the new cap is lower than the current number of runs, drops the oldest ones.
-     * Also triggers a save so persistence reflects the new cap.
+     * Sets the maximum number of runs to retain in the list. If the new cap is lower than the current number of runs,
+     * drops the oldest ones. Also triggers a save so persistence reflects the new cap.
      */
     public void setMaxRuns(int maxRuns) {
         int newCap = Math.max(1, maxRuns);
@@ -555,9 +551,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /**
-     * Clear all runs and output.
-     */
+    /** Clear all runs and output. */
     public void clearAllRuns() {
         runOnEdt(() -> {
             runsById.clear();
@@ -635,8 +629,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             chrome.toolError("Failed to load build details: " + e.getMessage(), "Run All Tests");
             return;
         }
-        if (details == null || details.equals(BuildAgent.BuildDetails.EMPTY) || details.testAllCommand().isBlank()) {
-            chrome.toolError("No 'Test All Command' configured. Open Settings ▸ Build to configure it.", "Run All Tests");
+        if (details == null
+                || details.equals(BuildAgent.BuildDetails.EMPTY)
+                || details.testAllCommand().isBlank()) {
+            chrome.toolError(
+                    "No 'Test All Command' configured. Open Settings ▸ Build to configure it.", "Run All Tests");
             return;
         }
 
@@ -707,8 +704,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Compatibility API for legacy tests: update a TestEntry's status and timestamps.
-     * This panel is now run-centric, but tests still validate timestamp behavior on TestEntry.
+     * Compatibility API for legacy tests: update a TestEntry's status and timestamps. This panel is now run-centric,
+     * but tests still validate timestamp behavior on TestEntry.
      */
     public void updateTestStatus(TestEntry entry, TestEntry.Status status) {
         Instant now = Instant.now();
@@ -727,8 +724,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Factory for tests: ensures TestEntryRenderer is referenced by production code
-     * so Error Prone does not flag it as UnusedNestedClass.
+     * Factory for tests: ensures TestEntryRenderer is referenced by production code so Error Prone does not flag it as
+     * UnusedNestedClass.
      */
     public static DefaultListCellRenderer newTestEntryRendererForTests() {
         return new TestEntryRenderer();
@@ -741,7 +738,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final class RunEntry {
         private static final int EXIT_CODE_UNKNOWN = Integer.MIN_VALUE;
 
-        private enum RunState { QUEUED, RUNNING, COMPLETED }
+        private enum RunState {
+            QUEUED,
+            RUNNING,
+            COMPLETED
+        }
 
         private final String id;
         private final int fileCount;
@@ -813,16 +814,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         @Override
-        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                     boolean isSelected, boolean cellHasFocus) {
+        public Component getListCellRendererComponent(
+                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (!(value instanceof RunEntry run)) {
                 return label;
             }
 
-            String icon = run.isQueued()
-                    ? "... "
-                    : (run.isRunning() ? "⟳ " : (run.isSuccess() ? "✓ " : "✗ "));
+            String icon = run.isQueued() ? "... " : (run.isRunning() ? "⟳ " : (run.isSuccess() ? "✓ " : "✗ "));
             // Start time HH:mm:ss (local tz)
             String timeText = TIME_FORMAT.format(run.startedAt.atZone(ZoneId.systemDefault()));
             // Files
@@ -838,8 +837,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 Color statusColor = run.isQueued()
                         ? new Color(170, 170, 170)
                         : (run.isRunning()
-                            ? new Color(100, 150, 255)
-                            : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100)));
+                                ? new Color(100, 150, 255)
+                                : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100)));
                 label.setForeground(statusColor);
             }
 
@@ -848,9 +847,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Compatibility renderer for legacy tests that expect TestRunnerPanel$TestEntryRenderer.
-     * Renders TestEntry display name with a timestamp suffix and sets tooltip to ISO-8601 instant.
-     * Prefers completedAt; falls back to startedAt; omits time if both are null.
+     * Compatibility renderer for legacy tests that expect TestRunnerPanel$TestEntryRenderer. Renders TestEntry display
+     * name with a timestamp suffix and sets tooltip to ISO-8601 instant. Prefers completedAt; falls back to startedAt;
+     * omits time if both are null.
      */
     private static class TestEntryRenderer extends DefaultListCellRenderer {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -914,5 +913,4 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             super.replace(offset, length, text, attrs);
         }
     }
-
 }

@@ -12,70 +12,61 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Parses streaming test output from common tools (Gradle, Maven/Surefire, JUnit) and emits events
- * when tests start and complete, along with the accumulated output for each test.
+ * Parses streaming test output from common tools (Gradle, Maven/Surefire, JUnit) and emits events when tests start and
+ * complete, along with the accumulated output for each test.
  *
- * Additionally, emits streaming output via {@link TestOutputListener#onTestOutput(String, String)}
- * for incremental UI updates.
+ * <p>Additionally, emits streaming output via {@link TestOutputListener#onTestOutput(String, String)} for incremental
+ * UI updates.
  *
- * Recognized patterns:
- * - Gradle (JUnit Platform): "ClassName > methodName STARTED" and "... PASSED|FAILED|SKIPPED"
- * - Maven Surefire:
- *      "[INFO] Running com.example.MyTest"
- *      "[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0 - in com.example.MyTest"
+ * <p>Recognized patterns: - Gradle (JUnit Platform): "ClassName > methodName STARTED" and "... PASSED|FAILED|SKIPPED" -
+ * Maven Surefire: "[INFO] Running com.example.MyTest" "[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0 - in
+ * com.example.MyTest"
  *
- * Note on SKIPPED: TestEntry.Status has no SKIPPED; SKIPPED is mapped to PASSED.
+ * <p>Note on SKIPPED: TestEntry.Status has no SKIPPED; SKIPPED is mapped to PASSED.
  */
 public final class TestOutputParser {
     private static final Logger logger = LogManager.getLogger(TestOutputParser.class);
 
     // Gradle/JUnit patterns
-    private static final Pattern P_GRADLE_METHOD_STARTED =
-            Pattern.compile("^\\s*(.+) > (.+) STARTED\\s*$");
+    private static final Pattern P_GRADLE_METHOD_STARTED = Pattern.compile("^\\s*(.+) > (.+) STARTED\\s*$");
     private static final Pattern P_GRADLE_METHOD_RESULT =
             Pattern.compile("^\\s*(.+) > (.+) (PASSED|FAILED|SKIPPED)\\s*$");
 
     // Maven/Surefire patterns
-    private static final Pattern P_MAVEN_RUNNING =
-            Pattern.compile("^\\s*(?:\\[INFO\\]\\s*)?Running\\s+(.+)\\s*$");
-    private static final Pattern P_MAVEN_CLASS_SUMMARY =
-            Pattern.compile(
-                    "^\\s*(?:\\[INFO\\]\\s*)?Tests run: (\\d+), Failures: (\\d+), Errors: (\\d+), Skipped: (\\d+)(?:, Time elapsed: [^\\s]+(?: s)?)?(?: - in (.+))?\\s*$");
+    private static final Pattern P_MAVEN_RUNNING = Pattern.compile("^\\s*(?:\\[INFO\\]\\s*)?Running\\s+(.+)\\s*$");
+    private static final Pattern P_MAVEN_CLASS_SUMMARY = Pattern.compile(
+            "^\\s*(?:\\[INFO\\]\\s*)?Tests run: (\\d+), Failures: (\\d+), Errors: (\\d+), Skipped: (\\d+)(?:, Time elapsed: [^\\s]+(?: s)?)?(?: - in (.+))?\\s*$");
     private static final Pattern P_LINE_SEP = Pattern.compile("\\R");
 
     private final TestOutputListener listener;
 
     /**
-     * Active test buffers keyed by test name; insertion order preserved.
-     * Tests may be interleaved, so we keep separate buffers.
+     * Active test buffers keyed by test name; insertion order preserved. Tests may be interleaved, so we keep separate
+     * buffers.
      */
     private final Map<String, StringBuilder> activeBuffers = new LinkedHashMap<>();
 
     /**
-     * Stack of started tests for attributing incidental output to the "current" test
-     * (the most recently started that has not yet completed).
+     * Stack of started tests for attributing incidental output to the "current" test (the most recently started that
+     * has not yet completed).
      */
     private final Deque<String> startOrder = new ArrayDeque<>();
 
     /**
-     * Tracks the most recent Maven "Running ClassName" to associate with subsequent class summaries
-     * that do not explicitly include " - in ClassName".
+     * Tracks the most recent Maven "Running ClassName" to associate with subsequent class summaries that do not
+     * explicitly include " - in ClassName".
      */
     @Nullable
     private String lastMavenRunningClass;
 
-    /**
-     * A place to hold output when no test is active. We currently do not attach this to any test.
-     */
+    /** A place to hold output when no test is active. We currently do not attach this to any test. */
     private final StringBuilder globalBuffer = new StringBuilder();
 
     public TestOutputParser(TestOutputListener listener) {
         this.listener = listener;
     }
 
-    /**
-     * Processes an output chunk, splitting into lines (preserving line terminators) and parsing each.
-     */
+    /** Processes an output chunk, splitting into lines (preserving line terminators) and parsing each. */
     public void processChunk(String chunk) {
         // Iterate lines preserving line separators using a matcher, avoiding String.split pitfalls
         var matcher = P_LINE_SEP.matcher(chunk);
@@ -91,8 +82,8 @@ public final class TestOutputParser {
     }
 
     /**
-     * Processes a single output line, updating parser state and emitting callbacks as needed.
-     * The line may include its trailing newline characters.
+     * Processes a single output line, updating parser state and emitting callbacks as needed. The line may include its
+     * trailing newline characters.
      */
     public void processLine(String line) {
 
@@ -136,7 +127,9 @@ public final class TestOutputParser {
         if (m.matches()) {
             var failures = parseInt(m.group(2));
             var errors = parseInt(m.group(3));
-            var className = m.group(5) != null ? m.group(5).trim() : (lastMavenRunningClass != null ? lastMavenRunningClass : "maven-suite");
+            var className = m.group(5) != null
+                    ? m.group(5).trim()
+                    : (lastMavenRunningClass != null ? lastMavenRunningClass : "maven-suite");
 
             // If we never saw Running, still emit start so listeners see the test.
             startTestIfNew(className);
@@ -158,9 +151,7 @@ public final class TestOutputParser {
         }
     }
 
-    /**
-     * Clears parser state. Does not emit completion callbacks for active tests.
-     */
+    /** Clears parser state. Does not emit completion callbacks for active tests. */
     public void reset() {
         activeBuffers.clear();
         startOrder.clear();

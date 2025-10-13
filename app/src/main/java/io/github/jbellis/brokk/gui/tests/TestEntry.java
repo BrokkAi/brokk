@@ -4,8 +4,8 @@ import java.time.Instant;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Model for a single test file/class in the test runner.
- * Tracks the test's path, display name, accumulated output, and execution status.
+ * Model for a single test file/class in the test runner. Tracks the test's path, display name, accumulated output, and
+ * execution status.
  */
 public class TestEntry {
     public enum Status {

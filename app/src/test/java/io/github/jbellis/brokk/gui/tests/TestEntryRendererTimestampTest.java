@@ -7,15 +7,15 @@ import java.lang.reflect.Field;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import javax.swing.JList;
-import javax.swing.JLabel;
 import javax.swing.DefaultListCellRenderer;
+import javax.swing.JLabel;
+import javax.swing.JList;
 import org.junit.jupiter.api.Test;
 
 /**
  * Tests for TestRunnerPanel's list cell rendering of timestamps.
  *
- * Uses reflection to instantiate the private nested TestEntryRenderer and to set fixed timestamps on TestEntry.
+ * <p>Uses reflection to instantiate the private nested TestEntryRenderer and to set fixed timestamps on TestEntry.
  */
 public class TestEntryRendererTimestampTest {
 
@@ -54,8 +54,7 @@ public class TestEntryRendererTimestampTest {
         var label = (JLabel) comp;
 
         // Assert: label text contains display name and HH:mm:ss of COMPLETED, tooltip is ISO instant of COMPLETED
-        String expectedTime = DateTimeFormatter.ofPattern("HH:mm:ss")
-                .format(completed.atZone(ZoneId.systemDefault()));
+        String expectedTime = DateTimeFormatter.ofPattern("HH:mm:ss").format(completed.atZone(ZoneId.systemDefault()));
 
         assertTrue(label.getText().contains("MyTest"), "Label text should include display name");
         assertTrue(label.getText().contains(expectedTime), "Label should include completed time in HH:mm:ss");
@@ -79,8 +78,7 @@ public class TestEntryRendererTimestampTest {
         var label = (JLabel) comp;
 
         // Assert: label contains started HH:mm:ss and tooltip is started ISO instant
-        String expectedTime = DateTimeFormatter.ofPattern("HH:mm:ss")
-                .format(started.atZone(ZoneId.systemDefault()));
+        String expectedTime = DateTimeFormatter.ofPattern("HH:mm:ss").format(started.atZone(ZoneId.systemDefault()));
         assertTrue(label.getText().contains("OtherTest"), "Label text should include display name");
         assertTrue(label.getText().contains(expectedTime), "Label should include started time in HH:mm:ss");
         String expectedTooltip = DateTimeFormatter.ISO_INSTANT.format(started);

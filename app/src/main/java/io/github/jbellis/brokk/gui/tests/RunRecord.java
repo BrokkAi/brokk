@@ -29,7 +29,6 @@ public record RunRecord(
                 startedAt.toEpochMilli(),
                 completedAt == null ? null : completedAt.toEpochMilli(),
                 exitCode,
-                output
-        );
+                output);
     }
 }
