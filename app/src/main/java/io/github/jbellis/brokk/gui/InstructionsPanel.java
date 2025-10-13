@@ -905,16 +905,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
         titledContainer.setTransferHandler(transferHandler);
         var dropTargetListener = new DropTargetAdapter() {
-            private boolean canImport(DropTargetDragEvent e) {
-                // The file drop handler only cares about the file list flavor.
-                return e.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
-            }
-
             @Override
             public void dragEnter(DropTargetDragEvent e) {
-                if (canImport(e)) {
+                var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
+                if (transferHandler.canImport(support)) {
                     titledContainer.setDragOver(true);
-                    e.acceptDrag(e.getDropAction());
+                    e.acceptDrag(DnDConstants.ACTION_LINK);
                 } else {
                     e.rejectDrag();
                 }
@@ -922,8 +918,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             @Override
             public void dragOver(DropTargetDragEvent e) {
-                if (canImport(e)) {
-                    e.acceptDrag(e.getDropAction());
+                var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
+                if (transferHandler.canImport(support)) {
+                    e.acceptDrag(DnDConstants.ACTION_LINK);
                 } else {
                     titledContainer.setDragOver(false);
                     e.rejectDrag();
