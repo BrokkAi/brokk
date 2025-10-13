@@ -162,9 +162,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     FontMetrics fm = g2.getFontMetrics();
                     int textWidth = fm.stringWidth(text);
                     g2.drawString(
-                            text,
-                            (getWidth() - textWidth) / 2,
-                            (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
+                            text, (getWidth() - textWidth) / 2, (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
                 } finally {
                     g2.dispose();
                 }
@@ -910,7 +908,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
                 if (transferHandler.canImport(support)) {
                     titledContainer.setDragOver(true);
-                    e.acceptDrag(DnDConstants.ACTION_LINK);
+                    e.acceptDrag(DnDConstants.ACTION_COPY);
                 } else {
                     e.rejectDrag();
                 }
@@ -920,7 +918,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             public void dragOver(DropTargetDragEvent e) {
                 var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
                 if (transferHandler.canImport(support)) {
-                    e.acceptDrag(DnDConstants.ACTION_LINK);
+                    e.acceptDrag(DnDConstants.ACTION_COPY);
                 } else {
                     titledContainer.setDragOver(false);
                     e.rejectDrag();
