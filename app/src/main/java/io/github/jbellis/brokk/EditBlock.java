@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -59,10 +58,7 @@ public class EditBlock {
         IO_ERROR
     }
 
-    public record EditResult(
-            Map<ProjectFile, String> originalContents,
-            List<FailedBlock> failedBlocks,
-            Set<ProjectFile> createdFiles) {
+    public record EditResult(Map<ProjectFile, String> originalContents, List<FailedBlock> failedBlocks) {
         public boolean hadSuccessfulEdits() {
             return !originalContents.isEmpty();
         }
@@ -116,7 +112,6 @@ public class EditBlock {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
-        Set<ProjectFile> newFiles = new HashSet<>();
         // Track original file contents before any changes
         Map<ProjectFile, String> originalContentsThisBatch = new HashMap<>();
 
@@ -143,7 +138,6 @@ public class EditBlock {
                 file = contextManager.toFile(rawFileName);
                 try {
                     file.write(""); // Using ProjectFile.write handles directory creation internally
-                    newFiles.add(file);
                     logger.debug("Pre-created empty file: {}", file);
                 } catch (IOException ioException) {
                     io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
@@ -230,7 +224,7 @@ public class EditBlock {
         }
 
         originalContentsThisBatch.keySet().retainAll(succeeded.values());
-        return new EditResult(originalContentsThisBatch, failed, newFiles);
+        return new EditResult(originalContentsThisBatch, failed);
     }
 
     /**

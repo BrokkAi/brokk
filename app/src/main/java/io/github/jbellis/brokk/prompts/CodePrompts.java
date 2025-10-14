@@ -86,10 +86,7 @@ public abstract class CodePrompts {
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(
                 ctx.getContextManager().getProject(),
-                ctx
-                        .getEditableFragments()
-                        .flatMap(f -> f.files().stream())
-                        .collect(Collectors.toSet()));
+                ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
     public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {

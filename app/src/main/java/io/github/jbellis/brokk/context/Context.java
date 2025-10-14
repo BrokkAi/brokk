@@ -547,8 +547,8 @@ public class Context {
     }
 
     /**
-     * Returns the processed output text from the latest build failure fragment in this Context.
-     * Empty string if there is no build failure recorded.
+     * Returns the processed output text from the latest build failure fragment in this Context. Empty string if there
+     * is no build failure recorded.
      */
     public String getBuildError() {
         var desc = ContextFragment.BUILD_RESULTS.description();
@@ -561,10 +561,9 @@ public class Context {
     }
 
     /**
-     * Returns a new Context reflecting the latest build result.
-     * Behavior mirrors ContextManager.updateBuildFragment:
-     * - Always clears previous build fragments (legacy BUILD_LOG and the new BUILD_RESULTS StringFragment).
-     * - Adds a new "Latest Build Results" StringFragment only on failure; no fragment on success.
+     * Returns a new Context reflecting the latest build result. Behavior mirrors ContextManager.updateBuildFragment: -
+     * Always clears previous build fragments (legacy BUILD_LOG and the new BUILD_RESULTS StringFragment). - Adds a new
+     * "Latest Build Results" StringFragment only on failure; no fragment on success.
      */
     public Context withBuildResult(boolean success, String processedOutput) {
         var desc = ContextFragment.BUILD_RESULTS.description();

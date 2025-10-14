@@ -35,12 +35,12 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -83,13 +83,8 @@ public class CodeAgent {
         DEFER_BUILD
     }
 
-    /**
-     * Implicitly includes the DEFER_BUILD option.
-     */
-    public TaskResult runSingleFileEdit(
-            ProjectFile file,
-            String instructions,
-            List<ChatMessage> readOnlyMessages) {
+    /** Implicitly includes the DEFER_BUILD option. */
+    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager, null)
                 .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
 
@@ -147,9 +142,7 @@ public class CodeAgent {
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                ctx,
-                userInput.trim(),
-                CodePrompts.instance.codeReminder(contextManager.getService(), model));
+                ctx, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
@@ -162,7 +155,6 @@ public class CodeAgent {
                 buildError,
                 changedFiles,
                 originalFileContents,
-                Collections.emptySet(),
                 Collections.emptyMap());
 
         while (true) {
@@ -242,7 +234,6 @@ public class CodeAgent {
             }
 
             // APPLY PHASE applies blocks
-            var prevCreatedFiles = new HashSet<>(es.createdFilesToStage());
             var applyOutcome = applyPhase(cs, es, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
@@ -257,18 +248,22 @@ public class CodeAgent {
             es = applyOutcome.es();
 
             // Incorporate any newly created files into the live context immediately
-            var justCreated = new HashSet<>(es.createdFilesToStage());
-            justCreated.removeAll(prevCreatedFiles);
-            if (!justCreated.isEmpty()) {
+            var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
+                    .flatMap(f -> f.files().stream())
+                    .collect(Collectors.toSet());
+            var newlyCreated = es.changedFiles().stream()
+                    .filter(pf -> !filesInContext.contains(pf))
+                    .collect(Collectors.toSet());
+            if (!newlyCreated.isEmpty()) {
                 // Stage any files that were created during this task, regardless of stop reason
                 try {
-                    contextManager.getRepo().add(justCreated);
+                    contextManager.getRepo().add(newlyCreated);
                     contextManager.getRepo().invalidateCaches();
                 } catch (GitAPIException e) {
                     io.toolError("Failed to add newly created files to git: " + e.getMessage());
                 }
 
-                var newFrags = justCreated.stream()
+                var newFrags = newlyCreated.stream()
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
                 context = context.addPathFragments(newFrags);
@@ -282,9 +277,9 @@ public class CodeAgent {
                 if (msgsThisTurn > 2) {
                     var srb = es.toSearchReplaceBlocks();
                     var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                                      + srb.stream()
-                                              .map(EditBlock.SearchReplaceBlock::repr)
-                                              .collect(Collectors.joining("\n"));
+                            + srb.stream()
+                                    .map(EditBlock.SearchReplaceBlock::repr)
+                                    .collect(Collectors.joining("\n"));
                     cs = cs.replaceCurrentTurnMessages(summaryText);
                 }
             }
@@ -309,8 +304,8 @@ public class CodeAgent {
             if (options.contains(Option.DEFER_BUILD)) {
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
-                        ? "Edits applied. Build/check deferred."
-                        : "No edits to apply. Build/check deferred.");
+                                ? "Edits applied. Build/check deferred."
+                                : "No edits to apply. Build/check deferred.");
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
                 break;
             }
@@ -340,8 +335,8 @@ public class CodeAgent {
 
         // create the Result for history
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                                        ? userInput
-                                        : userInput + " [" + stopDetails.reason().name() + "]";
+                ? userInput
+                : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
@@ -717,8 +712,6 @@ public class CodeAgent {
         try {
             editResult = applyBlocksAndHandleErrors(es.pendingBlocks());
 
-            var created = editResult.createdFiles();
-
             int attemptedBlockCount = es.pendingBlocks().size();
             var failedBlocks = editResult.failedBlocks();
             if (metrics != null) {
@@ -757,8 +750,7 @@ public class CodeAgent {
                             nextPendingBlocks,
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
-                            editResult.originalContents(),
-                            created);
+                            editResult.originalContents());
                     report("Failed to apply %s block(s), asking LLM to retry".formatted(failedBlocks.size()));
                     return new Step.Retry(csForStep, esForStep);
                 }
@@ -771,8 +763,7 @@ public class CodeAgent {
                         nextPendingBlocks,
                         updatedConsecutiveApplyFailures,
                         newBlocksAppliedWithoutBuild,
-                        editResult.originalContents(),
-                        created);
+                        editResult.originalContents());
                 return new Step.Continue(csForStep, esForStep);
             }
         } catch (EditStopException e) {
@@ -1181,35 +1172,8 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
-            Set<ProjectFile> createdFilesToStage,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
 
-        /**
-         * Backward-compatible constructor (without createdFilesToStage).
-         * Delegates to the canonical constructor with an empty created-files set.
-         */
-        EditState(
-                List<EditBlock.SearchReplaceBlock> pendingBlocks,
-                int consecutiveParseFailures,
-                int consecutiveApplyFailures,
-                int consecutiveBuildFailures,
-                int blocksAppliedWithoutBuild,
-                String lastBuildError,
-                Set<ProjectFile> changedFiles,
-                Map<ProjectFile, String> originalFileContents,
-                Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
-            this(
-                    pendingBlocks,
-                    consecutiveParseFailures,
-                    consecutiveApplyFailures,
-                    consecutiveBuildFailures,
-                    blocksAppliedWithoutBuild,
-                    lastBuildError,
-                    changedFiles,
-                    originalFileContents,
-                    Collections.emptySet(),
-                    javaLintDiagnostics);
-        }
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
@@ -1221,7 +1185,6 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    createdFilesToStage,
                     javaLintDiagnostics);
         }
 
@@ -1239,7 +1202,6 @@ public class CodeAgent {
                     newBuildError,
                     changedFiles,
                     Map.of(), // Clear per-turn baseline
-                    createdFilesToStage,
                     javaLintDiagnostics);
         }
 
@@ -1248,22 +1210,16 @@ public class CodeAgent {
                 List<EditBlock.SearchReplaceBlock> newPendingBlocks,
                 int newApplyFailures,
                 int newBlocksApplied,
-                Map<ProjectFile, String> newOriginalContents,
-                Set<ProjectFile> createdFromApply) {
+                Map<ProjectFile, String> newOriginalContents) {
             // Merge affected files from this apply into the running changedFiles set.
             var mergedChangedFiles = new HashSet<>(changedFiles);
             mergedChangedFiles.addAll(newOriginalContents.keySet());
-            mergedChangedFiles.addAll(createdFromApply);
 
             // Merge per-turn original contents, preserving the earliest snapshot for each file
             var mergedOriginals = new HashMap<>(originalFileContents);
             for (var e : newOriginalContents.entrySet()) {
                 mergedOriginals.putIfAbsent(e.getKey(), e.getValue());
             }
-
-            // Accumulate created files for end-of-task staging
-            var mergedCreated = new HashSet<>(createdFilesToStage);
-            mergedCreated.addAll(createdFromApply);
 
             return new EditState(
                     newPendingBlocks,
@@ -1274,7 +1230,6 @@ public class CodeAgent {
                     lastBuildError,
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
-                    Collections.unmodifiableSet(mergedCreated),
                     javaLintDiagnostics);
         }
 
@@ -1288,7 +1243,6 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    createdFilesToStage,
                     diags);
         }
 

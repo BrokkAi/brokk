@@ -24,14 +24,12 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
-import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.text.StringEscapeUtils;
@@ -474,10 +472,7 @@ public final class MergeOneFile {
                 "\n\nRemember to use the BRK_CONFLICT_BEGIN_[n]..BRK_CONFLICT_END_[n] markers to simplify your SEARCH/REPLACE blocks!"
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
         var agent = new CodeAgent(cm, codeModel, io);
-        var result = agent.runSingleFileEdit(
-                file,
-                instructions,
-                requireNonNull(currentSessionMessages));
+        var result = agent.runSingleFileEdit(file, instructions, requireNonNull(currentSessionMessages));
         this.lastCodeAgentResult = result;
         return String.valueOf(result.stopDetails());
     }

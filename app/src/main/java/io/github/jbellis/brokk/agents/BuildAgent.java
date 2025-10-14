@@ -22,8 +22,8 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
@@ -402,9 +402,7 @@ public class BuildAgent {
         public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
     }
 
-    /**
-     * Determine the best verification command using the provided Context (no reliance on CM.topContext()).
-     */
+    /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
     public static @Nullable String determineVerificationCommand(Context ctx) {
         var cm = ctx.getContextManager();
 
@@ -431,8 +429,7 @@ public class BuildAgent {
                 ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = ctx
-                .virtualFragments()
+        var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
@@ -458,9 +455,7 @@ public class BuildAgent {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    /**
-     * Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload.
-     */
+    /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
     public static @Nullable String determineVerificationCommand(IContextManager cm) {
         return determineVerificationCommand(cm.topContext());
     }
@@ -593,8 +588,8 @@ public class BuildAgent {
     }
 
     /**
-     * Context-based overload that performs build/check and returns an updated Context with the build results.
-     * No pushes are performed here; callers decide when to persist.
+     * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
+     * are performed here; callers decide when to persist.
      */
     public static Context runVerification(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
@@ -681,7 +676,7 @@ public class BuildAgent {
         }
         throw new IllegalArgumentException("Unable to parse git repo url " + url);
     }
-    
+
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
     private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
             throws InterruptedException {
