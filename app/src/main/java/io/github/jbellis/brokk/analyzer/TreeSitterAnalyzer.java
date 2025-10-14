@@ -776,7 +776,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
-        return withReadLock(() -> {
+        return withStateReadLock(() -> {
             final var cuOpt = getDefinition(fqName);
             if (cuOpt.isPresent()) {
                 var skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
@@ -908,17 +908,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
-        if (codeUnit.isFunction()) {
-            Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
-            if (sources.isEmpty()) {
-                return Optional.empty();
+        return withStateReadLock(() -> {
+            if (codeUnit.isFunction()) {
+                Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
+                if (sources.isEmpty()) {
+                    return Optional.<String>empty();
+                }
+                return Optional.of(String.join("\n\n", sources));
+            } else if (codeUnit.isClass()) {
+                return getClassSource(codeUnit.fqName(), includeComments);
+            } else {
+                return Optional.<String>empty(); // Fields and other types not supported by default
             }
-            return Optional.of(String.join("\n\n", sources));
-        } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName(), includeComments);
-        } else {
-            return Optional.empty(); // Fields and other types not supported by default
-        }
+        });
     }
 
     @Override
@@ -3083,21 +3085,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
-        if (range.isEmpty()) return Optional.empty();
+        return withStateReadLock(() -> {
+            if (range.isEmpty()) return Optional.<CodeUnit>empty();
 
-        CodeUnit best = null;
-        int bestDepth = -1;
+            CodeUnit best = null;
+            int bestDepth = -1;
 
-        // Start from top-level declarations to ensure deterministic traversal order
-        for (var top : topLevelCodeUnitsOf(file)) {
-            var res = findDeepestEnclosing(top, range, 0);
-            if (res != null && res.depth > bestDepth) {
-                best = res.cu;
-                bestDepth = res.depth;
+            // Start from top-level declarations to ensure deterministic traversal order
+            for (var top : topLevelCodeUnitsOf(file)) {
+                var res = findDeepestEnclosing(top, range, 0);
+                if (res != null && res.depth > bestDepth) {
+                    best = res.cu;
+                    bestDepth = res.depth;
+                }
             }
-        }
 
-        return Optional.ofNullable(best);
+            return Optional.ofNullable(best);
+        });
     }
 
     private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
