@@ -199,4 +199,41 @@ class JavaAnalyzerUpdateTest {
         assertEquals(0, symbolNotFound.get(), "Observed SymbolNotFoundException during concurrent access");
         assertEquals(0, anomalies.get(), "Observed inconsistent snapshot results during concurrent access");
     }
+
+    @Test
+    void ephemeralSnapshotsNotRetainedAfterUpdate() throws Exception {
+        // Initially, no AST snapshots should be retained.
+        assertEquals(0, analyzer.cacheSize(), "No AST cache entries should be retained after construction");
+
+        // Modify file and perform explicit update
+        UpdateTestUtil.writeFile(
+                project.getRoot(),
+                "A.java",
+                """
+        public class A {
+          public int method1() { return 1; }
+          public int method2() { return 2; }
+        }
+        """);
+        var maybeFile = analyzer.getFileFor("A");
+        assertTrue(maybeFile.isPresent());
+        analyzer.update(Set.of(maybeFile.get()));
+
+        // After update the AST cache should still not retain parsed trees
+        assertEquals(0, analyzer.cacheSize(), "No AST cache entries should be retained after update");
+
+        // Trigger mtime-based detection
+        UpdateTestUtil.writeFile(
+                project.getRoot(),
+                "A.java",
+                """
+        public class A {
+          public int method1() { return 1; }
+        }
+        """);
+        analyzer.update();
+
+        // Still no retained ASTs
+        assertEquals(0, analyzer.cacheSize(), "No AST cache entries should be retained after automatic detection");
+    }
 }

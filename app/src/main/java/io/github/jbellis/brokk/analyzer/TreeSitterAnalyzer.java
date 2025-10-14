@@ -157,9 +157,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
-            List<String> importStatements, // Added for module-level imports
-            String fileContent // Snapshot of source content corresponding to the analyzed ranges
-            ) {}
+            List<String> importStatements) {}
 
     // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
     private record ConstructionTiming(
@@ -859,12 +857,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             int endByte = range.endByte();
 
             var srcOpt = readStableFileContent(cu.source(), endByte, 200, 5);
-            if (srcOpt.isEmpty()) {
-                return Optional.empty();
+            String src;
+            if (srcOpt.isPresent()) {
+                src = srcOpt.get();
+            } else {
+                try {
+                    byte[] raw = readFileBytes(cu.source(), null);
+                    raw = TextCanonicalizer.stripUtf8Bom(raw);
+                    src = new String(raw, StandardCharsets.UTF_8);
+                } catch (UncheckedIOException uioe) {
+                    log.warn(
+                            "Fallback read failed for {} while extracting class source for '{}': {}",
+                            cu.source(),
+                            fqName,
+                            uioe.getMessage());
+                    return Optional.empty();
+                }
             }
-            String src = srcOpt.get();
 
             var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
+            if (extractedSource.isBlank()) {
+                // Return empty if nothing could be extracted even after fallback
+                return Optional.empty();
+            }
             return Optional.of(extractedSource);
         });
     }
@@ -889,15 +904,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     rangesForOverloads.stream().mapToInt(Range::endByte).max().orElse(0);
 
             var fileContentOpt = readStableFileContent(cu.source(), maxEndByte, 200, 5);
-            if (fileContentOpt.isEmpty()) {
-                log.warn(
-                        "Could not read stable source for CU {} (fqName {}): {}",
-                        cu,
-                        fqName,
-                        "unreadable or truncated");
-                return Collections.emptySet();
+            String fileContent;
+            if (fileContentOpt.isPresent()) {
+                fileContent = fileContentOpt.get();
+            } else {
+                try {
+                    byte[] raw = readFileBytes(cu.source(), null);
+                    raw = TextCanonicalizer.stripUtf8Bom(raw);
+                    fileContent = new String(raw, StandardCharsets.UTF_8);
+                } catch (UncheckedIOException uioe) {
+                    log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, uioe.getMessage());
+                    return Collections.emptySet();
+                }
             }
-            String fileContent = fileContentOpt.get();
 
             var methodSources = new LinkedHashSet<String>();
             for (Range range : rangesForOverloads) {
@@ -1115,8 +1134,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
             timing.parseStageLastEndNanos().accumulateAndGet(__parseEnd, Math::max);
         }
-        // Cache the parsed tree for later use to avoid redundant parsing
-        parsedTreeCache.put(file, tree);
+        // Do not cache parsed trees; keep snapshots ephemeral for this analysis only
         TSNode rootNode = tree.getRootNode();
         long __processStart = System.nanoTime();
         if (rootNode.isNull()) {
@@ -1127,7 +1145,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), src);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of());
         }
         // Log root node type
         String rootNodeType = rootNode.getType();
@@ -1606,8 +1624,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 Collections.unmodifiableList(localTopLevelCUs),
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
-                Collections.unmodifiableList(localImportStatements),
-                src);
+                Collections.unmodifiableList(localImportStatements));
     }
 
     /* ---------- Signature Building Logic ---------- */
@@ -2833,8 +2850,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 })
                 .collect(Collectors.toSet());
 
-        // Snapshot known files (those we've analyzed/cached)
-        Set<ProjectFile> knownFiles = withReadLock(() -> new HashSet<>(parsedTreeCache.keySet()));
+        // Snapshot known files based on analyzed file state (ASTs are ephemeral and not retained)
+        Set<ProjectFile> knownFiles = withReadLock(() -> new HashSet<>(fileState.keySet()));
 
         Set<ProjectFile> changed = new HashSet<>();
         var nowInstant = Instant.now();
@@ -2994,11 +3011,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         });
 
         // Mirror per-file state
-        fileState.put(
-                pf,
-                new FileProperties(
-                        analysisResult.topLevelCUs(), parsedTreeCache.get(pf), analysisResult.importStatements()));
-        // No long-lived snapshot retention; analysisResult.fileContent() is ephemeral and eligible for GC post-ingest.
+        fileState.put(pf, new FileProperties(analysisResult.topLevelCUs(), null, analysisResult.importStatements()));
+        // No long-lived snapshot retention; all analysis-local state is eligible for GC post-ingest.
     }
 
     /* ---------- comment detection for source expansion ---------- */
