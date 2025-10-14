@@ -28,6 +28,7 @@ public class SplitButton extends JButton {
         setOpaque(false);
         putClientProperty("JButton.buttonType", "borderless");
         setBorder(null);
+        setHorizontalTextPosition(SwingConstants.RIGHT);
 
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
@@ -89,7 +90,6 @@ public class SplitButton extends JButton {
             // FIXME o3 and I weren't able to figure out how to center
             // the text correctly, this is the best we came up with
             // (combined with the extra space in the " Ask" label)
-            m.left += 2;
             m.right += ARROW_WIDTH;
             return m;
         }
