@@ -261,13 +261,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = CompletableFuture
-                        .supplyAsync(() -> {
-                            totalFilesAttempted.incrementAndGet();
-                            return readFileBytes(pf, timing);
-                        }, ioExecutor)
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
+                                () -> {
+                                    totalFilesAttempted.incrementAndGet();
+                                    return readFileBytes(pf, timing);
+                                },
+                                ioExecutor)
                         .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
-                        .thenAcceptAsync(analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
+                        .thenAcceptAsync(
+                                analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
                         .whenComplete((ignored, ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
