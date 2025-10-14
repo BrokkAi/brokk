@@ -8,10 +8,10 @@ import java.io.IOException;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
-class JavaTreeSitterAnalyzerUpdateTest {
+class JavaAnalyzerUpdateTest {
 
     private TestProject project;
-    private JavaTreeSitterAnalyzer analyzer;
+    private JavaAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -27,7 +27,7 @@ class JavaTreeSitterAnalyzerUpdateTest {
         """);
 
         project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
-        analyzer = new JavaTreeSitterAnalyzer(project);
+        analyzer = new JavaAnalyzer(project);
     }
 
     @AfterEach

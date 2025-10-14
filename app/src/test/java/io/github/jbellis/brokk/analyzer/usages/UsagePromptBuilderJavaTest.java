@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import java.io.IOException;
@@ -25,7 +25,7 @@ public class UsagePromptBuilderJavaTest {
     @BeforeAll
     public static void setup() throws IOException {
         testProject = createTestProject("testcode-java");
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
     }
 
     @AfterAll

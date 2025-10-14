@@ -44,7 +44,7 @@ public class JavaLanguage implements Language {
 
     @Override
     public IAnalyzer createAnalyzer(IProject project) {
-        return new JavaTreeSitterAnalyzer(project);
+        return new JavaAnalyzer(project);
     }
 
     @Override

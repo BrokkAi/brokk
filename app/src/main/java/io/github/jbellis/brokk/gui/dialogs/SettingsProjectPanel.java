@@ -1809,7 +1809,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Data Retention Tab
         if (dataRetentionPanelInner != null) dataRetentionPanelInner.applyPolicy();
 
-        /* Persist any analyzer-specific settings (currently only the Java JDK home). */
+        /* Persist any analyzer-specific settings for languages that provide them. */
         for (AnalyzerSettingsPanel panel : analyzerSettingsCache.values()) {
             panel.saveSettings();
         }

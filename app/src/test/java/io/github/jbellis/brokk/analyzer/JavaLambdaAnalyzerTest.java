@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 public class JavaLambdaAnalyzerTest {
 
     @Nullable
-    private static JavaTreeSitterAnalyzer analyzer;
+    private static JavaAnalyzer analyzer;
 
     @Nullable
     private static TestProject testProject;
@@ -25,7 +25,7 @@ public class JavaLambdaAnalyzerTest {
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
         testProject = new TestProject(testPath, Languages.JAVA);
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
     }
 
     @AfterAll

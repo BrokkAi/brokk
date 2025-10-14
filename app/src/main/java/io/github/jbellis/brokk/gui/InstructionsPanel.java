@@ -51,7 +51,6 @@ import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -102,7 +101,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
-    private @Nullable TitledBorder instructionsTitledBorder;
     private @Nullable SplitButton branchSplitButton;
 
     private static class ContextAreaContainer extends JPanel {
@@ -203,13 +201,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
-        this.instructionsTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Instructions - Code",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-        setBorder(this.instructionsTitledBorder);
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
@@ -889,14 +881,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         container.add(bottomLinePanel, BorderLayout.SOUTH);
 
-        // Wrap the chip panel with a titled border labeled "Context"
-        var contextTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Context",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
         titledContainer.setOpaque(false);
@@ -951,8 +935,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         titledContainer.setDropTarget(
                 new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
-        titledContainer.setBorder(
-                BorderFactory.createCompoundBorder(contextTitledBorder, BorderFactory.createEmptyBorder(0, 0, 0, 0)));
+        titledContainer.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         titledContainer.add(container, BorderLayout.CENTER);
 
         // Insert beneath the command-input area (index 2)
@@ -1091,12 +1074,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         actionGroupPanel.setAccentColor(accent);
-
-        if (instructionsTitledBorder != null) {
-            instructionsTitledBorder.setTitle(askMode ? "Instructions - Ask" : "Instructions - Code");
-            revalidate();
-            repaint();
-        }
     }
 
     /** Updates the Project Files drawer title to reflect the current Git branch. Ensures EDT execution. */
