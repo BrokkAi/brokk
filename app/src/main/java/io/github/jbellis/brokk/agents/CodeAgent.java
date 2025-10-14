@@ -64,7 +64,7 @@ public class CodeAgent {
     private final StreamingChatModel model;
     private final IConsoleIO io;
 
-    // Holds the current local Context for this task so we can operate without mutating global CM state mid-task.
+    // A "global" for current task Context. Updated mid-task with new files and build status.
     private Context context;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
@@ -75,6 +75,8 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
+        // placeholder to make Null Away happy; initialized in runTaskInternal
+        this.context = new Context(contextManager, null);
     }
 
     public enum Option {
@@ -119,7 +121,7 @@ public class CodeAgent {
     private TaskResult runTaskInternal(Context ctx, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         // Seed the local Context reference for this task
-        this.context = ctx;
+        context = ctx;
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
