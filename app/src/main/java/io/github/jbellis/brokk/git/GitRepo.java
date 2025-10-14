@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.*;
@@ -10,6 +11,7 @@ import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -51,7 +53,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Repository repository;
     private final Git git;
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
-    private final java.util.function.Supplier<String> tokenSupplier; // Supplier for GitHub token
+    private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
     // New field holding remote-related helpers
@@ -131,10 +133,10 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     public GitRepo(Path projectRoot) {
-        this(projectRoot, () -> io.github.jbellis.brokk.MainProject.getGitHubToken());
+        this(projectRoot, MainProject::getGitHubToken);
     }
 
-    GitRepo(Path projectRoot, java.util.function.Supplier<String> tokenSupplier) {
+    GitRepo(Path projectRoot, Supplier<String> tokenSupplier) {
         this.projectRoot = projectRoot;
         this.tokenSupplier = tokenSupplier;
 

@@ -1,12 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
-import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
-import io.github.jbellis.brokk.analyzer.UsagesProvider;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.Constants;
@@ -375,8 +370,7 @@ public class AttachContextDialog extends JDialog {
                 analyzer != null && analyzer.as(SkeletonProvider.class).isPresent();
         boolean hasSource =
                 analyzer != null && analyzer.as(SourceCodeProvider.class).isPresent();
-        boolean hasUsages =
-                analyzer != null && analyzer.as(UsagesProvider.class).isPresent();
+        boolean hasUsages = analyzer != null;
 
         // Classes segment
         boolean classesEnabled = hasSkeleton || hasSource;

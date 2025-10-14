@@ -9,6 +9,7 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -28,6 +29,8 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
+import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -197,6 +200,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
+    private final TestRunnerPanel testRunnerPanel;
     private final DependenciesPanel dependenciesPanel;
 
     // Git
@@ -311,9 +315,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         showNotification(
                 NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
+        // Test runner persistence and panel
+        var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
+        var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
+        this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
+
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager, this.testRunnerPanel);
         dependenciesPanel = new DependenciesPanel(this);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
@@ -922,6 +931,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
         logger.trace("updateGitRepo: finished");
+    }
+
+    /** Executes a set of test files and streams the output to the test runner panel. */
+    public void runTests(Set<ProjectFile> testFiles) {
+        testRunnerPanel.runTests(testFiles);
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */

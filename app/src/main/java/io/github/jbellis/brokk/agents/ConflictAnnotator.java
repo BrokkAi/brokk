@@ -62,10 +62,20 @@ public final class ConflictAnnotator {
     public ConflictAnnotator(GitRepo repo, MergeAgent.MergeConflict mergeConflict) {
         this.repo = repo;
         this.mergeConflict = mergeConflict;
+        logger.debug(
+                "ConflictAnnotator initialized for merge mode: {}, baseCommit: {}, otherCommit: {}",
+                mergeConflict.state(),
+                mergeConflict.baseCommitId(),
+                mergeConflict.otherCommitId());
     }
 
     /** Annotate a conflicting file using blame information to add context and collect commit ids. */
     public ConflictFileCommits annotate(MergeAgent.FileConflict cf) {
+        logger.debug(
+                "Annotating file conflict for ourFile: {}, theirFile: {}",
+                cf.ourFile() != null ? cf.ourFile().getRelPath() : "N/A",
+                cf.theirFile() != null ? cf.theirFile().getRelPath() : "N/A");
+
         var repo = this.repo;
         var state = mergeConflict.state();
         @Nullable var baseCommitId = mergeConflict.baseCommitId();
@@ -97,33 +107,46 @@ public final class ConflictAnnotator {
             logger.warn("Failed to resolve oursRefForHeader '{}': {}", oursRefForHeader, e.getMessage());
             oursCommitId = oursRefForHeader; // best-effort fallback
         }
+        logger.debug("Resolved oursCommitId: {} (from {})", oursCommitId, oursRefForHeader);
 
         // Short IDs for annotations
         String oursShort = repo.shortHash(oursCommitId);
         String baseShort = baseCommitId == null ? "" : repo.shortHash(baseCommitId);
         String theirsShort = repo.shortHash(otherCommitId);
+        logger.debug("Short SHAs: ours={}, base={}, theirs={}", oursShort, baseShort, theirsShort);
 
         // Per-line blame lookups (may be null if unavailable). Use the historically-correct file paths.
         var ourBlame = getBlame(git, repository, oursCommitId, cf.ourFile());
         var baseBlame = cf.baseFile() == null ? null : getBlame(git, repository, baseCommitId, cf.baseFile());
         var theirBlame = getBlame(git, repository, otherCommitId, cf.theirFile());
+        logger.debug(
+                "Blame results: ourBlame={}, baseBlame={}, theirBlame={}",
+                ourBlame != null,
+                baseBlame != null,
+                theirBlame != null);
 
         // Build RawText sequences and run JGit merge algorithm (diff3-like)
         var baseText = cf.baseContent() == null ? "" : cf.baseContent();
         var baseRaw = new RawText(baseText.getBytes(StandardCharsets.UTF_8));
         var ourRaw = new RawText(requireNonNull(cf.ourContent()).getBytes(StandardCharsets.UTF_8));
         var theirRaw = new RawText(requireNonNull(cf.theirContent()).getBytes(StandardCharsets.UTF_8));
+        logger.debug(
+                "JGit merge input: base len={}, our len={}, their len={}",
+                baseRaw.size(),
+                ourRaw.size(),
+                theirRaw.size());
 
         var ma = new MergeAlgorithm();
         MergeResult<RawText> result = ma.merge(RawTextComparator.DEFAULT, baseRaw, ourRaw, theirRaw);
-
-        var sequences = result.getSequences(); // 0=base,1=ours,2=theirs
-
-        // Collect chunks into a list for easier indexed traversal
+        // The MergeResult is iterable but does not have a size() method directly.
+        // Collect chunks into a list for easier indexed traversal and then get the size.
         var chunkList = new ArrayList<org.eclipse.jgit.merge.MergeChunk>();
         for (org.eclipse.jgit.merge.MergeChunk c : result) {
             chunkList.add(c);
         }
+        logger.debug("JGit merge algorithm completed. Result has {} chunks.", chunkList.size());
+
+        var sequences = result.getSequences(); // 0=base,1=ours,2=theirs
 
         var outLines = new ArrayList<String>();
         var ourCommitIds = new LinkedHashSet<String>();
@@ -177,6 +200,9 @@ public final class ConflictAnnotator {
                             baseContentLines.isEmpty() ? null : baseContentLines, ourContentLines, theirContentLines)) {
                         var merged = ImportConflictResolver.resolveImportConflict(ourContentLines, theirContentLines);
                         outLines.addAll(merged);
+                        logger.debug(
+                                "Auto-resolved import conflict for file: {}",
+                                cf.ourFile().getRelPath());
                         continue;
                     }
                 }
@@ -184,6 +210,14 @@ public final class ConflictAnnotator {
                 int conflictNum = conflictCounter.incrementAndGet();
                 int linesInConflict = ourLines.size() + baseLines.size() + theirLines.size();
                 actualConflictLineCount += linesInConflict;
+                logger.debug(
+                        "Emitting BRK_CONFLICT_{} for file {}. Our lines: {}, Base lines: {}, Their lines: {}. Total conflict lines: {}",
+                        conflictNum,
+                        cf.ourFile().getRelPath(),
+                        ourLines.size(),
+                        baseLines.size(),
+                        theirLines.size(),
+                        linesInConflict);
                 outLines.add("BRK_CONFLICT_BEGIN_" + conflictNum);
                 // Header with a commit-ish for our side (best-effort)
                 outLines.add("BRK_OUR_VERSION " + oursShort);
@@ -213,6 +247,12 @@ public final class ConflictAnnotator {
                 outLines.add("BRK_CONFLICT_END_" + conflictNum);
             }
         }
+        logger.debug(
+                "Finished annotating file {}. Total conflict blocks: {}, Our commits: {}, Their commits: {}",
+                requireNonNull(cf.ourFile()).getRelPath(),
+                conflictCounter.get(),
+                ourCommitIds.size(),
+                theirCommitIds.size());
 
         // Annotate against ourFile as the working path representative
         return new ConflictFileCommits(
@@ -226,20 +266,32 @@ public final class ConflictAnnotator {
     private static @Nullable BlameResult getBlame(
             Git git, Repository repository, @Nullable String commitId, @Nullable ProjectFile file) {
         if (commitId == null || file == null) {
+            logger.debug(
+                    "Skipping blame: commitId or file is null (commitId={}, file={})",
+                    commitId,
+                    file != null ? file.getRelPath() : "null");
             return null;
         }
+        logger.debug("Attempting to get blame for file {} at commit {}", file.getRelPath(), commitId);
         try (var revWalk = new RevWalk(repository)) {
             var oid = repository.resolve(commitId);
             if (oid == null) {
-                logger.warn("Failed to resolve commit {}", commitId);
+                logger.warn(
+                        "Failed to resolve commit {}. Blame will be null for file {}.", commitId, file.getRelPath());
                 return null;
             }
             var commit = revWalk.parseCommit(oid);
-            return git.blame()
+            var blameResult = git.blame()
                     .setStartCommit(commit)
                     .setFilePath(file.getRelPath().toString())
                     .setFollowFileRenames(true)
                     .call();
+            logger.debug(
+                    "Blame computed for file {} at commit {}. Result: {}",
+                    file.getRelPath(),
+                    commitId,
+                    blameResult != null);
+            return blameResult;
         } catch (GitAPIException | IOException e) {
             logger.warn("Failed to compute blame for {} at {}: {}", file.getRelPath(), commitId, e.getMessage());
             return null;
@@ -248,6 +300,7 @@ public final class ConflictAnnotator {
 
     /** Reads the commit id of the rebase "onto" from .git/rebase-merge/onto or .git/rebase-apply/onto. */
     private static @Nullable String readRebaseOntoCommit(Repository repository) {
+        logger.debug("Attempting to read rebase 'onto' commit from repository.");
         Path gitDir = repository.getDirectory().toPath();
         Path rebaseMergeOnto = gitDir.resolve("rebase-merge").resolve("onto");
         Path rebaseApplyOnto = gitDir.resolve("rebase-apply").resolve("onto");
@@ -256,13 +309,16 @@ public final class ConflictAnnotator {
                 if (Files.exists(p)) {
                     var line = Files.readString(p, StandardCharsets.UTF_8).trim();
                     if (!line.isEmpty()) {
+                        logger.debug("Found rebase 'onto' commit '{}' in {}.", line, p);
                         return line;
                     }
                 }
             } catch (IOException ignored) {
+                logger.debug("Could not read rebase 'onto' file {}: {}", p, ignored.getMessage());
                 // ignore and try next
             }
         }
+        logger.debug("No rebase 'onto' commit found.");
         return null;
     }
 }

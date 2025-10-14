@@ -270,11 +270,11 @@ public final class BrokkCli implements Callable<Integer> {
         var workspaceTools = new WorkspaceTools(cm);
 
         // --- Name Resolution and Context Building ---
-        boolean callsAndUsagesRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
+        boolean callsAndUsagesRequired = !addCallers.isEmpty() || !addCallees.isEmpty();
 
         if (callsAndUsagesRequired) {
             var analyzer = cm.getAnalyzer();
-            if (!(analyzer instanceof CallGraphProvider && analyzer instanceof UsagesProvider)) {
+            if (!(analyzer instanceof CallGraphProvider)) {
                 System.err.println(
                         "One or more of the requested options requires Code Intelligence, which is not available.");
                 return 1;

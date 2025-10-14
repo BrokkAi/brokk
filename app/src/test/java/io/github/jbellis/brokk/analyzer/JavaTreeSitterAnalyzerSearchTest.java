@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 
 public class JavaTreeSitterAnalyzerSearchTest {
 
-    private static Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerSearchTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerSearchTest.class);
     private static JavaTreeSitterAnalyzer analyzer;
     private static IProject testProject;
 
@@ -271,5 +271,118 @@ public class JavaTreeSitterAnalyzerSearchTest {
         var namesShort = resShort.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(
                 namesShort.contains("C.Foo.x"), "Single-letter query should include record component field 'C.Foo.x'");
+    }
+
+    @Test
+    public void testEnclosingMethod_A_method1() {
+        var pf = getFileByName("A.java");
+        var src = readFileText(pf);
+
+        // Pick a point inside A.method1 body
+        var needle = "System.out.println(\"hello\");";
+        int start = src.indexOf(needle);
+        assertTrue(start >= 0, "Expected to find needle inside A.method1");
+        int end = start + needle.length();
+
+        var range = toRange(src, start, end);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
+        assertEquals("A.method1", cu.fqName());
+    }
+
+    @Test
+    public void testEnclosingNestedInnerMethod_A_AInner_AInnerInner_method7() {
+        var pf = getFileByName("A.java");
+        var src = readFileText(pf);
+
+        // Use the method header for method7
+        var needle = "public void method7()";
+        int start = src.indexOf(needle);
+        assertTrue(start >= 0, "Expected to find method7 declaration in A.AInner.AInnerInner");
+        int end = start + needle.length();
+
+        var range = toRange(src, start, end);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
+        assertEquals("A.AInner.AInnerInner.method7", cu.fqName());
+    }
+
+    @Test
+    public void testEnclosingRecordComponentField_C_Foo_x() {
+        var pf = getFileByName("C.java");
+        var src = readFileText(pf);
+
+        // Locate the record component 'x' inside 'record Foo(int x) {'
+        var needle = "int x";
+        int start = src.indexOf(needle);
+        assertTrue(start >= 0, "Expected to find 'int x' in record component");
+        int end = start + needle.length();
+
+        var range = toRange(src, start, end);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
+        assertEquals("C.Foo.x", cu.fqName());
+    }
+
+    @Test
+    public void testEnclosingMethod_D_methodD2() {
+        var pf = getFileByName("D.java");
+        var src = readFileText(pf);
+
+        // Inside methodD2 body: 'field1 = 42;'
+        var needle = "field1 = 42;";
+        int start = src.indexOf(needle);
+        assertTrue(start >= 0, "Expected to find body content inside D.methodD2");
+        int end = start + needle.length();
+
+        var range = toRange(src, start, end);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
+        assertEquals("D.methodD2", cu.fqName());
+    }
+
+    @Test
+    public void testEnclosing_EmptyRange_ReturnsNull() {
+        var pf = getFileByName("A.java");
+        var src = readFileText(pf);
+
+        var idx = src.indexOf("class A");
+        assertTrue(idx >= 0, "Expected to find 'class A'");
+        // Create an empty range (start == end) which should be treated as empty
+        var range = new IAnalyzer.Range(idx, idx, 0, 0, idx);
+
+        var cu = analyzer.enclosingCodeUnit(pf, range);
+        assertTrue(cu.isEmpty(), "Empty range should return null as per contract");
+    }
+
+    // --------------- helpers (moved from JavaTreeSitterAnalyzerEnclosingTest) ---------------
+
+    private ProjectFile getFileByName(String fileName) {
+        var opt = analyzer.getProject().getAllFiles().stream()
+                .filter(p -> fileName.equals(p.getFileName()))
+                .findFirst();
+        assertTrue(opt.isPresent(), "Project file not found: " + fileName);
+        return opt.get();
+    }
+
+    private String readFileText(ProjectFile pf) {
+        var opt = pf.read();
+        assertTrue(opt.isPresent(), "Unable to read file: " + pf);
+        return opt.get();
+    }
+
+    private IAnalyzer.Range toRange(String src, int startChar, int endChar) {
+        // For ASCII test sources, char index == byte index in UTF-8
+        int startByte = startChar;
+        int endByte = endChar;
+
+        int startLine = countLinesUpTo(src, startChar);
+        int endLine = countLinesUpTo(src, endChar);
+
+        return new IAnalyzer.Range(startByte, endByte, startLine, endLine, startByte);
+    }
+
+    private int countLinesUpTo(String s, int endExclusive) {
+        int count = 0;
+        for (int i = 0; i < endExclusive && i < s.length(); i++) {
+            if (s.charAt(i) == '\n') count++;
+        }
+        return count;
     }
 }

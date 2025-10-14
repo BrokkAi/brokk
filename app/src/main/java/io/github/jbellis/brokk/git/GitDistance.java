@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
@@ -13,11 +14,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.VisibleForTesting;
 
 /** Provides the logic to perform a Git-centric distance calculations for given type declarations. */
 public final class GitDistance {
+    private static final Logger logger = LogManager.getLogger(GitDistance.class);
     private static final int COMMITS_TO_PROCESS = 1_000;
 
     /** Represents an edge between two CodeUnits in the co-occurrence graph. */
@@ -44,32 +48,12 @@ public final class GitDistance {
         }
     }
 
-    /**
-     * Using Git history, determines the most important files by analyzing their change frequency, considering both the
-     * number of commits and the recency of those changes. This approach uses a weighted analysis of the Git history
-     * where the weight of changes decays exponentially over time.
-     *
-     * <p>The formula for a file's score is:
-     *
-     * <p>S_file = sum_{c in commits} 2^(-(t_latest - t_c) / half-life)
-     *
-     * <p>Where:
-     *
-     * <ul>
-     *   <li>t_c is the timestamp of commit c.
-     *   <li>t_latest is the timestamp of the latest commit in the repository.
-     *   <li>half-life is a constant (30 days) that determines how quickly the weight of changes decays.
-     * </ul>
-     *
-     * @param repo the Git repository wrapper.
-     * @param k the maximum number of files to return.
-     * @return a sorted list of the most important files with their relevance scores.
-     */
     @VisibleForTesting
     public static List<IAnalyzer.FileRelevance> getMostImportantFilesScored(GitRepo repo, int k)
             throws GitAPIException {
         var commits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
         var scores = computeImportanceScores(repo, commits);
+        logger.info("Computed importance scores for getMostImportantFilesScored: {}", scores);
 
         return scores.entrySet().stream()
                 .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
@@ -131,6 +115,7 @@ public final class GitDistance {
         Map<ProjectFile, Double> scores;
         try {
             scores = computeImportanceScores(gr, commits);
+            logger.info("Computed importance scores for sortByImportance: {}", scores);
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }
@@ -145,6 +130,23 @@ public final class GitDistance {
                 .toList();
     }
 
+    /**
+     * Using Git history, determines the most important files by analyzing their change frequency, considering both the
+     * number of commits and the recency of those changes. This approach uses a weighted analysis of the Git history
+     * where the weight of changes decays exponentially over time.
+     *
+     * <p>The formula for a file's score is:
+     *
+     * <p>S_file = sum_{c in commits} 2^(-(t_latest - t_c) / half-life)
+     *
+     * <p>Where:
+     *
+     * <ul>
+     *   <li>t_c is the timestamp of commit c.
+     *   <li>t_latest is the timestamp of the latest commit in the repository.
+     *   <li>half-life is a constant (30 days) that determines how quickly the weight of changes decays.
+     * </ul>
+     */
     private static Map<ProjectFile, Double> computeImportanceScores(GitRepo repo, List<CommitInfo> commits)
             throws GitAPIException {
         if (commits.isEmpty()) {
@@ -159,7 +161,7 @@ public final class GitDistance {
 
         try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             pool.submit(() -> commits.parallelStream().forEach(commit -> {
-                        List<ProjectFile> changedFiles = null;
+                        List<ProjectFile> changedFiles;
                         try {
                             changedFiles = repo.listFilesChangedInCommit(commit.id());
                         } catch (GitAPIException e) {
@@ -253,5 +255,24 @@ public final class GitDistance {
                         reversed ? Double.compare(a.score(), b.score()) : Double.compare(b.score(), a.score()))
                 .limit(k)
                 .toList();
+    }
+
+    public static void main(String[] args) {
+        if (args.length < 1 || args[0].isBlank()) {
+            System.err.println("Usage: GitDistance <path-to-git-repo>");
+            System.exit(1);
+        }
+
+        var repoPath = Path.of(args[0]);
+        logger.info("Analyzing most important files for repository: {}", repoPath);
+
+        try {
+            var repo = new GitRepo(repoPath);
+            var results = getMostImportantFilesScored(repo, 20);
+            results.forEach(fr -> System.out.printf("%s\t%.6f%n", fr.file().getFileName(), fr.score()));
+        } catch (GitAPIException e) {
+            logger.error("Error computing most important files for repo {}: {}", repoPath, e.getMessage(), e);
+            System.exit(2);
+        }
     }
 }

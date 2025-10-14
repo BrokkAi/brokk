@@ -372,7 +372,7 @@ public class WorkspaceTools {
             @P(
                             "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
                     String symbol) {
-        assert getAnalyzer() instanceof UsagesProvider : "Cannot add usages: Code Intelligence is not available.";
+        assert getAnalyzer().isEmpty() : "Cannot add usages: Code Intelligence is not available.";
         if (symbol.isBlank()) {
             return "Cannot add usages: symbol cannot be empty";
         }
