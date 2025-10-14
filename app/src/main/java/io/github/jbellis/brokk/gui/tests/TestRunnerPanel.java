@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -28,7 +29,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.BorderFactory;
@@ -92,6 +95,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private int maxRuns = 50;
 
     private final TestRunsStore runsStore;
+    private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(ForkJoinPool.commonPool());
 
     // Limit stored output size to avoid unbounded JSON growth
     private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
@@ -273,7 +277,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      */
     private void triggerSave() {
         var store = runsStore;
-        Runnable snapshotTask = () -> {
+        Runnable snapshotAndSaveTask = () -> {
             List<RunRecord> snapshot;
             try {
                 snapshot = snapshotRunsFromModel(maxRuns);
@@ -281,28 +285,21 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 logger.warn("Failed to snapshot test runs for saving: {}", e.getMessage(), e);
                 return;
             }
-            startSaveThread(store, snapshot);
+
+            saveExecutor.submit("test_runs_save", () -> {
+                try {
+                    store.save(snapshot);
+                } catch (Exception e) {
+                    logger.warn("Failed to save test runs: {}", e.getMessage(), e);
+                }
+            });
         };
 
         if (SwingUtilities.isEventDispatchThread()) {
-            snapshotTask.run();
+            snapshotAndSaveTask.run();
         } else {
-            SwingUtilities.invokeLater(snapshotTask);
+            SwingUtilities.invokeLater(snapshotAndSaveTask);
         }
-    }
-
-    private void startSaveThread(TestRunsStore store, List<RunRecord> snapshot) {
-        Thread t = new Thread(
-                () -> {
-                    try {
-                        store.save(snapshot);
-                    } catch (Exception e) {
-                        logger.warn("Failed to save test runs: {}", e.getMessage(), e);
-                    }
-                },
-                "TestRunnerPanel-SaveRuns");
-        t.setDaemon(true);
-        t.start();
     }
 
     /**
@@ -566,6 +563,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             // Persist after updating the UI/model
             triggerSave();
         });
+    }
+
+    public CompletableFuture<Void> awaitPersistenceCompletion() {
+        return saveExecutor.awaitCompletion("test_runs_save");
     }
 
     /** Clear all runs and output. */
