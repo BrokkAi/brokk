@@ -220,9 +220,9 @@ public class HistoryOutputPanel extends JPanel {
         this.redoButton = new MaterialButton();
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("");
-        SwingUtilities.invokeLater(() ->this.newSessionButton.setIcon(Icons.ADD));
+        SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
         this.manageSessionsButton = new SplitButton("");
-        SwingUtilities.invokeLater(() ->this.manageSessionsButton.setIcon(Icons.SETTINGS));
+        SwingUtilities.invokeLater(() -> this.manageSessionsButton.setIcon(Icons.SETTINGS));
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));

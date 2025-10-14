@@ -3,8 +3,8 @@ package io.github.jbellis.brokk.gui.components;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.Cursor;
 import java.awt.Dimension;
-import java.awt.Insets;
 import java.awt.Graphics2D;
+import java.awt.Insets;
 import java.util.function.Supplier;
 import javax.swing.BoxLayout;
 import javax.swing.Icon;
@@ -12,19 +12,14 @@ import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
-
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A compact split button built from two MaterialButtons:
- * - left: main action (supports text and/or icon)
- * - right: dropdown arrow (Icons.KEYBOARD_DOWN) that shows a popup menu
+ * A compact split button built from two MaterialButtons: - left: main action (supports text and/or icon) - right:
+ * dropdown arrow (Icons.KEYBOARD_DOWN) that shows a popup menu
  *
- * Requirements:
- * - no divider line
- * - not based on FlatLaf split button UI
- * - separate rollover animations for each half
- * - zero padding and zero margins for extreme compactness
+ * <p>Requirements: - no divider line - not based on FlatLaf split button UI - separate rollover animations for each
+ * half - zero padding and zero margins for extreme compactness
  */
 public class SplitButton extends JComponent {
     private final MaterialButton actionButton;

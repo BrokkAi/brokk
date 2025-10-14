@@ -66,5 +66,4 @@ public final class Icons {
     public static final Icon COMPRESS = SwingUtil.uiIcon("Brokk.compress");
     public static final Icon KEYBOARD_DOWN = SwingUtil.uiIcon("Brokk.keyboard_down");
     public static final Icon SETTINGS = SwingUtil.uiIcon("Brokk.settings");
-
 }
