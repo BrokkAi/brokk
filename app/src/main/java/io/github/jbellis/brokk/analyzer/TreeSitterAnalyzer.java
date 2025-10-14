@@ -67,9 +67,9 @@ import org.treesitter.*;
  *       then atomically replace per-file state under a single write lock via {@link #applyAtomicFileRefresh}. This
  *       design ensures readers either see the old state or the new one, never an in-between mixture.
  *   <li>{@link #clearCaches()} also uses the write lock when mutating internal caches.
- *   <li>To guarantee byte-precise source slicing even while files are being rewritten on disk, the analyzer stores an
- *       in-memory snapshot of the file content at ingest time. Read APIs prefer this snapshot to avoid
- *       truncated/unsynchronized reads.
+ *   <li>For consistency during a single analysis/update operation, the analyzer reads a per-file snapshot created at
+ *       the start of that operation and discards it immediately after ingestion. Read APIs load file contents on demand
+ *       using stable reads with retries; no long-lived snapshots are retained in memory.
  * </ul>
  */
 public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
@@ -119,8 +119,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // New combined state maps (mirrors of legacy maps during migration)
     private final Map<CodeUnit, CodeUnitProperties> codeUnitState = new ConcurrentHashMap<>();
     private final Map<ProjectFile, FileProperties> fileState = new ConcurrentHashMap<>();
-    // Snapshot of file contents corresponding to the currently ingested state
-    private final Map<ProjectFile, String> fileContentSnapshots = new ConcurrentHashMap<>();
 
     // Ensures reads see a consistent view while updates mutate internal maps atomically
     private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
@@ -844,30 +842,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return withStateReadLock(() -> {
             var cuOpt = getDefinition(fqName).filter(CodeUnit::isClass);
             if (cuOpt.isEmpty()) {
-                return Optional.<String>empty();
+                return Optional.empty();
             }
             var cu = cuOpt.get();
 
             var ranges = rangesOf(cu);
             if (ranges.isEmpty()) {
-                return Optional.<String>empty();
+                return Optional.empty();
             }
 
             // For classes, expect one primary definition range (already expanded with comments)
             var range = ranges.getFirst();
 
-            // Prefer the ingested snapshot to guarantee consistency with recorded byte ranges
+            // Read a stable snapshot sufficient for slicing based on recorded byte ranges
             int startByte = includeComments ? range.commentStartByte() : range.startByte();
             int endByte = range.endByte();
 
-            String src = fileContentSnapshots.get(cu.source());
-            if (src == null) {
-                var srcOpt = readStableFileContent(cu.source(), endByte, 200, 5);
-                if (srcOpt.isEmpty()) {
-                    return Optional.<String>empty();
-                }
-                src = srcOpt.get();
+            var srcOpt = readStableFileContent(cu.source(), endByte, 200, 5);
+            if (srcOpt.isEmpty()) {
+                return Optional.empty();
             }
+            String src = srcOpt.get();
 
             var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
             return Optional.of(extractedSource);
@@ -879,33 +874,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return withStateReadLock(() -> {
             var cuOpt = getDefinition(fqName).filter(CodeUnit::isFunction);
             if (cuOpt.isEmpty()) {
-                return Collections.<String>emptySet();
+                return Collections.emptySet();
             }
             var cu = cuOpt.get();
 
             List<Range> rangesForOverloads = rangesOf(cu);
             if (rangesForOverloads.isEmpty()) {
                 log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, fqName);
-                return Collections.<String>emptySet();
+                return Collections.emptySet();
             }
 
             // Compute max end byte to ensure we read enough bytes for any overload
             int maxEndByte =
                     rangesForOverloads.stream().mapToInt(Range::endByte).max().orElse(0);
 
-            String fileContent = fileContentSnapshots.get(cu.source());
-            if (fileContent == null) {
-                var fileContentOpt = readStableFileContent(cu.source(), maxEndByte, 200, 5);
-                if (fileContentOpt.isEmpty()) {
-                    log.warn(
-                            "Could not read stable source for CU {} (fqName {}): {}",
-                            cu,
-                            fqName,
-                            "unreadable or truncated");
-                    return Collections.<String>emptySet();
-                }
-                fileContent = fileContentOpt.get();
+            var fileContentOpt = readStableFileContent(cu.source(), maxEndByte, 200, 5);
+            if (fileContentOpt.isEmpty()) {
+                log.warn(
+                        "Could not read stable source for CU {} (fqName {}): {}",
+                        cu,
+                        fqName,
+                        "unreadable or truncated");
+                return Collections.emptySet();
             }
+            String fileContent = fileContentOpt.get();
 
             var methodSources = new LinkedHashSet<String>();
             for (Range range : rangesForOverloads) {
@@ -937,13 +929,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (codeUnit.isFunction()) {
                 Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
                 if (sources.isEmpty()) {
-                    return Optional.<String>empty();
+                    return Optional.empty();
                 }
                 return Optional.of(String.join("\n\n", sources));
             } else if (codeUnit.isClass()) {
                 return getClassSource(codeUnit.fqName(), includeComments);
             } else {
-                return Optional.<String>empty(); // Fields and other types not supported by default
+                return Optional.empty(); // Fields and other types not supported by default
             }
         });
     }
@@ -2735,7 +2727,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         filesCleanedCount.incrementAndGet();
                                         parsedTreeCache.remove(file);
                                         fileState.remove(file);
-                                        fileContentSnapshots.remove(file);
 
                                         Predicate<CodeUnit> fromFile = cu -> file.equals(cu.source());
 
@@ -3007,8 +2998,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(), parsedTreeCache.get(pf), analysisResult.importStatements()));
-        // Mirror the file content snapshot used to compute ranges for consistent source extraction
-        fileContentSnapshots.put(pf, analysisResult.fileContent());
+        // No long-lived snapshot retention; analysisResult.fileContent() is ephemeral and eligible for GC post-ingest.
     }
 
     /* ---------- comment detection for source expansion ---------- */
