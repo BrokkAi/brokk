@@ -10,6 +10,8 @@ import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -37,7 +39,7 @@ public class SplitButton extends JComponent {
 
         actionButton = new MaterialButton(text);
         arrowButton = new MaterialButton();
-        arrowButton.setIcon(Icons.KEYBOARD_DOWN);
+        SwingUtilities.invokeLater(() -> arrowButton.setIcon(Icons.KEYBOARD_DOWN));
 
         applyCompactStyling(actionButton);
         applyCompactStyling(arrowButton);
