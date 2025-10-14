@@ -31,6 +31,11 @@ public class TestRunnerPanelRunPersistenceTest {
         }
     }
 
+    private static void awaitSave(TestRunnerPanel panel) {
+        waitForEdt();
+        panel.awaitPersistenceCompletion().join();
+    }
+
     @Test
     void persistenceRestoresCorrectRunsAndState() throws Exception {
         InMemoryTestRunsStore store = new InMemoryTestRunsStore();
@@ -39,8 +44,7 @@ public class TestRunnerPanelRunPersistenceTest {
         // --- Phase 1: Create runs and save state ---
         TestRunnerPanel panel1 = new TestRunnerPanel(store);
         panel1.setMaxRuns(maxRuns);
-        waitForEdt();
-        panel1.awaitPersistenceCompletion().join(); // Ensure triggered save is complete
+        awaitSave(panel1); // Ensure triggered save is complete
 
         List<String> runIds = new ArrayList<>();
         // Create more runs than maxRuns to test retention during initial creation and saving
@@ -51,15 +55,13 @@ public class TestRunnerPanelRunPersistenceTest {
                 // Append output to the newest run for validation
                 panel1.appendToRun(id, "Output for run " + i + "\n");
             }
-            waitForEdt();
-            panel1.awaitPersistenceCompletion().join(); // Ensure triggered save is complete
+            awaitSave(panel1); // Ensure triggered save is complete
         }
 
         // Complete the newest run to ensure its state is saved correctly
         String newestRunId = runIds.get(runIds.size() - 1);
         panel1.completeRun(newestRunId, 0, Instant.now());
-        waitForEdt();
-        panel1.awaitPersistenceCompletion().join(); // Ensure triggered save is complete
+        awaitSave(panel1); // Ensure triggered save is complete
 
         // --- Phase 2: Construct a new panel and validate restored state ---
         TestRunnerPanel panel2 = new TestRunnerPanel(store);
@@ -138,8 +140,7 @@ public class TestRunnerPanelRunPersistenceTest {
         int customMaxRuns = 7; // Set a custom maxRuns
         TestRunnerPanel panel = new TestRunnerPanel(store);
         panel.setMaxRuns(customMaxRuns);
-        waitForEdt();
-        panel.awaitPersistenceCompletion().join();
+        awaitSave(panel);
 
         DefaultListModel<?> model = getField(panel, "runListModel", DefaultListModel.class);
         assertEquals(customMaxRuns, model.getSize(), "Restore should respect custom maxRuns cap");
@@ -173,15 +174,13 @@ public class TestRunnerPanelRunPersistenceTest {
 
         String id = panel1.beginRun(1, "run1", Instant.now());
         panel1.completeRun(id, 0, Instant.now());
-        waitForEdt();
-        panel1.awaitPersistenceCompletion().join(); // Ensure run is saved
+        awaitSave(panel1); // Ensure run is saved
 
         DefaultListModel<?> model1 = getField(panel1, "runListModel", DefaultListModel.class);
         assertEquals(1, model1.getSize(), "Panel1 should have 1 run");
 
         panel1.clearAllRuns();
-        waitForEdt();
-        panel1.awaitPersistenceCompletion().join(); // Ensure cleared state is saved
+        awaitSave(panel1); // Ensure cleared state is saved
 
         DefaultListModel<?> clearedModel = getField(panel1, "runListModel", DefaultListModel.class);
         assertEquals(0, clearedModel.getSize(), "Panel1 should have 0 runs after clear");
