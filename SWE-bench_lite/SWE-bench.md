@@ -17,7 +17,7 @@ This document explains how to set up and run Brokk CLI against the SWE-bench-lit
 
 SWE-bench-lite is a benchmark for evaluating code generation models on real-world software engineering tasks. This setup allows you to:
 
-1. **Clone Real Repositories**: Download actual GitHub repositories for each problem
+1. **Clone Real Repositories**: Download repositories for each problem
 2. **Checkout Specific Commits**: Work with the exact code state when the issue was reported
 3. **Run Brokk CLI**: Use Brokk via the CLI (BrokkCli) to solve the problems
 4. **Generate Patches**: Capture code changes as git diffs (ignores hidden folders like `.brokk`)
@@ -58,7 +58,7 @@ If you can set this up on a cloud instance with good network bandwith and a good
    ./cli --help
    ```
 
-3. **Configure Brokk**: Set up API keys through the Brokk GUI.
+3. **Configure Brokk**: Set up API keys, preferred models, etc.
 
 
 ### Python Environment Setup
@@ -99,15 +99,17 @@ This will:
 ### 2. Run Evaluation
 
 ```bash
-# Evaluate on the first 3 instances
+# Evaluate on the first 3 instances (uses lutz agent by default)
 python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 3 --repos_dir swe_bench_repos
 ```
 
 This will:
-- Run Brokk CLI on each repository with the problem statement
+- Run Brokk CLI with **Lutz agent** (research + task execution mode, no Deep Scan needed)
+- Autonomously research the problem and gather relevant context
+- Generate and execute a task list to solve the problem
 - Capture git diffs as model patches
-- Generate `preds.json` and `results.json`  in SWE-bench format, will also generate `diagnostics.json`
-- Provide detailed progress updates, surface's Brokk's info via the CLI
+- Generate `preds.json` and `results.json` in SWE-bench format, will also generate `diagnostics.json`
+- Provide detailed progress updates, surface Brokk's info via the CLI
 
 ### 3. View Results
 
@@ -179,7 +181,7 @@ The `evaluate_brokk.py` script orchestrates the evaluation process.
 ### Basic Evaluation
 
 ```bash
-# Evaluate all available instances
+# Evaluate all available instances (uses lutz agent by default)
 python3 SWE-bench_lite/evaluate_brokk.py --split test --repos_dir swe_bench_repos
 
 # Evaluate specific number of instances
@@ -188,19 +190,21 @@ python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 5 --repos_
 # Evaluate specific instance
 python3 SWE-bench_lite/evaluate_brokk.py --instance_id matplotlib__matplotlib-18869 --repos_dir swe_bench_repos
 
-# Evaluate all avaliable instances with a few retries (recommended!)
-python3 SWE-bench_lite/evaluate_brokk.py --split test --repos_dir swe_bench_repos --max_retries 2
+# Use code agent for faster execution (trades autonomy for speed)
+python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 5 --agent code --repos_dir swe_bench_repos
+
+# Evaluate with retries (recommended for code agent)
+python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos
 ```
 
 ### Advanced Options
 
 ```bash
-# Custom model name and output file
+# Custom model name
 python3 SWE-bench_lite/evaluate_brokk.py \
     --split test \
     --max_instances 3 \
-    --model_name "brokk-cli-v1.0" \
-    --output_file "my_predictions.json" \
+    --model_name "brokk-lutz-v1.0" \
     --repos_dir swe_bench_repos
 
 # Enable verbose logging
@@ -210,9 +214,10 @@ python3 SWE-bench_lite/evaluate_brokk.py \
     --verbose \
     --repos_dir swe_bench_repos
 
-# Increase retry attempts when Brokk requests additional files
+# Increase retry attempts (useful with code agent)
 python3 SWE-bench_lite/evaluate_brokk.py \
     --split test \
+    --agent code \
     --max_instances 5 \
     --max_retries 2 \
     --repos_dir swe_bench_repos
@@ -226,7 +231,10 @@ For each instance, the script:
 2. **Changes to Repository Directory**: Navigates to the cloned repository
 3. **Sets Up Configuration**: Copies template `project.properties` to `.brokk/` directory
 4. **Records Initial State**: Captures the initial git commit and status
-5. **Runs Brokk CLI**: Executes `./cli --project . --deepscan --code "problem statement"`
+5. **Runs Brokk CLI**: 
+   - **lutz** agent (default): `./cli --project . --lutz "problem statement"` (built-in research, no Deep Scan)
+   - **code** agent: `./cli --project . --deepscan --code "problem statement"` (uses Deep Scan for context)
+   - **architect** agent: `./cli --project . --deepscan --architect "problem statement"`
 6. **Automatic File Request Detection**:
    - If Brokk completes without changes but requests specific files
    - The script automatically detects requested file paths (scans for `\`is/valid/filepath/file.txt\``)
@@ -267,47 +275,63 @@ The evaluation script now automatically detects when Brokk requests additional f
 - `--max_retries 2`: Allow up to two retries for complex problems
 
 **Performance Optimization:**
-- **First attempt**: Uses `--deepscan` to intelligently gather context
-- **Retry attempts**: Skips `--deepscan` and uses only explicitly requested files
+- **code/architect agents**: 
+  - First attempt uses `--deepscan` to intelligently gather context
+  - Retry attempts skip `--deepscan` and use only explicitly requested files
+- **lutz agent**: 
+  - Has built-in intelligent research phase (no `--deepscan` needed)
+  - Retries still skip research and use only explicitly requested files
 - This avoids token limit errors and speeds up retries significantly (2-3 minute savings per retry)
 
 ### Brokk Agent Modes
 
 You can choose between different Brokk agents for evaluation:
 
-#### Code Agent (Default: `--agent code`)
-- **Best for**: Most problems, especially when you have good initial context
-- **Behavior**: Direct code generation with single-pass execution
-- **Speed**: Fastest (~3-5 minutes per instance)
-- **Context Strategy**: Uses `--deepscan` on first attempt, then manual retry with requested files
-- **Recommended**: Start here for most evaluations
-
-#### Search-Tasks Agent (`--agent search-tasks`)
-- **Best for**: Complex problems requiring research and multi-step solutions
+#### Lutz Agent (Default: `--agent lutz`)
+- **Best for**: Most SWE-bench problems - autonomous research and multi-step solutions
 - **Behavior**: 
   1. Researches the problem and gathers context intelligently
   2. Generates a task list breaking down the solution
   3. Executes tasks sequentially
-- **Speed**: Slower (~10-15 minutes per instance due to multiple LLM calls)
-- **Context Strategy**: Built-in intelligent research phase (like enhanced Deep Scan)
-- **When to use**:
-  - Problems that consistently fail with `--code` agent
-  - Complex architectural changes
-  - When you want Brokk to autonomously explore the codebase
+- **Speed**: ~10-15 minutes per instance (slower but more thorough)
+- **Context Strategy**: Built-in intelligent research phase (no Deep Scan needed!)
+- **Why default**: 
+  - Autonomously explores the codebase to find relevant files
+  - Creates a plan before executing
+  - Better success rate on complex problems
+  - No token limit errors from Deep Scan
+- **Recommended**: Default for SWE-bench - handles most problems autonomously
   
-**Example with search-tasks:**
+**Example (default behavior):**
 ```bash
-# Use search-tasks for problems that need more autonomy
+# Lutz agent is now default - just run normally
 python3 SWE-bench_lite/evaluate_brokk.py \
     --split test \
     --max_instances 10 \
-    --agent search-tasks \
     --repos_dir swe_bench_repos
 ```
 
-**Trade-off**: Search-tasks is more thorough but slower. For SWE-bench evaluation:
-- Use `--agent code` (default) for most runs - it's faster and works well with the retry mechanism
-- Use `--agent search-tasks` for a second pass on failed instances if you want Brokk to take more initiative
+#### Code Agent (`--agent code`)
+- **Best for**: Simple, well-scoped problems when you know context is clear
+- **Behavior**: Direct code generation with single-pass execution
+- **Speed**: Faster (~3-5 minutes per instance)
+- **Context Strategy**: Uses `--deepscan` on first attempt, then manual retry with requested files
+- **Trade-off**: Faster but less autonomous - may need retries for complex problems
+- **When to use**: Quick iterations on simple fixes, or when you want faster results
+
+**Example with code agent:**
+```bash
+# Use code agent for faster, simpler problems
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --max_instances 10 \
+    --agent code \
+    --repos_dir swe_bench_repos
+```
+
+**Recommendation for SWE-bench**:
+- **Lutz (default)**: Best overall - slower but more thorough and autonomous
+- **Code**: Faster for simple problems, but may need more retries on complex issues
 
 #### Architect Agent (`--agent architect`)
 - **Best for**: Large refactoring or architectural changes

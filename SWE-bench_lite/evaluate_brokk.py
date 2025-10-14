@@ -313,8 +313,8 @@ def run_brokk_cli_internal(
             brokk_cmd.extend(["--code", problem_statement])
         elif agent == "architect":
             brokk_cmd.extend(["--architect", problem_statement])
-        elif agent == "search-tasks":
-            brokk_cmd.extend(["--search-tasks", problem_statement])
+        elif agent == "lutz":
+            brokk_cmd.extend(["--lutz", problem_statement])
         else:
             # Default to code
             brokk_cmd.extend(["--code", problem_statement])
@@ -539,13 +539,17 @@ def run_brokk_cli(
             "patch": ""
         }
     
-    # First attempt: run with deepscan, without additional files
+    # First attempt: run without additional files
+    # Note: Lutz agent has built-in research phase, so it doesn't need deepscan
+    # Code and Architect agents benefit from deepscan for initial context
+    use_deepscan_first_attempt = (agent != "lutz")
+    
     result = run_brokk_cli_internal(
         repo_path_obj, 
         problem_statement, 
         instance_id, 
         agent=agent,
-        use_deepscan=True  # Use deepscan on first attempt
+        use_deepscan=use_deepscan_first_attempt
     )
     
     # Track retry attempts
@@ -1036,11 +1040,11 @@ Examples:
   # Custom model name
   python evaluate_brokk.py --split test --max_instances 3 --model_name "brokk-cli-v1.0"
   
-  # Enable automatic retries when Brokk requests files
+  # Enable automatic retries when Brokk requests files (lutz is default)
   python evaluate_brokk.py --split test --max_instances 5 --max_retries 2
   
-  # Use search-tasks agent (research + task execution mode)
-  python evaluate_brokk.py --split test --max_instances 3 --agent search-tasks
+  # Use code agent for faster execution (skips research phase)
+  python evaluate_brokk.py --split test --max_instances 3 --agent code
   
   # Use architect agent (planning + coding mode)
   python evaluate_brokk.py --split test --max_instances 3 --agent architect
@@ -1119,9 +1123,9 @@ Examples:
     
     parser.add_argument(
         "--agent",
-        choices=["code", "architect", "search-tasks"],
-        default="code",
-        help="Brokk agent to use: code (direct coding), architect (planning + coding), or search-tasks (research + task execution) (default: code)"
+        choices=["code", "architect", "lutz"],
+        default="lutz",
+        help="Brokk agent to use: lutz (research + task execution), code (direct coding), or architect (planning + coding) (default: lutz)"
     )
     
     parser.add_argument(
