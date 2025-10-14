@@ -1013,15 +1013,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
     }
 
-    /**
-     * Update the Build fragment based on structured success/failure. Always clears previous BUILD_LOG fragments. Only
-     * adds a new fragment when the build failed.
-     */
-    @Override
-    public void updateBuildFragment(boolean success, String buildOutput) {
-        pushContextQuietly(currentTopCtx -> currentTopCtx.withBuildResult(success, buildOutput));
-    }
-
     @Override
     public String getProcessedBuildOutput() {
         return topContext().getBuildError();
@@ -1566,22 +1557,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         return newLiveContext;
-    }
-
-    /**
-     * Pushes context changes silently using a generator function. The generator is applied to the current
-     * `topContext()` (frozen context) instead of `liveContext()`. This creates a new context state without triggering
-     * history compression or other side effects.
-     *
-     * @param contextGenerator A function that takes the current top context and returns an updated context.
-     * @return The new top context, or the existing top context if no changes were made by the generator.
-     */
-    public Context pushContextQuietly(Function<Context, Context> contextGenerator) {
-        var newTopContext = contextHistory.pushQuietly(contextGenerator);
-        if (!topContext().equals(newTopContext)) {
-            contextPushed(newTopContext);
-        }
-        return newTopContext;
     }
 
     private void contextPushed(Context frozen) {
