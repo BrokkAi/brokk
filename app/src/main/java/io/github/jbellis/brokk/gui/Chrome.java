@@ -9,7 +9,6 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -869,6 +868,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
+        assert !SwingUtilities.isEventDispatchThread() : "Long running git refresh running on the EDT";
         logger.trace("updateGitRepo invoked");
 
         // Determine current branch (if available) and update InstructionsPanel on EDT
