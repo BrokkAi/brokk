@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -58,7 +59,10 @@ public class EditBlock {
         IO_ERROR
     }
 
-    public record EditResult(Map<ProjectFile, String> originalContents, List<FailedBlock> failedBlocks) {
+    public record EditResult(
+            Map<ProjectFile, String> originalContents,
+            List<FailedBlock> failedBlocks,
+            Set<ProjectFile> createdFiles) {
         public boolean hadSuccessfulEdits() {
             return !originalContents.isEmpty();
         }
@@ -112,7 +116,7 @@ public class EditBlock {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
-        List<ProjectFile> newFiles = new ArrayList<>();
+        Set<ProjectFile> newFiles = new HashSet<>();
         // Track original file contents before any changes
         Map<ProjectFile, String> originalContentsThisBatch = new HashMap<>();
 
@@ -225,18 +229,8 @@ public class EditBlock {
             }
         }
 
-        // add new files to git and the Workspace
-        if (!newFiles.isEmpty()) {
-            try {
-                contextManager.getRepo().add(newFiles);
-                contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
-                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
-            }
-        }
-
         originalContentsThisBatch.keySet().retainAll(succeeded.values());
-        return new EditResult(originalContentsThisBatch, failed);
+        return new EditResult(originalContentsThisBatch, failed, newFiles);
     }
 
     /**
