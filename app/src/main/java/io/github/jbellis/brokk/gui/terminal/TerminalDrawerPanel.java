@@ -420,30 +420,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    public void openTerminalAndPasteText(String text) {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> openTerminalAndPasteText(text));
-            return;
-        }
-
-        // Ensure the Terminal is selected so it is visible
-        terminalToggle.setSelected(true);
-        tasksToggle.setSelected(false);
-
-        openTerminalAsync()
-                .thenAccept(tp -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        tp.pasteText(text);
-                    } catch (Exception e) {
-                        logger.debug("Error pasting text into terminal", e);
-                    }
-                }))
-                .exceptionally(ex -> {
-                    logger.debug("Failed to open terminal and paste text", ex);
-                    return null;
-                });
-    }
-
     // --- Persistence helpers and restore ---
 
     private boolean isUsingPerProjectPersistence() {
