@@ -145,7 +145,6 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String commit;
 
-    @SuppressWarnings("UnusedVariable")
     @CommandLine.Option(
             names = "--disable-context-scan",
             description = "Skip the initial deep context scan in --search-workspace mode.")
@@ -165,11 +164,6 @@ public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(names = "--codemodel", description = "Override the code model to use.")
     @Nullable
     private String codeModelName;
-
-    @CommandLine.Option(
-            names = "--deepscan",
-            description = "Perform a Deep Scan to suggest additional relevant context.")
-    private boolean deepScan = false;
 
     private ContextManager cm;
     private AbstractProject project;
@@ -349,54 +343,6 @@ public final class BrokkCli implements Callable<Integer> {
         addCallers.forEach(workspaceTools::addCallGraphInToWorkspace);
         addCallees.forEach(workspaceTools::addCallGraphOutToWorkspace);
 
-        // --- Deep Scan ------------------------------------------------------
-        if (deepScan) {
-            if (!searchWorkspace) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        ContextFragment.getSummary(cm.topContext().allFragments()));
-            }
-
-            String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                    .filter(s -> s != null && !s.isBlank())
-                    .findFirst()
-                    .orElseThrow();
-            var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-            var agent = new ContextAgent(cm, scanModel, goalForScan);
-            var recommendations = agent.getRecommendations(false);
-            if (!searchWorkspace) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
-            }
-
-            if (recommendations.success()) {
-                if (!searchWorkspace) {
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Deep Scan suggested "
-                                    + recommendations.fragments().stream()
-                                            .map(ContextFragment::shortDescription)
-                                            .toList());
-                }
-                for (var fragment : recommendations.fragments()) {
-                    switch (fragment.getType()) {
-                        case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
-                            if (!searchWorkspace) {
-                                io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
-                            }
-                        }
-                        default -> cm.addSummaries(fragment.files(), Set.of());
-                    }
-                }
-            } else {
-                if (!searchWorkspace) {
-                    io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
-                }
-            }
-        }
-
         // --- Run Action ---
         if (searchWorkspace) {
             long startTime = System.currentTimeMillis();
@@ -405,7 +351,7 @@ public final class BrokkCli implements Callable<Integer> {
 
             try (var scope = cm.beginTask(requireNonNull(query), false)) {
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                var agent = new SearchAgent(query, cm, searchModel, EnumSet.of(Terminal.WORKSPACE));
+                var agent = new SearchAgent(query, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), disableContextScan);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -529,13 +475,13 @@ public final class BrokkCli implements Callable<Integer> {
                 } else if (searchAnswerPrompt != null) {
                     var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                     var agent = new SearchAgent(
-                            requireNonNull(searchAnswerPrompt), cm, searchModel, EnumSet.of(Terminal.ANSWER));
+                            requireNonNull(searchAnswerPrompt), cm, searchModel, EnumSet.of(Terminal.ANSWER), false);
                     result = agent.execute();
                     scope.append(result);
                 } else { // searchTasksPrompt != null
                     var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                     var agent = new SearchAgent(
-                            requireNonNull(lutzPrompt), cm, searchModel, EnumSet.of(Terminal.TASK_LIST));
+                            requireNonNull(lutzPrompt), cm, searchModel, EnumSet.of(Terminal.TASK_LIST), false);
                     result = agent.execute();
                     scope.append(result);
 
