@@ -51,7 +51,6 @@ import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
