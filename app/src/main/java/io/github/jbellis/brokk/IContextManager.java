@@ -16,7 +16,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,19 +47,6 @@ public interface IContextManager {
 
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
-    }
-
-    /** Replaces any existing Build Results fragments with a fresh one containing the provided text. */
-    default void updateBuildFragment(boolean success, String buildOutput) {}
-
-    /**
-     * Retrieves the processed build output from the current BuildFragment, if one exists. This returns the content that
-     * was passed to updateBuildFragment(), which has been preprocessed by BuildOutputPreprocessor.processForLlm().
-     *
-     * @return the processed build output, or empty string if no BuildFragment exists
-     */
-    default String getProcessedBuildOutput() {
-        return "";
     }
 
     default Collection<? extends ChatMessage> getHistoryMessages() {

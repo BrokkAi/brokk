@@ -40,6 +40,7 @@ import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -63,6 +64,9 @@ public class CodeAgent {
     private final StreamingChatModel model;
     private final IConsoleIO io;
 
+    // A "global" for current task Context. Updated mid-task with new files and build status.
+    private Context context;
+
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
@@ -71,24 +75,22 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
+        // placeholder to make Null Away happy; initialized in runTaskInternal
+        this.context = new Context(contextManager, null);
     }
 
     public enum Option {
         DEFER_BUILD
     }
 
-    /**
-     * Implicitly includes the DEFER_BUILD option.
-     */
-    public TaskResult runSingleFileEdit(
-            ProjectFile file,
-            String instructions,
-            List<ChatMessage> readOnlyMessages) {
+    /** Implicitly includes the DEFER_BUILD option. */
+    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager, null)
                 .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();
         try {
+            // TODO runTaskInternal allows creating new files, should we prevent that?
             return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
         } finally {
             contextManager.getAnalyzerWrapper().resume();
@@ -111,8 +113,11 @@ public class CodeAgent {
         }
     }
 
-    private TaskResult runTaskInternal(Context ctx, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+    private TaskResult runTaskInternal(
+            Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
+        // Seed the local Context reference for this task
+        context = initialContext;
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
@@ -138,9 +143,7 @@ public class CodeAgent {
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                ctx,
-                userInput.trim(),
-                CodePrompts.instance.codeReminder(contextManager.getService(), model));
+                context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
@@ -155,6 +158,19 @@ public class CodeAgent {
                 originalFileContents,
                 Collections.emptyMap());
 
+        // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
+        // to date before we paused it, but empirically that is not the case as of this writing.
+        try {
+            contextManager
+                    .getAnalyzerWrapper()
+                    .updateFiles(contextManager.getFilesInContext())
+                    .get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -162,17 +178,12 @@ public class CodeAgent {
                 break;
             }
 
-            // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
-            // to date before we paused it, but empirically that is not the case as of this writing.
-            var filesToRefresh = es.changedFiles().isEmpty() ? contextManager.getFilesInContext() : es.changedFiles();
-            var analyzerFuture = contextManager.getAnalyzerWrapper().updateFiles(filesToRefresh);
-
             // Make the LLM request
             StreamingResult streamingResult;
             try {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
-                        ctx,
+                        context,
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
@@ -221,16 +232,6 @@ public class CodeAgent {
             cs = parseOutcome.cs();
             es = parseOutcome.es();
 
-            // Wait for analyzer update before applying blocks
-            try {
-                analyzerFuture.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                continue; // let main loop interruption check handle
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-
             // APPLY PHASE applies blocks
             var applyOutcome = applyPhase(cs, es, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
@@ -245,17 +246,52 @@ public class CodeAgent {
             cs = applyOutcome.cs();
             es = applyOutcome.es();
 
+            // Incorporate any newly created files into the live context immediately
+            var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
+                    .flatMap(f -> f.files().stream())
+                    .collect(Collectors.toSet());
+            var newlyCreated = es.changedFiles().stream()
+                    .filter(pf -> !filesInContext.contains(pf))
+                    .collect(Collectors.toSet());
+            if (!newlyCreated.isEmpty()) {
+                // Stage any files that were created during this task, regardless of stop reason
+                try {
+                    contextManager.getRepo().add(newlyCreated);
+                    contextManager.getRepo().invalidateCaches();
+                } catch (GitAPIException e) {
+                    io.toolError("Failed to add newly created files to git: " + e.getMessage());
+                }
+
+                var newFrags = newlyCreated.stream()
+                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
+                        .collect(Collectors.toList());
+                context = context.addPathFragments(newFrags);
+            }
+
             // After a successful apply, consider compacting the turn into a clean, synthetic summary.
             // Only do this if the turn had more than a single user/AI pair; for simple one-shot turns,
             // keep the original messages for clarity.
             if (es.blocksAppliedWithoutBuild() > 0) {
+                // update analyzer with changes so it can find newly created test files
+                try {
+                    contextManager
+                            .getAnalyzerWrapper()
+                            .updateFiles(es.changedFiles())
+                            .get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue; // let main loop interruption check handle
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+
                 int msgsThisTurn = cs.taskMessages().size() - cs.turnStartIndex();
                 if (msgsThisTurn > 2) {
                     var srb = es.toSearchReplaceBlocks();
                     var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                                      + srb.stream()
-                                              .map(EditBlock.SearchReplaceBlock::repr)
-                                              .collect(Collectors.joining("\n"));
+                            + srb.stream()
+                                    .map(EditBlock.SearchReplaceBlock::repr)
+                                    .collect(Collectors.joining("\n"));
                     cs = cs.replaceCurrentTurnMessages(summaryText);
                 }
             }
@@ -280,13 +316,14 @@ public class CodeAgent {
             if (options.contains(Option.DEFER_BUILD)) {
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
-                        ? "Edits applied. Build/check deferred."
-                        : "No edits to apply. Build/check deferred.");
+                                ? "Edits applied. Build/check deferred."
+                                : "No edits to apply. Build/check deferred.");
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
                 break;
             }
 
             var verifyOutcome = verifyPhase(cs, es, metrics);
+
             if (verifyOutcome instanceof Step.Retry retryVerify) {
                 cs = retryVerify.cs();
                 es = retryVerify.es();
@@ -310,8 +347,8 @@ public class CodeAgent {
 
         // create the Result for history
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                                        ? userInput
-                                        : userInput + " [" + stopDetails.reason().name() + "]";
+                ? userInput
+                : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
@@ -590,7 +627,8 @@ public class CodeAgent {
 
         String buildError;
         try {
-            buildError = BuildAgent.runVerification(contextManager);
+            context = BuildAgent.runVerification(context);
+            buildError = context.getBuildError();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
@@ -1147,6 +1185,7 @@ public class CodeAgent {
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
+
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(

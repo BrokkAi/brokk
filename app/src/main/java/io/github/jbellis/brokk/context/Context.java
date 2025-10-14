@@ -546,6 +546,59 @@ public class Context {
         return allFragments().anyMatch(ContextFragment::isDynamic);
     }
 
+    /**
+     * Returns the processed output text from the latest build failure fragment in this Context. Empty string if there
+     * is no build failure recorded.
+     */
+    public String getBuildError() {
+        var desc = ContextFragment.BUILD_RESULTS.description();
+        return virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
+                .filter(sf -> desc.equals(sf.description()))
+                .map(cf -> cf.text())
+                .findFirst()
+                .orElse("");
+    }
+
+    /**
+     * Returns a new Context reflecting the latest build result. Behavior mirrors ContextManager.updateBuildFragment: -
+     * Always clears previous build fragments (legacy BUILD_LOG and the new BUILD_RESULTS StringFragment). - Adds a new
+     * "Latest Build Results" StringFragment only on failure; no fragment on success.
+     */
+    public Context withBuildResult(boolean success, String processedOutput) {
+        var desc = ContextFragment.BUILD_RESULTS.description();
+
+        var idsToDrop = virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
+                        || (f.getType() == ContextFragment.FragmentType.STRING
+                                && f instanceof ContextFragment.StringFragment sf
+                                && desc.equals(sf.description())))
+                .map(ContextFragment::id)
+                .toList();
+
+        var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
+
+        if (success) {
+            // Build succeeded; nothing to add after clearing old fragments
+            return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+        }
+
+        // Build failed; add a new StringFragment with the processed output
+        var sf = new ContextFragment.StringFragment(
+                getContextManager(), processedOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
+
+        var newFragments = new ArrayList<>(afterClear.fragments);
+        newFragments.add(sf);
+
+        return new Context(
+                newContextId(),
+                getContextManager(),
+                newFragments,
+                afterClear.taskHistory,
+                afterClear.parsedOutput,
+                CompletableFuture.completedFuture("Build results updated (failure)"));
+    }
+
     private boolean isNewFileInGit(FrozenFragment ff) {
         if (ff.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
             return false;

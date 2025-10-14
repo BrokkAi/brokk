@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -42,6 +43,7 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -400,16 +402,10 @@ public class BuildAgent {
         public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
     }
 
-    /**
-     * Asynchronously determines the best verification command based on the user goal, workspace summary, and stored
-     * BuildDetails. Runs on the ContextManager's background task executor. Determines the command by checking for
-     * relevant test files in the workspace and the availability of a specific test command in BuildDetails.
-     *
-     * @param cm The ContextManager instance.
-     * @return A CompletableFuture containing the suggested verification command string (either specific test command or
-     *     build/lint command), or null if BuildDetails are unavailable.
-     */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+    /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
+    public static @Nullable String determineVerificationCommand(Context ctx) {
+        var cm = ctx.getContextManager();
+
         // Retrieve build details from the project associated with the ContextManager
         BuildDetails details = cm.getProject().loadBuildDetails();
 
@@ -425,17 +421,15 @@ public class BuildAgent {
             return details.testAllCommand();
         }
 
-        // Proceed with workspace-specific test determination
-        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
+        // Proceed with workspace-specific test determination (based on the provided Context)
+        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
 
         // Get ProjectFiles from editable and read-only fragments
-        var topContext = cm.topContext();
         var projectFilesFromEditableOrReadOnly =
-                topContext.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
+                ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = topContext
-                .virtualFragments()
+        var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
@@ -449,7 +443,7 @@ public class BuildAgent {
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.getSummary(cm.topContext().allFragments());
+            var summaries = ContextFragment.getSummary(ctx.allFragments());
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),
@@ -459,6 +453,11 @@ public class BuildAgent {
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+    }
+
+    /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
+    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+        return determineVerificationCommand(cm.topContext());
     }
 
     /**
@@ -570,34 +569,54 @@ public class BuildAgent {
      * text.
      */
     public static String runVerification(IContextManager cm) throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runVerification(ctx);
+            } catch (InterruptedException e) {
+                // Preserve interrupt status and defer propagation until after pushContext returns
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
+    }
+
+    /**
+     * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
+     * are performed here; callers decide when to persist.
+     */
+    public static Context runVerification(Context ctx) throws InterruptedException {
+        var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        var verificationCommand = determineVerificationCommand(cm);
+        var verificationCommand = determineVerificationCommand(ctx);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
-            // Do not update BuildFragment; success/failure unknown and not a failure.
-            return "";
+            return ctx; // unchanged
         }
 
-        // Enforce single-build execution when requested
         boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
         if (noConcurrentBuilds) {
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
-            // The lock is implemented using a FileChannel/FileLock; keep the channel/lock inside the record and close
-            // it after execution.
             try (var ignored = lock) {
                 logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             } catch (Exception e) {
                 logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
         } else {
-            return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
         }
     }
 
@@ -658,9 +677,10 @@ public class BuildAgent {
         throw new IllegalArgumentException("Unable to parse git repo url " + url);
     }
 
-    /** @return the text of the new BuildFragment (may have been preprocessed by quickestModel) */
-    private static String runBuildAndUpdateFragmentInternal(IContextManager cm, String verificationCommand)
+    /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
+    private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
             throws InterruptedException {
+        var cm = ctx.getContextManager();
         var io = cm.getIo();
 
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
@@ -674,16 +694,14 @@ public class BuildAgent {
                     Environment.UNLIMITED_TIMEOUT);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
 
-            cm.updateBuildFragment(true, "Build succeeded.");
             logger.debug("Verification command successful. Output: {}", output);
-            return "";
+            return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
             io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
-            cm.updateBuildFragment(false, "Build output:\n" + processed);
-            return processed;
+            return ctx.withBuildResult(false, "Build output:\n" + processed);
         }
     }
 }

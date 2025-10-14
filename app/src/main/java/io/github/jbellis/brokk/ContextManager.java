@@ -1014,63 +1014,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Update the Build fragment based on structured success/failure. Always clears previous BUILD_LOG fragments. Only
-     * adds a new fragment when the build failed.
-     */
-    @Override
-    public void updateBuildFragment(boolean success, String buildOutput) {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        pushContextQuietly(currentTopCtx -> {
-            // Collect build-related fragments to drop:
-            //  - Legacy: BuildFragment (BUILD_LOG)
-            //  - New: StringFragment with description "Latest Build Results"
-            var idsToDrop = currentTopCtx
-                    .virtualFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
-                            || (f.getType() == ContextFragment.FragmentType.STRING
-                                    && f instanceof ContextFragment.StringFragment sf
-                                    && desc.equals(sf.description())))
-                    .map(ContextFragment::id)
-                    .toList();
-
-            var modified = idsToDrop.isEmpty() ? currentTopCtx : currentTopCtx.removeFragmentsByIds(idsToDrop);
-
-            if (success) {
-                logger.debug(
-                        "Cleared {} previous build fragment(s); build succeeded so not adding new results.",
-                        idsToDrop.size());
-                return modified;
-            }
-
-            var sf = new ContextFragment.StringFragment(
-                    this, buildOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
-
-            logger.debug(
-                    "Cleared {} previous build fragment(s); added new build results StringFragment {}",
-                    idsToDrop.size(),
-                    sf.id());
-            return modified.addVirtualFragment(sf);
-        });
-    }
-
-    @Override
-    public String getProcessedBuildOutput() {
-        // Prefer new StringFragment with the BUILD_RESULTS description
-        var latestString = liveContext()
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
-                .filter(f -> f instanceof ContextFragment.StringFragment)
-                .map(f -> (ContextFragment.StringFragment) f)
-                .filter(sf -> sf.description().equals(ContextFragment.BUILD_RESULTS.description()))
-                .findFirst();
-
-        if (latestString.isPresent()) {
-            return latestString.get().text();
-        }
-        return "";
-    }
-
-    /**
      * Handles pasting an image from the clipboard. Submits a task to summarize the image and adds a PasteImageFragment
      * to the context.
      *
@@ -1611,22 +1554,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return newLiveContext;
     }
 
-    /**
-     * Pushes context changes silently using a generator function. The generator is applied to the current
-     * `topContext()` (frozen context) instead of `liveContext()`. This creates a new context state without triggering
-     * history compression or other side effects.
-     *
-     * @param contextGenerator A function that takes the current top context and returns an updated context.
-     * @return The new top context, or the existing top context if no changes were made by the generator.
-     */
-    public Context pushContextQuietly(Function<Context, Context> contextGenerator) {
-        var newTopContext = contextHistory.pushQuietly(contextGenerator);
-        if (!topContext().equals(newTopContext)) {
-            contextPushed(newTopContext);
-        }
-        return newTopContext;
-    }
-
     private void contextPushed(Context frozen) {
         captureGitState(frozen);
         // Ensure listeners are notified on the EDT
@@ -2061,14 +1988,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
-        private final boolean compressAtCommit;
+        private final boolean compressResults;
         private final MergeAgent.NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressResults, MergeAgent.NonTextResolutionMode nonTextMode) {
             io.blockLlmOutput(true);
-            this.compressAtCommit = compressAtCommit;
+            this.compressResults = compressResults;
             this.nonTextMode = nonTextMode;
             this.results = new ArrayList<>();
         }
@@ -2097,7 +2024,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         addFiles(only.changedFiles());
                     }
                     // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(only, compressAtCommit);
+                    pushFinalHistory(only, compressResults);
                     return;
                 }
 
@@ -2135,7 +2062,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 var finalResult = new TaskResult(
                         ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
-                pushFinalHistory(finalResult, compressAtCommit);
+                pushFinalHistory(finalResult, compressResults);
             } finally {
                 io.blockLlmOutput(false);
             }
