@@ -57,7 +57,8 @@ public abstract class CodePrompts {
             """
             <persistence>
             ## Markdown Formatting
-            Always format your entire response using GFM Markdown to **improve the readability** of your responses with:
+            When not writing SEARCH/REPLACE blocks,
+            format your response using GFM Markdown to **improve the readability** of your responses with:
             - **bold**
             - _italics_
             - `inline code` (for file, directory, function, class names and other symbols)

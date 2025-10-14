@@ -72,7 +72,7 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
 
             int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                var result = llm.sendRequest(messages, toolContext, false);
+                var result = llm.sendRequest(messages, toolContext);
 
                 if (result.error() != null) {
                     throw new Exception("LLM error while describing paste", result.error());

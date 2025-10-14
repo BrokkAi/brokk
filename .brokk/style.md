@@ -22,8 +22,10 @@ or return value is not annotated @Nullable.
 1. **Use imports**: Never use raw, fully qualified class names; always import them.
 1. **YAGNI**: Follow the principle of You Ain't Gonna Need It; implement the simplest solution that meets the requirements, unless you have specific knowledge that a more robust solution is needed to meet near-future requirements.
 1. **Keep related code together**: Don't split out code into a separate function, class, or file unless it is completely self-contained or called from multiple sites. It's easier to understand a short computation inline with its context, than split out to a separate location.
+
 ## Things to avoid
 
+1. **No Reflection**: Don't use reflection unless it's specifically requested by the user. Especially don't use reflection to work around member visibility issues; ask the user to add the necessary file to the Workspace so you can relax the visibility, instead.
 1. **No Unicode**: Don't use unicode characters in code. No fancy quotes, no fancy dashes, no fancy spaces, just plain ASCII.
 1. **No DI, no mocking frameworks**: these usually lead to bad patterns where you spend more time refactoring tests than actually doing useful things. instead we give interfaces default implementations (UnsupportedOperationException is fine) to minimize boilerplate in tests.
 1. **No StringBuilder**: prefer joins or interpolated text blocks where possible. Use stripIndent() with text blocks.

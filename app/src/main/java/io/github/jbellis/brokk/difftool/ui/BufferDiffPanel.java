@@ -7,6 +7,7 @@ import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
 import com.jgoodies.forms.layout.FormLayout;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
 import io.github.jbellis.brokk.difftool.node.BufferNode;
@@ -122,11 +123,37 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
 
         if (dirtySinceOpen != newDirty) {
+            boolean wasJustCleaned = dirtySinceOpen && !newDirty;
             dirtySinceOpen = newDirty;
+
+            // If we just transitioned from dirty to clean (undo back to baseline), clear tracking
+            if (wasJustCleaned) {
+                pendingDiffChanges.clear();
+            }
+
             SwingUtilities.invokeLater(() -> {
                 mainPanel.refreshTabTitle(BufferDiffPanel.this);
                 mainPanel.updateUndoRedoButtons();
+
+                // If we just transitioned from dirty to clean (undo back to baseline), clear stale blame flag
+                if (wasJustCleaned) {
+                    clearBlameStaleFlag();
+                }
             });
+        }
+    }
+
+    /**
+     * Clear the stale blame flag on all gutters when document returns to saved state.
+     *
+     * <p>Called when undo/redo operations restore the document to match the saved baseline.
+     */
+    private void clearBlameStaleFlag() {
+        for (FilePanel panel : filePanels.values()) {
+            if (panel != null) {
+                panel.getGutterComponent()
+                        .setBlameLines(panel.getGutterComponent().getRightBlameLines());
+            }
         }
     }
 
@@ -180,8 +207,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         BufferDocumentIF leftDocument = bnLeft != null ? bnLeft.getDocument() : null;
         BufferDocumentIF rightDocument = bnRight != null ? bnRight.getDocument() : null;
 
-        // Calculate the diff to get the patch with actual differences
-        diffNode.diff();
+        // Calculate the diff to get the patch with actual differences (if not already computed)
+        var existingPatch = diffNode.getPatch();
+        if (existingPatch == null || existingPatch.getDeltas().isEmpty()) {
+            diffNode.diff();
+        }
         this.patch = diffNode.getPatch(); // new Patch or null
 
         // Initialize selectedDelta to first change for proper navigation button states
@@ -1149,7 +1179,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
-        recalcDirty();
+        // Defer recheck until after all document change events from undo have been processed
+        SwingUtilities.invokeLater(() -> {
+            recheckDocumentChangedState();
+            recalcDirty();
+        });
     }
 
     @Override
@@ -1158,7 +1192,39 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
-        recalcDirty();
+        // Defer recheck until after all document change events from redo have been processed
+        SwingUtilities.invokeLater(() -> {
+            recheckDocumentChangedState();
+            recalcDirty();
+        });
+    }
+
+    /**
+     * Re-evaluate whether documents match their saved baseline after undo/redo.
+     *
+     * <p>This clears the changed flag if undo/redo restored the document to match the saved state.
+     */
+    private void recheckDocumentChangedState() {
+        var diffNode = getDiffNode();
+        if (diffNode == null) {
+            return;
+        }
+
+        var leftBufferNode = diffNode.getBufferNodeLeft();
+        if (leftBufferNode != null) {
+            var leftDoc = leftBufferNode.getDocument();
+            if (leftDoc instanceof AbstractBufferDocument abd) {
+                abd.recheckChangedState();
+            }
+        }
+
+        var rightBufferNode = diffNode.getBufferNodeRight();
+        if (rightBufferNode != null) {
+            var rightDoc = rightBufferNode.getDocument();
+            if (rightDoc instanceof AbstractBufferDocument abd) {
+                abd.recheckChangedState();
+            }
+        }
     }
 
     @Override
@@ -1410,6 +1476,18 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      */
     public void recordManualEdit(BufferDocumentIF doc) {
         recordDiffChange(doc);
+    }
+
+    /**
+     * Invalidate blame information when a document is edited.
+     *
+     * <p>Delegates to the parent BrokkDiffPanel to clear blame cache and gutter display, since edits make the cached
+     * blame data stale (line numbers shift).
+     *
+     * @param doc The document that was edited (non-null)
+     */
+    public void invalidateBlameForEdit(BufferDocumentIF doc) {
+        mainPanel.invalidateBlameForDocument(doc);
     }
 
     /**

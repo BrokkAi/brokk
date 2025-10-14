@@ -166,14 +166,19 @@ public class KeyboardShortcutUtil {
         registerGlobalShortcut(component, createEscape(), "close", closeAction);
     }
 
-    /** Formats a KeyStroke into a human-readable string like "Alt+1" or "Cmd+2". */
+    /**
+     * Format a KeyStroke into a human-readable short string such as "Ctrl+M" or "Meta+Enter". Falls back to
+     * KeyStroke.toString() on error.
+     */
     public static String formatKeyStroke(KeyStroke ks) {
         try {
             int modifiers = ks.getModifiers();
             int keyCode = ks.getKeyCode();
-            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String modText = InputEvent.getModifiersExText(modifiers);
             String keyText = KeyEvent.getKeyText(keyCode);
-            if (modText == null || modText.isBlank()) return keyText;
+            if (modText == null || modText.isBlank()) {
+                return keyText;
+            }
             return modText + "+" + keyText;
         } catch (Exception e) {
             return ks.toString();

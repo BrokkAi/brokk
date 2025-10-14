@@ -21,7 +21,6 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -162,7 +161,7 @@ public class BuildAgent {
             // Make the LLM request
             Llm.StreamingResult result;
             try {
-                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, this), false);
+                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, this));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");
@@ -244,6 +243,15 @@ public class BuildAgent {
     private List<ChatMessage> buildPrompt() {
         List<ChatMessage> messages = new ArrayList<>();
 
+        String wrapperScriptInstruction;
+        if (Environment.isWindows()) {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+        } else {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
+        }
+
         // System Prompt
         messages.add(new SystemMessage(
                 """
@@ -271,7 +279,7 @@ public class BuildAgent {
                                        | **pytest**        | `pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
                                        | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
 
-                                       Prefer the repository-local *wrapper script* when it exists in the project root (e.g. `./gradlew`, `./mvnw`).
+                                       %s
                                        Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
 
@@ -282,6 +290,7 @@ public class BuildAgent {
                                        Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                                        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
                                        """
+                        .formatted(wrapperScriptInstruction)
                         .stripIndent()));
 
         // Add existing history
@@ -413,7 +422,7 @@ public class BuildAgent {
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), details.testAllCommand());
+            return details.testAllCommand();
         }
 
         // Proceed with workspace-specific test determination
@@ -446,7 +455,7 @@ public class BuildAgent {
                     cm.getProject().getRoot(),
                     summaries,
                     getBuildLintAllCommand(details));
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
+            return getBuildLintAllCommand(details);
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -460,30 +469,6 @@ public class BuildAgent {
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
         return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
-    }
-
-    private static String prefixWithJavaHomeIfNeeded(IProject project, String command) {
-        if (command.isBlank()) {
-            return command;
-        }
-        // Only prefix for Java projects
-        if (project.getBuildLanguage() != Languages.JAVA) {
-            return command;
-        }
-        var trimmed = command.stripLeading();
-        if (trimmed.startsWith("JAVA_HOME=")) {
-            return command;
-        }
-
-        String jdk = project.getJdk();
-        if (JAVA_HOME_SENTINEL.equals(jdk)) {
-            var env = System.getenv("JAVA_HOME");
-            jdk = (env == null || env.isBlank()) ? null : env;
-        }
-        if (jdk == null || jdk.isBlank()) {
-            return command;
-        }
-        return "JAVA_HOME=" + jdk + " " + command;
     }
 
     public static String getBuildLintSomeCommand(
@@ -500,7 +485,7 @@ public class BuildAgent {
             logger.debug(
                     "Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}",
                     getBuildLintAllCommand(details));
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
+            return getBuildLintAllCommand(details);
         }
 
         List<String> targetItems;
@@ -519,7 +504,7 @@ public class BuildAgent {
 
             if (analyzer.isEmpty()) {
                 logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
-                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
+                return details.buildLintCommand();
             }
 
             var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
@@ -533,7 +518,7 @@ public class BuildAgent {
                 logger.debug(
                         "No classes found in workspace test files for class-based template, using build/lint command: {}",
                         details.buildLintCommand());
-                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
+                return details.buildLintCommand();
             }
             logger.debug("Using classes-based template with {} classes", targetItems.size());
         }
@@ -542,7 +527,7 @@ public class BuildAgent {
         String listKey = isFilesBased ? "files" : (isFqBased ? "fqclasses" : "classes");
         String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, listKey);
         logger.debug("Interpolated test command: '{}'", interpolatedCommand);
-        return prefixWithJavaHomeIfNeeded(cm.getProject(), interpolatedCommand);
+        return interpolatedCommand;
     }
 
     private static String getBuildLintAllCommand(BuildDetails details) {
@@ -556,7 +541,7 @@ public class BuildAgent {
      * Interpolates a Mustache template with the given list of items. Supports {{files}} and {{classes}} variables with
      * {{^-last}} separators.
      */
-    private static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         if (template.isEmpty()) {
             return "";
         }

@@ -620,22 +620,19 @@ public final class JavascriptAnalyzerTest {
                 jsxClassSource.stripIndent().trim());
 
         // Test case 3: Non-existent class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> jsAnalyzer.getClassSource("NonExistentClass", true),
-                "Requesting source for a non-existent class should throw SymbolNotFoundException.");
+        assertTrue(
+                jsAnalyzer.getClassSource("NonExistentClass", true).isEmpty(),
+                "Requesting source for a non-existent class should return Optional.empty().");
 
         // Test case 4: Existing symbol that is a function, not a class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> jsAnalyzer.getClassSource("util", true),
-                "Requesting class source for a function symbol should throw SymbolNotFoundException.");
+        assertTrue(
+                jsAnalyzer.getClassSource("util", true).isEmpty(),
+                "Requesting class source for a function symbol should return Optional.empty().");
 
         // Test case 5: Existing symbol that is a field, not a class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS", true),
-                "Requesting class source for a field symbol should throw SymbolNotFoundException.");
+        assertTrue(
+                jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS", true).isEmpty(),
+                "Requesting class source for a field symbol should return Optional.empty().");
     }
 
     @Test

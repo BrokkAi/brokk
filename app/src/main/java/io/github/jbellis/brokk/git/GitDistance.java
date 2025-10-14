@@ -4,9 +4,9 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.Period;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,67 +14,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /** Provides the logic to perform a Git-centric distance calculations for given type declarations. */
 public final class GitDistance {
+    private static final Logger logger = LogManager.getLogger(GitDistance.class);
+    private static final int COMMITS_TO_PROCESS = 1_000;
 
     /** Represents an edge between two CodeUnits in the co-occurrence graph. */
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
-
-    /**
-     * Convenience wrapper around {@link #getRecentCommits(GitRepo, int)} that chooses a dynamic limit equal to 30% of
-     * the total commit count on the current branch (rounded up, with a minimum of 250).
-     *
-     * <p>This percentage-based cap scales with repository size, ensuring we neither ignore too much history in large
-     * projects nor overwhelm small ones with an arbitrary fixed number.
-     *
-     * @param repo the Git repository wrapper
-     * @return commits that are at most 90 days old, or — if fewer than the 30% cap — additional older commits until
-     *     that cap is reached
-     */
-    private static List<CommitInfo> getRecentCommits(GitRepo repo) throws GitAPIException {
-        final var currentBranch = repo.getCurrentBranch();
-        final var commits = repo.listCommitsDetailed(currentBranch);
-        if (commits.isEmpty()) {
-            return commits;
-        }
-
-        final int dynamicLimit = Math.max(250, (int) Math.ceil(commits.size() * 0.30));
-        // Re-use the 90-day trimming logic in the overload
-        return getRecentCommits(repo, dynamicLimit);
-    }
-
-    /**
-     * Keep every commit whose author/commit date is within the last 90 days. If we still have fewer than the desired
-     * limit add the next-oldest commits until we hit the limit or exhaust the list.
-     *
-     * @param repo the Git repository wrapper.
-     * @param resultLimit the maximum number of results if more commits are at least 90 days old.
-     * @return commits from the current branch that are either at most 90 days old, or are enough to make up a result of
-     *     at most `resultLimit`.
-     */
-    private static List<CommitInfo> getRecentCommits(GitRepo repo, int resultLimit) throws GitAPIException {
-        final var currentBranch = repo.getCurrentBranch();
-        final var commits = repo.listCommitsDetailed(currentBranch);
-        if (commits.isEmpty()) {
-            return commits;
-        }
-
-        final var ninetyDaysAgo = Instant.now().minus(Period.ofDays(90));
-        final var recent = commits.stream()
-                .takeWhile(ci -> !ci.date().isBefore(ninetyDaysAgo))
-                .toList();
-
-        if (recent.size() >= resultLimit) {
-            // Already have enough recent commits; trim to at most `resultLimit`.
-            return recent.subList(0, resultLimit);
-        }
-
-        // Not enough recent commits; include older ones until the total reaches the cap.
-        int needed = Math.min(resultLimit, commits.size());
-        return commits.subList(0, needed);
-    }
 
     /**
      * Point-wise Mutual Information (PMI) distance.
@@ -84,13 +35,99 @@ public final class GitDistance {
      * @return a sorted list of files with relevance scores. If no seed weights are given,an empty result.
      */
     public static List<IAnalyzer.FileRelevance> getPMI(
-            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws GitAPIException {
+            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) {
 
         if (seedWeights.isEmpty()) {
             return List.of();
         }
 
-        return computePmiScores(repo, seedWeights, k, reversed);
+        try {
+            return computePmiScores(repo, seedWeights, k, reversed);
+        } catch (GitAPIException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @VisibleForTesting
+    public static List<IAnalyzer.FileRelevance> getMostImportantFilesScored(GitRepo repo, int k)
+            throws GitAPIException {
+        var commits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
+        var scores = computeImportanceScores(repo, commits);
+        logger.info("Computed importance scores for getMostImportantFilesScored: {}", scores);
+
+        return scores.entrySet().stream()
+                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .limit(k)
+                .toList();
+    }
+
+    public static List<ProjectFile> getMostImportantFiles(GitRepo repo, int k) throws GitAPIException {
+        return getMostImportantFilesScored(repo, k).stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .toList();
+    }
+
+    /**
+     * Fetches commits that modified any of the specified files, limited to maxResults.
+     *
+     * @param repo the Git repository wrapper.
+     * @param files the collection of files to fetch commits for.
+     * @param maxResults the maximum number of commits to fetch per file.
+     * @return a sorted list of unique commits (newest first).
+     */
+    static List<CommitInfo> getCommitsForFiles(GitRepo repo, Collection<ProjectFile> files, int maxResults) {
+        try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
+            return pool.submit(() -> files.parallelStream()
+                            .flatMap(file -> {
+                                try {
+                                    return repo.getFileHistory(file, maxResults).stream();
+                                } catch (GitAPIException e) {
+                                    throw new RuntimeException("Error getting file history for " + file, e);
+                                }
+                            })
+                            .distinct()
+                            .sorted((a, b) -> b.date().compareTo(a.date()))
+                            .toList())
+                    .get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Error getting file history in parallel", e);
+        }
+    }
+
+    /**
+     * Sorts a collection of files by their importance using Git history analysis. The importance is determined by
+     * analyzing change frequency and recency across the pooled commit histories of all provided files.
+     *
+     * <p>This method first collects all commits that modified any of the input files, then applies the same
+     * time-weighted scoring algorithm as {@link #getMostImportantFilesScored} to rank them.
+     *
+     * @param files the collection of files to sort by importance.
+     * @param repo the Git repository wrapper.
+     * @return the input files sorted by importance (most important first).
+     */
+    public static List<ProjectFile> sortByImportance(Collection<ProjectFile> files, IGitRepo repo) {
+        if (!(repo instanceof GitRepo gr)) {
+            return List.copyOf(files);
+        }
+
+        var commits = getCommitsForFiles(gr, files, Integer.MAX_VALUE);
+        Map<ProjectFile, Double> scores;
+        try {
+            scores = computeImportanceScores(gr, commits);
+            logger.info("Computed importance scores for sortByImportance: {}", scores);
+        } catch (GitAPIException e) {
+            throw new RuntimeException(e);
+        }
+
+        // Score-less files sort to the end
+        return files.stream()
+                .sorted((a, b) -> {
+                    double sb = scores.getOrDefault(b, Double.NEGATIVE_INFINITY);
+                    double sa = scores.getOrDefault(a, Double.NEGATIVE_INFINITY);
+                    return Double.compare(sb, sa);
+                })
+                .toList();
     }
 
     /**
@@ -109,15 +146,11 @@ public final class GitDistance {
      *   <li>t_latest is the timestamp of the latest commit in the repository.
      *   <li>half-life is a constant (30 days) that determines how quickly the weight of changes decays.
      * </ul>
-     *
-     * @param repo the Git repository wrapper.
-     * @param k the maximum number of files to return.
-     * @return a sorted list of the most important files with their relevance scores.
      */
-    public static List<IAnalyzer.FileRelevance> getMostImportantFiles(GitRepo repo, int k) throws GitAPIException {
-        var commits = repo.listCommitsDetailed(repo.getCurrentBranch());
+    private static Map<ProjectFile, Double> computeImportanceScores(GitRepo repo, List<CommitInfo> commits)
+            throws GitAPIException {
         if (commits.isEmpty()) {
-            return List.of();
+            return Map.of();
         }
 
         var t_latest = commits.getFirst().date();
@@ -126,26 +159,26 @@ public final class GitDistance {
 
         var scores = new ConcurrentHashMap<ProjectFile, Double>();
 
-        try (var pool = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()))) {
+        try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             pool.submit(() -> commits.parallelStream().forEach(commit -> {
+                        List<ProjectFile> changedFiles;
                         try {
-                            var changedFiles = repo.listFilesChangedInCommit(commit.id());
-                            if (changedFiles.isEmpty()) {
-                                return;
-                            }
-
-                            var t_c = commit.date();
-                            var age = Duration.between(t_c, t_latest);
-                            double ageMillis = age.toMillis();
-
-                            double weight = Math.pow(2, -(ageMillis / halfLifeMillis));
-
-                            for (var file : changedFiles) {
-                                scores.merge(file, weight, Double::sum);
-                            }
-
+                            changedFiles = repo.listFilesChangedInCommit(commit.id());
                         } catch (GitAPIException e) {
                             throw new RuntimeException("Error processing commit: " + commit.id(), e);
+                        }
+                        if (changedFiles.isEmpty()) {
+                            return;
+                        }
+
+                        var t_c = commit.date();
+                        var age = Duration.between(t_c, t_latest);
+                        double ageMillis = age.toMillis();
+
+                        double weight = Math.pow(2, -(ageMillis / halfLifeMillis));
+
+                        for (var file : changedFiles) {
+                            scores.merge(file, weight, Double::sum);
                         }
                     }))
                     .get();
@@ -153,23 +186,19 @@ public final class GitDistance {
             throw new RuntimeException("Error computing file importance scores in parallel", e);
         }
 
-        return scores.entrySet().stream()
-                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) -> Double.compare(b.score(), a.score()))
-                .limit(k)
-                .toList();
+        return scores;
     }
 
     private static List<IAnalyzer.FileRelevance> computePmiScores(
             GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws GitAPIException {
-        var commits = getRecentCommits(repo);
+        var commits = getCommitsForFiles(repo, seedWeights.keySet(), COMMITS_TO_PROCESS);
         var totalCommits = commits.size();
         if (totalCommits == 0) return List.of();
 
         var fileCounts = new ConcurrentHashMap<ProjectFile, Integer>();
         var jointCounts = new ConcurrentHashMap<FileEdge, Integer>();
 
-        try (var pool = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()))) {
+        try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             pool.submit(() -> commits.parallelStream().forEach(commit -> {
                         try {
                             var changedFiles = repo.listFilesChangedInCommit(commit.id());
@@ -226,5 +255,24 @@ public final class GitDistance {
                         reversed ? Double.compare(a.score(), b.score()) : Double.compare(b.score(), a.score()))
                 .limit(k)
                 .toList();
+    }
+
+    public static void main(String[] args) {
+        if (args.length < 1 || args[0].isBlank()) {
+            System.err.println("Usage: GitDistance <path-to-git-repo>");
+            System.exit(1);
+        }
+
+        var repoPath = Path.of(args[0]);
+        logger.info("Analyzing most important files for repository: {}", repoPath);
+
+        try {
+            var repo = new GitRepo(repoPath);
+            var results = getMostImportantFilesScored(repo, 20);
+            results.forEach(fr -> System.out.printf("%s\t%.6f%n", fr.file().getFileName(), fr.score()));
+        } catch (GitAPIException e) {
+            logger.error("Error computing most important files for repo {}: {}", repoPath, e.getMessage(), e);
+            System.exit(2);
+        }
     }
 }

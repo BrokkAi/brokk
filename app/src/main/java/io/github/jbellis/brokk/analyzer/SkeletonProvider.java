@@ -19,7 +19,7 @@ public interface SkeletonProvider extends CapabilityProvider {
     default Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         final Map<CodeUnit, String> skeletons = new HashMap<>();
         if (this instanceof IAnalyzer analyzer) {
-            for (CodeUnit symbol : analyzer.getDeclarationsInFile(file)) {
+            for (CodeUnit symbol : analyzer.topLevelCodeUnitsOf(file)) {
                 getSkeleton(symbol.fqName()).ifPresent(s -> skeletons.put(symbol, s));
             }
         }

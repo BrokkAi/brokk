@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
@@ -46,9 +47,9 @@ import org.jetbrains.annotations.Nullable;
 /**
  * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
  * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
- * hidden state). - Summarizes very large tool outputs before recording them. - Forges getRelatedClasses for duplicate
- * requests (like SearchAgent). - Enters "beast mode" to finalize with existing info if interrupted or context is near
- * full. - Never writes code itself; it prepares the Workspace for a later Code Agent run.
+ * hidden state). - Summarizes very large tool outputs before recording them. - Enters "beast mode" to finalize with
+ * existing info if interrupted or context is near full. - Never writes code itself; it prepares the Workspace for a
+ * later Code Agent run.
  */
 public class SearchAgent {
     private static final Logger logger = LogManager.getLogger(SearchAgent.class);
@@ -66,6 +67,7 @@ public class SearchAgent {
     private final ContextManager cm;
     private final StreamingChatModel model;
     private final Llm llm;
+    private final Llm summarizer;
     private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
     private final String goal;
@@ -86,8 +88,9 @@ public class SearchAgent {
         this.toolRegistry = contextManager.getToolRegistry();
 
         this.io = contextManager.getIo();
-        this.llm = contextManager.getLlm(model, "Search: " + goal);
+        this.llm = contextManager.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
         this.llm.setOutput(io);
+        this.summarizer = contextManager.getLlm(cm.getService().getScanModel(), "Summarizer: " + goal);
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
@@ -143,7 +146,7 @@ public class SearchAgent {
             var allowedToolNames = calculateAllowedToolNames();
             var toolSpecs = new ArrayList<>(toolRegistry.getRegisteredTools(allowedToolNames));
 
-            // Agent-owned terminal tools (instance methods)
+            // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
                 agentTerminalTools.add("answer");
@@ -162,7 +165,7 @@ public class SearchAgent {
 
             // Decide next action(s)
             io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
             if (result.error() != null || result.isEmpty()) {
                 var details =
                         result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
@@ -187,8 +190,8 @@ public class SearchAgent {
                 continue;
             }
 
-            // Deferred-final behavior: do not short-circuit for final tools; they will be executed after non-final
-            // tools.
+            // Final tools are executed only when they are the sole requested action in a turn.
+            // This ensures research results are evaluated by the LLM before finalization.
 
             // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
             var sortedCalls = next.stream()
@@ -362,6 +365,22 @@ public class SearchAgent {
 
         String finalsStr = finals.stream().collect(Collectors.joining("\n"));
 
+        String testsGuidance = "";
+        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
+            var analyzerWrapper = cm.getAnalyzerWrapper();
+            var toolHint = analyzerWrapper.providesInterproceduralAnalysis()
+                    ? "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods."
+                    : "- To locate tests, use searchSubstrings to find test classes, @Test methods, and references to key symbols.";
+            testsGuidance =
+                    """
+                    Tests:
+                      - Code Agent will run the tests in the Workspace to validate its changes. These can be full files, if it also needs to edit or understand test implementation details, or simple summaries if they just need to be run for validation.
+                      %s
+                    """
+                            .stripIndent()
+                            .formatted(toolHint);
+        }
+
         String directive =
                 """
                         <goal>
@@ -376,17 +395,19 @@ public class SearchAgent {
                           - Replace full text with concise, goal-focused summaries and drop the originals.
                           - Expand the Workspace only after pruning; avoid re-adding irrelevant content.
 
+                        %s
+
                         Finalization options:
                         %s
 
-                        You can call multiple tools in a single turn. Provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
-                        You may include at most one final action. The final action will be executed after all non-final tools in the same turn. Do NOT write code.
+                        You can call multiple non-final tools in a single turn. Provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
+                        Final actions (answer, createTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn. If you include a final together with other tools, the final will be ignored for this turn. Do NOT write code.
 
 
                         %s
                         """
                         .stripIndent()
-                        .formatted(goal, finalsStr, warning);
+                        .formatted(goal, testsGuidance, finalsStr, warning);
 
         // Beast mode directive
         if (beastMode) {
@@ -430,7 +451,6 @@ public class SearchAgent {
         }
         if (analyzerWrapper.providesInterproceduralAnalysis()) {
             names.add("getUsages");
-            names.add("getRelatedClasses");
             names.add("getCallGraphTo");
             names.add("getCallGraphFrom");
         }
@@ -454,6 +474,11 @@ public class SearchAgent {
         names.add("appendNote");
         names.add("dropWorkspaceFragments");
 
+        // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
+        if (io instanceof Chrome) {
+            names.add("askHuman");
+        }
+
         if (!mcpTools.isEmpty()) {
             names.add("callMcpTool");
         }
@@ -467,8 +492,7 @@ public class SearchAgent {
             return List.of();
         }
 
-        // Allow mixed plans: keep all non-terminals; keep only the FIRST final
-        ToolExecutionRequest firstFinal = null;
+        var finals = new ArrayList<ToolExecutionRequest>();
         var nonTerminals = new ArrayList<ToolExecutionRequest>();
         for (var r : response.toolExecutionRequests()) {
             var name = r.name();
@@ -477,22 +501,28 @@ public class SearchAgent {
                     || name.equals("workspaceComplete")
                     || name.equals("abortSearch");
             if (isFinal) {
-                if (firstFinal == null) {
-                    firstFinal = r; // take the first final; ignore subsequent finals
-                }
-                continue;
+                finals.add(r);
+            } else {
+                nonTerminals.add(r);
             }
-            nonTerminals.add(r);
         }
 
-        if (firstFinal != null) {
-            var combined = new ArrayList<ToolExecutionRequest>(nonTerminals);
-            combined.add(firstFinal); // ensure the final runs after non-terminals
-            return combined;
+        // Disallow mixed final + research: if any research is present, drop finals this turn
+        if (!nonTerminals.isEmpty()) {
+            if (!finals.isEmpty()) {
+                logger.info(
+                        "Final tool requested alongside research; deferring final to a later turn. Finals present: {}",
+                        finals.stream().map(ToolExecutionRequest::name).toList());
+            }
+            return nonTerminals;
         }
 
-        // No final: return all non-terminal tool requests in the order provided
-        return nonTerminals;
+        // Only finals present: keep the first one
+        if (!finals.isEmpty()) {
+            return List.of(finals.get(0));
+        }
+
+        return List.of();
     }
 
     private int priority(String toolName) {
@@ -500,9 +530,9 @@ public class SearchAgent {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "addTextToWorkspace", "appendNote" -> 2;
+            case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "getRelatedClasses" -> 5;
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
@@ -516,7 +546,7 @@ public class SearchAgent {
     // =======================
 
     private void addInitialContextToWorkspace() throws InterruptedException {
-        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal, true);
+        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(true);
@@ -652,7 +682,6 @@ public class SearchAgent {
         return Set.of(
                         "searchSymbols",
                         "getUsages",
-                        "getRelatedClasses",
                         "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
@@ -690,7 +719,7 @@ public class SearchAgent {
                         """
                         .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
-        Llm.StreamingResult sr = llm.sendRequest(List.of(sys, user));
+        Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
             return rawResult; // fallback to raw
         }

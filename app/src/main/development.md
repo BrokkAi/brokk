@@ -138,14 +138,49 @@ The dependency analysis runs automatically in CI and will fail builds on critica
 
 ### Static Analysis
 
-#### ErrorProne (Java modules: analyzer-api, app)
-- **Configuration**: Custom checks enabled in `build.gradle.kts` for enhanced error detection
-- **Scope**: Applied to analyzer-api and app modules (Java code only)
+The build uses ErrorProne for compile-time bug detection with conditional NullAway analysis:
 
-#### NullAway (app module)
-- **Null safety analysis**: Static analysis to prevent NullPointerExceptions
-- **Configuration**: Configured with project-specific null safety rules
-- **Scope**: Applied to app module only where most business logic resides
+#### ErrorProne & NullAway
+
+- **Regular builds** (`./gradlew build`, `test`): Fast - basic ErrorProne checks only (~10-30% overhead)
+- **Full analysis** (`./gradlew check`): Slow - includes NullAway dataflow analysis (~20-50% overhead)
+
+#### Running Static Analysis Locally
+
+```bash
+# Fast: NullAway + spotless only (no tests, ~1-2 min)
+./gradlew analyze
+
+# Slow: Full verification with tests (complete CI validation)
+./gradlew check
+```
+
+#### Git Hook Setup (Pre-Push)
+
+To automatically run static analysis before pushing (recommended):
+
+```bash
+# Method 1: Multi-line heredoc (copy all lines together)
+cat > .git/hooks/pre-push << 'EOF'
+#!/bin/sh
+echo "Running static analysis (NullAway + spotless)..."
+./gradlew analyze spotlessCheck
+EOF
+chmod +x .git/hooks/pre-push
+
+# Method 2: One-liner (easier to copy-paste)
+echo '#!/bin/sh\necho "Running static analysis (NullAway + spotless)..."\n./gradlew analyze spotlessCheck' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+```
+
+The pre-push hook will block the push if any errors are found, ensuring code quality before sharing changes.
+
+#### Usage Summary
+
+- `./gradlew build` → Fast compilation, basic ErrorProne only
+- `./gradlew test` → Fast tests without expensive null analysis
+- `./gradlew analyze` → Static analysis only (NullAway + spotless, no tests)
+- `./gradlew check` → Full verification (tests + NullAway + spotless)
+- CI automatically runs `check` for complete validation
 
 The build system uses aggressive multi-level caching for optimal performance:
 
@@ -359,44 +394,41 @@ The application uses a unified theme system that synchronizes colors between Jav
 
 ## Environment Variables
 
-### BRK_NO_LSP
+### BRK_USAGE_BOOL
 
-Controls whether the Java Language Server (JDT LSP) is started. When disabled, the app runs in TSA-only mode (TreeSitter
-analyzers only) which improves startup time and reduces memory usage, but advanced Java analysis (call graph, usages,
-linting via JDT) will not be available.
+Controls whether usage relevance classification is requested/handled as a boolean (yes/no) or as the default real-number score.
 
-- Name: BRK_NO_LSP
+- Name: BRK_USAGE_BOOL
 - Type: Boolean (case-insensitive)
 - Recognized truthy values: 1, true, t, yes, y, on
 - Recognized falsy values: 0, false, f, no, n, off
-- Empty string: treated as true (disables LSP)
-- Unrecognized values: defaults to true (disables LSP) and logs a warning
-- Unset: treated as false (LSP enabled)
+- Empty string: treated as true (enables boolean mode)
+- Unrecognized values: defaults to false (numeric score mode) and logs a warning
+- Unset: treated as false (numeric score mode)
 
-Notes:
-- Parsing is case-insensitive and uses Locale.ROOT.
-- When disabled, a message is logged and the JDT LSP is not started.
-- Methods relying on JDT capabilities degrade gracefully and return empty/no-op results.
+Behavior:
+- When true, the analyzer requests boolean relevance from the model and maps results to UsageHit.confidence:
+  - true → confidence = 1.0
+  - false → confidence = 0.0
+- When false/unset, the analyzer requests a real-valued relevance score in [0.0, 1.0] (existing behavior).
+
+APIs:
+- Java:
+  - io.github.jbellis.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
+  - io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
+  - Existing io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
+- Prompting:
+  - io.github.jbellis.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
 
 Examples:
 ```bash
-# Disable LSP (preferred explicit)
-export BRK_NO_LSP=true
+# Enable boolean relevance classification
+export BRK_USAGE_BOOL=true
 
-# Disable LSP (any of these are equivalent)
-export BRK_NO_LSP=1
-export BRK_NO_LSP=YES
-export BRK_NO_LSP=on
+# Disable boolean classification (use numeric score)
+export BRK_USAGE_BOOL=false
 
-# Enable LSP explicitly
-export BRK_NO_LSP=false
-export BRK_NO_LSP=0
-export BRK_NO_LSP=off
-
-# Unset => LSP enabled (default)
-unset BRK_NO_LSP
-
-# Empty or invalid => LSP disabled (with warning on invalid)
-export BRK_NO_LSP=""
-export BRK_NO_LSP="maybe"  # logs warning, disables LSP
+# Empty/invalid values
+export BRK_USAGE_BOOL=""        # treated as true
+export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
 ```

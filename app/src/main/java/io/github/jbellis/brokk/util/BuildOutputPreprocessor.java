@@ -146,7 +146,7 @@ public class BuildOutputPreprocessor {
                         .formatted(truncatedOutput));
         var messages = List.of(systemMessage, userMessage);
 
-        var result = llm.sendRequest(messages, false);
+        var result = llm.sendRequest(messages);
         if (result.error() != null) {
             logPreprocessingError(result.error(), contextManager);
             return truncatedOutput;

@@ -9,11 +9,9 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -26,14 +24,20 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
+import java.awt.dnd.DnDConstants;
+import java.awt.dnd.DropTarget;
+import java.awt.dnd.DropTargetAdapter;
+import java.awt.dnd.DropTargetDragEvent;
+import java.awt.dnd.DropTargetDropEvent;
+import java.awt.dnd.DropTargetEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
@@ -47,7 +51,6 @@ import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -72,15 +75,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
-    public static final String ACTION_RUN_TESTS = "Run Selected Tests";
-    public static final String ACTION_SCAN_PROJECT = "Scan Project";
 
-    private static final String PLACEHOLDER_TEXT =
-            """
-                                                   Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
-
-                                                   More tips are available in the Getting Started section in the Output panel above.
-                                                   """;
+    private static final String PLACEHOLDER_TEXT = "Put your instructions or questions here.";
 
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
@@ -105,8 +101,94 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
-    private @Nullable TitledBorder instructionsTitledBorder;
     private @Nullable SplitButton branchSplitButton;
+
+    private static class ContextAreaContainer extends JPanel {
+        private boolean isDragOver = false;
+
+        ContextAreaContainer() {
+            super(new BorderLayout());
+        }
+
+        void setDragOver(boolean dragOver) {
+            if (this.isDragOver != dragOver) {
+                this.isDragOver = dragOver;
+                repaint();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+        }
+
+        @Override
+        protected void paintChildren(Graphics g) {
+            super.paintChildren(g);
+            if (isDragOver) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color panelBg = UIManager.getColor("Panel.background");
+                    if (panelBg == null) {
+                        panelBg = getBackground();
+                        if (panelBg == null) {
+                            panelBg = Color.LIGHT_GRAY;
+                        }
+                    }
+
+                    // use panel background directly for the overlay
+                    g2.setColor(panelBg);
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.95f));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+
+                    // dashed border with accent color for highlight
+                    Color accent = UIManager.getColor("Component.focusColor");
+                    if (accent == null) {
+                        accent = new Color(0x1F6FEB);
+                    }
+                    g2.setColor(accent);
+                    g2.setComposite(AlphaComposite.SrcOver);
+                    g2.setStroke(
+                            new BasicStroke(3, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10, new float[] {9}, 0));
+                    g2.drawRoundRect(4, 4, getWidth() - 9, getHeight() - 9, 12, 12);
+
+                    // Text
+                    String text = "Drop to add to Workspace";
+                    g2.setColor(readableTextForBackground(panelBg));
+                    g2.setFont(getFont().deriveFont(Font.BOLD, 16f));
+                    FontMetrics fm = g2.getFontMetrics();
+                    int textWidth = fm.stringWidth(text);
+                    g2.drawString(
+                            text, (getWidth() - textWidth) / 2, (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
+                } finally {
+                    g2.dispose();
+                }
+            }
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            Dimension pref = getPreferredSize();
+            return new Dimension(Integer.MAX_VALUE, pref.height);
+        }
+
+        @Override
+        public boolean contains(int x, int y) {
+            // Treat the entire rectangular bounds of the component as the hit area for mouse events,
+            // which is important for drag-and-drop on a non-opaque component.
+            return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
+        }
+    }
+
+    /** Pick a readable text color (white or dark) against the given background color. */
+    private static Color readableTextForBackground(Color background) {
+        double r = background.getRed() / 255.0;
+        double g = background.getGreen() / 255.0;
+        double b = background.getBlue() / 255.0;
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
+    }
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
     private @Nullable JPanel optionsPanel;
@@ -119,13 +201,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
-        this.instructionsTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Instructions - Code",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-        setBorder(this.instructionsTitledBorder);
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
@@ -805,25 +881,61 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         container.add(bottomLinePanel, BorderLayout.SOUTH);
 
-        // Wrap the chip panel with a titled border labeled "Context"
-        var contextTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Context",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
-        var titledContainer = new JPanel(new BorderLayout()) {
+        var titledContainer = new ContextAreaContainer();
+        titledContainer.setOpaque(false);
+        var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
+        titledContainer.setTransferHandler(transferHandler);
+        var dropTargetListener = new DropTargetAdapter() {
             @Override
-            public Dimension getMaximumSize() {
-                Dimension pref = getPreferredSize();
-                return new Dimension(Integer.MAX_VALUE, pref.height);
+            public void dragEnter(DropTargetDragEvent e) {
+                var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
+                if (transferHandler.canImport(support)) {
+                    titledContainer.setDragOver(true);
+                    e.acceptDrag(DnDConstants.ACTION_COPY);
+                } else {
+                    e.rejectDrag();
+                }
+            }
+
+            @Override
+            public void dragOver(DropTargetDragEvent e) {
+                var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
+                if (transferHandler.canImport(support)) {
+                    e.acceptDrag(DnDConstants.ACTION_COPY);
+                } else {
+                    titledContainer.setDragOver(false);
+                    e.rejectDrag();
+                }
+            }
+
+            @Override
+            public void dragExit(DropTargetEvent e) {
+                titledContainer.setDragOver(false);
+            }
+
+            @Override
+            public void drop(DropTargetDropEvent e) {
+                titledContainer.setDragOver(false);
+
+                var transferable = e.getTransferable();
+                var support = new TransferHandler.TransferSupport(titledContainer, transferable);
+                if (transferHandler.canImport(support)) {
+                    e.acceptDrop(e.getDropAction());
+                    if (!transferHandler.importData(support)) {
+                        e.dropComplete(false);
+                    } else {
+                        e.dropComplete(true);
+                    }
+                } else {
+                    e.rejectDrop();
+                    e.dropComplete(false);
+                }
             }
         };
-        titledContainer.setOpaque(false);
-        titledContainer.setBorder(
-                BorderFactory.createCompoundBorder(contextTitledBorder, BorderFactory.createEmptyBorder(0, 0, 0, 0)));
+        titledContainer.setDropTarget(
+                new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
+        titledContainer.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         titledContainer.add(container, BorderLayout.CENTER);
 
         // Insert beneath the command-input area (index 2)
@@ -962,12 +1074,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         actionGroupPanel.setAccentColor(accent);
-
-        if (instructionsTitledBorder != null) {
-            instructionsTitledBorder.setTitle(askMode ? "Instructions - Ask" : "Instructions - Code");
-            revalidate();
-            repaint();
-        }
     }
 
     /** Updates the Project Files drawer title to reflect the current Git branch. Ensures EDT execution. */
@@ -983,9 +1089,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
+
+        // Handle empty context case
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
-                tokenUsageBar.setVisible(false);
+                try {
+                    var service = chrome.getContextManager().getService();
+                    Service.ModelConfig config = getSelectedModel();
+                    var model = service.getModel(config);
+                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        tokenUsageBar.setVisible(false);
+                        return;
+                    }
+
+                    int maxTokens = service.getMaxInputTokens(model);
+                    if (maxTokens <= 0) {
+                        maxTokens = 128_000;
+                    }
+
+                    tokenUsageBar.setTokens(0, maxTokens);
+                    String modelName = config.name();
+                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, "$0.00");
+                    tokenUsageBar.setTooltip(tooltipHtml);
+                    tokenUsageBar.setVisible(true);
+                } catch (Exception ex) {
+                    logger.debug("Failed to update token usage bar for empty context", ex);
+                    tokenUsageBar.setVisible(false);
+                }
             });
             return;
         }
@@ -1501,7 +1631,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
-        var llm = cm.getLlm(model, "Answer: " + question);
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
 
         return executeAskCommand(llm, messages, cm, question);
     }
@@ -1512,7 +1642,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
         try {
-            response = llm.sendRequest(messages, true);
+            response = llm.sendRequest(messages);
         } catch (InterruptedException e) {
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
@@ -1635,7 +1765,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .sourceContextForSession(cm.topContext())
                         .open()
                         .thenAccept(success -> {
-                            if (Boolean.TRUE.equals(success)) {
+                            if (success) {
                                 chrome.showNotification(
                                         IConsoleIO.NotificationRole.INFO, "New worktree opened for Architect");
                             } else {
@@ -2020,7 +2150,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 case ACTION_CODE -> runCodeCommand();
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
-                case ACTION_SCAN_PROJECT -> runScanProjectCommand();
                 default -> runArchitectCommand();
             }
         }
@@ -2056,59 +2185,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             clearCommandInput();
         }
         instructionsArea.requestFocusInWindow(); // Give it focus
-    }
-
-    public void runScanProjectCommand() {
-        var goal = getInstructions();
-        if (goal.isBlank()) {
-            chrome.toolError("Please provide instructions before scanning the project");
-            return;
-        }
-
-        final var modelToUse = selectDropdownModelOrShowError("Scan Project", true);
-        if (modelToUse == null) {
-            return;
-        }
-
-        chrome.getProject().addToInstructionsHistory(goal, 20);
-        clearCommandInput();
-
-        submitAction(ACTION_SCAN_PROJECT, goal, () -> {
-            try {
-                var cm = chrome.getContextManager();
-                var contextAgent = new ContextAgent(cm, modelToUse, goal, true);
-                var recommendation = contextAgent.getRecommendations(true);
-                var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-                int finalBudget = cm.getService().getMaxInputTokens(modelToUse) / 2;
-
-                if (totalTokens > finalBudget) {
-                    var summary = ContextFragment.getSummary(recommendation.fragments());
-                    cm.addVirtualFragment(new ContextFragment.StringFragment(
-                            cm,
-                            summary,
-                            "Summary of Project Scan",
-                            recommendation.fragments().stream()
-                                    .findFirst()
-                                    .map(ContextFragment::syntaxStyle)
-                                    .orElseThrow()));
-                } else {
-                    WorkspaceTools.addToWorkspace(cm, recommendation);
-                }
-                return new TaskResult(
-                        chrome.getContextManager(),
-                        ACTION_SCAN_PROJECT + ": " + goal,
-                        List.copyOf(chrome.getContextManager().getIo().getLlmRawMessages()),
-                        Set.of(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-            } catch (InterruptedException e) {
-                return new TaskResult(
-                        chrome.getContextManager(),
-                        ACTION_SCAN_PROJECT + ": " + goal,
-                        List.copyOf(chrome.getContextManager().getIo().getLlmRawMessages()),
-                        Set.of(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
-            }
-        });
     }
 
     public VoiceInputButton getVoiceInputButton() {

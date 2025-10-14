@@ -2,17 +2,16 @@ package io.github.jbellis.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
-import com.google.common.base.Splitter;
-import io.github.jbellis.brokk.SessionRegistry;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -21,7 +20,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
@@ -29,22 +27,15 @@ import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
-import org.eclipse.jgit.transport.PushResult;
-import org.eclipse.jgit.transport.RefSpec;
-import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
-import org.eclipse.jgit.treewalk.filter.PathFilter;
-import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
-import org.eclipse.jgit.treewalk.filter.TreeFilter;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -62,27 +53,28 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Repository repository;
     private final Git git;
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
-    private final java.util.function.Supplier<String> tokenSupplier; // Supplier for GitHub token
+    private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
-    /**
-     * Returns true if the directory has a .git folder, is a valid repository, and contains at least one local branch.
-     */
-    public static boolean hasGitRepo(Path dir) {
-        try {
-            var builder = new FileRepositoryBuilder().findGitDir(dir.toFile());
-            if (builder.getGitDir() == null) {
-                return false;
-            }
-            try (var repo = builder.build()) {
-                // A valid repo for Brokk must have at least one local branch
-                return !repo.getRefDatabase().getRefsByPrefix("refs/heads/").isEmpty();
-            }
-        } catch (IOException e) {
-            // Corrupted or unreadable repo -> treat as non-git
-            logger.warn("Could not read git repo at {}: {}", dir, e.getMessage());
-            return false;
-        }
+    // New field holding remote-related helpers
+    private final GitRepoRemote remote;
+
+    // New field holding worktree-related helpers
+    private final GitRepoWorktrees worktrees;
+
+    // New field holding data/workers helper
+    private final GitRepoData data;
+
+    public GitRepoRemote remote() {
+        return remote;
+    }
+
+    public GitRepoWorktrees worktrees() {
+        return worktrees;
+    }
+
+    public GitRepoData data() {
+        return data;
     }
 
     /**
@@ -130,11 +122,21 @@ public class GitRepo implements Closeable, IGitRepo {
         return git;
     }
 
-    public GitRepo(Path projectRoot) {
-        this(projectRoot, () -> io.github.jbellis.brokk.MainProject.getGitHubToken());
+    // package-private accessor so GitRepoRemote can use the repository when needed
+    Repository getRepository() {
+        return repository;
     }
 
-    GitRepo(Path projectRoot, java.util.function.Supplier<String> tokenSupplier) {
+    // package-private accessor for projectRoot for the extracted worktrees helper
+    Path getProjectRoot() {
+        return projectRoot;
+    }
+
+    public GitRepo(Path projectRoot) {
+        this(projectRoot, MainProject::getGitHubToken);
+    }
+
+    GitRepo(Path projectRoot, Supplier<String> tokenSupplier) {
         this.projectRoot = projectRoot;
         this.tokenSupplier = tokenSupplier;
 
@@ -147,6 +149,7 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             repository = builder.build();
             git = new Git(repository);
+            worktrees = new GitRepoWorktrees(this);
 
             // Check for GPG signing
             this.gpgPassPhrase = null; // TODO: Fetch from settings, vault, etc.
@@ -213,6 +216,13 @@ public class GitRepo implements Closeable, IGitRepo {
                 this.gitTopLevel =
                         repository.getDirectory().getParentFile().toPath().normalize();
             }
+
+            // Initialize remote helper now that repository/git/top-level are available
+            this.remote = new GitRepoRemote(this);
+
+            // Initialize data helper
+            this.data = new GitRepoData(this);
+
             logger.trace(
                     "Git dir for {} is {}, gitTopLevel is {}", projectRoot, repository.getDirectory(), gitTopLevel);
         } catch (IOException e) {
@@ -234,7 +244,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to JGit's working tree
      * root, suitable for JGit commands.
      */
-    private String toRepoRelativePath(ProjectFile file) {
+    String toRepoRelativePath(ProjectFile file) {
         // ProjectFile.absPath() gives the absolute path on the filesystem.
         // We need to make it relative to JGit's working tree root.
         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
@@ -246,7 +256,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * Creates a ProjectFile instance from a path string returned by JGit. JGit paths are relative to the working tree
      * root. The returned ProjectFile will be relative to projectRoot.
      */
-    private ProjectFile toProjectFile(String gitPath) {
+    ProjectFile toProjectFile(String gitPath) {
         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
         Path absolutePath = workingTreeRoot.resolve(gitPath);
         Path pathRelativeToProjectRoot = projectRoot.relativize(absolutePath);
@@ -298,16 +308,6 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public static boolean isRebaseSuccessful(RebaseResult result) {
         return result.getStatus().isSuccessful();
-    }
-
-    /**
-     * Determines if a push operation was successful for a specific ref update.
-     *
-     * @param status the RemoteRefUpdate.Status to check
-     * @return true if the push was successful
-     */
-    public static boolean isPushSuccessful(RemoteRefUpdate.Status status) {
-        return status == RemoteRefUpdate.Status.OK || status == RemoteRefUpdate.Status.UP_TO_DATE;
     }
 
     /**
@@ -411,7 +411,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Adds files to staging. */
     @Override
-    public synchronized void add(List<ProjectFile> files) throws GitAPIException {
+    public synchronized void add(Collection<ProjectFile> files) throws GitAPIException {
         var addCommand = git.add();
         for (var file : files) {
             addCommand.addFilepattern(toRepoRelativePath(file));
@@ -479,8 +479,8 @@ public class GitRepo implements Closeable, IGitRepo {
             // HEAD (unchanged) files
             ObjectId headTreeId = null;
             try {
-                headTreeId = resolve("HEAD^{tree}");
-            } catch (GitRepoException e) {
+                headTreeId = resolveToObject("HEAD^{tree}");
+            } catch (GitAPIException e) {
                 // HEAD^{tree} might not exist in empty repos - this is allowed
                 logger.debug("HEAD^{{tree}} not resolvable: {}", e.getMessage());
             }
@@ -523,7 +523,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Get the current commit ID (HEAD) */
     @Override
     public String getCurrentCommitId() throws GitAPIException {
-        var head = resolve("HEAD");
+        var head = resolveToCommit("HEAD");
         return head.getName();
     }
 
@@ -533,7 +533,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public String shortHash(String rev) {
         try {
-            var id = resolve(rev);
+            var id = resolveToObject(rev);
             try (var reader = repository.newObjectReader()) {
                 var abbrev = reader.abbreviate(id);
                 return abbrev.name();
@@ -544,72 +544,15 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Performs git diff operation with the given filter group, handling NoHeadException for empty repositories. */
-    private String performDiffWithFilter(TreeFilter filterGroup) throws GitAPIException {
-        try (var out = new ByteArrayOutputStream()) {
-            try {
-                // 1) staged changes
-                git.diff()
-                        .setCached(true)
-                        .setShowNameAndStatusOnly(false)
-                        .setPathFilter(filterGroup)
-                        .setOutputStream(out)
-                        .call();
-                var staged = out.toString(StandardCharsets.UTF_8);
-                out.reset();
-
-                // 2) unstaged changes
-                git.diff()
-                        .setCached(false)
-                        .setShowNameAndStatusOnly(false)
-                        .setPathFilter(filterGroup)
-                        .setOutputStream(out)
-                        .call();
-                var unstaged = out.toString(StandardCharsets.UTF_8);
-
-                return Stream.of(staged, unstaged).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n"));
-            } catch (NoHeadException e) {
-                // Handle empty repository case - return empty diff for repositories with no commits
-                logger.debug("NoHeadException caught - empty repository, returning empty diff");
-                return "";
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
     /** Produces a combined diff of staged + unstaged changes, restricted to the given files. */
     @Override
     public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
-
-        var filters = files.stream()
-                .map(file -> PathFilter.create(toRepoRelativePath(file)))
-                .collect(Collectors.toCollection(ArrayList::new));
-        var filterGroup = PathFilterGroup.create(filters);
-
-        return performDiffWithFilter(filterGroup);
+        return data.diffFiles(files);
     }
 
     @Override
     public synchronized String diff() throws GitAPIException {
-        var status = git.status().call();
-
-        var trackedPaths = new HashSet<String>();
-        trackedPaths.addAll(status.getModified());
-        trackedPaths.addAll(status.getChanged());
-        trackedPaths.addAll(status.getAdded());
-        trackedPaths.addAll(status.getRemoved());
-        trackedPaths.addAll(status.getMissing());
-
-        if (trackedPaths.isEmpty()) {
-            logger.debug("No tracked changes found, returning empty diff");
-            return "";
-        }
-
-        var filters = trackedPaths.stream().map(PathFilter::create).collect(Collectors.toCollection(ArrayList::new));
-        var filterGroup = PathFilterGroup.create(filters);
-
-        return performDiffWithFilter(filterGroup);
+        return data.diff();
     }
 
     /** Returns a set of uncommitted files with their status (new, modified, deleted). */
@@ -618,25 +561,24 @@ public class GitRepo implements Closeable, IGitRepo {
         var statusResult = git.status().call();
         var uncommittedFilesWithStatus = new HashSet<ModifiedFile>();
 
-        // Collect all unique paths from the statuses we are interested in
+        // Collect all unique paths from the statuses we are interested in, including conflicts
         var allRelevantPaths = new HashSet<String>();
         allRelevantPaths.addAll(statusResult.getAdded());
         allRelevantPaths.addAll(statusResult.getRemoved());
         allRelevantPaths.addAll(statusResult.getMissing());
         allRelevantPaths.addAll(statusResult.getModified());
         allRelevantPaths.addAll(statusResult.getChanged());
-        logger.trace("Raw modified files: {}", allRelevantPaths);
+        allRelevantPaths.addAll(statusResult.getConflicting());
+        logger.trace("Raw modified files (including conflicts): {}", allRelevantPaths);
 
         for (var path : allRelevantPaths) {
             var projectFile = toProjectFile(path);
             String determinedStatus;
 
-            // Determine status based on "git commit -a" behavior:
-            // 1. Added files are "new".
-            // 2. Files missing from working tree are "deleted".
-            // 3. Otherwise, any other change (modified in WT, changed in index,
-            //    or staged for removal but existing in WT) is "modified".
-            if (statusResult.getAdded().contains(path)) {
+            // Priority: conflicts first, then added/missing, then general modifications
+            if (statusResult.getConflicting().contains(path)) {
+                determinedStatus = "conflict";
+            } else if (statusResult.getAdded().contains(path)) {
                 determinedStatus = "new";
             } else if (statusResult.getMissing().contains(path)) {
                 determinedStatus = "deleted";
@@ -695,133 +637,6 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Push the committed changes for the specified branch to the "origin" remote. This method assumes the remote is
-     * "origin" and the remote branch has the same name as the local branch. If the branch has a configured upstream,
-     * JGit might use that, but explicitly setting RefSpec ensures this branch is pushed.
-     *
-     * @param branchName The name of the local branch to push.
-     * @throws GitAPIException if the push fails.
-     */
-    public void push(String branchName) throws GitAPIException {
-        if (branchName.isBlank()) {
-            throw new IllegalArgumentException("Branch name cannot be null or empty for push operation.");
-        }
-
-        logger.debug("Pushing branch {} to origin", branchName);
-        var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", branchName, branchName));
-
-        var pushCommand = git.push().setRemote("origin").setRefSpecs(refSpec).setTimeout((int)
-                Environment.GIT_NETWORK_TIMEOUT.toSeconds());
-        applyGitHubAuthentication(pushCommand, getRemoteUrl("origin"));
-        Iterable<PushResult> results = pushCommand.call();
-        List<String> rejectionMessages = new ArrayList<>();
-
-        for (var result : results) {
-            for (var rru : result.getRemoteUpdates()) {
-                var status = rru.getStatus();
-                // Consider any status other than OK or UP_TO_DATE as a failure for that ref.
-                if (!isPushSuccessful(status)) {
-                    String message = "Ref '" + rru.getRemoteName() + "' (local '" + branchName + "') update failed: ";
-                    if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD
-                            || status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
-                        message += "The remote contains work that you do not have locally. "
-                                + "Pull and merge from the remote (or rebase) before pushing.";
-                    } else {
-                        message += status.toString();
-                        if (rru.getMessage() != null) {
-                            message += " (" + rru.getMessage() + ")";
-                        }
-                    }
-                    rejectionMessages.add(message);
-                }
-            }
-        }
-
-        if (!rejectionMessages.isEmpty()) {
-            throw new GitPushRejectedException("Push rejected by remote:\n" + String.join("\n", rejectionMessages));
-        }
-        // If loop completes without rejections, push was successful or refs were up-to-date.
-    }
-
-    /**
-     * Pushes the given local branch to the specified remote, creates upstream tracking for it, and returns the
-     * PushResult list. Assumes the remote branch should have the same name as the local branch.
-     */
-    public Iterable<PushResult> pushAndSetRemoteTracking(String localBranchName, String remoteName)
-            throws GitAPIException {
-        return pushAndSetRemoteTracking(localBranchName, remoteName, localBranchName);
-    }
-
-    /**
-     * Pushes the given local branch to the specified remote, creates upstream tracking for it, and returns the
-     * PushResult list.
-     */
-    public Iterable<PushResult> pushAndSetRemoteTracking(
-            String localBranchName, String remoteName, String remoteBranchName) throws GitAPIException {
-        logger.debug(
-                "Pushing branch {} to {}/{} and setting up remote tracking",
-                localBranchName,
-                remoteName,
-                remoteBranchName);
-        var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", localBranchName, remoteBranchName));
-
-        // 1. Push the branch
-        var pushCommand = git.push().setRemote(remoteName).setRefSpecs(refSpec).setTimeout((int)
-                Environment.GIT_NETWORK_TIMEOUT.toSeconds());
-        var remoteUrl = getRemoteUrl(remoteName);
-
-        Iterable<PushResult> results = performPushWithAuthentication(pushCommand, remoteUrl);
-
-        List<String> rejectionMessages = new ArrayList<>();
-        for (var result : results) {
-            for (var rru : result.getRemoteUpdates()) {
-                var status = rru.getStatus();
-                if (!isPushSuccessful(status)) {
-                    String message =
-                            "Ref '" + rru.getRemoteName() + "' (local '" + localBranchName + "') update failed: ";
-                    if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD
-                            || status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
-                        message += "The remote contains work that you do not have locally. "
-                                + "Pull and merge from the remote (or rebase) before pushing.";
-                    } else {
-                        message += status.toString();
-                        if (rru.getMessage() != null) {
-                            message += " (" + rru.getMessage() + ")";
-                        }
-                    }
-                    rejectionMessages.add(message);
-                }
-            }
-        }
-
-        if (!rejectionMessages.isEmpty()) {
-            throw new GitPushRejectedException("Push rejected by remote:\n" + String.join("\n", rejectionMessages));
-        }
-
-        // 2. Record upstream info in config only if push was successful
-        try {
-            var config = repository.getConfig();
-            config.setString("branch", localBranchName, "remote", remoteName);
-            config.setString("branch", localBranchName, "merge", "refs/heads/" + remoteBranchName);
-            config.save();
-            logger.info(
-                    "Successfully set up remote tracking for branch {} -> {}/{}",
-                    localBranchName,
-                    remoteName,
-                    remoteBranchName);
-        } catch (IOException e) {
-            throw new GitRepoException(
-                    "Push to " + remoteName + "/" + remoteBranchName
-                            + " succeeded, but failed to set up remote tracking configuration for " + localBranchName,
-                    e);
-        }
-
-        invalidateCaches();
-
-        return results;
-    }
-
-    /**
      * Applies GitHub token authentication to a git transport command if the remote URL is a GitHub HTTPS URL. For all
      * other URLs (SSH, non-GitHub HTTPS, file, etc.), does nothing and lets JGit use its default handling.
      *
@@ -847,81 +662,6 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /**
-     * Performs push with authentication for HTTPS URLs using GitHub token. SSH URLs use JGit's default SSH
-     * authentication.
-     */
-    private Iterable<PushResult> performPushWithAuthentication(PushCommand pushCommand, @Nullable String remoteUrl)
-            throws GitAPIException {
-        applyGitHubAuthentication(pushCommand, remoteUrl);
-        return pushCommand.call();
-    }
-
-    /**
-     * Fetches all remotes with pruning, reporting progress to the given monitor.
-     *
-     * @param pm The progress monitor to report to.
-     * @throws GitAPIException if a Git error occurs.
-     */
-    public void fetchAll(ProgressMonitor pm) throws GitAPIException {
-        for (String remote : repository.getRemoteNames()) {
-            var fetchCommand = git.fetch()
-                    .setRemote(remote)
-                    .setRemoveDeletedRefs(true) // --prune
-                    .setProgressMonitor(pm);
-            applyGitHubAuthentication(fetchCommand, getRemoteUrl(remote));
-            fetchCommand.call();
-        }
-        invalidateCaches(); // Invalidate caches & ref-db
-    }
-
-    /** Pull changes from the remote repository for the current branch */
-    public void pull() throws GitAPIException {
-        var pullCommand = git.pull().setTimeout((int) Environment.GIT_NETWORK_TIMEOUT.toSeconds());
-        applyGitHubAuthentication(pullCommand, getRemoteUrl("origin"));
-        pullCommand.call();
-    }
-
-    /** Get a set of commit IDs that exist in the local branch but not in its target remote branch */
-    public Set<String> getUnpushedCommitIds(String branchName) throws GitAPIException {
-        var unpushedCommits = new HashSet<String>();
-
-        // Get the target remote name (with built-in fallback logic)
-        var targetRemoteBranchName = getTargetRemoteBranchName(branchName);
-        if (targetRemoteBranchName == null) {
-            return unpushedCommits;
-        }
-
-        // Check if the resolved remote branch actually exists
-        try {
-            var remoteRef = "refs/remotes/" + targetRemoteBranchName;
-            if (repository.findRef(remoteRef) == null) {
-                return unpushedCommits; // No remote branch to compare against
-            }
-        } catch (Exception e) {
-            logger.debug("Error checking remote branch existence for {}: {}", targetRemoteBranchName, e.getMessage());
-            return unpushedCommits;
-        }
-
-        var branchRef = "refs/heads/" + branchName;
-        var remoteRef = "refs/remotes/" + targetRemoteBranchName;
-
-        var localObjectId = resolve(branchRef);
-        var remoteObjectId = resolve(remoteRef);
-
-        try (var revWalk = new RevWalk(repository)) {
-            try {
-                revWalk.markStart(revWalk.parseCommit(localObjectId));
-                revWalk.markUninteresting(revWalk.parseCommit(remoteObjectId));
-            } catch (IOException e) {
-                throw new GitWrappedIOException(e);
-            }
-
-            revWalk.forEach(commit -> unpushedCommits.add(commit.getId().getName()));
-        }
-        return unpushedCommits;
-    }
-
     /** Check if a local branch has a configured upstream (tracking) branch */
     public boolean hasUpstreamBranch(String branchName) {
         return getTrackingBranch(branchName) != null;
@@ -943,101 +683,6 @@ public class GitRepo implements Closeable, IGitRepo {
             return null;
         } catch (Exception e) {
             // Return null if there's any unexpected config or parse issue
-            return null;
-        }
-    }
-
-    /**
-     * Get the target remote name and branch following Git's standard remote resolution order, with fallback to the next
-     * option if a remote branch doesn't exist. Returns remote/branch format (e.g., "origin/main").
-     *
-     * <p>Resolution order:
-     *
-     * <ol>
-     *   <li>Configured upstream branch if it exists
-     *   <li>remote.pushDefault with branch name if it exists
-     *   <li>Single remote with branch name if it exists
-     *   <li>origin with branch name if it exists
-     *   <li>Configured upstream even if it doesn't exist (for push targets)
-     *   <li>pushDefault even if it doesn't exist
-     *   <li>origin even if it doesn't exist
-     * </ol>
-     */
-    private @Nullable String getTargetRemoteBranchName(String branchName) {
-        try {
-            var config = repository.getConfig();
-            var remoteNames = repository.getRemoteNames();
-
-            // 1. Check for configured upstream first
-            var configuredRemote = config.getString("branch", branchName, "remote");
-            var configuredMerge = config.getString("branch", branchName, "merge");
-
-            if (configuredRemote != null && configuredMerge != null && remoteNames.contains(configuredRemote)) {
-                var remoteBranch = configuredMerge;
-                if (remoteBranch.startsWith("refs/heads/")) {
-                    remoteBranch = remoteBranch.substring("refs/heads/".length());
-                }
-                var upstreamTarget = configuredRemote + "/" + remoteBranch;
-
-                // Check if upstream branch exists, if so use it
-                if (repository.findRef("refs/remotes/" + upstreamTarget) != null) {
-                    return upstreamTarget;
-                }
-                // If upstream is configured but branch doesn't exist, fall through to other options
-            }
-
-            // 2. Check for remote.pushDefault
-            var pushDefault = config.getString("remote", null, "pushDefault");
-            if (pushDefault != null && remoteNames.contains(pushDefault)) {
-                var pushDefaultTarget = pushDefault + "/" + branchName;
-                if (repository.findRef("refs/remotes/" + pushDefaultTarget) != null) {
-                    return pushDefaultTarget;
-                }
-            }
-
-            // 3. If exactly one remote exists, use that
-            if (remoteNames.size() == 1) {
-                var remoteName = remoteNames.iterator().next();
-                var singleRemoteTarget = remoteName + "/" + branchName;
-                if (repository.findRef("refs/remotes/" + singleRemoteTarget) != null) {
-                    return singleRemoteTarget;
-                }
-            }
-
-            // 4. Fall back to origin if it exists
-            if (remoteNames.contains("origin")) {
-                var originTarget = "origin/" + branchName;
-                if (repository.findRef("refs/remotes/" + originTarget) != null) {
-                    return originTarget;
-                }
-            }
-
-            // 5. No suitable remote branch found - return the first preference even if it doesn't exist
-            // This preserves the resolution order for cases where no remote branch exists yet
-            if (configuredRemote != null && configuredMerge != null && remoteNames.contains(configuredRemote)) {
-                var remoteBranch = configuredMerge;
-                if (remoteBranch.startsWith("refs/heads/")) {
-                    remoteBranch = remoteBranch.substring("refs/heads/".length());
-                }
-                return configuredRemote + "/" + remoteBranch;
-            }
-
-            if (pushDefault != null && remoteNames.contains(pushDefault)) {
-                return pushDefault + "/" + branchName;
-            }
-
-            if (remoteNames.size() == 1) {
-                var remoteName = remoteNames.iterator().next();
-                return remoteName + "/" + branchName;
-            }
-
-            if (remoteNames.contains("origin")) {
-                return "origin/" + branchName;
-            }
-
-            return null;
-        } catch (Exception e) {
-            logger.debug("Error resolving target remote branch name for {}: {}", branchName, e.getMessage());
             return null;
         }
     }
@@ -1367,7 +1012,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return The result of the merge operation.
      */
     public MergeResult mergeIntoHead(String branchName) throws GitAPIException {
-        var result = git.merge().include(resolve(branchName)).call();
+        var result = git.merge().include(resolveToCommit(branchName)).call();
 
         logger.trace("Merge result status: {}", result.getMergeStatus());
         logger.trace("isSuccessful(): {}", result.getMergeStatus().isSuccessful());
@@ -1405,7 +1050,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Perform squash merge
-        ObjectId resolvedBranch = resolve(branchName);
+        ObjectId resolvedBranch = resolveToCommit(branchName);
 
         // Check repository state before merge
         var status = git.status().call();
@@ -1502,7 +1147,7 @@ public class GitRepo implements Closeable, IGitRepo {
             checkout(tempRebaseBranchName);
 
             // Rebase the temporary branch onto target
-            ObjectId resolvedTarget = resolve(targetBranch);
+            ObjectId resolvedTarget = resolveToCommit(targetBranch);
             var rebaseResult = git.rebase().setUpstream(resolvedTarget).call();
 
             if (!isRebaseSuccessful(rebaseResult)) {
@@ -1587,15 +1232,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Revert a specific commit */
     public void revertCommit(String commitId) throws GitAPIException {
-        try {
-            var resolvedCommit = repository.resolve(commitId);
-            if (resolvedCommit == null) {
-                throw new GitRepoException("Unable to resolve commit: " + commitId, new NoSuchElementException());
-            }
-            git.revert().include(resolvedCommit).call();
-        } catch (IOException e) {
-            throw new GitRepoException("Unable to resolve" + commitId, e);
-        }
+        var resolvedCommit = resolveToCommit(commitId);
+        git.revert().include(resolvedCommit).call();
         invalidateCaches();
     }
 
@@ -1610,7 +1248,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Cherry-picks a commit onto the current HEAD (typically the current branch). */
     public CherryPickResult cherryPickCommit(String commitId) throws GitAPIException {
-        var objectId = resolve(commitId);
+        var objectId = resolveToCommit(commitId);
         var result = git.cherryPick().include(objectId).call();
         invalidateCaches();
         return result;
@@ -1625,8 +1263,6 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new IllegalArgumentException("No files specified for checkout");
         }
 
-        logger.debug("Checking out {} files from commit {}", files.size(), commitId);
-
         var checkoutCommand = git.checkout().setStartPoint(commitId);
 
         // Add each file path to the checkout command
@@ -1638,8 +1274,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
         checkoutCommand.call();
         invalidateCaches();
-
-        logger.debug("Successfully checked out {} files from commit {}", files.size(), commitId);
     }
 
     /** Get current branch name */
@@ -1680,7 +1314,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @throws GitAPIException if there's an error accessing Git data.
      */
     public Optional<CommitInfo> getLocalCommitInfo(String commitId) throws GitAPIException {
-        var objectId = resolve(commitId);
+        var objectId = resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var revCommit = revWalk.parseCommit(objectId);
@@ -1694,90 +1328,39 @@ public class GitRepo implements Closeable, IGitRepo {
 
     public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {}
 
-    /**
-     * Lists branches and tags from a remote repository URL.
-     *
-     * @param url The URL of the remote repository.
-     * @return A RemoteInfo record containing the branches, tags, and default branch.
-     * @throws GitAPIException if the remote is inaccessible or another Git error occurs.
-     */
-    public static RemoteInfo listRemoteRefs(String url) throws GitAPIException {
-        var remoteRefs = Git.lsRemoteRepository()
-                .setHeads(true)
-                .setTags(true)
-                .setRemote(url)
-                .call();
-
-        var branches = new ArrayList<String>();
-        var tags = new ArrayList<String>();
-        String defaultBranch = null;
-
-        for (var ref : remoteRefs) {
-            String name = ref.getName();
-            if (name.startsWith("refs/heads/")) {
-                branches.add(name.substring("refs/heads/".length()));
-            } else if (name.startsWith("refs/tags/")) {
-                tags.add(name.substring("refs/tags/".length()));
-            } else if (name.equals("HEAD")) {
-                var target = ref.getTarget();
-                if (target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
-                    defaultBranch = target.getName().substring("refs/heads/".length());
-                }
-            }
-        }
-        Collections.sort(branches);
-        Collections.sort(tags);
-        return new RemoteInfo(url, branches, tags, defaultBranch);
-    }
-
     /** List commits with detailed information for a specific branch */
-    public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
+    public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) throws GitAPIException {
         var commits = new ArrayList<CommitInfo>();
         var logCommand = git.log();
 
         if (!branchName.isEmpty()) {
             try {
-                logCommand.add(resolve(branchName));
+                logCommand.add(resolveToCommit(branchName));
             } catch (MissingObjectException | IncorrectObjectTypeException e) {
                 throw new GitWrappedIOException(e);
             }
         }
 
+        // Respect maxResults when a finite limit is requested.
+        if (maxResults < Integer.MAX_VALUE) {
+            logCommand.setMaxCount(maxResults);
+        }
+
         for (var commit : logCommand.call()) {
-            // Use factory method
             commits.add(this.fromRevCommit(commit));
         }
         return commits;
     }
 
-    private List<ProjectFile> extractFilesFromDiffEntries(List<DiffEntry> diffs) {
-        var fileSet = new HashSet<String>();
-        for (var diff : diffs) {
-            if (diff.getChangeType() == DiffEntry.ChangeType.DELETE) {
-                fileSet.add(diff.getOldPath());
-            } else if (diff.getChangeType() == DiffEntry.ChangeType.ADD
-                    || diff.getChangeType() == DiffEntry.ChangeType.COPY) {
-                fileSet.add(diff.getNewPath());
-            } else { // MODIFY, RENAME
-                fileSet.add(diff.getNewPath()); // new path is usually the one of interest
-                if (diff.getOldPath() != null && !diff.getOldPath().equals(diff.getNewPath())) {
-                    fileSet.add(diff.getOldPath()); // For renames, include old path too
-                }
-            }
-        }
-        return fileSet.stream()
-                .filter(path -> !"/dev/null".equals(path))
-                .sorted() // Sort paths alphabetically for consistent ordering
-                .map(this::toProjectFile)
-                .collect(Collectors.toList());
+    public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
+        return listCommitsDetailed(branchName, Integer.MAX_VALUE);
     }
-
     /**
      * Lists files changed in a specific commit compared to its primary parent. For an initial commit, lists all files
      * in that commit.
      */
     public List<ProjectFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        var commitObjectId = resolve(commitId);
+        var commitObjectId = resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(commitObjectId);
@@ -1801,7 +1384,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 } else {
                     diffs = diffFormatter.scan(oldTree, newTree);
                 }
-                return extractFilesFromDiffEntries(diffs);
+                return data.extractFilesFromDiffEntries(diffs);
             }
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
@@ -1812,8 +1395,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public List<ProjectFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
             throws GitAPIException {
-        var newObjectId = resolve(newCommitId);
-        var oldObjectId = resolve(oldCommitId);
+        var newObjectId = resolveToCommit(newCommitId);
+        var oldObjectId = resolveToCommit(oldCommitId);
 
         if (newObjectId.equals(oldObjectId)) {
             logger.debug(
@@ -1830,7 +1413,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     new DiffFormatter(new ByteArrayOutputStream())) { // Output stream is not used for listing files
                 diffFormatter.setRepository(repository);
                 var diffs = diffFormatter.scan(oldCommit.getTree(), newCommit.getTree());
-                return extractFilesFromDiffEntries(diffs);
+                return data.extractFilesFromDiffEntries(diffs);
             }
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
@@ -1847,8 +1430,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Deprecated
     public List<ProjectFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId)
             throws GitAPIException {
-        var firstCommitObj = resolve(firstCommitId);
-        var lastCommitObj = resolve(lastCommitId + "^"); // Note the parent operator here
+        var firstCommitObj = resolveToCommit(firstCommitId);
+        var lastCommitObj = resolveToCommit(lastCommitId + "^"); // Note the parent operator here
 
         try (var revWalk = new RevWalk(repository)) {
             var firstCommit = revWalk.parseCommit(firstCommitObj); // "new"
@@ -1856,7 +1439,7 @@ public class GitRepo implements Closeable, IGitRepo {
             try (var diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
                 diffFormatter.setRepository(repository);
                 var diffs = diffFormatter.scan(lastCommitParent.getTree(), firstCommit.getTree());
-                return extractFilesFromDiffEntries(diffs);
+                return data.extractFilesFromDiffEntries(diffs);
             }
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
@@ -1866,77 +1449,17 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Show diff between two commits (or a commit and the working directory if newCommitId == HEAD). */
     @Override
     public String showDiff(String newCommitId, String oldCommitId) throws GitAPIException {
-        try (var out = new ByteArrayOutputStream()) {
-            logger.debug("Generating diff from {} to {}", oldCommitId, newCommitId);
-
-            var oldTreeIter = prepareTreeParser(oldCommitId);
-            if (oldTreeIter == null) {
-                logger.warn("Old commit/tree {} not found. Returning empty diff.", oldCommitId);
-                return "";
-            }
-
-            if ("HEAD".equals(newCommitId)) {
-                git.diff()
-                        .setOldTree(oldTreeIter)
-                        .setNewTree(null) // Working tree
-                        .setOutputStream(out)
-                        .call();
-            } else {
-                var newTreeIter = prepareTreeParser(newCommitId);
-                if (newTreeIter == null) {
-                    logger.warn("New commit/tree {} not found. Returning empty diff.", newCommitId);
-                    return "";
-                }
-
-                git.diff()
-                        .setOldTree(oldTreeIter)
-                        .setNewTree(newTreeIter)
-                        .setOutputStream(out)
-                        .call();
-            }
-
-            var result = out.toString(StandardCharsets.UTF_8);
-            logger.debug("Generated diff of {} bytes", result.length());
-            return result;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return data.showDiff(newCommitId, oldCommitId);
     }
 
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
     @Override
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
-        if (commitId.isBlank()) {
-            logger.debug("getFileContent called with blank commitId; returning empty string");
-            return "";
-        }
-
-        var objId = resolve(commitId);
-
-        try (var revWalk = new RevWalk(repository)) {
-            var commit = revWalk.parseCommit(objId);
-            var tree = commit.getTree();
-            try (var treeWalk = new TreeWalk(repository)) {
-                treeWalk.addTree(tree);
-                treeWalk.setRecursive(true);
-                String targetPath = toRepoRelativePath(file);
-                while (treeWalk.next()) {
-                    if (treeWalk.getPathString().equals(targetPath)) {
-                        var blobId = treeWalk.getObjectId(0);
-                        var loader = repository.open(blobId);
-                        return new String(loader.getBytes(), StandardCharsets.UTF_8);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
-        logger.debug("File '{}' not found at commit '{}'", file, commitId);
-        return "";
+        return data.getFileContent(commitId, file);
     }
 
     @Override
-    public ObjectId resolve(String revstr) throws GitAPIException {
+    public ObjectId resolveToObject(String revstr) throws GitAPIException {
         try {
             var id = repository.resolve(revstr);
             if (id == null) {
@@ -1944,34 +1467,49 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             return id;
         } catch (IOException e) {
-            throw new GitRepoException("Unable to resolve " + revstr, e);
+            throw new GitWrappedIOException("Unable to resolve " + revstr, e);
+        }
+    }
+
+    @Override
+    public ObjectId resolveToCommit(String revstr) throws GitAPIException {
+        // Prefer JGit rev-spec peeling first
+        try {
+            var commitId = repository.resolve(revstr.endsWith("^{commit}") ? revstr : (revstr + "^{commit}"));
+            if (commitId != null) {
+                return commitId;
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException("Unable to resolve commit-ish " + revstr, e);
+        }
+
+        // Fallback: resolve to any object and try to peel with RevWalk
+        var anyId = resolveToObject(revstr);
+        try (var rw = new RevWalk(repository)) {
+            try {
+                var commit = rw.parseCommit(anyId);
+                return commit.getId();
+            } catch (IncorrectObjectTypeException e) {
+                try {
+                    var any = rw.parseAny(anyId);
+                    var peeled = rw.peel(any);
+                    if (peeled instanceof RevCommit rc) {
+                        return rc.getId();
+                    }
+                    throw new GitStateException("Reference does not resolve to a commit: " + revstr);
+                } catch (IOException ioEx) {
+                    throw new GitWrappedIOException("Unable to peel object to commit for " + revstr, ioEx);
+                }
+            } catch (IOException e) {
+                throw new GitWrappedIOException("Unable to parse commit-ish " + revstr, e);
+            }
         }
     }
 
     /** Show diff for a specific file between two commits. */
     @Override
     public String showFileDiff(String commitIdA, String commitIdB, ProjectFile file) throws GitAPIException {
-        try (var out = new ByteArrayOutputStream()) {
-            var pathFilter = PathFilter.create(toRepoRelativePath(file));
-            if ("HEAD".equals(commitIdA)) {
-                git.diff()
-                        .setOldTree(prepareTreeParser(commitIdB))
-                        .setNewTree(null) // Working tree
-                        .setPathFilter(pathFilter)
-                        .setOutputStream(out)
-                        .call();
-            } else {
-                git.diff()
-                        .setOldTree(prepareTreeParser(commitIdB))
-                        .setNewTree(prepareTreeParser(commitIdA))
-                        .setPathFilter(pathFilter)
-                        .setOutputStream(out)
-                        .call();
-            }
-            return out.toString(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return data.showFileDiff(commitIdA, commitIdB, file);
     }
 
     /**
@@ -1982,32 +1520,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     @Override
     public void applyDiff(String diff) throws GitAPIException {
-        try (var in = new ByteArrayInputStream(diff.getBytes(StandardCharsets.UTF_8))) {
-            git.apply().setPatch(in).call();
-            invalidateCaches();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    /** Prepares an AbstractTreeIterator for the given commit-ish string. */
-    private @Nullable CanonicalTreeParser prepareTreeParser(String objectId) throws GitAPIException {
-        if (objectId.isBlank()) {
-            logger.warn("prepareTreeParser called with blank ref. Returning null iterator.");
-            return null;
-        }
-
-        var objId = resolve(objectId);
-
-        try (var revWalk = new RevWalk(repository)) {
-            var commit = revWalk.parseCommit(objId);
-            var treeId = commit.getTree().getId();
-            try (var reader = repository.newObjectReader()) {
-                return new CanonicalTreeParser(null, reader, treeId);
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
+        data.applyDiff(diff);
     }
 
     /** Create a stash from the current changes */
@@ -2068,7 +1581,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // Remember the original branch
         String originalBranch = getCurrentBranch();
         String tempBranchName = "temp-stash-branch-" + System.currentTimeMillis();
-        RevCommit stashId = null;
+        RevCommit stashId;
 
         try {
             // 2. Prepare index for temporary commit:
@@ -2158,61 +1671,6 @@ public class GitRepo implements Closeable, IGitRepo {
         return stashes;
     }
 
-    /** Gets additional commits from a stash (index, untracked files) */
-    public Map<String, CommitInfo> listAdditionalStashCommits(String stashRef) throws GitAPIException {
-        Map<String, CommitInfo> additionalCommits = new HashMap<>();
-        var rev = resolve(stashRef);
-
-        try (var revWalk = new RevWalk(repository)) {
-            var commit = revWalk.parseCommit(rev);
-
-            // stash@{0} - main stash commit (merge).
-            // stash@{0}^1 - original HEAD
-            // stash@{0}^2 - index changes
-            // stash@{0}^3 - untracked changes (only if stash was created with -u / -a)
-
-            if (commit.getParentCount() < 2) {
-                logger.warn("Stash {} is not a merge commit, which is unexpected", stashRef);
-                return additionalCommits;
-            }
-
-            var headCommit = commit.getParent(0);
-            var indexCommit = commit.getParent(1);
-            revWalk.parseHeaders(headCommit);
-            revWalk.parseHeaders(indexCommit);
-
-            // Compare HEAD tree vs index tree
-            try (var diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
-                diffFormatter.setRepository(repository);
-                var diffs = diffFormatter.scan(headCommit.getTree(), indexCommit.getTree());
-                if (!diffs.isEmpty()) {
-                    // Use factory method
-                    additionalCommits.put("index", this.fromRevCommit(indexCommit));
-                }
-            }
-
-            // Check for untracked commit
-            if (commit.getParentCount() > 2) {
-                var untrackedCommit = commit.getParent(2);
-                revWalk.parseHeaders(untrackedCommit);
-                boolean hasFiles = false;
-                try (var treeWalk = new TreeWalk(repository)) {
-                    treeWalk.addTree(untrackedCommit.getTree());
-                    treeWalk.setRecursive(true);
-                    hasFiles = treeWalk.next();
-                }
-                if (hasFiles) {
-                    // Use factory method
-                    additionalCommits.put("untracked", this.fromRevCommit(untrackedCommit));
-                }
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
-
-        return additionalCommits;
-    }
-
     /** Apply a stash to the working directory without removing it from the stash list */
     public void applyStash(int stashIndex) throws GitAPIException {
         String stashRef = "stash@{" + stashIndex + "}";
@@ -2242,7 +1700,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Returns the full (multi-line) commit message for the given commit id. */
     public String getCommitFullMessage(String commitId) throws GitAPIException {
-        var objId = resolve(commitId);
+        var objId = resolveToCommit(commitId);
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(objId);
             return commit.getFullMessage();
@@ -2251,19 +1709,23 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Get the commit history for a specific file */
-    private List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
+    /** Get the commit history for specific files */
+    public List<CommitInfo> getFileHistory(ProjectFile file, int maxResults) throws GitAPIException {
         var commits = new LinkedHashSet<CommitInfo>();
-        var path = toRepoRelativePath(file);
         try {
-            var headId = resolve("HEAD");
+            var headId = resolveToCommit("HEAD");
+            var diffconfig = repository.getConfig().get(DiffConfig.KEY);
+
+            var path = toRepoRelativePath(file);
             try (var revWalk = new RevWalk(repository)) {
-                var diffconfig = repository.getConfig().get(DiffConfig.KEY);
                 revWalk.setTreeFilter(FollowFilter.create(path, diffconfig));
                 revWalk.markStart(revWalk.parseCommit(headId));
 
                 for (var commit : revWalk) {
                     commits.add(this.fromRevCommit(commit));
+                    if (commits.size() >= maxResults) {
+                        return new ArrayList<>(commits);
+                    }
                 }
             }
         } catch (IOException e) {
@@ -2276,14 +1738,14 @@ public class GitRepo implements Closeable, IGitRepo {
     public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
 
     /**
-     * Like {@link #getFileHistory(ProjectFile)} but also returns, for each commit, the path the file had *in that
-     * commit* (following renames backwards).
+     * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that commit* (following
+     * renames backwards).
      *
      * @param file the file (at its current path) whose history we want
      */
     public List<FileHistoryEntry> getFileHistoryWithPaths(ProjectFile file) throws GitAPIException {
         // 1. normal commit list, newest → oldest (already follows renames)
-        var commits = getFileHistory(file);
+        var commits = getFileHistory(file, Integer.MAX_VALUE);
         if (commits.isEmpty()) {
             return new ArrayList<>();
         }
@@ -2351,109 +1813,11 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Get the target remote name following Git's standard remote resolution order: Uses current branch for upstream
-     * resolution, falls back to general resolution
-     */
-    private @Nullable String getTargetRemoteName() {
-        try {
-            var currentBranch = getCurrentBranch();
-            return getTargetRemoteNameWithUpstream(currentBranch);
-        } catch (GitAPIException e) {
-            logger.debug("Error getting current branch, falling back to upstream-less resolution: {}", e.getMessage());
-
-            // Fallback to upstream-less resolution if no current branch
-            try {
-                var config = repository.getConfig();
-                var remoteNames = repository.getRemoteNames();
-
-                // 1. Check for remote.pushDefault
-                var pushDefault = config.getString("remote", null, "pushDefault");
-                if (pushDefault != null && remoteNames.contains(pushDefault)) {
-                    return pushDefault;
-                }
-
-                // 2. If exactly one remote exists, use that
-                if (remoteNames.size() == 1) {
-                    return remoteNames.iterator().next();
-                }
-
-                // 3. Fall back to origin if it exists
-                if (remoteNames.contains("origin")) {
-                    return "origin";
-                }
-
-                return null;
-            } catch (Exception ex) {
-                logger.debug("Error resolving target remote name: {}", ex.getMessage());
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Get the target remote name following Git's standard remote resolution order including upstream:
-     *
-     * <ol>
-     *   <li>If upstream exists for branch (branch.&lt;name&gt;.remote), use that
-     *   <li>Else if remote.pushDefault is configured, use that
-     *   <li>Else if exactly one remote exists, use that
-     *   <li>Else if "origin" exists, use "origin"
-     *   <li>Else return null
-     * </ol>
-     */
-    private @Nullable String getTargetRemoteNameWithUpstream(String branchName) {
-        try {
-            var config = repository.getConfig();
-            var remoteNames = repository.getRemoteNames();
-
-            // 1. Check for configured upstream first
-            var configuredRemote = config.getString("branch", branchName, "remote");
-            if (configuredRemote != null && remoteNames.contains(configuredRemote)) {
-                return configuredRemote;
-            }
-
-            // 2. Check for remote.pushDefault
-            var pushDefault = config.getString("remote", null, "pushDefault");
-            if (pushDefault != null && remoteNames.contains(pushDefault)) {
-                return pushDefault;
-            }
-
-            // 3. If exactly one remote exists, use that
-            if (remoteNames.size() == 1) {
-                return remoteNames.iterator().next();
-            }
-
-            // 4. Fall back to origin if it exists
-            if (remoteNames.contains("origin")) {
-                return "origin";
-            }
-
-            // 5. No suitable remote found
-            return null;
-        } catch (Exception e) {
-            logger.debug("Error resolving target remote name with upstream for {}: {}", branchName, e.getMessage());
-            return null;
-        }
-    }
-
-    /** Get the URL of the specified remote (defaults to "origin") */
-    public @Nullable String getRemoteUrl(String remoteName) {
-        try {
-            var config = repository.getConfig();
-            return config.getString("remote", remoteName, "url"); // getString can return null
-        } catch (Exception e) {
-            logger.warn("Failed to get remote URL: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * Get the URL of the target remote using Git's standard remote resolution including upstream from current branch
      */
     @Override
     public @Nullable String getRemoteUrl() {
-        var targetRemote = getTargetRemoteName();
-        return targetRemote != null ? getRemoteUrl(targetRemote) : null;
+        return remote().getUrl();
     }
 
     /**
@@ -2542,184 +1906,6 @@ public class GitRepo implements Closeable, IGitRepo {
         repository.close();
     }
 
-    /**
-     * Initializes a new Git repository in the specified root directory. Creates a .gitignore file with a .brokk/ entry
-     * if it doesn't exist or if .brokk/ is missing.
-     *
-     * @param root The path to the directory where the Git repository will be initialized.
-     * @throws GitAPIException If an error occurs during Git initialization.
-     * @throws IOException If an I/O error occurs while creating or modifying .gitignore.
-     */
-    public static void initRepo(Path root) throws GitAPIException, IOException {
-        logger.info("Initializing new Git repository at {}", root);
-        try (var git = Git.init().setDirectory(root.toFile()).call()) {
-            logger.info("Git repository initialized at {}.", root);
-            ensureBrokkIgnored(root);
-            git.commit().setAllowEmpty(true).setMessage("Initial commit").call();
-        }
-    }
-
-    private static void ensureBrokkIgnored(Path root) throws IOException {
-        Path gitignorePath = root.resolve(".gitignore");
-        String brokkDirEntry = ".brokk/";
-
-        if (!Files.exists(gitignorePath)) {
-            Files.writeString(gitignorePath, brokkDirEntry + "\n", StandardCharsets.UTF_8);
-            logger.info("Created default .gitignore file with '{}' entry at {}.", brokkDirEntry, gitignorePath);
-        } else {
-            List<String> lines = Files.readAllLines(gitignorePath, StandardCharsets.UTF_8);
-            boolean entryExists = lines.stream()
-                    .anyMatch(line -> line.trim().equals(brokkDirEntry.trim())
-                            || line.trim().equals(brokkDirEntry.substring(0, brokkDirEntry.length() - 1)));
-
-            if (!entryExists) {
-                // Append with a newline ensuring not to add multiple blank lines if file ends with one
-                String contentToAppend = (lines.isEmpty() || lines.getLast().isBlank())
-                        ? brokkDirEntry + "\n"
-                        : "\n" + brokkDirEntry + "\n";
-                Files.writeString(gitignorePath, contentToAppend, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
-                logger.info("Appended '{}' entry to existing .gitignore file at {}.", brokkDirEntry, gitignorePath);
-            } else {
-                logger.debug("'{}' entry already exists in .gitignore file at {}.", brokkDirEntry, gitignorePath);
-            }
-        }
-    }
-
-    /**
-     * Clones a remote repository into {@code directory}. If {@code depth} &gt; 0 a shallow clone of that depth is
-     * performed, otherwise a full clone is made.
-     *
-     * <p>If the URL looks like a plain GitHub HTTPS repo without “.git” (e.g. https://github.com/Owner/Repo) we
-     * automatically append “.git”.
-     */
-    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
-        return cloneRepo(() -> io.github.jbellis.brokk.MainProject.getGitHubToken(), remoteUrl, directory, depth);
-    }
-
-    static GitRepo cloneRepo(
-            java.util.function.Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
-            throws GitAPIException {
-        String effectiveUrl = normalizeRemoteUrl(remoteUrl);
-
-        // Ensure the target directory is empty (or doesn't yet exist)
-        if (Files.exists(directory)
-                && directory.toFile().list() != null
-                && directory.toFile().list().length > 0) {
-            throw new IllegalArgumentException("Target directory " + directory + " must be empty or not yet exist");
-        }
-
-        try {
-            var cloneCmd = Git.cloneRepository()
-                    .setURI(effectiveUrl)
-                    .setDirectory(directory.toFile())
-                    .setCloneAllBranches(depth <= 0);
-
-            // Apply GitHub authentication if needed
-            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
-                var token = tokenSupplier.get();
-                if (!token.trim().isEmpty()) {
-                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
-                } else {
-                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
-                }
-            }
-
-            if (depth > 0) {
-                cloneCmd.setDepth(depth);
-                cloneCmd.setNoTags();
-            }
-            // Perform clone and immediately close the returned Git handle
-            try (var ignored = cloneCmd.call()) {
-                // nothing – resources closed via try-with-resources
-            }
-            return new GitRepo(directory, tokenSupplier);
-        } catch (GitAPIException e) {
-            logger.error("Failed to clone {} into {}: {}", effectiveUrl, directory, e.getMessage(), e);
-            throw e;
-        }
-    }
-
-    /**
-     * Clone a repository to the specified directory with branch/tag selection.
-     *
-     * @param remoteUrl the URL of the remote repository
-     * @param directory the local directory to clone into (must be empty or not exist)
-     * @param depth clone depth (0 for full clone, > 0 for shallow)
-     * @param branchOrTag specific branch or tag to clone (null for default branch)
-     * @return a GitRepo instance for the cloned repository
-     * @throws GitAPIException if the clone fails
-     */
-    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
-            throws GitAPIException {
-        return cloneRepo(
-                () -> io.github.jbellis.brokk.MainProject.getGitHubToken(), remoteUrl, directory, depth, branchOrTag);
-    }
-
-    static GitRepo cloneRepo(
-            java.util.function.Supplier<String> tokenSupplier,
-            String remoteUrl,
-            Path directory,
-            int depth,
-            @Nullable String branchOrTag)
-            throws GitAPIException {
-        String effectiveUrl = normalizeRemoteUrl(remoteUrl);
-
-        // Ensure the target directory is empty (or doesn't yet exist)
-        if (Files.exists(directory)
-                && directory.toFile().list() != null
-                && directory.toFile().list().length > 0) {
-            throw new IllegalArgumentException("Target directory " + directory + " must be empty or not yet exist");
-        }
-
-        try {
-            var cloneCmd = Git.cloneRepository()
-                    .setURI(effectiveUrl)
-                    .setDirectory(directory.toFile())
-                    .setCloneAllBranches(depth <= 0);
-
-            // Apply GitHub authentication if needed
-            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
-                var token = tokenSupplier.get();
-                if (!token.trim().isEmpty()) {
-                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
-                } else {
-                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
-                }
-            }
-
-            if (branchOrTag != null && !branchOrTag.trim().isEmpty()) {
-                cloneCmd.setBranch(branchOrTag);
-            }
-
-            if (depth > 0) {
-                cloneCmd.setDepth(depth);
-                cloneCmd.setNoTags();
-            }
-            // Perform clone and immediately close the returned Git handle
-            try (var ignored = cloneCmd.call()) {
-                // nothing – resources closed via try-with-resources
-            }
-            return new GitRepo(directory, tokenSupplier);
-        } catch (GitAPIException e) {
-            logger.error(
-                    "Failed to clone {} (branch/tag: {}) into {}: {}",
-                    effectiveUrl,
-                    branchOrTag,
-                    directory,
-                    e.getMessage(),
-                    e);
-            throw e;
-        }
-    }
-
-    /** Adds ".git" to simple GitHub HTTPS URLs when missing. */
-    private static String normalizeRemoteUrl(String remoteUrl) {
-        var pattern = Pattern.compile("^https://github\\.com/[^/]+/[^/]+$");
-        return pattern.matcher(remoteUrl).matches() && !remoteUrl.endsWith(".git") ? remoteUrl + ".git" : remoteUrl;
-    }
-
     public static class GitRepoException extends GitAPIException {
         public GitRepoException(String message, Throwable cause) {
             super(message, cause);
@@ -2756,9 +1942,13 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    private static class GitWrappedIOException extends GitAPIException {
+    static class GitWrappedIOException extends GitAPIException {
         public GitWrappedIOException(IOException e) {
-            super(e.getMessage(), e);
+            this(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+        }
+
+        public GitWrappedIOException(String message, IOException e) {
+            super(message, e);
         }
     }
 
@@ -2805,16 +1995,16 @@ public class GitRepo implements Closeable, IGitRepo {
      * branch names, tags, commit IDs, etc.
      */
     public @Nullable String getMergeBase(String revA, String revB) throws GitAPIException {
-        var idA = resolve(revA);
-        var idB = resolve(revB);
+        var idA = resolveToCommit(revA);
+        var idB = resolveToCommit(revB);
         var mb = computeMergeBase(idA, idB);
         return mb == null ? null : mb.getName();
     }
 
     /** Returns true if the given commit is reachable from the specified base ref (e.g., "HEAD" or a branch name). */
     public boolean isCommitReachableFrom(String commitId, String baseRef) throws GitAPIException {
-        var commitObj = resolve(commitId);
-        var baseObj = resolve(baseRef);
+        var commitObj = resolveToCommit(commitId);
+        var baseObj = resolveToCommit(baseRef);
         try (var revWalk = new RevWalk(repository)) {
             RevCommit commit = revWalk.parseCommit(commitObj);
             RevCommit base = revWalk.parseCommit(baseObj);
@@ -2826,157 +2016,16 @@ public class GitRepo implements Closeable, IGitRepo {
 
     public record ListWorktreesResult(List<WorktreeInfo> worktrees, List<Path> invalidPaths) {}
 
-    public ListWorktreesResult listWorktreesAndInvalid() throws GitAPIException {
-        try {
-            var command = "git worktree list --porcelain";
-            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-            var worktrees = new ArrayList<WorktreeInfo>();
-            var invalidPaths = new ArrayList<Path>();
-            var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output); // Split by any newline sequence
-
-            Path currentPath = null;
-            String currentHead = null;
-            String currentBranch = null;
-
-            for (var line : lines) {
-                if (line.startsWith("worktree ")) {
-                    // Finalize previous entry if data is present
-                    if (currentPath != null) {
-                        worktrees.add(new WorktreeInfo(currentPath, currentBranch, requireNonNull(currentHead)));
-                    }
-                    // Reset for next entry
-                    currentHead = null;
-                    currentBranch = null;
-
-                    var pathStr = line.substring("worktree ".length());
-                    try {
-                        currentPath = Path.of(pathStr).toRealPath();
-                    } catch (NoSuchFileException e) {
-                        logger.warn("Worktree path does not exist, scheduling for prune: {}", pathStr);
-                        invalidPaths.add(Path.of(pathStr));
-                        currentPath = null; // Mark as invalid for subsequent processing
-                    } catch (IOException e) {
-                        throw new GitRepoException("Failed to resolve worktree path: " + pathStr, e);
-                    }
-                } else if (line.startsWith("HEAD ")) {
-                    // Only process if current worktree path is valid
-                    if (currentPath != null) {
-                        currentHead = line.substring("HEAD ".length());
-                    }
-                } else if (line.startsWith("branch ")) {
-                    if (currentPath != null) {
-                        var branchRef = line.substring("branch ".length());
-                        if (branchRef.startsWith("refs/heads/")) {
-                            currentBranch = branchRef.substring("refs/heads/".length());
-                        } else {
-                            currentBranch = branchRef; // Should not happen with porcelain but good to be defensive
-                        }
-                    }
-                } else if (line.equals("detached")) {
-                    if (currentPath != null) {
-                        // Detached-HEAD worktree: branch remains null (WorktreeInfo.branch is @Nullable).
-                        currentBranch = null;
-                    }
-                }
-            }
-            // Add the last parsed worktree
-            if (currentPath != null) {
-                worktrees.add(new WorktreeInfo(currentPath, currentBranch, requireNonNull(currentHead)));
-            }
-            return new ListWorktreesResult(worktrees, invalidPaths);
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException("Failed to list worktrees: " + e.getOutput(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException("Listing worktrees was interrupted", e);
-        }
-    }
-
     /** Lists all worktrees in the repository. */
     @Override
     public List<WorktreeInfo> listWorktrees() throws GitAPIException {
-        return listWorktreesAndInvalid().worktrees();
+        return worktrees().listWorktrees();
     }
 
     /** Adds a new worktree at the specified path for the given branch. */
     @Override
     public void addWorktree(String branch, Path path) throws GitAPIException {
-        try {
-            // Ensure path is absolute for the command
-            var absolutePath = path.toAbsolutePath().normalize();
-
-            // Check if branch exists locally
-            List<String> localBranches = listLocalBranches();
-            String command;
-            if (localBranches.contains(branch)) {
-                // Branch exists, checkout the existing branch
-                command = String.format("git worktree add %s %s", absolutePath, branch);
-            } else {
-                // Branch doesn't exist, create a new one
-                command = String.format("git worktree add -b %s %s", branch, absolutePath);
-            }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-
-            // Recursively copy .brokk/dependencies from the project root into the new worktree
-            var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
-            if (!Files.exists(sourceDependenciesDir)) {
-                return;
-            }
-
-            // Ensure .brokk exists in the new worktree
-            var targetDependenciesDir = absolutePath.resolve(".brokk").resolve("dependencies");
-            Files.createDirectories(targetDependenciesDir.getParent());
-
-            // copy
-            Files.walkFileTree(sourceDependenciesDir, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                    var relative = sourceDependenciesDir.relativize(dir);
-                    var targetDir = targetDependenciesDir.resolve(relative);
-                    Files.createDirectories(targetDir);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    var relative = sourceDependenciesDir.relativize(file);
-                    var targetFile = targetDependenciesDir.resolve(relative);
-                    Files.copy(
-                            file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException(
-                    "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
-        } catch (IOException e) {
-            throw new GitRepoException("Failed to copy dependencies", e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException("Adding worktree at " + path + " for branch " + branch + " was interrupted", e);
-        }
-    }
-
-    /**
-     * Adds a new detached worktree at the specified path, checked out to a specific commit.
-     *
-     * @param path The path where the new worktree will be created.
-     * @param commitId The commit SHA to check out in the new detached worktree.
-     * @throws GitAPIException if a Git error occurs.
-     */
-    public void addWorktreeDetached(Path path, String commitId) throws GitAPIException {
-        try {
-            var absolutePath = path.toAbsolutePath().normalize();
-            var command = String.format("git worktree add --detach %s %s", absolutePath, commitId);
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException(
-                    "Failed to add detached worktree at " + path + " for commit " + commitId + ": " + e.getOutput(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException(
-                    "Adding detached worktree at " + path + " for commit " + commitId + " was interrupted", e);
-        }
+        worktrees().addWorktree(branch, path);
     }
 
     /**
@@ -2989,72 +2038,19 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     @Override
     public void removeWorktree(Path path, boolean force) throws GitAPIException {
-        try {
-            var absolutePath = path.toAbsolutePath().normalize();
-            String command;
-            if (force) {
-                // Use double force as "git worktree lock" requires "remove -f -f" to override
-                command = String.format("git worktree remove --force --force %s", absolutePath)
-                        .trim();
-            } else {
-                command = String.format("git worktree remove %s", absolutePath).trim();
-            }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-            SessionRegistry.release(path);
-        } catch (Environment.SubprocessException e) {
-            String output = e.getOutput();
-            // If 'force' was false and the command failed because force is needed,
-            // throw WorktreeNeedsForceException
-            if (!force
-                    && (output.contains("use --force")
-                            || output.contains("not empty")
-                            || output.contains("dirty")
-                            || output.contains("locked working tree"))) {
-                throw new WorktreeNeedsForceException(
-                        "Worktree at " + path + " requires force for removal: " + output, e);
-            }
-            // Otherwise, throw a general GitRepoException
-            String failMessage = String.format(
-                    "Failed to remove worktree at %s%s: %s", path, (force ? " (with force)" : ""), output);
-            throw new GitRepoException(failMessage, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            String interruptMessage =
-                    String.format("Removing worktree at %s%s was interrupted", path, (force ? " (with force)" : ""));
-            throw new GitRepoException(interruptMessage, e);
-        }
-    }
-
-    /**
-     * Prunes worktree metadata for worktrees that no longer exist. This is equivalent to `git worktree prune`.
-     *
-     * @throws GitAPIException if a Git error occurs.
-     */
-    public void pruneWorktrees() throws GitAPIException {
-        try {
-            var command = "git worktree prune";
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException("Failed to prune worktrees: " + e.getOutput(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException("Pruning worktrees was interrupted", e);
-        }
+        worktrees().removeWorktree(path, force);
     }
 
     /** Returns true if this repository is a Git worktree. */
     @Override
     public boolean isWorktree() {
-        return Files.isRegularFile(repository.getWorkTree().toPath().resolve(".git"));
+        return worktrees().isWorktree();
     }
 
     /** Returns the set of branches that are checked out in worktrees. */
     @Override
     public Set<String> getBranchesInWorktrees() throws GitAPIException {
-        return listWorktrees().stream()
-                .map(WorktreeInfo::branch)
-                .filter((@Nullable var branch) -> branch != null && !branch.isEmpty())
-                .collect(Collectors.toSet());
+        return worktrees().getBranchesInWorktrees();
     }
 
     /**
@@ -3067,37 +2063,12 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     @Override
     public Path getNextWorktreePath(Path worktreeStorageDir) throws IOException {
-        Files.createDirectories(worktreeStorageDir); // Ensure base directory exists
-        int nextWorktreeNum = 1;
-        Path newWorktreePath;
-        while (true) {
-            Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
-            if (!Files.exists(potentialPath)) {
-                newWorktreePath = potentialPath;
-                break;
-            }
-            nextWorktreeNum++;
-        }
-        return newWorktreePath;
+        return worktrees().getNextWorktreePath(worktreeStorageDir);
     }
 
     @Override
     public boolean supportsWorktrees() {
-        try {
-            // Try to run a simple git command to check if git executable is available and working
-            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {}, Environment.GIT_TIMEOUT);
-            return true;
-        } catch (Environment.SubprocessException e) {
-            // This typically means git command failed, e.g., not found or permission issue
-            logger.warn(
-                    "Git executable not found or 'git --version' failed, disabling worktree support: {}",
-                    e.getMessage());
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Interrupted while checking for git executable, disabling worktree support", e);
-            return false;
-        }
+        return worktrees().supportsWorktrees();
     }
 
     @Override
@@ -3122,8 +2093,8 @@ public class GitRepo implements Closeable, IGitRepo {
             String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget)
             throws GitAPIException {
         List<RevCommit> commits = new ArrayList<>();
-        ObjectId sourceHead = resolve(sourceBranchName);
-        ObjectId targetHead = resolve(targetBranchName);
+        ObjectId sourceHead = resolveToCommit(sourceBranchName);
+        ObjectId targetHead = resolveToCommit(targetBranchName);
 
         // targetHead can be null if the target branch doesn't exist (e.g. creating a PR to a new remote branch)
 
@@ -3171,44 +2142,14 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * True when no target remote branch exists or the local branch is ahead of its target remote. Returns false if the
-     * provided branch name is not a local branch.
-     */
-    public boolean branchNeedsPush(String branch) throws GitAPIException {
-        if (!listLocalBranches().contains(branch)) {
-            return false; // Not a local branch, so it cannot need pushing
-        }
-
-        // Get the target remote name (with built-in fallback logic)
-        var targetRemoteBranchName = getTargetRemoteBranchName(branch);
-        if (targetRemoteBranchName == null) {
-            return true; // No target remote found, so needs push
-        }
-
-        // Check if the resolved remote branch exists
-        try {
-            var remoteRef = "refs/remotes/" + targetRemoteBranchName;
-            if (repository.findRef(remoteRef) == null) {
-                return true; // Remote branch doesn't exist, so needs push
-            }
-        } catch (Exception e) {
-            logger.debug("Error checking remote branch existence for {}: {}", targetRemoteBranchName, e.getMessage());
-            return true; // Assume needs push on error
-        }
-
-        // Remote branch exists, check if local has unpushed commits
-        return !getUnpushedCommitIds(branch).isEmpty();
-    }
-
-    /**
      * Lists files changed between two branches, specifically the changes introduced on the source branch since it
      * diverged from the target branch.
      */
     public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
             throws GitAPIException {
-        ObjectId sourceHeadId = resolve(sourceBranch);
+        ObjectId sourceHeadId = resolveToCommit(sourceBranch);
 
-        ObjectId targetHeadId = resolve(targetBranch); // Can be null if target branch doesn't exist
+        ObjectId targetHeadId = resolveToCommit(targetBranch); // Can be null if target branch doesn't exist
         logger.debug(
                 "Resolved source branch '{}' to {}, target branch '{}' to {}",
                 sourceBranch,
@@ -3349,8 +2290,8 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new WorktreeDirtyException("Target worktree has uncommitted changes.");
         }
 
-        ObjectId worktreeBranchId = resolve(worktreeBranchName);
-        ObjectId targetBranchId = resolve(targetBranchName);
+        ObjectId worktreeBranchId = resolveToCommit(worktreeBranchName);
+        ObjectId targetBranchId = resolveToCommit(targetBranchName);
 
         // Create a unique temporary directory for the worktree inside .git/worktrees
         // to avoid cross-device issues and for easier cleanup.

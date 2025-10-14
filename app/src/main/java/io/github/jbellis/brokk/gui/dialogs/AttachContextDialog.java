@@ -1,12 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
-import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
-import io.github.jbellis.brokk.analyzer.UsagesProvider;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.Constants;
@@ -375,8 +370,7 @@ public class AttachContextDialog extends JDialog {
                 analyzer != null && analyzer.as(SkeletonProvider.class).isPresent();
         boolean hasSource =
                 analyzer != null && analyzer.as(SourceCodeProvider.class).isPresent();
-        boolean hasUsages =
-                analyzer != null && analyzer.as(UsagesProvider.class).isPresent();
+        boolean hasUsages = analyzer != null;
 
         // Classes segment
         boolean classesEnabled = hasSkeleton || hasSource;
@@ -614,13 +608,17 @@ public class AttachContextDialog extends JDialog {
             var pattern = getAlreadyEnteredText(tc).trim();
             if (pattern.isEmpty() || !cm.getProject().hasGit()) return List.of();
 
-            // Collect unique folder paths from all project files
+            // Collect unique folder paths from all project files, including all ancestors up to project root.
             Set<ProjectFile> files = cm.getProject().getAllFiles();
-            var folders = files.stream()
-                    .map(pf -> pf.getRelPath().getParent())
-                    .filter(Objects::nonNull)
-                    .map(Path::toString)
-                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+            var folders = new LinkedHashSet<String>();
+            for (var pf : files) {
+                Path parent = pf.getRelPath().getParent();
+                while (parent != null) {
+                    String s = parent.toString().replace('\\', '/'); // normalize separators for consistency
+                    folders.add(s);
+                    parent = parent.getParent();
+                }
+            }
 
             var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
                     pattern,
