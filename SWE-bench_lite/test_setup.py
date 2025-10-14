@@ -167,7 +167,7 @@ def main():
     print(f"Passed: {passed}/{total}")
     
     if passed == total:
-        print("🎉 All tests passed! Brokk CLI is ready for SWE-bench-lite evaluation.")
+        print("All tests passed! Brokk CLI is ready for SWE-bench-lite evaluation.")
     else:
         print("⚠️  Some tests failed. Please fix the issues above before running evaluations.")
         

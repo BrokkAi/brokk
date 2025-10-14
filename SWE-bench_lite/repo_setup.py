@@ -317,29 +317,13 @@ Examples:
             for instance_id, repo_path in successful_repos.items()
         }, f, indent=2)
     
-    logger.info(f"📁 Repository mapping saved to: {mapping_file}")
+    logger.info(f"Repository mapping saved to: {mapping_file}")
     
     # Print summary
-    print(f"\n🎉 Repository setup completed!")
+    print(f"\nRepository setup completed!")
     print(f"i) Successfully set up: {len(successful_repos)} repositories")
-    print(f"📁 Repository directory: {repos_dir}")
-    print(f"📋 Mapping file: {mapping_file}")
-    
-    print(f"\nNext steps:")
-    print(f"1. Use the repository paths with swe_bench_lite_runner.py:")
-    print(f"   python swe_bench_lite_runner.py \\")
-    print(f"       --split {args.split} \\")
-    print(f"       --target_project {repos_dir}/<repo_name> \\")
-    print(f"       --max_instances 1")
-    print(f"")
-    print(f"2. Or run Brokk CLI directly on individual repositories:")
-    for instance_id, repo_path in list(successful_repos.items())[:3]:  # Show first 3
-        print(f"   cd {repo_path}")
-        print(f"   python brokk_wrapper.py \"<problem_statement>\" \\")
-        print(f"       --instance_id \"{instance_id}\" \\")
-        print(f"       --target_project \".\" \\")
-        print(f"       --output_file \"pred_{instance_id}.json\"")
-        print(f"   cd -")
+    print(f"Repository directory: {repos_dir}")
+    print(f"Mapping file: {mapping_file}")
 
 
 if __name__ == "__main__":

@@ -265,6 +265,112 @@ The evaluation script now automatically detects when Brokk requests additional f
 - `--max_retries 1`: Allow one retry with requested files (default)
 - `--max_retries 2`: Allow up to two retries for complex problems
 
+### Checkpoint and Resume Support
+
+Evaluation runs are automatically checkpointed after each instance completes, so you **never lose progress** if the program crashes or you need to exit. This is crucial for long-running evaluations of 100+ instances.
+
+#### How It Works
+
+1. **Automatic Checkpointing**: After each instance completes, a `checkpoint.json` file is saved in the output directory
+2. **Automatic Resume Detection**: When you re-run with the same output directory, you'll be prompted to resume
+3. **Graceful Shutdown**: Press `Ctrl+C` to interrupt - checkpoint is saved before exit
+4. **Completion Cleanup**: Checkpoint file is automatically deleted when evaluation completes successfully
+
+#### Resume Modes
+
+**Interactive Mode (Default):**
+```bash
+# Run evaluation
+python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos
+
+# If interrupted, re-run the same command:
+python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos
+
+# You'll see:
+# CHECKPOINT FOUND
+# Completed instances: 42
+# Last checkpoint: 2025-01-13T14:30:22
+# Do you want to resume from checkpoint? [y/n]:
+```
+
+**Non-Interactive Resume:**
+```bash
+# Automatically resume without prompting
+python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos --resume
+```
+
+**Force Fresh Start:**
+```bash
+# Ignore checkpoint and start over
+python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos --force-fresh
+```
+
+#### Checkpoint File Contents
+
+The checkpoint file (`checkpoint.json`) contains:
+- List of completed instance IDs
+- All results for completed instances (patches, errors, execution times)
+- Evaluation start time (for accurate diagnostics)
+- Last checkpoint timestamp
+
+**Example checkpoint.json:**
+```json
+{
+  "completed_instances": ["matplotlib__matplotlib-18869", "django__django-11099"],
+  "results": {
+    "matplotlib__matplotlib-18869": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "matplotlib__matplotlib-18869",
+      "model_patch": "diff --git...",
+      "success": true,
+      "execution_time": 45.2
+    }
+  },
+  "eval_start_time": 1705154422.5,
+  "last_checkpoint": "2025-01-13T14:30:22",
+  "checkpoint_count": 2
+}
+```
+
+#### Best Practices
+
+1. **Use Named Output Directories**: When running large evaluations, use `--output_dir` with descriptive names:
+   ```bash
+   python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir "test_run_architect_agent" --agent architect --repos_dir swe_bench_repos
+   ```
+
+2. **Graceful Interruption**: Use `Ctrl+C` instead of `kill -9` to ensure checkpoint is saved
+
+3. **Long-Running Evaluations**: For 100+ instances, checkpoints are essential - you can stop/resume at any time
+
+4. **Automation**: Use `--resume` flag in scripts for non-interactive resume:
+   ```bash
+   # In a cron job or script
+   python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir long_run --resume --repos_dir swe_bench_repos
+   ```
+
+5. **Check Progress**: The checkpoint file tells you exactly how many instances are completed and when the last save occurred
+
+6. **Repository Reset on Resume**: When resuming, completed instances are skipped (repos untouched), but each NEW instance has its repository reset to clean state before running (unless `--no-reset` is used)
+
+#### Testing Checkpoint Functionality
+
+A test script is provided to verify checkpoint operations work correctly:
+
+```bash
+# Run checkpoint functionality tests
+python3 SWE-bench_lite/test_checkpoint.py
+```
+
+This test suite verifies:
+- Checkpoint file creation and atomic writes
+- Loading and data integrity
+- Resume simulation with additional instances
+- Proper cleanup of temporary files
+- Checkpoint file structure validation
+
+All tests should pass before running large evaluations. This helps ensure your long-running evaluations won't lose data due to checkpoint issues.
+
 
 ## Understanding the Results
 
@@ -277,7 +383,9 @@ swe_bench_tests/
 └── 20250113_143022_brokk-cli/
     ├── preds.json          # Model predictions for SWE-bench evaluation
     ├── results.json        # Summary statistics (resolve/unresolved TBD until tests run)
-    └── diagnostics.json    # Performance metrics and system info
+    ├── diagnostics.json    # Performance metrics and system info
+    └── checkpoints/        # Progress checkpoints (auto-deleted on completion)
+        └── checkpoint.json
 ```
 
 ### Output Files

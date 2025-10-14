@@ -1,0 +1,69 @@
+{
+  "completed_instances": [
+    "django__django-11727",
+    "django__django-14382",
+    "django__django-11564",
+    "django__django-15213",
+    "matplotlib__matplotlib-18869",
+    "pytest-dev__pytest-9681"
+  ],
+  "results": {
+    "django__django-15213": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "django__django-15213",
+      "model_patch": "",
+      "success": false,
+      "changes": false,
+      "error": "Brokk CLI failed or was terminated (see stderr)",
+      "execution_time": 210.8054323196411
+    },
+    "django__django-11727": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "django__django-11727",
+      "model_patch": "",
+      "success": false,
+      "changes": false,
+      "error": "Brokk CLI failed or was terminated (see stderr)",
+      "execution_time": 263.84706568717957
+    },
+    "django__django-14382": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "django__django-14382",
+      "model_patch": "",
+      "success": false,
+      "changes": false,
+      "error": "Brokk CLI failed or was terminated (see stderr)",
+      "execution_time": 273.5886425971985
+    },
+    "django__django-11564": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "django__django-11564",
+      "model_patch": "",
+      "success": false,
+      "changes": false,
+      "error": "Brokk CLI failed or was terminated (see stderr)",
+      "execution_time": 256.85664916038513
+    },
+    "matplotlib__matplotlib-18869": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "matplotlib__matplotlib-18869",
+      "model_patch": "diff --git a/lib/matplotlib/__init__.py b/lib/matplotlib/__init__.py\nindex b657a35cf7..087933d9fe 100644\n--- a/lib/matplotlib/__init__.py\n+++ b/lib/matplotlib/__init__.py\n@@ -148,6 +148,44 @@ def __getattr__(name):\n         else:  # Get the version from the _version.py setuptools_scm file.\n             __version__ = _version.version\n         return __version__\n+    elif name == \"version_info\":\n+        import setuptools_scm\n+        global __version__, version_info  # cache both.\n+        # Only shell out to a git subprocess if really needed, and not on a\n+        # shallow clone, such as those used by CI, as the latter would trigger\n+        # a warning from setuptools_scm.\n+        root = Path(__file__).resolve().parents[2]\n+        if (root / \".git\").exists() and not (root / \".git/shallow\").exists():\n+            __version__ = setuptools_scm.get_version(\n+                root=root,\n+                version_scheme=\"post-release\",\n+                local_scheme=\"node-and-date\",\n+                fallback_version=_version.version,\n+            )\n+        else:  # Get the version from the _version.py setuptools_scm file.\n+            __version__ = _version.version\n+        \n+        # Parse version string into tuple of integers\n+        version_str = __version__.split('+')[0]  # Remove local version identifier\n+        version_parts = []\n+        for part in version_str.split('.'):\n+            # Handle pre-release versions like \"3.6.0rc1\"\n+            if part.isdigit():\n+                version_parts.append(int(part))\n+            else:\n+                # Extract numeric part from strings like \"0rc1\"\n+                numeric_part = \"\"\n+                for char in part:\n+                    if char.isdigit():\n+                        numeric_part += char\n+                    else:\n+                        break\n+                if numeric_part:\n+                    version_parts.append(int(numeric_part))\n+                break\n+        \n+        version_info = tuple(version_parts)\n+        return version_info\n     raise AttributeError(f\"module {__name__!r} has no attribute {name!r}\")\n \n \n",
+      "success": true,
+      "changes": true,
+      "error": null,
+      "execution_time": 175.07399606704712
+    },
+    "pytest-dev__pytest-9681": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "pytest-dev__pytest-9681",
+      "model_patch": "",
+      "success": true,
+      "changes": false,
+      "error": null,
+      "execution_time": 101.46780848503113
+    }
+  },
+  "eval_start_time": 1760399638.5817883,
+  "last_checkpoint": "2025-10-13T19:24:56.209483",
+  "checkpoint_count": 6
+}

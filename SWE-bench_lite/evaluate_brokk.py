@@ -13,6 +13,7 @@ This script:
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -583,24 +584,30 @@ def evaluate_instances(
     instances: List[Dict[str, Any]], 
     repo_mapping: Dict[str, str],
     template_path: Path,
+    output_dir: Path,
     max_instances: Optional[int] = None,
     model_name: str = "brokk-cli",
     max_retries: int = 1,
     agent: str = "code",
-    reset_repo: bool = True
+    reset_repo: bool = True,
+    checkpoint_data: Optional[Dict[str, Any]] = None,
+    eval_start_time: Optional[float] = None
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Evaluate Brokk CLI on multiple instances.
+    Evaluate Brokk CLI on multiple instances with checkpoint support.
     
     Args:
         instances: List of SWE-bench instances to evaluate
         repo_mapping: Mapping of instance IDs to repository paths
         template_path: Path to project.properties template
+        output_dir: Output directory for checkpoints
         max_instances: Maximum number of instances to evaluate
         model_name: Name of the model for results
         max_retries: Maximum retry attempts when Brokk requests files
         agent: Which Brokk agent to use (code, architect, or search-tasks)
         reset_repo: Whether to reset repositories to clean state before running
+        checkpoint_data: Previous checkpoint data to resume from
+        eval_start_time: Start time from checkpoint (for resume)
     
     Returns:
         Dictionary in preds.json format
@@ -608,19 +615,49 @@ def evaluate_instances(
     if max_instances:
         instances = instances[:max_instances]
     
-    log_info(f"Starting evaluation of {len(instances)} instances")
+    # Resume from checkpoint if available
+    if checkpoint_data:
+        results = checkpoint_data['results']
+        completed_instances = set(checkpoint_data['completed_instances'])
+        start_time = checkpoint_data['eval_start_time']
+        log_info(f"Resuming evaluation - {len(completed_instances)} instances already completed")
+    else:
+        results = {}
+        completed_instances = set()
+        start_time = eval_start_time if eval_start_time else time.time()
+    
+    log_info(f"Evaluating {len(instances)} total instances")
     log_info(f"Model name: {model_name}")
     log_info(f"Agent mode: {agent}")
     log_info(f"Using template: {template_path}")
     log_info(f"Max retries with requested files: {max_retries}")
     log_info(f"Reset repositories before evaluation: {reset_repo}")
     
-    results = {}
-    successful_evaluations = 0
-    failed_evaluations = 0
+    successful_evaluations = sum(1 for r in results.values() if r.get("success", False))
+    failed_evaluations = sum(1 for r in results.values() if not r.get("success", False))
+    
+    # Set up signal handler for graceful shutdown
+    interrupted = [False]  # Mutable list to allow modification in nested function
+    
+    def signal_handler(signum, frame):
+        log_warning(f"\nReceived interrupt signal ({signum}). Saving checkpoint and exiting...")
+        interrupted[0] = True
+        # Save final checkpoint
+        save_checkpoint(output_dir, results, list(completed_instances), start_time)
+        log_success("Checkpoint saved. You can resume later with the same command.")
+        sys.exit(0)
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     for i, instance in enumerate(instances):
         instance_id = instance["instance_id"]
+        
+        # Skip if already completed (resume logic)
+        if instance_id in completed_instances:
+            log_info(f"Skipping {instance_id} (already completed)")
+            continue
         
         log_status(f"\n{'='*60}", Colors.BOLD)
         log_status(f"Instance {i+1}/{len(instances)}: {instance_id}", Colors.BOLD)
@@ -636,6 +673,9 @@ def evaluate_instances(
                 "model_patch": "",
                 "error": "No repository mapping found"
             }
+            completed_instances.add(instance_id)
+            # Save checkpoint after each instance
+            save_checkpoint(output_dir, results, list(completed_instances), start_time)
             continue
         
         repo_path = repo_mapping[instance_id]
@@ -663,6 +703,9 @@ def evaluate_instances(
             "execution_time": evaluation_result.get("execution_time")
         }
         
+        # Mark as completed
+        completed_instances.add(instance_id)
+        
         if evaluation_result["success"]:
             successful_evaluations += 1
             if evaluation_result.get("changes", False):
@@ -672,6 +715,9 @@ def evaluate_instances(
         else:
             failed_evaluations += 1
             log_error(f"X Instance {instance_id}: Failed - {evaluation_result.get('error', 'Unknown error')}")
+        
+        # Save checkpoint after each instance completion
+        save_checkpoint(output_dir, results, list(completed_instances), start_time)
         
         # Progress update
         progress = (i + 1) / len(instances) * 100
@@ -864,6 +910,99 @@ def save_diagnostics(
     
     log_success(f"Diagnostics saved to {output_file}")
 
+def save_checkpoint(
+    output_dir: Path,
+    results: Dict[str, Dict[str, Any]],
+    completed_instances: List[str],
+    eval_start_time: float
+):
+    """
+    Save evaluation checkpoint to disk.
+    
+    Args:
+        output_dir: Output directory for checkpoint
+        results: Current results dictionary
+        completed_instances: List of completed instance IDs
+        eval_start_time: Start time of evaluation
+    """
+    # Create checkpoints subdirectory
+    checkpoints_dir = output_dir / "checkpoints"
+    checkpoints_dir.mkdir(exist_ok=True)
+    
+    checkpoint_file = checkpoints_dir / "checkpoint.json"
+    checkpoint_data = {
+        "completed_instances": completed_instances,
+        "results": results,
+        "eval_start_time": eval_start_time,
+        "last_checkpoint": datetime.now().isoformat(),
+        "checkpoint_count": len(completed_instances)
+    }
+    
+    # Write to temporary file first, then rename (atomic operation)
+    temp_file = checkpoints_dir / "checkpoint.tmp.json"
+    with open(temp_file, 'w') as f:
+        json.dump(checkpoint_data, f, indent=2)
+    temp_file.rename(checkpoint_file)
+    
+    log_info(f"Checkpoint saved ({len(completed_instances)} instances completed)")
+
+def load_checkpoint(output_dir: Path) -> Optional[Dict[str, Any]]:
+    """
+    Load evaluation checkpoint from disk.
+    
+    Args:
+        output_dir: Output directory containing checkpoint
+    
+    Returns:
+        Checkpoint data if found, None otherwise
+    """
+    checkpoints_dir = output_dir / "checkpoints"
+    checkpoint_file = checkpoints_dir / "checkpoint.json"
+    if not checkpoint_file.exists():
+        return None
+    
+    try:
+        with open(checkpoint_file, 'r') as f:
+            checkpoint_data = json.load(f)
+        
+        log_info(f"Found checkpoint with {len(checkpoint_data['completed_instances'])} completed instances")
+        log_info(f"Last checkpoint: {checkpoint_data['last_checkpoint']}")
+        return checkpoint_data
+    except Exception as e:
+        log_error(f"Failed to load checkpoint: {e}")
+        return None
+
+def prompt_resume_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
+    """
+    Ask user if they want to resume from checkpoint.
+    
+    Args:
+        checkpoint_data: Loaded checkpoint data
+    
+    Returns:
+        True if user wants to resume, False otherwise
+    """
+    completed_count = len(checkpoint_data['completed_instances'])
+    last_checkpoint = checkpoint_data['last_checkpoint']
+    
+    log_status(f"\n{'='*60}", Colors.YELLOW)
+    log_warning(f"CHECKPOINT FOUND")
+    log_status(f"{'='*60}", Colors.YELLOW)
+    log_info(f"Completed instances: {completed_count}")
+    log_info(f"Last checkpoint: {last_checkpoint}")
+    log_info(f"")
+    
+    while True:
+        response = input("Do you want to resume from checkpoint? [y/n]: ").strip().lower()
+        if response in ['y', 'yes']:
+            log_success("Resuming from checkpoint...")
+            return True
+        elif response in ['n', 'no']:
+            log_warning("Starting fresh evaluation (checkpoint will be overwritten)")
+            return False
+        else:
+            print("Please enter 'y' or 'n'")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluate Brokk CLI on SWE-bench-lite instances",
@@ -896,6 +1035,15 @@ Examples:
   
   # Custom output directory
   python evaluate_brokk.py --split test --max_instances 3 --output_dir my_results
+  
+  # Resume from checkpoint (interactive prompt)
+  python evaluate_brokk.py --split test --output_dir swe_bench_tests/20250113_143022_brokk-cli
+  
+  # Resume from checkpoint (non-interactive)
+  python evaluate_brokk.py --split test --output_dir swe_bench_tests/20250113_143022_brokk-cli --resume
+  
+  # Force fresh start (ignore checkpoint)
+  python evaluate_brokk.py --split test --output_dir swe_bench_tests/20250113_143022_brokk-cli --force-fresh
         """
     )
     
@@ -965,6 +1113,18 @@ Examples:
         "--no-reset",
         action="store_true",
         help="Don't reset repositories to clean state before evaluation (default: repositories are reset)"
+    )
+    
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Automatically resume from checkpoint if found (non-interactive)"
+    )
+    
+    parser.add_argument(
+        "--force-fresh",
+        action="store_true",
+        help="Ignore any existing checkpoint and start fresh"
     )
     
     args = parser.parse_args()
@@ -1044,17 +1204,51 @@ Examples:
     output_dir.mkdir(parents=True, exist_ok=True)
     log_success(f"Created output directory: {output_dir}")
     
+    # Check for existing checkpoint and prompt to resume
+    checkpoint_data = None
+    resume_from_checkpoint = False
+    
+    if args.force_fresh:
+        # User wants fresh start, delete any checkpoint
+        checkpoints_dir = output_dir / "checkpoints"
+        checkpoint_file = checkpoints_dir / "checkpoint.json"
+        if checkpoint_file.exists():
+            checkpoint_file.unlink()
+            log_info("Checkpoint file deleted (--force-fresh flag)")
+    else:
+        # Check for checkpoint
+        checkpoint_data = load_checkpoint(output_dir)
+        
+        if checkpoint_data:
+            if args.resume:
+                # Non-interactive resume
+                log_success("Resuming from checkpoint (--resume flag)")
+                resume_from_checkpoint = True
+            else:
+                # Interactive prompt
+                resume_from_checkpoint = prompt_resume_checkpoint(checkpoint_data)
+                if not resume_from_checkpoint:
+                    # User chose not to resume, delete checkpoint
+                    checkpoints_dir = output_dir / "checkpoints"
+                    checkpoint_file = checkpoints_dir / "checkpoint.json"
+                    if checkpoint_file.exists():
+                        checkpoint_file.unlink()
+                    checkpoint_data = None
+    
     # Run evaluation
     eval_start_time = time.time()
     results = evaluate_instances(
         available_instances,
         repo_mapping,
         template_path,
+        output_dir,
         args.max_instances,
         args.model_name,
         args.max_retries,
         args.agent,
-        reset_repo=not args.no_reset  # Invert the flag
+        reset_repo=not args.no_reset,  # Invert the flag
+        checkpoint_data=checkpoint_data,
+        eval_start_time=eval_start_time
     )
     eval_end_time = time.time()
     
@@ -1066,6 +1260,19 @@ Examples:
     save_predictions(results, str(preds_file))
     save_results_json(results, str(results_file))
     save_diagnostics(results, eval_start_time, eval_end_time, args.model_name, str(diagnostics_file))
+    
+    # Clean up checkpoint directory after successful completion
+    checkpoints_dir = output_dir / "checkpoints"
+    checkpoint_file = checkpoints_dir / "checkpoint.json"
+    if checkpoint_file.exists():
+        checkpoint_file.unlink()
+        log_info("Checkpoint file removed (evaluation completed successfully)")
+        # Try to remove checkpoints directory if empty
+        try:
+            checkpoints_dir.rmdir()
+            log_info("Checkpoints directory removed")
+        except:
+            pass  # Directory not empty or other issue, that's okay
     
     # Print summary
     log_status(f"\n{'='*60}", Colors.BOLD)
