@@ -655,7 +655,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
 
         String command = prefixWithJavaHomeIfNeeded(project, details.testAllCommand());
-        executeTests(command, 0);
+        executeTests(command, -1);
     }
 
     public void runTests(Set<ProjectFile> testFiles) {
@@ -910,7 +910,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             // Start time HH:mm:ss (local tz)
             String timeText = TIME_FORMAT.format(run.startedAt.atZone(ZoneId.systemDefault()));
             // Files
-            String filesText = run.fileCount == 1 ? "1 file" : (run.fileCount + " files");
+            String filesText;
+            if (run.fileCount < 0) {
+                filesText = "all files";
+            } else {
+                filesText = run.fileCount == 1 ? "1 file" : (run.fileCount + " files");
+            }
             // Duration mm:ss
             long secs = run.getDurationSeconds();
             String dur = "%02d:%02d".formatted(secs / 60, secs % 60);
