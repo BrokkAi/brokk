@@ -137,24 +137,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
 
-    private record ProjectFilePair(ProjectFile lhs, ProjectFile rhs) {
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ProjectFilePair(ProjectFile oLhs, ProjectFile oRhs))) return false;
-            // Order-insensitive equality: (a,b) == (b,a)
-            return (Objects.equals(lhs, oLhs) && Objects.equals(rhs, oRhs))
-                    || (Objects.equals(lhs, oRhs) && Objects.equals(rhs, oLhs));
-        }
-
-        @Override
-        public int hashCode() {
-            // Order-insensitive hash: commutative combination
-            int h1 = Objects.hashCode(lhs);
-            int h2 = Objects.hashCode(rhs);
-            return h1 ^ h2;
-        }
-    }
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -2526,6 +2508,59 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /* ---------- incremental updates ---------- */
 
+    private record RefreshStats(int parentsTouched, int symbolsTouched, long writeLockHoldNanos) {}
+
+    private RefreshStats applyAtomicFileRefresh(ProjectFile file, FileAnalysisResult analysisResult) {
+        var writeLock = stateRwLock.writeLock();
+        long lockStartNanos = 0L;
+        var parentsTouched = new AtomicInteger(0);
+        int symbolsTouched = 0;
+        writeLock.lock();
+        try {
+            lockStartNanos = System.nanoTime();
+            // Remove any prior per-file state before ingesting the fresh analysis result
+            fileState.remove(file);
+
+            // Purge CodeUnitState entries for this file and prune references from parent->children lists
+            Predicate<CodeUnit> fromFile = cu -> file.equals(cu.source());
+
+            codeUnitState.keySet().removeIf(fromFile);
+            codeUnitState.replaceAll((parent, state) -> {
+                var filteredKids = state.children().stream().filter(fromFile.negate()).toList();
+                if (!filteredKids.equals(state.children())) {
+                    parentsTouched.incrementAndGet();
+                    return new CodeUnitProperties(List.copyOf(filteredKids), state.signatures(), state.ranges());
+                }
+                return state;
+            });
+
+            // Remove or update symbolIndex entries pointing to this file
+            var symbolsToPurge = new HashSet<String>();
+            var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
+            for (var entry : symbolIndex.entrySet()) {
+                var symbol = entry.getKey();
+                var cus = entry.getValue();
+                var remaining = cus.stream().filter(fromFile.negate()).toList();
+                if (remaining.isEmpty()) {
+                    symbolsToPurge.add(symbol);
+                } else if (remaining.size() < cus.size()) {
+                    symbolsToUpdate.put(symbol, remaining);
+                }
+            }
+            symbolsTouched += symbolsToPurge.size() + symbolsToUpdate.size();
+            symbolIndex.putAll(symbolsToUpdate);
+            symbolsToPurge.forEach(symbolIndex::remove);
+
+            // Ingest the new analysis result (will also mirror per-file state)
+            ingestAnalysisResult(file, analysisResult);
+        } finally {
+            writeLock.unlock();
+        }
+
+        long hold = System.nanoTime() - lockStartNanos;
+        return new RefreshStats(parentsTouched.get(), symbolsTouched, hold);
+    }
+
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) {
@@ -2554,7 +2589,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var parentsTouchedCount = new AtomicInteger(0);
         var writeLockHoldNanos = new AtomicLong(0L);
 
-        final var fileEqualityCache = new ConcurrentHashMap<ProjectFilePair, Boolean>();
+        
 
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
@@ -2585,78 +2620,66 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
                             // Single atomic write lock for cleanup + (optional) ingestion
                             long cleanupStart = System.nanoTime();
-                            var writeLock = stateRwLock.writeLock();
-                            writeLock.lock();
-                            long lockStartNanos = System.nanoTime();
-                            try {
-                                // Build predicate with cached ProjectFile equality checks
-                                Predicate<CodeUnit> fromFile = cu -> fileEqualityCache.computeIfAbsent(
-                                        new ProjectFilePair(file, cu.source()),
-                                        pair -> pair.lhs().equals(pair.rhs()));
-
-                                // Only perform cleanup if the file was deleted OR we have a fresh analysis result.
-                                // If analysis failed, preserve old state to avoid leaving an empty gap.
-                                if (!exists || analysisResult != null) {
-                                    filesCleanedCount.incrementAndGet();
-
-                                    // For deleted files we must remove parsed tree. For existing+reanalyzed files
-                                    // the new analyzeFileContent has already refreshed parsedTreeCache; do not remove it.
+                            if (analysisResult != null) {
+                                filesCleanedCount.incrementAndGet();
+                                var stats = applyAtomicFileRefresh(file, analysisResult);
+                                reanalyzedCount.incrementAndGet();
+                                parentsTouchedCount.addAndGet(stats.parentsTouched());
+                                symbolsTouchedCount.addAndGet(stats.symbolsTouched());
+                                writeLockHoldNanos.addAndGet(stats.writeLockHoldNanos());
+                            } else {
+                                var writeLock = stateRwLock.writeLock();
+                                long lockStartNanos = 0L;
+                                writeLock.lock();
+                                try {
+                                    lockStartNanos = System.nanoTime();
                                     if (!exists) {
+                                        filesCleanedCount.incrementAndGet();
                                         parsedTreeCache.remove(file);
-                                    }
+                                        fileState.remove(file);
 
-                                    fileState.remove(file);
+                                        Predicate<CodeUnit> fromFile = cu -> file.equals(cu.source());
 
-                                    // Purge CodeUnitState entries for this file and prune children lists
-                                    codeUnitState.keySet().removeIf(fromFile);
-                                    codeUnitState.replaceAll((parent, state) -> {
-                                        var filteredKids = state.children().stream()
-                                                .filter(fromFile.negate())
-                                                .toList();
-                                        if (!filteredKids.equals(state.children())) {
-                                            parentsTouchedCount.incrementAndGet();
-                                            return new CodeUnitProperties(
-                                                    List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                        codeUnitState.keySet().removeIf(fromFile);
+                                        codeUnitState.replaceAll((parent, state) -> {
+                                            var filteredKids = state.children().stream().filter(fromFile.negate()).toList();
+                                            if (!filteredKids.equals(state.children())) {
+                                                parentsTouchedCount.incrementAndGet();
+                                                return new CodeUnitProperties(List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                            }
+                                            return state;
+                                        });
+
+                                        var symbolsToPurge = new HashSet<String>();
+                                        var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
+                                        for (var entry : symbolIndex.entrySet()) {
+                                            var symbol = entry.getKey();
+                                            var cus = entry.getValue();
+                                            var remaining = cus.stream().filter(fromFile.negate()).toList();
+                                            if (remaining.isEmpty()) {
+                                                symbolsToPurge.add(symbol);
+                                            } else if (remaining.size() < cus.size()) {
+                                                symbolsToUpdate.put(symbol, remaining);
+                                            }
                                         }
-                                        return state;
-                                    });
+                                        symbolsTouchedCount.addAndGet(symbolsToPurge.size() + symbolsToUpdate.size());
+                                        symbolIndex.putAll(symbolsToUpdate);
+                                        symbolsToPurge.forEach(symbolIndex::remove);
 
-                                    var symbolsToPurge = new HashSet<String>();
-                                    var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
-                                    for (var entry : symbolIndex.entrySet()) {
-                                        var symbol = entry.getKey();
-                                        var cus = entry.getValue();
-                                        var remaining = cus.stream().filter(fromFile.negate()).toList();
-                                        if (remaining.isEmpty()) {
-                                            symbolsToPurge.add(symbol);
-                                        } else if (remaining.size() < cus.size()) {
-                                            symbolsToUpdate.put(symbol, remaining);
-                                        }
+                                        deletedCount.incrementAndGet();
+                                        log.debug("File {} deleted; state cleaned.", file);
+                                    } else {
+                                        // Analysis failed; keep old state
+                                        log.warn("Skipping state update for {} due to analysis failure; preserving old state.", file);
                                     }
-                                    symbolsTouchedCount.addAndGet(symbolsToPurge.size() + symbolsToUpdate.size());
-                                    symbolIndex.putAll(symbolsToUpdate);
-                                    symbolsToPurge.forEach(symbolIndex::remove);
+                                } catch (Throwable t) {
+                                    log.error("Exception encountered while performing atomic update for file {}", file, t);
+                                } finally {
+                                    writeLockHoldNanos.addAndGet(System.nanoTime() - lockStartNanos);
+                                    writeLock.unlock();
                                 }
-
-                                // Ingest new analysis result if available
-                                if (analysisResult != null) {
-                                    ingestAnalysisResult(file, analysisResult);
-                                    reanalyzedCount.incrementAndGet();
-                                } else if (!exists) {
-                                    // File was deleted: we've already cleaned state
-                                    deletedCount.incrementAndGet();
-                                    log.debug("File {} deleted; state cleaned.", file);
-                                } else {
-                                    // Analysis failed; keep old state
-                                    log.warn("Skipping state update for {} due to analysis failure; preserving old state.", file);
-                                }
-                            } catch (Throwable t) {
-                                log.error("Exception encountered while performing atomic update for file {}", file, t);
-                            } finally {
-                                cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
-                                writeLockHoldNanos.addAndGet(System.nanoTime() - lockStartNanos);
-                                writeLock.unlock();
                             }
+                            cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
                         },
                         executor);
 
@@ -2666,8 +2689,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!futures.isEmpty()) {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }
-        } finally {
-            fileEqualityCache.clear();
         }
 
         long totalMs = System.currentTimeMillis() - overallStartMs;
