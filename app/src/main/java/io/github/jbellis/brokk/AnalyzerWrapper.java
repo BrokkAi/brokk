@@ -52,7 +52,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = listener;
-        if (listener == null) {
+        if (true) {
             this.watchService = new IWatchService() {};
         } else {
             this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
