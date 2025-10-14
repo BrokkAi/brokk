@@ -2018,14 +2018,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
-        private final boolean compressAtCommit;
+        private final boolean compressResults;
         private final MergeAgent.NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressResults, MergeAgent.NonTextResolutionMode nonTextMode) {
             io.blockLlmOutput(true);
-            this.compressAtCommit = compressAtCommit;
+            this.compressResults = compressResults;
             this.nonTextMode = nonTextMode;
             this.results = new ArrayList<>();
         }
@@ -2054,7 +2054,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         addFiles(only.changedFiles());
                     }
                     // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(only, compressAtCommit);
+                    pushFinalHistory(only, compressResults);
                     return;
                 }
 
@@ -2092,7 +2092,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 var finalResult = new TaskResult(
                         ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
-                pushFinalHistory(finalResult, compressAtCommit);
+                pushFinalHistory(finalResult, compressResults);
             } finally {
                 io.blockLlmOutput(false);
             }
