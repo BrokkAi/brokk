@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Insets;
+import java.awt.Graphics2D;
 import java.util.function.Supplier;
 import javax.swing.BoxLayout;
 import javax.swing.Icon;
@@ -39,7 +40,7 @@ public class SplitButton extends JComponent {
 
         actionButton = new MaterialButton(text);
         arrowButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> arrowButton.setIcon(Icons.KEYBOARD_DOWN));
+        SwingUtilities.invokeLater(() -> arrowButton.setIcon(new ScaledIcon(Icons.KEYBOARD_DOWN, 0.7)));
 
         applyCompactStyling(actionButton);
         applyCompactStyling(arrowButton);
@@ -141,5 +142,44 @@ public class SplitButton extends JComponent {
         var left = actionButton.getMaximumSize();
         var right = arrowButton.getMaximumSize();
         return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+    }
+
+    // Lightweight wrapper to scale any Icon by a given factor.
+    // Keeps layout sizes consistent with the scaled dimensions.
+    private static final class ScaledIcon implements Icon {
+        private final Icon delegate;
+        private final double scale;
+        private final int width;
+        private final int height;
+
+        ScaledIcon(Icon delegate, double scale) {
+            assert scale > 0.0;
+            this.delegate = delegate;
+            this.scale = scale;
+            this.width = Math.max(1, (int) Math.round(delegate.getIconWidth() * scale));
+            this.height = Math.max(1, (int) Math.round(delegate.getIconHeight() * scale));
+        }
+
+        @Override
+        public void paintIcon(java.awt.Component c, java.awt.Graphics g, int x, int y) {
+            var g2 = (Graphics2D) g.create();
+            try {
+                g2.translate(x, y);
+                g2.scale(scale, scale);
+                delegate.paintIcon(c, g2, 0, 0);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return width;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return height;
+        }
     }
 }
