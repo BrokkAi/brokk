@@ -28,7 +28,9 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
+import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
 import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
@@ -239,8 +241,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
-    private final io.github.jbellis.brokk.gui.terminal.TaskListPanel taskListPanel;
-    private final io.github.jbellis.brokk.gui.terminal.TerminalPanel terminalPanel;
+    private final TaskListPanel taskListPanel;
+    private final TerminalPanel terminalPanel;
 
     // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
     private @Nullable TerminalDrawerPanel terminalDrawer = null;
@@ -463,13 +465,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
 
         // Create and add TaskListPanel as second tab (with list icon)
-        taskListPanel = new io.github.jbellis.brokk.gui.terminal.TaskListPanel(this);
+        taskListPanel = new TaskListPanel(this);
         rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
 
         // Create and add TerminalPanel as third tab (with terminal icon)
-        this.terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(
-                this, () -> {}, true, getProject().getRoot());
+        this.terminalPanel =
+                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
         rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
