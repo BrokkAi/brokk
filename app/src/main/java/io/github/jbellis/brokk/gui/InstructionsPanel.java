@@ -894,10 +894,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (transferHandler.canImport(support)) {
                     titledContainer.setDragOver(true);
                     e.acceptDrag(DnDConstants.ACTION_COPY);
-                    titledContainer.setCursor(DragSource.DefaultCopyDrop);
                 } else {
                     e.rejectDrag();
-                    titledContainer.setCursor(DragSource.DefaultCopyNoDrop);
                 }
             }
 
@@ -906,10 +904,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var support = new TransferHandler.TransferSupport(titledContainer, e.getTransferable());
                 if (transferHandler.canImport(support)) {
                     e.acceptDrag(DnDConstants.ACTION_COPY);
-                    titledContainer.setCursor(DragSource.DefaultCopyDrop);
                 } else {
                     titledContainer.setDragOver(false);
-                    titledContainer.setCursor(DragSource.DefaultCopyNoDrop);
                     e.rejectDrag();
                 }
             }
@@ -917,13 +913,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void dragExit(DropTargetEvent e) {
                 titledContainer.setDragOver(false);
-                titledContainer.setCursor(Cursor.getDefaultCursor());
             }
 
             @Override
             public void drop(DropTargetDropEvent e) {
                 titledContainer.setDragOver(false);
-                titledContainer.setCursor(DragSource.DefaultCopyNoDrop);
 
                 var transferable = e.getTransferable();
                 var support = new TransferHandler.TransferSupport(titledContainer, transferable);
@@ -935,7 +929,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         e.dropComplete(true);
                     }
                 } else {
-                    titledContainer.setCursor(Cursor.getDefaultCursor());
                     e.rejectDrop();
                     e.dropComplete(false);
                 }
