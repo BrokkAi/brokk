@@ -348,7 +348,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /** Frees memory from the parsed AST cache. */
     public void clearCaches() {
-        withReadLock(parsedTreeCache::clear);
+        var wl = stateRwLock.writeLock();
+        wl.lock();
+        try {
+            parsedTreeCache.clear();
+        } finally {
+            wl.unlock();
+        }
     }
 
     /** The number of cached AST entries. */
