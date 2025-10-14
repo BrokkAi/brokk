@@ -477,8 +477,7 @@ public final class MergeOneFile {
         var result = agent.runSingleFileEdit(
                 file,
                 instructions,
-                requireNonNull(currentSessionMessages),
-                EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS));
+                requireNonNull(currentSessionMessages));
         this.lastCodeAgentResult = result;
         return String.valueOf(result.stopDetails());
     }

@@ -14,11 +14,11 @@ import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
-import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -78,6 +78,24 @@ public class CodeAgent {
     }
 
     /**
+     * Implicitly includes the DEFER_BUILD option.
+     */
+    public TaskResult runSingleFileEdit(
+            ProjectFile file,
+            String instructions,
+            List<ChatMessage> readOnlyMessages) {
+        var ctx = new Context(contextManager, null)
+                .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+
+        contextManager.getAnalyzerWrapper().pause();
+        try {
+            return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
+        } finally {
+            contextManager.getAnalyzerWrapper().resume();
+        }
+    }
+
+    /**
      * @param userInput The user's goal/instructions.
      * @return A TaskResult containing the conversation history and original file contents
      */
@@ -87,13 +105,13 @@ public class CodeAgent {
         // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
-            return runTaskInternal(userInput, options);
+            return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }
     }
 
-    private TaskResult runTaskInternal(String userInput, Set<Option> options) {
+    private TaskResult runTaskInternal(Context ctx, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
@@ -120,7 +138,7 @@ public class CodeAgent {
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                contextManager.liveContext(),
+                ctx,
                 userInput.trim(),
                 CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
@@ -145,8 +163,7 @@ public class CodeAgent {
             }
 
             // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
-            // to date
-            // before we paused it, but empirically that is not the case as of this writing.
+            // to date before we paused it, but empirically that is not the case as of this writing.
             var filesToRefresh = es.changedFiles().isEmpty() ? contextManager.getFilesInContext() : es.changedFiles();
             var analyzerFuture = contextManager.getAnalyzerWrapper().updateFiles(filesToRefresh);
 
@@ -154,8 +171,9 @@ public class CodeAgent {
             StreamingResult streamingResult;
             try {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
-                        contextManager,
                         model,
+                        ctx,
+                        prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         es.changedFiles());
@@ -235,9 +253,9 @@ public class CodeAgent {
                 if (msgsThisTurn > 2) {
                     var srb = es.toSearchReplaceBlocks();
                     var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                            + srb.stream()
-                                    .map(EditBlock.SearchReplaceBlock::repr)
-                                    .collect(Collectors.joining("\n"));
+                                      + srb.stream()
+                                              .map(EditBlock.SearchReplaceBlock::repr)
+                                              .collect(Collectors.joining("\n"));
                     cs = cs.replaceCurrentTurnMessages(summaryText);
                 }
             }
@@ -262,8 +280,8 @@ public class CodeAgent {
             if (options.contains(Option.DEFER_BUILD)) {
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
-                                ? "Edits applied. Build/check deferred."
-                                : "No edits to apply. Build/check deferred.");
+                        ? "Edits applied. Build/check deferred."
+                        : "No edits to apply. Build/check deferred.");
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
                 break;
             }
@@ -292,8 +310,8 @@ public class CodeAgent {
 
         // create the Result for history
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? userInput
-                : userInput + " [" + stopDetails.reason().name() + "]";
+                                        ? userInput
+                                        : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
@@ -301,140 +319,6 @@ public class CodeAgent {
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
                 es.changedFiles(),
-                stopDetails);
-    }
-
-    /**
-     * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
-     * same request / parse / apply FSM that {@link #runTask(String, Set)} uses, but it stops after all SEARCH/REPLACE
-     * blocks have been applied (no build verification is performed).
-     *
-     * @param file the file to edit
-     * @param instructions user instructions describing the desired change
-     * @param readOnlyMessages conversation context that should be provided to the LLM as read-only (e.g., other related
-     *     files, build output, etc.)
-     * @param flags
-     * @return a {@link TaskResult} recording the conversation and the original contents of all files that were changed
-     */
-    public TaskResult runSingleFileEdit(
-            ProjectFile file,
-            String instructions,
-            List<ChatMessage> readOnlyMessages,
-            Set<CodePrompts.InstructionsFlags> flags) {
-        // 0.  Setup: coder, parser, initial messages, and initial state
-        var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
-        coder.setOutput(io);
-
-        EditBlockParser parser = EditBlockParser.instance;
-
-        UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                contextManager.liveContext(), instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
-
-        var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
-        var editState = new EditState(
-                new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap());
-
-        logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
-                .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
-
-        TaskResult.StopDetails stopDetails;
-
-        // 1.  Main FSM loop (request → parse → apply)
-        while (true) {
-            // ----- 1-a.  Construct messages for this turn --------------------
-            List<ChatMessage> llmMessages = CodePrompts.instance.getSingleFileCodeMessages(
-                    contextManager.getProject(),
-                    readOnlyMessages,
-                    conversationState.taskMessages(),
-                    requireNonNull(conversationState.nextRequest(), "nextRequest must be set before sending to LLM"),
-                    file);
-
-            // ----- 1-b.  Send to LLM -----------------------------------------
-            StreamingResult streamingResult;
-            try {
-                streamingResult = coder.sendRequest(llmMessages);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
-
-            // ----- 1-c.  REQUEST PHASE ---------------------------------------
-            var step = requestPhase(conversationState, editState, streamingResult, null);
-            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
-                stopDetails = details;
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-d.  PARSE PHASE -----------------------------------------
-            step = parsePhase(
-                    conversationState, editState, streamingResult.text(), streamingResult.isPartial(), parser, null);
-            if (step instanceof Step.Retry retry) {
-                conversationState = retry.cs();
-                editState = retry.es();
-                continue; // back to while-loop top
-            }
-            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
-                stopDetails = details;
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-e.  APPLY PHASE -----------------------------------------
-            step = applyPhase(conversationState, editState, null);
-            if (step instanceof Step.Retry retry2) {
-                conversationState = retry2.cs();
-                editState = retry2.es();
-                continue;
-            }
-            if (step instanceof Step.Fatal fatal3) {
-                stopDetails = fatal3.stopDetails();
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-e.5.  PARSE-JAVA PHASE ----------------------------------
-            step = parseJavaPhase(conversationState, editState, null);
-            if (step instanceof Step.Retry retryJava) {
-                conversationState = retryJava.cs();
-                editState = retryJava.es();
-                continue;
-            }
-            if (step instanceof Step.Fatal fatalJava) {
-                stopDetails = fatalJava.stopDetails();
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-f.  Termination checks ----------------------------------
-            if (editState.pendingBlocks().isEmpty()) {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-                break;
-            }
-
-            if (Thread.currentThread().isInterrupted()) {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
-        }
-
-        // 2.  Produce TaskResult
-        assert stopDetails != null;
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-
-        String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? instructions
-                : instructions + " [" + stopDetails.reason().name() + "]";
-
-        return new TaskResult(
-                "Code: " + finalAction,
-                new ContextFragment.TaskFragment(contextManager, finalMessages, instructions),
-                editState.changedFiles(),
                 stopDetails);
     }
 
