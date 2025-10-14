@@ -200,6 +200,13 @@ public class SplitButton extends JButton {
             int width = c.getWidth();
             int height = c.getHeight();
 
+            // Draw separator line
+            var borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor != null) {
+                g2.setColor(borderColor);
+                g2.drawLine(width - ARROW_WIDTH, 4, width - ARROW_WIDTH, height - 5);
+            }
+
             // Draw arrow triangle
             var arrowColor = UIManager.getColor("Button.foreground");
             if (arrowColor == null) {
