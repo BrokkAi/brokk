@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from 'svelte';
-  import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry} from '../stores/symbolCacheStore';
+  import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry, symbolRefreshTrigger} from '../stores/symbolCacheStore';
   import {filePathCacheStore, requestFilePathResolution, subscribeKey as subscribeFilePathKey, type FilePathCacheEntry, type ProjectFileMatch} from '../stores/filePathCacheStore';
   import {tryFilePathDetection} from '../lib/filePathDetection';
   import {createLogger} from '../lib/logging';
@@ -195,6 +195,16 @@
       // Content has changed, reset and reprocess
       resetState();
       processContent(propsText);
+    }
+  });
+
+  // Watch for symbol refresh trigger - when cache is cleared, re-validate
+  $effect(() => {
+    const trigger = $symbolRefreshTrigger;
+    if (trigger > 0 && extractedText && extractedText === lastProcessedText) {
+      // Cache was cleared, reset fallback state and re-validate existing content
+      hasTriedSymbolFallback = false;
+      validateAndRequestContent(extractedText);
     }
   });
 

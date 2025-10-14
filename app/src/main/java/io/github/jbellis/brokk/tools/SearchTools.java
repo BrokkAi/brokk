@@ -5,15 +5,28 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import io.github.jbellis.brokk.analyzer.usages.FuzzyResult;
+import io.github.jbellis.brokk.analyzer.usages.FuzzyUsageFinder;
+import io.github.jbellis.brokk.analyzer.usages.UsageHit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -27,9 +40,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
  * ToolRegistry.
  */
 public class SearchTools {
-    /** Record representing compressed symbols with their common prefix. */
-    public record CompressedSymbols(String prefix, List<String> symbols) {}
-
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
 
     private final IContextManager contextManager; // Needed for file operations
@@ -59,81 +69,6 @@ public class SearchTools {
     // --- Helper Methods
 
     /**
-     * Compresses a list of fully qualified symbol names by finding the longest common package prefix and removing it
-     * from each symbol.
-     *
-     * @param symbols A list of fully qualified symbol names
-     * @return A tuple containing: 1) the common package prefix, 2) the list of compressed symbol names
-     */
-    public static CompressedSymbols compressSymbolsWithPackagePrefix(List<String> symbols) {
-        List<String[]> packageParts = symbols.stream()
-                .map(s -> s.split("\\."))
-                .filter(arr -> arr.length > 0) // Ensure split resulted in something
-                .toList();
-
-        if (packageParts.isEmpty()) {
-            return new CompressedSymbols("", List.of());
-        }
-
-        String[] firstParts = packageParts.getFirst();
-        int maxPrefixLength = 0;
-
-        for (int i = 0; i < firstParts.length - 1; i++) { // Stop before last part (class/method)
-            boolean allMatch = true;
-            for (String[] parts : packageParts) {
-                // Ensure current part exists and matches
-                if (i >= parts.length - 1 || !parts[i].equals(firstParts[i])) {
-                    allMatch = false;
-                    break;
-                }
-            }
-            if (allMatch) {
-                maxPrefixLength = i + 1;
-            } else {
-                break;
-            }
-        }
-
-        if (maxPrefixLength > 0) {
-            String commonPrefix = String.join(".", Arrays.copyOfRange(firstParts, 0, maxPrefixLength)) + ".";
-            List<String> compressedSymbols = symbols.stream()
-                    .map(s -> s.startsWith(commonPrefix) ? s.substring(commonPrefix.length()) : s)
-                    .collect(Collectors.toList());
-            return new CompressedSymbols(commonPrefix, compressedSymbols);
-        }
-
-        return new CompressedSymbols("", symbols); // Return original list if no common prefix
-    }
-
-    /**
-     * Formats a list of symbols with prefix compression if applicable.
-     *
-     * @param label The label to use in the output (e.g., "Relevant symbols", "Related classes")
-     * @param symbols The list of symbols to format
-     * @return A formatted string with compressed symbols if possible
-     */
-    // TODO make this use CodeUnit
-    private String formatCompressedSymbols(String label, List<String> symbols) {
-        if (symbols.isEmpty()) {
-            return label + ": None found";
-        }
-
-        var compressionResult = compressSymbolsWithPackagePrefix(symbols);
-        String commonPrefix = compressionResult.prefix();
-        List<String> compressedSymbols = compressionResult.symbols();
-
-        if (commonPrefix.isEmpty()) {
-            // Sort for consistent output when no compression happens
-            return label + ": " + symbols.stream().sorted().collect(Collectors.joining(", "));
-        }
-
-        // Sort compressed symbols too
-        return "%s: [Common package prefix: '%s'. IMPORTANT: you MUST use full symbol names including this prefix for subsequent tool calls] %s"
-                .formatted(
-                        label, commonPrefix, compressedSymbols.stream().sorted().collect(Collectors.joining(", ")));
-    }
-
-    /**
      * Build predicates for each supplied pattern. • If the pattern is a valid regex, the predicate performs
      * {@code matcher.find()}. • If the pattern is an invalid regex, the predicate falls back to
      * {@code String.contains()}.
@@ -141,7 +76,7 @@ public class SearchTools {
     private static List<Predicate<String>> compilePatternsWithFallback(List<String> patterns) {
         List<Predicate<String>> predicates = new ArrayList<>();
         for (String pat : patterns) {
-            if (pat == null || pat.isBlank()) {
+            if (pat.isBlank()) {
                 continue;
             }
             try {
@@ -170,11 +105,11 @@ public class SearchTools {
 
     @Tool(
             """
-                            Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
-                            Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
-                            This is a fast and efficient way to read multiple related files at once.
-                            (But if you don't know where what you want is located, you should use searchSymbols instead.)
-                            """)
+                    Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
+                    Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
+                    This is a fast and efficient way to read multiple related files at once.
+                    (But if you don't know where what you want is located, you should use searchSymbols instead.)
+                    """)
     public String getFileSummaries(
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
@@ -227,9 +162,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Search for symbols (class/method/field definitions) using static analysis.
-                            This should usually be the first step in a search.
-                            """)
+                    Search for symbols (class/method/field definitions) using static analysis.
+                    This should usually be the first step in a search.
+                    """)
     public String searchSymbols(
             @P(
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
@@ -269,15 +204,13 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
-                            """)
+                    Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+                    """)
     public String getUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert getAnalyzer().as(UsagesProvider.class).isPresent()
-                : "Cannot search usages: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -288,11 +221,17 @@ public class SearchTools {
         }
 
         List<CodeUnit> allUses = new ArrayList<>();
-        if (getAnalyzer() instanceof UsagesProvider usagesProvider) {
-            for (String symbol : symbols) {
-                if (!symbol.isBlank()) {
-                    allUses.addAll(usagesProvider.getUses(symbol));
+
+        for (String symbol : symbols) {
+            if (!symbol.isBlank()) {
+                FuzzyResult usageResult =
+                        FuzzyUsageFinder.create(contextManager).findUsages(symbol, 100, 1000);
+                var either = usageResult.toEither();
+                if (either.hasErrorMessage()) {
+                    return either.getErrorMessage();
                 }
+                allUses.addAll(
+                        either.getUsages().stream().map(UsageHit::enclosing).toList());
             }
         }
 
@@ -307,59 +246,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns a list of related class names, ordered by relevance (using PageRank).
-                            Use this for exploring and also when you're almost done and want to double-check that you haven't missed anything.
-                            """)
-    public String getRelatedClasses(
-            @P("List of fully qualified class names to use as seeds for finding related classes.")
-                    List<String> classNames) {
-        var skp = getAnalyzer()
-                .as(SkeletonProvider.class)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Cannot find related classes: Code Intelligence is not available."));
-        // Sanitize classNames: remove potential `(params)` suffix from LLM.
-        classNames = stripParams(classNames);
-        if (classNames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot search pagerank: classNames is empty");
-        }
-
-        // Create map of seeds from discovered units
-        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
-        for (String fqcn : classNames) {
-            getAnalyzer().getFileFor(fqcn).ifPresent(f -> weightedSeeds.put(f, 1.0));
-        }
-
-        // roll our own ranking instead of using Context methods b/c we want BOTH the summaries AND an expanded class
-        // list
-        var pageRankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
-        if (pageRankResults.isEmpty()) {
-            return "No related code found via PageRank for seeds: " + String.join(", ", classNames);
-        }
-
-        // Get skeletons for the top few results -- potentially saves a round trip for a few extra tokens
-        var skResult = pageRankResults.stream()
-                .distinct()
-                .limit(10) // padding in case of not defined
-                .flatMap(file -> skp.getSkeletons(file).values().stream())
-                .limit(5)
-                .collect(Collectors.joining("\n\n"));
-
-        var clsResult = pageRankResults.stream()
-                .flatMap(file -> AnalyzerUtil.coalesceInnerClasses(getAnalyzer().getDeclarationsInFile(file)).stream())
-                .map(CodeUnit::fqName)
-                .toList();
-
-        var formattedSkeletons =
-                skResult.isEmpty() ? "" : "# Summaries of the top related classes: \n\n" + skResult + "\n\n";
-        var formattedClassList = formatCompressedSymbols("# Full list of related classes, up to 50", clsResult);
-        return formattedSkeletons + formattedClassList;
-    }
-
-    @Tool(
-            """
-                            Returns an overview of classes' contents, including fields and method signatures.
-                            Use this to understand class structures and APIs much faster than fetching full source code.
-                            """)
+                    Returns an overview of classes' contents, including fields and method signatures.
+                    Use this to understand class structures and APIs much faster than fetching full source code.
+                    """)
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
 
@@ -387,10 +276,10 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns the full source code of classes.
-                            This is expensive, so prefer requesting skeletons or method sources when possible.
-                            Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
-                            """)
+                    Returns the full source code of classes.
+                    This is expensive, so prefer requesting skeletons or method sources when possible.
+                    Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
+                    """)
     public String getClassSources(
             @P("Fully qualified class names to retrieve the full source code for") List<String> classNames,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
@@ -439,8 +328,8 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns the full source code of specific methods. Use this to examine the implementation of particular methods without retrieving the entire classes.
-                            """)
+                    Returns the full source code of specific methods. Use this to examine the implementation of particular methods without retrieving the entire classes.
+                    """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
                     List<String> methodNames) {
@@ -485,9 +374,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns the call graph to a depth of 3 showing which methods call the given method and one line of source code for each invocation.
-                            Use this to understand method dependencies and how code flows into a method.
-                            """)
+                    Returns the call graph to a depth of 3 showing which methods call the given method and one line of source code for each invocation.
+                    Use this to understand method dependencies and how code flows into a method.
+                    """)
     public String getCallGraphTo(
             @P("Fully qualified method name (package name, class name, method name) to find callers for")
                     String methodName) {
@@ -512,9 +401,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns the call graph to a depth of 3 showing which methods are called by the given method and one line of source code for each invocation.
-                            Use this to understand how a method's logic flows to other parts of the codebase.
-                            """)
+                    Returns the call graph to a depth of 3 showing which methods are called by the given method and one line of source code for each invocation.
+                    Use this to understand how a method's logic flows to other parts of the codebase.
+                    """)
     public String getCallGraphFrom(
             @P("Fully qualified method name (package name, class name, method name) to find callees for")
                     String methodName) {
@@ -541,9 +430,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Search git commit messages using a Java regular expression.
-                            Returns matching commits with their message and list of changed files.
-                            """)
+                    Search git commit messages using a Java regular expression.
+                    Returns matching commits with their message and list of changed files.
+                    """)
     public String searchGitCommitMessages(
             @P("Java-style regex pattern to search for within commit messages.") String pattern,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
@@ -556,7 +445,7 @@ public class SearchTools {
         }
 
         var projectRoot = contextManager.getProject().getRoot();
-        if (!GitRepo.hasGitRepo(projectRoot)) {
+        if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
 
@@ -614,9 +503,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns file names whose text contents match Java regular expression patterns.
-                            This is slower than searchSymbols but can find references to external dependencies and comment strings.
-                            """)
+                    Returns file names whose text contents match Java regular expression patterns.
+                    This is slower than searchSymbols but can find references to external dependencies and comment strings.
+                    """)
     public String searchSubstrings(
             @P(
                             "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
@@ -637,7 +526,28 @@ public class SearchTools {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
-        var matchingFilenames = contextManager.getProject().getAllFiles().parallelStream()
+        var matchingFilenames = searchSubstrings(
+                        patterns, contextManager.getProject().getAllFiles())
+                .stream()
+                .map(ProjectFile::toString)
+                .collect(Collectors.toSet());
+
+        if (matchingFilenames.isEmpty()) {
+            return "No files found with content matching patterns: " + String.join(", ", patterns);
+        }
+
+        var msg = "Files with content matching patterns: " + String.join(", ", matchingFilenames);
+        logger.debug(msg);
+        return msg;
+    }
+
+    public static Set<ProjectFile> searchSubstrings(List<String> patterns, Set<ProjectFile> filesToSearch) {
+        List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
+        if (predicates.isEmpty()) {
+            throw new IllegalArgumentException("No valid patterns provided");
+        }
+
+        return filesToSearch.parallelStream()
                 .map(file -> {
                     if (!file.isText()) {
                         return null;
@@ -656,23 +566,14 @@ public class SearchTools {
                     return null;
                 })
                 .filter(Objects::nonNull)
-                .map(ProjectFile::toString)
                 .collect(Collectors.toSet());
-
-        if (matchingFilenames.isEmpty()) {
-            return "No files found with content matching patterns: " + String.join(", ", patterns);
-        }
-
-        var msg = "Files with content matching patterns: " + String.join(", ", matchingFilenames);
-        logger.debug(msg);
-        return msg;
     }
 
     @Tool(
             """
-                            Returns filenames (relative to the project root) that match the given Java regular expression patterns.
-                            Use this to find configuration files, test data, or source files when you know part of their name.
-                            """)
+                    Returns filenames (relative to the project root) that match the given Java regular expression patterns.
+                    Use this to find configuration files, test data, or source files when you know part of their name.
+                    """)
     public String searchFilenames(
             @P("Java-style regex patterns to match against filenames.") List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
@@ -715,9 +616,9 @@ public class SearchTools {
 
     @Tool(
             """
-                            Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
-                            This can be expensive for large files.
-                            """)
+                    Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
+                    This can be expensive for large files.
+                    """)
     public String getFileContents(
             @P("List of filenames (relative to project root) to retrieve contents for.") List<String> filenames) {
         if (filenames.isEmpty()) {
@@ -747,10 +648,10 @@ public class SearchTools {
                 }
                 result.append(
                         """
-                    ```%s
-                    %s
-                    ```
-                    """
+                                ```%s
+                                %s
+                                ```
+                                """
                                 .stripIndent()
                                 .formatted(filename, content));
                 anySuccess = true;
@@ -770,9 +671,9 @@ public class SearchTools {
     // Only includes project files. Is this what we want?
     @Tool(
             """
-                            Lists files within a specified directory relative to the project root.
-                            Use '.' for the root directory.
-                            """)
+                    Lists files within a specified directory relative to the project root.
+                    Use '.' for the root directory.
+                    """)
     public String listFiles(
             @P("Directory path relative to the project root (e.g., '.', 'src/main/java')") String directoryPath) {
         if (directoryPath.isBlank()) {
@@ -826,15 +727,7 @@ public class SearchTools {
         }
 
         var io = contextManager.getIo();
-        // Append tasks to Task List Panel (if running in Chrome UI)
-        try {
-            ((Chrome) io).appendTasksToTaskList(tasks);
-        } catch (ClassCastException ignored) {
-            // Not running in Chrome UI; skip appending
-        }
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+        contextManager.appendTasksToTaskList(tasks);
 
         var lines = java.util.stream.IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))

@@ -207,8 +207,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         BufferDocumentIF leftDocument = bnLeft != null ? bnLeft.getDocument() : null;
         BufferDocumentIF rightDocument = bnRight != null ? bnRight.getDocument() : null;
 
-        // Calculate the diff to get the patch with actual differences
-        diffNode.diff();
+        // Calculate the diff to get the patch with actual differences (if not already computed)
+        var existingPatch = diffNode.getPatch();
+        if (existingPatch == null || existingPatch.getDeltas().isEmpty()) {
+            diffNode.diff();
+        }
         this.patch = diffNode.getPatch(); // new Patch or null
 
         // Initialize selectedDelta to first change for proper navigation button states

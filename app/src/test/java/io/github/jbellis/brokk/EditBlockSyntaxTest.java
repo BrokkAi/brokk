@@ -2,10 +2,9 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SymbolNotFoundException;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -30,7 +29,7 @@ public class EditBlockSyntaxTest {
     @TempDir
     Path tempDir;
 
-    private JavaTreeSitterAnalyzer analyzer;
+    private JavaAnalyzer analyzer;
     private TestProject testProject;
     private Path sandboxPath;
 
@@ -44,7 +43,7 @@ public class EditBlockSyntaxTest {
         copyDir(testResourcesPath, sandboxPath);
 
         testProject = new TestProject(sandboxPath, Languages.JAVA);
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
     }
 
     @AfterEach
@@ -543,10 +542,8 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer reports the class is not found
         assertNotNull(analyzer, "Analyzer should be initialized");
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> analyzer.getClassSource("A.NonExistentClass", true),
-                "Analyzer should report missing class A.NonExistentClass");
+        var missingClassOpt = assertDoesNotThrow(() -> analyzer.getClassSource("A.NonExistentClass", true));
+        assertTrue(missingClassOpt.isEmpty(), "Analyzer should report missing class A.NonExistentClass");
 
         String response =
                 """

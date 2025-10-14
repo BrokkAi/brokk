@@ -671,8 +671,14 @@ public class TreeSitterRepoRunner {
                 }
             }
             case "java" -> {
-                // Use JavaAnalyzer.create() factory method as per master branch
-                yield JavaAnalyzer.create(project);
+                try {
+                    Class<?> javaAnalyzerClass = Class.forName("io.github.jbellis.brokk.analyzer.JavaAnalyzer");
+                    var constructor = javaAnalyzerClass.getConstructor(IProject.class);
+                    yield (IAnalyzer) constructor.newInstance(project);
+                } catch (Exception e) {
+                    System.err.println("Warning: JavaAnalyzer not available: " + e.getMessage());
+                    yield null;
+                }
             }
             case "typescript" -> {
                 try {

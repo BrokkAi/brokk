@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +25,7 @@ public class GitProjectStateRestorerTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        GitRepo.initRepo(tempDir);
+        GitRepoFactory.initRepo(tempDir);
         // Add an initial commit so hasGitRepo will be true
         try (var r = new GitRepo(tempDir)) {
             var dummyFile = tempDir.resolve("dummy.txt");

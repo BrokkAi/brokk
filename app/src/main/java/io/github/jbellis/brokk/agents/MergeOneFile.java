@@ -34,6 +34,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -96,7 +97,9 @@ public final class MergeOneFile {
     public Outcome merge() {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
-        var llm = cm.getLlm(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file));
+        var llm =
+                cm.getLlm(new Llm.Options(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file))
+                        .withEcho());
         llm.setOutput(io);
 
         // refine the progress bar total to reflect merge complexity
@@ -171,9 +174,7 @@ public final class MergeOneFile {
             Llm.StreamingResult result;
             try {
                 result = llm.sendRequest(
-                        List.copyOf(currentSessionMessages),
-                        new ToolContext(toolSpecs, ToolChoice.REQUIRED, this),
-                        true);
+                        List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 continue;
@@ -399,7 +400,7 @@ public final class MergeOneFile {
                     logger.error("Failed to read commit message for {}: {}", id, e.getMessage(), e);
                     oneLine = id;
                 }
-                lines.add("<commit id=\"" + id + "\">" + escapeXml(oneLine) + "</commit>");
+                lines.add("<commit id=\"" + id + "\">" + StringEscapeUtils.escapeXml10(oneLine) + "</commit>");
             }
             sections.add("<our_commits>\n" + String.join("\n", lines) + "\n</our_commits>");
         }
@@ -415,7 +416,7 @@ public final class MergeOneFile {
                     logger.error("Failed to read commit message for {}: {}", id, e.getMessage(), e);
                     oneLine = id;
                 }
-                lines.add("<commit id=\"" + id + "\">" + escapeXml(oneLine) + "</commit>");
+                lines.add("<commit id=\"" + id + "\">" + StringEscapeUtils.escapeXml10(oneLine) + "</commit>");
             }
             sections.add("<their_commits>\n" + String.join("\n", lines) + "\n</their_commits>");
         }
@@ -455,16 +456,6 @@ public final class MergeOneFile {
                fully-resolved version (no conflict markers). Keep changes minimal and only resolve the conflicts.
                """
                 .stripIndent();
-    }
-
-    /** Escape XML special characters for safe embedding of commit messages. */
-    private static String escapeXml(@Nullable String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
     }
 
     /**

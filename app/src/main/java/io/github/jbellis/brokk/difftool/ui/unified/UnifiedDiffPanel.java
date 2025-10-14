@@ -149,11 +149,19 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
+        // Compute the diff to populate the patch with deltas (if not already computed)
+        var patch = diffNode.getPatch();
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            diffNode.diff();
+        }
 
         // Generate the UnifiedDiffDocument (for line number metadata and display content)
         this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
 
         if (unifiedDocument == null) {
+            logger.warn(
+                    "UnifiedDiffPanel.generateDiffFromDiffNode: Failed to generate diff content for {}",
+                    diffNode.getName());
             textArea.setText("ERROR: Failed to generate diff content for " + diffNode.getName());
             this.navigator = new UnifiedDiffNavigator("", textArea);
             return;
@@ -178,7 +186,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         String plainTextContent = textBuilder.toString();
-
         textArea.setText(plainTextContent);
 
         // Link the UnifiedDiffDocument to the custom line number list
@@ -646,6 +653,23 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Get the JMHighlighter for external access (similar to FilePanel). */
     public JMHighlighter getHighlighter() {
         return jmHighlighter;
+    }
+
+    /**
+     * Expose the underlying RSyntaxTextArea for external callers (BrokkDiffPanel needs to adjust its font). This is a
+     * simple getter that returns the primary text area used by the unified diff view.
+     */
+    public org.fife.ui.rsyntaxtextarea.RSyntaxTextArea getTextArea() {
+        return textArea;
+    }
+
+    /**
+     * Expose the gutter (line number component) used by the unified view so callers can adjust gutter fonts/blame
+     * fonts. Returns null if the gutter wasn't created for some reason.
+     */
+    @Nullable
+    public DiffGutterComponent getGutterComponent() {
+        return customLineNumberList;
     }
 
     /**

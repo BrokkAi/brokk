@@ -479,9 +479,8 @@ public class GoAnalyzerTest {
 
     @Test
     void testGetClassSource_NonExistent() {
-        assertThrows(SymbolNotFoundException.class, () -> {
-            analyzer.getClassSource("declpkg.NonExistentClass", true);
-        });
+        var srcOpt = analyzer.getClassSource("declpkg.NonExistentClass", true);
+        assertTrue(srcOpt.isEmpty());
     }
 
     @Test

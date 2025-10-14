@@ -7,7 +7,7 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.git.InMemoryRepo;
+import io.github.jbellis.brokk.git.TestRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.io.File;
 import java.nio.file.Path;
@@ -26,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
     private final IAnalyzer analyzer;
-    private final InMemoryRepo inMemoryRepo;
+    private final TestRepo repo;
     private final Set<ProjectFile> editableFiles;
     private final Set<ProjectFile> readonlyFiles;
     private final IConsoleIO consoleIO;
@@ -47,7 +47,7 @@ public final class TestContextManager implements IContextManager {
         this.editableFiles = editableFiles;
 
         this.readonlyFiles = new HashSet<>();
-        this.inMemoryRepo = new InMemoryRepo();
+        this.repo = new TestRepo(project.getRoot());
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.liveContext = new Context(this, "Test context");
@@ -86,8 +86,8 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public InMemoryRepo getRepo() {
-        return inMemoryRepo;
+    public TestRepo getRepo() {
+        return repo;
     }
 
     @Override

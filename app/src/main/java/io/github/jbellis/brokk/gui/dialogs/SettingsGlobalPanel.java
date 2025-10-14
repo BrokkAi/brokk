@@ -1167,6 +1167,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh(); // Key change might affect org policy
+                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
                 } catch (IllegalArgumentException ex) {
                     JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
                     return false;
@@ -1180,12 +1181,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh();
+                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
                 }
             } else { // newBrokkKeyFromField is empty
                 MainProject.setBrokkKey(newBrokkKeyFromField);
                 refreshBalanceDisplay();
                 updateSignupLabelVisibility();
                 parentDialog.triggerDataRetentionPolicyRefresh();
+                chrome.getContextManager().reloadService(); // Reinitialize service with cleared key
             }
         }
 

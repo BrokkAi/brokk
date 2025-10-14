@@ -99,22 +99,13 @@ public class HybridFileComparison {
             try {
                 long diffStartTime = System.currentTimeMillis();
 
-                // Create diff node and compute diff synchronously
+                // Create diff node (panels will compute diff in their initialization)
                 var diffNode = FileComparisonHelper.createDiffNode(
                         leftSource, rightSource, contextManager, isMultipleCommitsContext);
 
                 long diffCreationTime = System.currentTimeMillis() - diffStartTime;
                 if (diffCreationTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS / 2) {
                     logger.warn("Slow diff node creation: {}ms", diffCreationTime);
-                }
-
-                diffStartTime = System.currentTimeMillis();
-                diffNode.diff(); // Fast for small files
-
-                long diffComputeTime = System.currentTimeMillis() - diffStartTime;
-                if (diffComputeTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                    logger.warn(
-                            "Slow diff computation (sync): {}ms - consider lowering size threshold", diffComputeTime);
                 }
 
                 // Create appropriate panel type based on view mode
@@ -136,12 +127,7 @@ public class HybridFileComparison {
                 long totalElapsedTime = System.currentTimeMillis() - startTime;
 
                 if (totalElapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                    logger.warn(
-                            "Slow sync diff creation: {}ms (diff: {}ms, total: {}ms)",
-                            diffComputeTime,
-                            totalElapsedTime,
-                            totalElapsedTime);
-                } else {
+                    logger.warn("Slow sync diff creation: {}ms", totalElapsedTime);
                 }
 
             } catch (RuntimeException ex) {

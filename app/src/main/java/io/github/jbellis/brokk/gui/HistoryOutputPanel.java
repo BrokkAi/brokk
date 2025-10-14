@@ -54,9 +54,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -107,8 +110,8 @@ public class HistoryOutputPanel extends JPanel {
     private final JPanel notificationAreaPanel;
 
     private final MaterialButton notificationsButton = new MaterialButton();
-    private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
-    private final java.util.Queue<NotificationEntry> notificationQueue = new java.util.ArrayDeque<>();
+    private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
+    private final Queue<NotificationEntry> notificationQueue = new ConcurrentLinkedQueue<>();
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
 
@@ -1833,7 +1836,7 @@ public class HistoryOutputPanel extends JPanel {
         contextManager.submitLlmAction(() -> {
             try {
                 var model = contextManager.getService().quickModel();
-                var llm = new Llm(model, "Create Task List", contextManager, false, false);
+                var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
                 llm.setOutput(chrome);
 
                 var system = new SystemMessage(
@@ -1867,7 +1870,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
 
                 var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
-                var result = llm.sendRequest(List.of(system, user), toolContext, false);
+                var result = llm.sendRequest(List.of(system, user), toolContext);
                 if (result.error() != null || result.isEmpty()) {
                     var msg = result.error() != null
                             ? String.valueOf(result.error().getMessage())

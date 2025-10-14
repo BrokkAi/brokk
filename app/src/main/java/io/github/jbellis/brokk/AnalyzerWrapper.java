@@ -38,9 +38,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
 
-    // I/O bridge to UI (Chrome) to request UI updates like updateGitRepo()
-    private final IConsoleIO io;
-
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean wasReady = false;
@@ -50,12 +47,11 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     private final LoggingExecutorService analyzerExecutor;
     private volatile @Nullable Thread analyzerExecutorThread;
 
-    public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener, IConsoleIO io) {
+    public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = listener;
-        this.io = io;
         if (listener == null) {
             this.watchService = new IWatchService() {};
         } else {
@@ -296,15 +292,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     "Loaded existing analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
-            if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
-                communicativeAnalyzer.setIo(this.io);
-            } else if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
-                multiAnalyzer.getDelegates().values().forEach(delegate -> {
-                    if (delegate instanceof CanCommunicate communicativeAnalyzer) {
-                        communicativeAnalyzer.setIo(this.io);
-                    }
-                });
-            }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
             logger.warn(th);

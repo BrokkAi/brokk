@@ -7,6 +7,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Locale;
 import javax.swing.*;
+import org.apache.commons.text.WordUtils;
 import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
@@ -110,12 +111,40 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private void drawText(Graphics2D g2d, int width, int height, int fillWidth) {
-        String currentText = formatTokens(currentTokens);
+        // Consider "no context" when token count or max is zero/invalid.
+        boolean hasContext = currentTokens > 0 && maxTokens > 0;
 
+        g2d.setFont(getFont().deriveFont(Font.BOLD, 11f));
         FontMetrics fm = g2d.getFontMetrics();
         int textHeight = fm.getAscent();
         int textY = (height - textHeight) / 2 + fm.getAscent();
         int padding = 6;
+
+        if (!hasContext) {
+            // Friendly, actionable hint when there is no context.
+            String msg =
+                    "No context yet - add some by clicking the paperclip icon or drag-and-drop files from the Project Files panel.";
+            int maxTextWidth = Math.max(0, width - 2 * padding);
+            String shown = elide(msg, fm, maxTextWidth);
+
+            Color track = getTrackColor();
+            Color textColor = readableTextForBackground(track);
+
+            g2d.setColor(textColor);
+            int textWidth = fm.stringWidth(shown);
+            int x = (width - textWidth) / 2;
+            x = Math.max(0, x);
+            g2d.drawString(shown, x, textY);
+
+            var ac = getAccessibleContext();
+            if (ac != null) {
+                ac.setAccessibleDescription(msg);
+            }
+            return;
+        }
+
+        // Preserve existing numeric token display behavior when context exists.
+        String currentText = formatTokens(currentTokens);
         int textWidth = fm.stringWidth(currentText);
 
         int x;
@@ -134,9 +163,48 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             }
         }
 
-        // Always white text
+        // Always white text for numeric token display (preserve original behavior)
         g2d.setColor(Color.WHITE);
         g2d.drawString(currentText, x, textY);
+
+        var ac = getAccessibleContext();
+        if (ac != null) {
+            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, maxTokens));
+        }
+    }
+
+    /**
+     * Elide a string with "..." using Apache Commons Text WordUtils.abbreviate, sized to fit within maxWidth pixels.
+     */
+    private static String elide(String text, FontMetrics fm, int maxWidth) {
+        if (maxWidth <= 0) return "";
+        if (text.isEmpty()) return "";
+        if (fm.stringWidth(text) <= maxWidth) return text;
+
+        final String ellipsis = "...";
+        int ellipsisWidth = fm.stringWidth(ellipsis);
+        int available = maxWidth - ellipsisWidth;
+        if (available <= 0) return ellipsis;
+
+        // Estimate how many characters fit into the available pixel width.
+        final String sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        int avgCharWidth = Math.max(1, fm.stringWidth(sample) / sample.length());
+        int maxChars = Math.max(1, available / avgCharWidth);
+
+        // Abbreviate to the estimated character limit.
+        // WordUtils.abbreviate will truncate at a word boundary *after* the lower limit,
+        // but not exceeding the upper limit.
+        // We pass maxChars for both to get a hard limit close to our estimate.
+        return WordUtils.abbreviate(text, maxChars, maxChars, ellipsis);
+    }
+
+    /** Pick a readable text color (white or dark) against the given background color. */
+    private static Color readableTextForBackground(Color background) {
+        double r = background.getRed() / 255.0;
+        double g = background.getGreen() / 255.0;
+        double b = background.getBlue() / 255.0;
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
     }
 
     private String formatTokens(int tokens) {

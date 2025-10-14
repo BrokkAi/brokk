@@ -18,13 +18,15 @@ public final class FileStatusTable extends JScrollPane {
 
     private final JTable table;
     private final Map<ProjectFile, String> statusMap = new HashMap<>();
+    private final Set<ProjectFile> conflictFiles = new HashSet<>();
 
     public FileStatusTable() {
         super(null, VERTICAL_SCROLLBAR_AS_NEEDED, HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-        var model = new DefaultTableModel(new Object[] {"Filename", "Path", "ProjectFile"}, 0) {
+        var model = new DefaultTableModel(new Object[] {"", "Filename", "Path"}, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
+                // Column 2 now stores ProjectFile directly
                 return columnIndex == 2 ? ProjectFile.class : String.class;
             }
 
@@ -56,29 +58,48 @@ public final class FileStatusTable extends JScrollPane {
                 var modC = ThemeColors.getColor(dk, "git_status_modified");
                 var delC = ThemeColors.getColor(dk, "git_status_deleted");
 
-                if (isSelected) {
-                    cell.setForeground(tbl.getSelectionForeground());
+                if (column == 0) {
+                    // Conflict column - center align and use warning color
+                    cell.setHorizontalAlignment(SwingConstants.CENTER);
+                    if (isSelected) {
+                        cell.setForeground(tbl.getSelectionForeground());
+                    } else if ("!".equals(value)) {
+                        cell.setForeground(ThemeColors.getColor(dk, "git_status_deleted"));
+                    } else {
+                        cell.setForeground(tbl.getForeground());
+                    }
                 } else {
-                    cell.setForeground(
-                            switch (st) {
-                                case "new" -> newC;
-                                case "deleted" -> delC;
-                                case "modified" -> modC;
-                                default -> tbl.getForeground();
-                            });
+                    cell.setHorizontalAlignment(SwingConstants.LEFT);
+
+                    // Display the path column as the parent directory of the ProjectFile
+                    if (column == 2 && pf != null) {
+                        cell.setText(pf.getParent().toString());
+                    }
+
+                    if (isSelected) {
+                        cell.setForeground(tbl.getSelectionForeground());
+                    } else {
+                        cell.setForeground(
+                                switch (st) {
+                                    case "new" -> newC;
+                                    case "deleted" -> delC;
+                                    case "modified" -> modC;
+                                    case "conflict" -> modC;
+                                    default -> tbl.getForeground();
+                                });
+                    }
                 }
                 return cell;
             }
         });
 
-        // hide ProjectFile column
-        var hidden = table.getColumnModel().getColumn(2);
-        hidden.setMinWidth(0);
-        hidden.setMaxWidth(0);
-        hidden.setPreferredWidth(0);
+        // Conflict indicator column - narrow
+        table.getColumnModel().getColumn(0).setPreferredWidth(20);
+        table.getColumnModel().getColumn(0).setMinWidth(20);
+        table.getColumnModel().getColumn(0).setMaxWidth(30);
 
-        table.getColumnModel().getColumn(0).setPreferredWidth(150);
-        table.getColumnModel().getColumn(1).setPreferredWidth(450);
+        table.getColumnModel().getColumn(1).setPreferredWidth(150);
+        table.getColumnModel().getColumn(2).setPreferredWidth(450);
 
         setViewportView(table);
     }
@@ -95,9 +116,8 @@ public final class FileStatusTable extends JScrollPane {
                         .thenComparing(mf -> mf.file().getFileName()))
                 .forEach(mf -> {
                     statusMap.put(mf.file(), mf.status());
-                    model.addRow(new Object[] {
-                        mf.file().getFileName(), mf.file().getParent().toString(), mf.file()
-                    });
+                    String conflictIndicator = conflictFiles.contains(mf.file()) ? "!" : "";
+                    model.addRow(new Object[] {conflictIndicator, mf.file().getFileName(), mf.file()});
                 });
     }
 
@@ -112,7 +132,8 @@ public final class FileStatusTable extends JScrollPane {
                         .thenComparing(ProjectFile::getFileName))
                 .forEach(pf -> {
                     statusMap.put(pf, "modified");
-                    model.addRow(new Object[] {pf.getFileName(), pf.getParent().toString(), pf});
+                    String conflictIndicator = conflictFiles.contains(pf) ? "!" : "";
+                    model.addRow(new Object[] {conflictIndicator, pf.getFileName(), pf});
                 });
     }
 
@@ -122,6 +143,15 @@ public final class FileStatusTable extends JScrollPane {
         List<ProjectFile> out = new ArrayList<>(rows.length);
         for (int r : rows) out.add((ProjectFile) model.getValueAt(r, 2));
         return out;
+    }
+
+    public void setConflictFiles(Set<ProjectFile> conflicts) {
+        conflictFiles.clear();
+        conflictFiles.addAll(conflicts);
+    }
+
+    public boolean hasConflicts() {
+        return !conflictFiles.isEmpty();
     }
 
     public JTable getTable() {

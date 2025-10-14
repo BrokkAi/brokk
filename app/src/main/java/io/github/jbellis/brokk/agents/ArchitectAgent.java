@@ -17,6 +17,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
@@ -294,11 +295,11 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(planningModel, "Architect: " + goal);
+        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
-            io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatModel>();
@@ -381,7 +382,7 @@ public class ArchitectAgent {
             }
 
             // Ask the LLM for the next step
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
 
             if (result.error() != null) {
                 logger.debug(
