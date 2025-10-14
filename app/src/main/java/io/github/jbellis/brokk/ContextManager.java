@@ -93,18 +93,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
-    public void runTests(Set<ProjectFile> testFiles) {
-        String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
-        if (cmd.isEmpty()) {
-            getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
-            return;
+    /*    public void runTests(Set<ProjectFile> testFiles) {
+            String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
+            if (cmd.isEmpty()) {
+                getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
+                return;
+            }
+            var io = getIo();
+            if (io instanceof Chrome chrome) {
+                SwingUtilities.invokeLater(() -> chrome.getTerminalDrawer().openTerminalAndPasteText(cmd));
+            }
         }
-        var io = getIo();
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.getTerminalDrawer().openTerminalAndPasteText(cmd));
-        }
-    }
-
+    */
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
         return createLoggingExecutorService(toWrap, Set.of());
     }
