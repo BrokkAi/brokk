@@ -1019,55 +1019,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void updateBuildFragment(boolean success, String buildOutput) {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        pushContextQuietly(currentTopCtx -> {
-            // Collect build-related fragments to drop:
-            //  - Legacy: BuildFragment (BUILD_LOG)
-            //  - New: StringFragment with description "Latest Build Results"
-            var idsToDrop = currentTopCtx
-                    .virtualFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
-                            || (f.getType() == ContextFragment.FragmentType.STRING
-                                    && f instanceof ContextFragment.StringFragment sf
-                                    && desc.equals(sf.description())))
-                    .map(ContextFragment::id)
-                    .toList();
-
-            var modified = idsToDrop.isEmpty() ? currentTopCtx : currentTopCtx.removeFragmentsByIds(idsToDrop);
-
-            if (success) {
-                logger.debug(
-                        "Cleared {} previous build fragment(s); build succeeded so not adding new results.",
-                        idsToDrop.size());
-                return modified;
-            }
-
-            var sf = new ContextFragment.StringFragment(
-                    this, buildOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
-
-            logger.debug(
-                    "Cleared {} previous build fragment(s); added new build results StringFragment {}",
-                    idsToDrop.size(),
-                    sf.id());
-            return modified.addVirtualFragment(sf);
-        });
+        pushContextQuietly(currentTopCtx -> currentTopCtx.withBuildResult(success, buildOutput));
     }
 
     @Override
     public String getProcessedBuildOutput() {
-        // Prefer new StringFragment with the BUILD_RESULTS description
-        var latestString = liveContext()
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
-                .filter(f -> f instanceof ContextFragment.StringFragment)
-                .map(f -> (ContextFragment.StringFragment) f)
-                .filter(sf -> sf.description().equals(ContextFragment.BUILD_RESULTS.description()))
-                .findFirst();
-
-        if (latestString.isPresent()) {
-            return latestString.get().text();
-        }
-        return "";
+        return topContext().getBuildError();
     }
 
     /**

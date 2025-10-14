@@ -64,6 +64,9 @@ public class CodeAgent {
     private final StreamingChatModel model;
     private final IConsoleIO io;
 
+    // Holds the current local Context for this task so we can operate without mutating global CM state mid-task.
+    private Context context;
+
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
@@ -114,6 +117,8 @@ public class CodeAgent {
 
     private TaskResult runTaskInternal(Context ctx, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
+        // Seed the local Context reference for this task
+        this.context = ctx;
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
@@ -255,10 +260,8 @@ public class CodeAgent {
                 var newFrags = justCreated.stream()
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
-                ctx = ctx.addPathFragments(newFrags);
-                // FIXME we'd prefer to push just one new Context at the end of the task; inxtead we have
-                // to trickle them out as-they-happen, cluttering the history and confusing users, because
-                // BuildAgent is tightly coupled to the CM global state, especially updateBuildFragment().
+                context = context.addPathFragments(newFrags);
+                // FIXME do this once at the end
                 contextManager.addFiles(justCreated);
             }
 
@@ -304,6 +307,7 @@ public class CodeAgent {
             }
 
             var verifyOutcome = verifyPhase(cs, es, metrics);
+
             if (verifyOutcome instanceof Step.Retry retryVerify) {
                 cs = retryVerify.cs();
                 es = retryVerify.es();
@@ -618,7 +622,8 @@ public class CodeAgent {
 
         String buildError;
         try {
-            buildError = BuildAgent.runVerification(contextManager);
+            context = BuildAgent.runVerification(context);
+            buildError = context.getBuildError();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
