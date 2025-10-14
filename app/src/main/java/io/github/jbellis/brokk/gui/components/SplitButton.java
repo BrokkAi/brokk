@@ -28,7 +28,7 @@ public class SplitButton extends JButton {
         setOpaque(false);
         putClientProperty("JButton.buttonType", "borderless");
         setBorder(null);
-        setHorizontalTextPosition(SwingConstants.RIGHT);
+        setHorizontalAlignment(SwingConstants.RIGHT);
 
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
