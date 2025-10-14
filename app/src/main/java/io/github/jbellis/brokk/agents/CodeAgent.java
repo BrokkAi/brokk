@@ -1183,6 +1183,33 @@ public class CodeAgent {
             Map<ProjectFile, String> originalFileContents,
             Set<ProjectFile> createdFilesToStage,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
+
+        /**
+         * Backward-compatible constructor (without createdFilesToStage).
+         * Delegates to the canonical constructor with an empty created-files set.
+         */
+        EditState(
+                List<EditBlock.SearchReplaceBlock> pendingBlocks,
+                int consecutiveParseFailures,
+                int consecutiveApplyFailures,
+                int consecutiveBuildFailures,
+                int blocksAppliedWithoutBuild,
+                String lastBuildError,
+                Set<ProjectFile> changedFiles,
+                Map<ProjectFile, String> originalFileContents,
+                Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
+            this(
+                    pendingBlocks,
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    Collections.emptySet(),
+                    javaLintDiagnostics);
+        }
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
