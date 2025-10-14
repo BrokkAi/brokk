@@ -195,6 +195,9 @@ python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 5 --agent 
 
 # Evaluate with retries (recommended for code agent)
 python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos
+
+# Evaluate in parallel (5 threads)
+python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos --max-workers 5
 ```
 
 ### Advanced Options
@@ -221,7 +224,62 @@ python3 SWE-bench_lite/evaluate_brokk.py \
     --max_instances 5 \
     --max_retries 2 \
     --repos_dir swe_bench_repos
+
+# Parallel execution (2-4 workers recommended for significant speedup)
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --max_instances 20 \
+    --max-workers 3 \
+    --repos_dir swe_bench_repos
+
+# Parallel with code agent (fastest combination)
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --agent code \
+    --max-workers 4 \
+    --repos_dir swe_bench_repos
 ```
+
+### Parallel Execution
+
+The evaluation script supports parallel processing to significantly speed up evaluations:
+
+```bash
+# Run with 3 parallel workers (recommended starting point)
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --max-workers 3 \
+    --repos_dir swe_bench_repos
+
+# Full evaluation with 4 workers (fastest)
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --agent code \
+    --max-workers 4 \
+    --repos_dir swe_bench_repos
+```
+
+**Benefits:**
+- ✅ **2-4x speedup** depending on worker count and system resources
+- ✅ Thread-safe checkpoint saving (resume works correctly)
+- ✅ Each instance uses its own repository (no conflicts)
+- ✅ Progress tracking shows completed count across all workers
+
+**Recommendations:**
+- Use `--max-workers 3` or `--max-workers 4` for best performance
+- Each worker runs a separate Brokk CLI process
+- Monitor system resources (CPU, memory) with higher worker counts
+- Logs may be interleaved with parallel execution (expected behavior)
+
+**When to use:**
+- ✅ Long evaluations (100+ instances)
+- ✅ Code agent (faster per instance, benefits more from parallelization)
+- ✅ Systems with 4+ CPU cores and adequate memory
+
+**When NOT to use:**
+- ❌ Debugging specific instances (use `--max-workers 1` for cleaner logs)
+- ❌ Systems with limited CPU/memory
+- ❌ When you want sequential, deterministic log output
 
 ### Evaluation Process
 

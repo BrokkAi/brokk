@@ -18,9 +18,11 @@ import subprocess
 import sys
 import time
 import psutil
+import threading
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set
 from datasets import load_from_disk, DatasetDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import argparse
 from datetime import datetime
@@ -599,6 +601,81 @@ def run_brokk_cli(
     
     return result
 
+def evaluate_single_instance(
+    instance: Dict[str, Any],
+    instance_index: int,
+    total_instances: int,
+    repo_mapping: Dict[str, str],
+    template_path: Path,
+    model_name: str,
+    max_retries: int,
+    agent: str,
+    reset_repo: bool
+) -> Dict[str, Any]:
+    """
+    Evaluate a single instance (for parallel execution).
+    
+    Returns:
+        Dictionary with evaluation result
+    """
+    instance_id = instance["instance_id"]
+    
+    log_status(f"\n{'='*60}", Colors.BOLD)
+    log_status(f"Instance {instance_index+1}/{total_instances}: {instance_id}", Colors.BOLD)
+    log_status(f"{'='*60}", Colors.BOLD)
+    
+    # Get repository path
+    if instance_id not in repo_mapping:
+        log_error(f"No repository mapping found for {instance_id}")
+        return {
+            "instance_id": instance_id,
+            "result": {
+                "model_name_or_path": model_name,
+                "instance_id": instance_id,
+                "model_patch": "",
+                "error": "No repository mapping found",
+                "success": False
+            }
+        }
+    
+    repo_path = repo_mapping[instance_id]
+    problem_statement = instance["problem_statement"]
+    
+    # Run evaluation
+    evaluation_result = run_brokk_cli(
+        repo_path, 
+        problem_statement, 
+        instance_id, 
+        template_path,
+        max_retries=max_retries,
+        agent=agent,
+        reset_repo=reset_repo
+    )
+    
+    # Store result
+    result = {
+        "model_name_or_path": model_name,
+        "instance_id": instance_id,
+        "model_patch": evaluation_result["patch"],
+        "success": evaluation_result["success"],
+        "changes": evaluation_result.get("changes", False),
+        "error": evaluation_result.get("error"),
+        "execution_time": evaluation_result.get("execution_time")
+    }
+    
+    if evaluation_result["success"]:
+        if evaluation_result.get("changes", False):
+            log_success(f"V Instance {instance_id}: Changes made")
+        else:
+            log_warning(f"!  Instance {instance_id}: No changes made")
+    else:
+        log_error(f"X Instance {instance_id}: Failed - {evaluation_result.get('error', 'Unknown error')}")
+    
+    return {
+        "instance_id": instance_id,
+        "result": result
+    }
+
 def evaluate_instances(
     instances: List[Dict[str, Any]], 
     repo_mapping: Dict[str, str],
@@ -610,10 +687,11 @@ def evaluate_instances(
     agent: str = "code",
     reset_repo: bool = True,
     checkpoint_data: Optional[Dict[str, Any]] = None,
-    eval_start_time: Optional[float] = None
+    eval_start_time: Optional[float] = None,
+    max_workers: int = 1
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Evaluate Brokk CLI on multiple instances with checkpoint support.
+    Evaluate Brokk CLI on multiple instances with checkpoint support and optional parallelization.
     
     Args:
         instances: List of SWE-bench instances to evaluate
@@ -627,6 +705,7 @@ def evaluate_instances(
         reset_repo: Whether to reset repositories to clean state before running
         checkpoint_data: Previous checkpoint data to resume from
         eval_start_time: Start time from checkpoint (for resume)
+        max_workers: Maximum number of parallel workers (1 = sequential)
     
     Returns:
         Dictionary in preds.json format
@@ -651,9 +730,13 @@ def evaluate_instances(
     log_info(f"Using template: {template_path}")
     log_info(f"Max retries with requested files: {max_retries}")
     log_info(f"Reset repositories before evaluation: {reset_repo}")
+    log_info(f"Parallel workers: {max_workers}")
     
     successful_evaluations = sum(1 for r in results.values() if r.get("success", False))
     failed_evaluations = sum(1 for r in results.values() if not r.get("success", False))
+    
+    # Thread-safe lock for updating shared state
+    lock = threading.Lock()
     
     # Set up signal handler for graceful shutdown
     interrupted = [False]  # Mutable list to allow modification in nested function
@@ -662,7 +745,8 @@ def evaluate_instances(
         log_warning(f"\nReceived interrupt signal ({signum}). Saving checkpoint and exiting...")
         interrupted[0] = True
         # Save final checkpoint
-        save_checkpoint(output_dir, results, list(completed_instances), start_time)
+        with lock:
+            save_checkpoint(output_dir, results, list(completed_instances), start_time)
         log_success("Checkpoint saved. You can resume later with the same command.")
         sys.exit(0)
     
@@ -670,77 +754,104 @@ def evaluate_instances(
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    for i, instance in enumerate(instances):
-        instance_id = instance["instance_id"]
-        
-        # Skip if already completed (resume logic)
-        if instance_id in completed_instances:
-            log_info(f"Skipping {instance_id} (already completed)")
-            continue
-        
-        log_status(f"\n{'='*60}", Colors.BOLD)
-        log_status(f"Instance {i+1}/{len(instances)}: {instance_id}", Colors.BOLD)
-        log_status(f"{'='*60}", Colors.BOLD)
-        
-        # Get repository path
-        if instance_id not in repo_mapping:
-            log_error(f"No repository mapping found for {instance_id}")
-            failed_evaluations += 1
-            results[instance_id] = {
-                "model_name_or_path": model_name,
-                "instance_id": instance_id,
-                "model_patch": "",
-                "error": "No repository mapping found"
-            }
+    # Filter out already completed instances
+    instances_to_process = [
+        (i, instance) for i, instance in enumerate(instances)
+        if instance["instance_id"] not in completed_instances
+    ]
+    
+    if not instances_to_process:
+        log_info("All instances already completed!")
+        return results
+    
+    log_info(f"Processing {len(instances_to_process)} remaining instances")
+    
+    # Sequential execution (original behavior)
+    if max_workers == 1:
+        for i, instance in instances_to_process:
+            instance_id = instance["instance_id"]
+            
+            eval_result = evaluate_single_instance(
+                instance, i, len(instances),
+                repo_mapping, template_path,
+                model_name, max_retries, agent, reset_repo
+            )
+            
+            # Update results
+            results[instance_id] = eval_result["result"]
             completed_instances.add(instance_id)
+            
+            # Update counters
+            if eval_result["result"]["success"]:
+                successful_evaluations += 1
+            else:
+                failed_evaluations += 1
+            
             # Save checkpoint after each instance
             save_checkpoint(output_dir, results, list(completed_instances), start_time)
-            continue
-        
-        repo_path = repo_mapping[instance_id]
-        problem_statement = instance["problem_statement"]
-        
-        # Run evaluation
-        evaluation_result = run_brokk_cli(
-            repo_path, 
-            problem_statement, 
-            instance_id, 
-            template_path,
-            max_retries=max_retries,
-            agent=agent,
-            reset_repo=reset_repo
-        )
-        
-        # Store result
-        results[instance_id] = {
-            "model_name_or_path": model_name,
-            "instance_id": instance_id,
-            "model_patch": evaluation_result["patch"],
-            "success": evaluation_result["success"],
-            "changes": evaluation_result.get("changes", False),
-            "error": evaluation_result.get("error"),
-            "execution_time": evaluation_result.get("execution_time")
-        }
-        
-        # Mark as completed
-        completed_instances.add(instance_id)
-        
-        if evaluation_result["success"]:
-            successful_evaluations += 1
-            if evaluation_result.get("changes", False):
-                log_success(f"V Instance {instance_id}: Changes made")
-            else:
-                log_warning(f"!  Instance {instance_id}: No changes made")
-        else:
-            failed_evaluations += 1
-            log_error(f"X Instance {instance_id}: Failed - {evaluation_result.get('error', 'Unknown error')}")
-        
-        # Save checkpoint after each instance completion
-        save_checkpoint(output_dir, results, list(completed_instances), start_time)
-        
-        # Progress update
-        progress = (i + 1) / len(instances) * 100
-        log_status(f"Progress: {i+1}/{len(instances)} ({progress:.1f}%) - Success: {successful_evaluations}, Failed: {failed_evaluations}", Colors.BLUE)
+            
+            # Progress update
+            progress = (i + 1) / len(instances) * 100
+            log_status(f"Progress: {i+1}/{len(instances)} ({progress:.1f}%) - Success: {successful_evaluations}, Failed: {failed_evaluations}", Colors.BLUE)
+    
+    # Parallel execution
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_instance = {
+                executor.submit(
+                    evaluate_single_instance,
+                    instance, i, len(instances),
+                    repo_mapping, template_path,
+                    model_name, max_retries, agent, reset_repo
+                ): (i, instance["instance_id"])
+                for i, instance in instances_to_process
+            }
+            
+            # Process completed tasks as they finish
+            completed_count = len(completed_instances)
+            for future in as_completed(future_to_instance):
+                i, instance_id = future_to_instance[future]
+                
+                try:
+                    eval_result = future.result()
+                    
+                    # Thread-safe update of shared state
+                    with lock:
+                        results[instance_id] = eval_result["result"]
+                        completed_instances.add(instance_id)
+                        completed_count = len(completed_instances)
+                        
+                        # Update counters
+                        if eval_result["result"]["success"]:
+                            successful_evaluations += 1
+                        else:
+                            failed_evaluations += 1
+                        
+                        # Save checkpoint after each completion
+                        save_checkpoint(output_dir, results, list(completed_instances), start_time)
+                        
+                        # Progress update
+                        progress = completed_count / len(instances) * 100
+                        log_status(
+                            f"Progress: {completed_count}/{len(instances)} ({progress:.1f}%) - "
+                            f"Success: {successful_evaluations}, Failed: {failed_evaluations}",
+                            Colors.BLUE
+                        )
+                
+                except Exception as e:
+                    log_error(f"Error processing {instance_id}: {e}")
+                    with lock:
+                        results[instance_id] = {
+                            "model_name_or_path": model_name,
+                            "instance_id": instance_id,
+                            "model_patch": "",
+                            "error": f"Exception during evaluation: {str(e)}",
+                            "success": False
+                        }
+                        completed_instances.add(instance_id)
+                        failed_evaluations += 1
+                        save_checkpoint(output_dir, results, list(completed_instances), start_time)
     
     # Final summary
     log_status(f"\n{'='*60}", Colors.BOLD)
@@ -1063,6 +1174,12 @@ Examples:
   
   # Force fresh start (ignore checkpoint)
   python evaluate_brokk.py --split test --output_dir swe_bench_tests/20250113_143022_brokk-cli --force-fresh
+  
+  # Parallel execution (2-4 workers recommended)
+  python evaluate_brokk.py --split test --max_instances 10 --max-workers 3
+  
+  # Parallel with code agent (fastest)
+  python evaluate_brokk.py --split test --agent code --max-workers 4
         """
     )
     
@@ -1144,6 +1261,13 @@ Examples:
         "--force-fresh",
         action="store_true",
         help="Ignore any existing checkpoint and start fresh"
+    )
+    
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Maximum number of parallel workers (default: 1 for sequential execution). Use 2-4 for parallelization."
     )
     
     args = parser.parse_args()
@@ -1254,6 +1378,15 @@ Examples:
                         checkpoint_file.unlink()
                     checkpoint_data = None
     
+    # Validate max_workers
+    if args.max_workers < 1:
+        log_error("--max-workers must be at least 1")
+        sys.exit(1)
+    
+    if args.max_workers > 1:
+        log_info(f"Parallel execution enabled with {args.max_workers} workers")
+        log_warning("Note: Parallel execution may produce interleaved output logs")
+    
     # Run evaluation
     eval_start_time = time.time()
     results = evaluate_instances(
@@ -1267,7 +1400,8 @@ Examples:
         args.agent,
         reset_repo=not args.no_reset,  # Invert the flag
         checkpoint_data=checkpoint_data,
-        eval_start_time=eval_start_time
+        eval_start_time=eval_start_time,
+        max_workers=args.max_workers
     )
     eval_end_time = time.time()
     

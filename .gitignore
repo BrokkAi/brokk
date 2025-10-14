@@ -85,3 +85,4 @@ test-projects
 .venv
 swe_bench_repos/
 swe_bench_repos_full/
+SWE-bench_lite/__pycache__/
