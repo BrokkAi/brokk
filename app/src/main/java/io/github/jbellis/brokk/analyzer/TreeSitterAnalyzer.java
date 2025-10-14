@@ -54,6 +54,23 @@ import org.treesitter.*;
  *
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
+ *
+ * <p><strong>Thread-safety and locking model</strong>:
+ *
+ * <ul>
+ *   <li>Public read APIs that perform multi-step reads (e.g. {@code getSkeleton}, {@code getSkeletonHeader},
+ *       {@code getClassSource}, {@code getMethodSources}, {@code getSourceForCodeUnit}, and {@code enclosingCodeUnit})
+ *       acquire the analyzer's state read lock for the entire operation via {@code withStateReadLock(...)}. This
+ *       provides snapshot consistency across definition lookup, range lookup, and source extraction so readers never
+ *       observe a partially-updated state.
+ *   <li>Updates (e.g. {@link #update(Set)} and {@link #update()}) compute per-file analysis outside of any locks and
+ *       then atomically replace per-file state under a single write lock via {@link #applyAtomicFileRefresh}. This
+ *       design ensures readers either see the old state or the new one, never an in-between mixture.
+ *   <li>{@link #clearCaches()} also uses the write lock when mutating internal caches.
+ *   <li>To guarantee byte-precise source slicing even while files are being rewritten on disk, the analyzer stores an
+ *       in-memory snapshot of the file content at ingest time. Read APIs prefer this snapshot to avoid
+ *       truncated/unsynchronized reads.
+ * </ul>
  */
 public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);

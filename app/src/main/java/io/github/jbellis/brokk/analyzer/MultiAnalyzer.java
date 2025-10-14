@@ -7,6 +7,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * Composite analyzer that delegates all operations to language-specific analyzers.
+ *
+ * <p>Thread-safety: this class does not introduce cross-analyzer locks. Each delegate analyzer is responsible for its
+ * own locking and snapshot-consistency guarantees for read and update operations. MultiAnalyzer simply fans out
+ * requests to the appropriate delegate(s) and returns the first/merged result as applicable.
+ */
 public class MultiAnalyzer
         implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
