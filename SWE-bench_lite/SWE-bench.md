@@ -10,7 +10,6 @@ This document explains how to set up and run Brokk CLI against the SWE-bench-lit
 - [Repository Setup](#repository-setup)
 - [Running Evaluations](#running-evaluations)
 - [Understanding the Results](#understanding-the-results)
-- [Troubleshooting](#troubleshooting)
 - [Advanced Usage](#advanced-usage)
 
 ## Overview
@@ -27,9 +26,9 @@ SWE-bench-lite is a benchmark for evaluating code generation models on real-worl
 
 - **`repo_setup.py`**: Clones repositories and sets up the evaluation environment
 - **`evaluate_brokk.py`**: Runs Brokk CLI on each problem and captures results
-- **`requirements.txt`**: Python dependencies for the evaluation scripts
+- **`requirements.txt`**: Python dependencies for the setup and evaluation scripts
 - **Brokk CLI**: How we interface with Brokk programmatically. This is somewhat inefficient because it has to be loaded up each time the `./cli ...` command is run.
-- **`reset_repos.py`**: Reset each repository so that `evaluate_brokk.py` can be run again. Note that changes are legitimate changes to the codebase folder under `swe_bench_repos/specific_project_pid` so it's not like it's all in memory. Hence, the disk files must be reset. I have a flag in `evaluate_brokk.py` to do this anyways, but it's here.
+- **`reset_repos.py`**: Reset each repository so that `evaluate_brokk.py` can be run again. Note that changes are actual changes to the codebase folder under `swe_bench_repos/specific_project_pid` so it's not like it's all in memory. Hence, the disk files must be reset. Note that `evaluate_brokk.py` does this automatically, but this script is here if desired.
 
 ## Prerequisites
 
@@ -40,10 +39,8 @@ SWE-bench-lite is a benchmark for evaluating code generation models on real-worl
 - **Git**: For repository cloning and diff generation
 - **Gradle**: For building Brokk CLI
 - **16GB+ RAM**: Recommended for large repositories
-- **Network connection**: ideally fast/wired, there's a large amount of data that needs to be set up. There's a lot of Django issues. You might think this requires only one repo, but the program has to fetch a specific commit for each, meaning you end up with one unique one per. This essentially means 300 (if you do the full Verified dataset, not limiting it by `--max_repos 20` for instance) full datasets. You'll need some disk space too (TODO: specify how much)
+- **Network connection**: ideally fast/wired, there's a large amount of data that needs to be set up. As there's a lot of Django issues, you might think this requires only one repo, but the program has to fetch a specific commit for each, meaning you end up with one unique folder one per issue/problem. This essentially means 300 (if you do the full Verified dataset, not limiting it by `--max_repos 20` for instance) full repositories. You'll need some disk space too (TODO: specify how much)
 - **Linux**: Not tested on Windows/Max, so use at your own risk
-
-If you can set this up on a cloud instance with good network bandwith and a good set of CPUs, it'll probably go pretty fast.
 
 ### Brokk CLI Setup
 
@@ -52,6 +49,7 @@ If you can set this up on a cloud instance with good network bandwith and a good
    cd /path/to/brokk
    ./gradlew shadowJar
    ```
+   A shadow JAR is needed to run the CLI! `./gradlew build` won't generate one.
 
 2. **Verify Installation**:
    ```bash
@@ -82,7 +80,7 @@ If you can set this up on a cloud instance with good network bandwith and a good
 # Clone repositories for first 5 test instances (default: 5 parallel workers)
 python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --repos_dir swe_bench_repos
 
-# Fast cloning with 10 parallel workers (MUCH faster!)
+# Fast cloning with 10 parallel workers (MUCH faster!). also only sets up 20 repos via the max_repos argument. Not specified = all of them.
 python3 SWE-bench_lite/repo_setup.py --split test --max_repos 20 --max_workers 10 --repos_dir swe_bench_repos
 ```
 
@@ -99,17 +97,20 @@ This will:
 ### 2. Run Evaluation
 
 ```bash
-# Evaluate on the first 3 instances (uses lutz agent by default)
+# Quick test on 3 instances
 python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 3 --repos_dir swe_bench_repos
+
+# Recommended: Fast, parallel evaluation with code agent
+python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos --max-workers 5
 ```
 
 This will:
-- Run Brokk CLI with **Lutz agent** (research + task execution mode, no Deep Scan needed)
-- Autonomously research the problem and gather relevant context
-- Generate and execute a task list to solve the problem
-- Capture git diffs as model patches
-- Generate `preds.json` and `results.json` in SWE-bench format, will also generate `diagnostics.json`
-- Provide detailed progress updates, surface Brokk's info via the CLI
+- Run Brokk CLI with your chosen agent (code/lutz/architect)
+- Gather context using Deep Scan or autonomous research
+- Generate code changes to solve the problem
+- Capture git diffs as model patches (excluding `.brokk/` folder)
+- Generate `preds.json`, `results.json`, and `diagnostics.json` in SWE-bench format
+- Save checkpoints for resumability
 
 ### 3. View Results
 
@@ -178,108 +179,89 @@ The `instance_to_repo_mapping.json` file maps each instance ID to its repository
 
 The `evaluate_brokk.py` script orchestrates the evaluation process.
 
-### Basic Evaluation
+### Command-Line Options
 
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--dataset_path` | string | `SWE-bench_lite` | Path to SWE-bench-lite dataset directory -- should contain dev & test folders from HF |
+| `--split` | choice | `test` | Dataset split to evaluate (`dev` or `test`) |
+| `--repos_dir` | string | `swe_bench_repos` | Directory containing cloned repositories |
+| `--max_instances` | int | None | Maximum number of instances to evaluate (omit for all) |
+| `--instance_id` | string | None | Specific instance ID to evaluate (e.g., `django__django-15213`), used for a single test |
+| `--model_name` | string | `brokk-cli` | Model name for output files |
+| `--output_dir` | string | auto | Output directory (default: `swe_bench_tests/{timestamp}_{model}`) |
+| `--agent` | choice | `lutz` | Brokk agent: `lutz` (research+tasks), `code` (fast), `architect` (planning) |
+| `--max_retries` | int | `1` | Max retry attempts when Brokk requests more files |
+| `--max-workers` | int | `1` | Number of parallel workers (1=sequential, 2-5 recommended) |
+| `--no-reset` | flag | False | Don't reset repos to clean state before evaluation |
+| `--resume` | flag | False | Auto-resume from checkpoint (non-interactive), requires specified output_dir from previous test! |
+| `--force-fresh` | flag | False | Ignore existing checkpoint and start fresh |
+| `--quiet` | flag | False | Show only tqdm progress bar, suppress all other output |
+| `--verbose` | flag | False | Enable verbose logging |
+
+### Common Usage Examples
+
+**Recommended production command (fast, reliable, resumable):**
 ```bash
-# Evaluate all available instances (uses lutz agent by default)
-python3 SWE-bench_lite/evaluate_brokk.py --split test --repos_dir swe_bench_repos
-
-# Evaluate specific number of instances
-python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 5 --repos_dir swe_bench_repos
-
-# Evaluate specific instance
-python3 SWE-bench_lite/evaluate_brokk.py --instance_id matplotlib__matplotlib-18869 --repos_dir swe_bench_repos
-
-# Use code agent for faster execution (trades autonomy for speed)
-python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 5 --agent code --repos_dir swe_bench_repos
-
-# Evaluate with retries (recommended for code agent)
-python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos
-
-# Evaluate in parallel (5 threads)
-python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos --max-workers 5
-```
-
-### Advanced Options
-
-```bash
-# Custom model name
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --max_instances 3 \
-    --model_name "brokk-lutz-v1.0" \
-    --repos_dir swe_bench_repos
-
-# Enable verbose logging
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --max_instances 2 \
-    --verbose \
-    --repos_dir swe_bench_repos
-
-# Increase retry attempts (useful with code agent)
 python3 SWE-bench_lite/evaluate_brokk.py \
     --split test \
     --agent code \
-    --max_instances 5 \
     --max_retries 2 \
-    --repos_dir swe_bench_repos
-
-# Parallel execution (2-4 workers recommended for significant speedup)
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --max_instances 20 \
-    --max-workers 3 \
-    --repos_dir swe_bench_repos
-
-# Parallel with code agent (fastest combination)
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --agent code \
-    --max-workers 4 \
-    --repos_dir swe_bench_repos
+    --repos_dir swe_bench_repos \
+    --max-workers 5
 ```
 
-### Parallel Execution
-
-The evaluation script supports parallel processing to significantly speed up evaluations:
-
+**Quick test on a few instances:**
 ```bash
-# Run with 3 parallel workers (recommended starting point)
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --max-workers 3 \
-    --repos_dir swe_bench_repos
+# Test on first 3 instances
+python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 3 --repos_dir swe_bench_repos
+```
 
-# Full evaluation with 4 workers (fastest)
+**Full evaluation with best quality (slower but more autonomous):**
+```bash
+# Uses lutz agent (default) for thorough research and planning
+python3 SWE-bench_lite/evaluate_brokk.py --split test --repos_dir swe_bench_repos
+```
+
+**Fastest evaluation (parallel + code agent):**
+```bash
+# Maximize speed with parallel workers and fast agent
 python3 SWE-bench_lite/evaluate_brokk.py \
     --split test \
     --agent code \
-    --max-workers 4 \
+    --max-workers 5 \
+    --quiet \
     --repos_dir swe_bench_repos
 ```
 
-**Benefits:**
-- ✅ **2-4x speedup** depending on worker count and system resources
-- ✅ Thread-safe checkpoint saving (resume works correctly)
-- ✅ Each instance uses its own repository (no conflicts)
-- ✅ Progress tracking shows completed count across all workers
+**Resume interrupted evaluation:**
+```bash
+# Automatically resume from checkpoint without prompts
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --agent code \
+    --max_retries 2 \
+    --repos_dir swe_bench_repos \
+    --output_dir swe_bench_tests/20250113_143022_brokk-cli \
+    --resume
+```
 
-**Recommendations:**
-- Use `--max-workers 3` or `--max-workers 4` for best performance
-- Each worker runs a separate Brokk CLI process
-- Monitor system resources (CPU, memory) with higher worker counts
-- Logs may be interleaved with parallel execution (expected behavior)
+**Evaluate single instance for debugging:**
+```bash
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --instance_id django__django-15213 \
+    --repos_dir swe_bench_repos \
+    --verbose
+```
 
-**When to use:**
-- ✅ Long evaluations (100+ instances)
-- ✅ Code agent (faster per instance, benefits more from parallelization)
-- ✅ Systems with 4+ CPU cores and adequate memory
+### Agent Comparison
 
-**When NOT to use:**
-- ❌ Debugging specific instances (use `--max-workers 1` for cleaner logs)
-- ❌ Systems with limited CPU/memory
-- ❌ When you want sequential, deterministic log output
+| Agent | Speed | Autonomy | Best For | Context Strategy |
+|-------|-------|----------|----------|------------------|
+| **lutz** (default) | Slow (10-15 min) | High | Complex problems, autonomous research | Built-in research (no Deep Scan) |
+| **code** | Fast (3-5 min) | Medium | Simple fixes, quick iterations | Deep Scan + retry with requested
+
+**Recommendation**: Use `code` agent with `--max-workers 5` for fastest results on most SWE-bench problems.
 
 ### Evaluation Process
 
@@ -292,7 +274,6 @@ For each instance, the script:
 5. **Runs Brokk CLI**: 
    - **lutz** agent (default): `./cli --project . --lutz "problem statement"` (built-in research, no Deep Scan)
    - **code** agent: `./cli --project . --deepscan --code "problem statement"` (uses Deep Scan for context)
-   - **architect** agent: `./cli --project . --deepscan --architect "problem statement"`
 6. **Automatic File Request Detection**:
    - If Brokk completes without changes but requests specific files
    - The script automatically detects requested file paths (scans for `\`is/valid/filepath/file.txt\``)
@@ -305,7 +286,7 @@ For each instance, the script:
 
 ### Automatic File Request Retry
 
-The evaluation script now automatically detects when Brokk requests additional files and retries with those files included. This happens when:
+When running the `code` agent, the evaluation script automatically detects when Brokk requests additional files and retries with those files included. This happens when:
 
 - Brokk completes successfully but makes no code changes
 - The output contains phrases like "Please add these files" or "need to see the implementation"
@@ -320,13 +301,6 @@ The evaluation script now automatically detects when Brokk requests additional f
 5. **Retry**: Re-runs with `--edit path/to/file.py` for each requested file
 6. **Repeat**: Can retry up to `--max_retries` times with newly requested files
 
-**Example:**
-```bash
-# Brokk first run: "Please add django/core/files/storage.py to the chat"
-# Script detects request and retries:
-# ./cli --project . --deepscan --edit django/core/files/storage.py --code "problem"
-```
-
 **Configuration:**
 - `--max_retries 0`: Disable automatic retries (just use deepscan)
 - `--max_retries 1`: Allow one retry with requested files (default)
@@ -339,62 +313,9 @@ The evaluation script now automatically detects when Brokk requests additional f
 - **lutz agent**: 
   - Has built-in intelligent research phase (no `--deepscan` needed)
   - Retries still skip research and use only explicitly requested files
-- This avoids token limit errors and speeds up retries significantly (2-3 minute savings per retry)
+- This avoids token limit errors and speeds up retries significantly
 
-### Brokk Agent Modes
-
-You can choose between different Brokk agents for evaluation:
-
-#### Lutz Agent (Default: `--agent lutz`)
-- **Best for**: Most SWE-bench problems - autonomous research and multi-step solutions
-- **Behavior**: 
-  1. Researches the problem and gathers context intelligently
-  2. Generates a task list breaking down the solution
-  3. Executes tasks sequentially
-- **Speed**: ~10-15 minutes per instance (slower but more thorough)
-- **Context Strategy**: Built-in intelligent research phase (no Deep Scan needed!)
-- **Why default**: 
-  - Autonomously explores the codebase to find relevant files
-  - Creates a plan before executing
-  - Better success rate on complex problems
-  - No token limit errors from Deep Scan
-- **Recommended**: Default for SWE-bench - handles most problems autonomously
-  
-**Example (default behavior):**
-```bash
-# Lutz agent is now default - just run normally
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --max_instances 10 \
-    --repos_dir swe_bench_repos
-```
-
-#### Code Agent (`--agent code`)
-- **Best for**: Simple, well-scoped problems when you know context is clear
-- **Behavior**: Direct code generation with single-pass execution
-- **Speed**: Faster (~3-5 minutes per instance)
-- **Context Strategy**: Uses `--deepscan` on first attempt, then manual retry with requested files
-- **Trade-off**: Faster but less autonomous - may need retries for complex problems
-- **When to use**: Quick iterations on simple fixes, or when you want faster results
-
-**Example with code agent:**
-```bash
-# Use code agent for faster, simpler problems
-python3 SWE-bench_lite/evaluate_brokk.py \
-    --split test \
-    --max_instances 10 \
-    --agent code \
-    --repos_dir swe_bench_repos
-```
-
-**Recommendation for SWE-bench**:
-- **Lutz (default)**: Best overall - slower but more thorough and autonomous
-- **Code**: Faster for simple problems, but may need more retries on complex issues
-
-#### Architect Agent (`--agent architect`)
-- **Best for**: Large refactoring or architectural changes
-- **Behavior**: Creates a plan first, then implements it
-- **Less commonly used** for SWE-bench (most issues are focused changes)
+**Practical advice**: Use `--agent code --max-workers 5` for fastest throughput on SWE-bench evaluations.
 
 ### Checkpoint and Resume Support
 
@@ -404,36 +325,21 @@ Evaluation runs are automatically checkpointed after each instance completes, so
 
 1. **Automatic Checkpointing**: After each instance completes, a `checkpoint.json` file is saved in the output directory
 2. **Automatic Resume Detection**: When you re-run with the same output directory, you'll be prompted to resume
-3. **Graceful Shutdown**: Press `Ctrl+C` to interrupt - checkpoint is saved before exit
+3. **Graceful Shutdown**: Press `Ctrl+C` to interrupt - checkpoint is saved before exit, handled across parallel
 4. **Completion Cleanup**: Checkpoint file is automatically deleted when evaluation completes successfully
 
 #### Resume Modes
 
-**Interactive Mode (Default):**
-```bash
-# Run evaluation
-python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos
-
-# If interrupted, re-run the same command:
-python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos
-
-# You'll see:
-# CHECKPOINT FOUND
-# Completed instances: 42
-# Last checkpoint: 2025-01-13T14:30:22
-# Do you want to resume from checkpoint? [y/n]:
-```
-
 **Non-Interactive Resume:**
 ```bash
-# Automatically resume without prompting
-python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos --resume
+# Automatically resume without prompting (good for scripts/cron jobs)
+python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos --max-workers 5 --output_dir my_run --resume
 ```
 
 **Force Fresh Start:**
 ```bash
-# Ignore checkpoint and start over
-python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir my_run --repos_dir swe_bench_repos --force-fresh
+# Ignore existing checkpoint and start over
+python3 SWE-bench_lite/evaluate_brokk.py --split test --agent code --max_retries 2 --repos_dir swe_bench_repos --max-workers 5 --output_dir my_run --force-fresh
 ```
 
 #### Checkpoint File Contents
@@ -462,47 +368,6 @@ The checkpoint file (`checkpoint.json`) contains:
   "checkpoint_count": 2
 }
 ```
-
-#### Best Practices
-
-1. **Use Named Output Directories**: When running large evaluations, use `--output_dir` with descriptive names:
-   ```bash
-   python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir "test_run_architect_agent" --agent architect --repos_dir swe_bench_repos
-   ```
-
-2. **Graceful Interruption**: Use `Ctrl+C` instead of `kill -9` to ensure checkpoint is saved
-
-3. **Long-Running Evaluations**: For 100+ instances, checkpoints are essential - you can stop/resume at any time
-
-4. **Automation**: Use `--resume` flag in scripts for non-interactive resume:
-   ```bash
-   # In a cron job or script
-   python3 SWE-bench_lite/evaluate_brokk.py --split test --output_dir long_run --resume --repos_dir swe_bench_repos
-   ```
-
-5. **Check Progress**: The checkpoint file tells you exactly how many instances are completed and when the last save occurred
-
-6. **Repository Reset on Resume**: When resuming, completed instances are skipped (repos untouched), but each NEW instance has its repository reset to clean state before running (unless `--no-reset` is used)
-
-#### Testing Checkpoint Functionality
-
-A test script is provided to verify checkpoint operations work correctly:
-
-```bash
-# Run checkpoint functionality tests
-python3 SWE-bench_lite/test_checkpoint.py
-```
-
-This test suite verifies:
-- Checkpoint file creation and atomic writes
-- Loading and data integrity
-- Resume simulation with additional instances
-- Proper cleanup of temporary files
-- Checkpoint file structure validation
-
-All tests should pass before running large evaluations. This helps ensure your long-running evaluations won't lose data due to checkpoint issues.
-
-
 ## Understanding the Results
 
 ### Output Directory Structure
@@ -555,7 +420,7 @@ Contains summary statistics in SWE-bench format:
 }
 ```
 
-**Note**: `resolved_instances` and `unresolved_instances` require running actual SWE-bench tests to determine which patches correctly fix the issues. Until tests are run, all completed instances are marked as unresolved.
+**Note**: `resolved_instances` and `unresolved_instances` are unclear, set to 0/# of instances for now. May be changed upon submission given the team's analysis.
 
 #### 3. `diagnostics.json` - Performance Metrics
 
@@ -596,21 +461,11 @@ Contains detailed performance and system information:
 }
 ```
 
-### Submission Process
-
-To submit your results to SWE-bench:
-
-1. **Generate Predictions**: Run the evaluation (creates `.json` files)
-2. **Create Pull Request**: Submit `preds.json` and updated `results.json` to SWE-bench-live/submissions repository
-3. **Review Process**: Your submission will be reviewed and merged if valid
-
-**Note**: The `results.json` generated by the evaluation script marks all instances as "unresolved" until actual tests are run. After running SWE-bench evaluation tools, the file will be updated with correct resolved/unresolved counts.
-
 ### Interpreting Results
 
 - **Empty Patch (`""`)**: Brokk ran but didn't make changes (either couldn't solve or no solution needed)
 - **Non-empty Patch**: Brokk made actual code changes
-- **Failed Evaluation**: Brokk CLI encountered an error or timeout
+- **Failed Evaluation**: Brokk CLI encountered an error or timeout (10m timeout right now)
 
 ### Success Metrics
 
@@ -619,150 +474,27 @@ To submit your results to SWE-bench:
 - **Success Rate**: Percentage of successful evaluations
 - **Execution Time**: Time taken for each evaluation
 
-## Troubleshooting
-
-### Common Issues
-
-#### 1. "No repository mapping found"
-
-**Problem**: The evaluation script can't find the repository mapping file.
-
-**Solution**: 
-```bash
-# Make sure you ran repo_setup.py first
-python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --repos_dir swe_bench_repos
-```
-
-#### 2. "Dataset not found"
-
-**Problem**: SWE-bench-lite dataset directory is missing.
-
-**Solution**:
-```bash
-# Make sure you have the SWE-bench_lite directory
-ls -la SWE-bench_lite/
-# Should contain: dev/, test/, dataset_dict.json
-```
-
-### Resetting Repositories
-
-The evaluation automatically resets repositories to clean state before each run, but you can also manually reset them:
-
-#### Automatic Reset (Default)
-
-By default, repositories are automatically reset before evaluation:
-```bash
-# This resets repos automatically
-python3 SWE-bench_lite/evaluate_brokk.py --instance_id django__django-15213
-```
-
-#### Disable Auto-Reset
-
-To preserve previous state (e.g., for debugging):
-```bash
-python3 SWE-bench_lite/evaluate_brokk.py --instance_id django__django-15213 --no-reset
-```
-
-#### Manual Reset Script
-
-Reset all repositories manually:
-```bash
-# Reset all repositories
-python3 SWE-bench_lite/reset_repos.py --repos_dir swe_bench_repos
-
-# Reset specific instance
-python3 SWE-bench_lite/reset_repos.py --repos_dir swe_bench_repos --instance_id django__django-15213
-```
-
-The reset process:
-- Discards all uncommitted changes (`git reset --hard HEAD`)
-- Removes untracked files and directories (`git clean -fd`)
-- Removes `.brokk/` configuration directory
-
-### Debugging Tips
-
-#### Enable Verbose Logging
-
-```bash
-python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 1 --verbose --repos_dir swe_bench_repos
-```
-
-#### Test Individual Components
-
-```bash
-# Test repository setup
-python3 SWE-bench_lite/repo_setup.py --demo
-
-# Test Brokk CLI directly
-cd swe_bench_repos/matplotlib__matplotlib_matplotlib__matplotlib-18869
-../../cli --project . --ask "What is this project?"
-
-# Test evaluation on single instance
-python3 SWE-bench_lite/evaluate_brokk.py --instance_id matplotlib__matplotlib-18869 --repos_dir swe_bench_repos
-```
-
-#### Check Repository State
-
-```bash
-# Before evaluation
-cd swe_bench_repos/matplotlib__matplotlib_matplotlib__matplotlib-18869
-git status
-git log --oneline -3
-
-# After evaluation
-git status
-git diff
-git log --oneline -3
-```
-
-
 ## Advanced Usage
-
-### Custom Evaluation Scripts
-
-You can create custom evaluation scripts by importing the core functions:
-
-```python
-from evaluate_brokk import load_swe_bench_lite_dataset, run_brokk_cli, evaluate_instances
-
-# Load dataset
-dataset = load_swe_bench_lite_dataset("SWE-bench_lite")
-instances = list(dataset["test"])[:5]  # First 5 test instances
-
-# Load repository mapping
-import json
-with open("swe_bench_repos/instance_to_repo_mapping.json") as f:
-    repo_mapping = json.load(f)
-
-# Run evaluation
-results = evaluate_instances(instances, repo_mapping, model_name="my-brokk-model")
-```
-
-### Batch Processing
-
-```bash
-#!/bin/bash
-# Process multiple splits and configurations
-
-for split in dev test; do
-    echo "Processing $split split..."
-    python3 SWE-bench_lite/evaluate_brokk.py \
-        --split $split \
-        --max_instances 10 \
-        --model_name "brokk-cli-$split" \
-        --output_file "preds_$split.json" \
-        --repos_dir "swe_bench_repos"
-done
-```
 
 ### Performance Optimization
 
-#### Memory Management
-
+**Maximize throughput:**
 ```bash
-# For large repositories, increase JVM heap size
+# Parallel execution with code agent is fastest
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --agent code \
+    --max_retries 2 \
+    --max-workers 5 \
+    --quiet \
+    --repos_dir swe_bench_repos
+```
+
+**For large repositories (high memory usage):**
+```bash
+# Increase JVM heap size
 export JAVA_OPTS="-Xmx8G -Xms4G"
-python3 SWE-bench_lite/evaluate_brokk.py --split test --max_instances 10
+python3 SWE-bench_lite/evaluate_brokk.py --split test --repos_dir swe_bench_repos
 ```
 
 ## File Structure
@@ -814,3 +546,4 @@ swe_bench_tests/
 ```
 
 See the end of `evaluate_brokk.py` for summary and descriptions of each output file.
+
