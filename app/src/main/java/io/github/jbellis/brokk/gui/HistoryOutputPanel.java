@@ -2581,30 +2581,34 @@ public class HistoryOutputPanel extends JPanel {
         return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
+    /**
+     * Kicks off a background load of the AI-response count for the given session.
+     * Runs on a platform thread to avoid blocking the common ForkJoinPool.
+     * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     */
     private void triggerAiCountLoad(SessionInfo session) {
-        var id = session.id();
-        if (sessionAiResponseCounts.containsKey(id) || sessionCountLoading.contains(id)) {
+        final var id = session.id();
+
+        // Fast-path dedupe: if we already have a value or a load is in-flight, bail.
+        if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
             return;
         }
-        sessionCountLoading.add(id);
-        CompletableFuture.supplyAsync(() -> {
-                    try {
-                        var sm = contextManager.getProject().getSessionManager();
-                        var ch = sm.loadHistory(id, contextManager);
-                        if (ch == null) return 0;
-                        return countAiResponses(ch);
-                    } catch (Exception e) {
-                        logger.warn("Failed to load history for session {}", id, e);
-                        return 0;
-                    }
-                })
-                .thenAccept(count -> {
-                    sessionAiResponseCounts.put(id, count);
-                    sessionCountLoading.remove(id);
-                    SwingUtilities.invokeLater(() -> {
-                        sessionComboBox.repaint();
-                    });
-                });
+
+        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
+            int count = 0;
+            try {
+                var sm = contextManager.getProject().getSessionManager();
+                var ch = sm.loadHistory(id, contextManager);
+                count = (ch == null) ? 0 : countAiResponses(ch);
+            } catch (Throwable t) {
+                logger.warn("Failed to load history for session {}", id, t);
+                count = 0;
+            } finally {
+                sessionAiResponseCounts.put(id, count);
+                sessionCountLoading.remove(id);
+                SwingUtilities.invokeLater(sessionComboBox::repaint);
+            }
+        });
     }
 
     private int countAiResponses(ContextHistory ch) {
