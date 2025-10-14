@@ -196,7 +196,6 @@ The `evaluate_brokk.py` script orchestrates the evaluation process.
 | `--no-reset` | flag | False | Don't reset repos to clean state before evaluation |
 | `--resume` | flag | False | Auto-resume from checkpoint (non-interactive), requires specified output_dir from previous test! |
 | `--force-fresh` | flag | False | Ignore existing checkpoint and start fresh |
-| `--quiet` | flag | False | Show only tqdm progress bar, suppress all other output |
 | `--verbose` | flag | False | Enable verbose logging |
 
 ### Common Usage Examples
@@ -230,7 +229,6 @@ python3 SWE-bench_lite/evaluate_brokk.py \
     --split test \
     --agent code \
     --max-workers 5 \
-    --quiet \
     --repos_dir swe_bench_repos
 ```
 
@@ -486,7 +484,6 @@ python3 SWE-bench_lite/evaluate_brokk.py \
     --agent code \
     --max_retries 2 \
     --max-workers 5 \
-    --quiet \
     --repos_dir swe_bench_repos
 ```
 

@@ -35,6 +35,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Global process tracking for signal handler cleanup
+_global_process_lock = threading.Lock()
+_global_active_processes = []
+
 # Colors for output
 class Colors:
     BLUE = '\033[94m'
@@ -265,6 +269,7 @@ def run_brokk_cli_internal(
         log_info("Skipping Deep Scan (using explicit files instead)")
     
     original_cwd = Path.cwd()
+    process = None  # Initialize process for finally block cleanup
     
     try:
         # Get initial git status
@@ -333,6 +338,10 @@ def run_brokk_cli_internal(
             text=True,
             bufsize=1
         )
+        
+        # Register process for signal handler cleanup
+        with _global_process_lock:
+            _global_active_processes.append(process)
 
         stdout_lines: List[str] = []
         stderr_lines: List[str] = []
@@ -370,6 +379,11 @@ def run_brokk_cli_internal(
 
         t_out.join(timeout=2)
         t_err.join(timeout=2)
+        
+        # Unregister process after it completes
+        with _global_process_lock:
+            if process in _global_active_processes:
+                _global_active_processes.remove(process)
 
         end_time = time.time()
         execution_time = end_time - start_time
@@ -492,6 +506,12 @@ def run_brokk_cli_internal(
             "patch": ""
         }
     finally:
+        # Clean up process from global tracking list
+        if process is not None:
+            with _global_process_lock:
+                if process in _global_active_processes:
+                    _global_active_processes.remove(process)
+        
         # Return to original directory
         os.chdir(original_cwd)
 
@@ -740,15 +760,34 @@ def evaluate_instances(
     
     # Set up signal handler for graceful shutdown
     interrupted = [False]  # Mutable list to allow modification in nested function
+    executor_ref = [None]  # Store executor reference for cleanup
     
     def signal_handler(signum, frame):
-        log_warning(f"\nReceived interrupt signal ({signum}). Saving checkpoint and exiting...")
+        log_warning(f"\nReceived interrupt signal ({signum}). Initiating graceful shutdown...")
         interrupted[0] = True
-        # Save final checkpoint
-        with lock:
-            save_checkpoint(output_dir, results, list(completed_instances), start_time)
-        log_success("Checkpoint saved. You can resume later with the same command.")
-        sys.exit(0)
+        
+        # Kill all active processes (use global process list)
+        with _global_process_lock:
+            if _global_active_processes:
+                log_info(f"Terminating {len(_global_active_processes)} active subprocess(es)...")
+                for proc in _global_active_processes[:]:  # Copy list to avoid modification during iteration
+                    try:
+                        if proc.poll() is None:  # Process still running
+                            proc.terminate()  # Send SIGTERM first
+                            try:
+                                proc.wait(timeout=2)  # Give it 2 seconds to clean up
+                            except subprocess.TimeoutExpired:
+                                proc.kill()  # Force kill if it doesn't respond
+                        _global_active_processes.remove(proc)
+                    except Exception as e:
+                        log_error(f"Error terminating subprocess: {e}")
+        
+        # Shutdown executor if it exists (will wait for current tasks)
+        if executor_ref[0] is not None:
+            log_info("Shutting down thread pool executor...")
+            executor_ref[0].shutdown(wait=False, cancel_futures=True)
+        
+        # Note: We don't call sys.exit() here - let the main loop handle cleanup
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -769,6 +808,14 @@ def evaluate_instances(
     # Sequential execution (original behavior)
     if max_workers == 1:
         for i, instance in instances_to_process:
+            # Check if interrupted
+            if interrupted[0]:
+                log_warning("Interrupted by user - saving checkpoint and exiting...")
+                with lock:
+                    save_checkpoint(output_dir, results, list(completed_instances), start_time)
+                log_success("Checkpoint saved. You can resume later with the same command.")
+                sys.exit(0)
+            
             instance_id = instance["instance_id"]
             
             eval_result = evaluate_single_instance(
@@ -797,61 +844,85 @@ def evaluate_instances(
     # Parallel execution
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_instance = {
-                executor.submit(
-                    evaluate_single_instance,
-                    instance, i, len(instances),
-                    repo_mapping, template_path,
-                    model_name, max_retries, agent, reset_repo
-                ): (i, instance["instance_id"])
-                for i, instance in instances_to_process
-            }
+            # Store executor reference for signal handler
+            executor_ref[0] = executor
             
-            # Process completed tasks as they finish
-            completed_count = len(completed_instances)
-            for future in as_completed(future_to_instance):
-                i, instance_id = future_to_instance[future]
+            try:
+                # Submit all tasks
+                future_to_instance = {
+                    executor.submit(
+                        evaluate_single_instance,
+                        instance, i, len(instances),
+                        repo_mapping, template_path,
+                        model_name, max_retries, agent, reset_repo
+                    ): (i, instance["instance_id"])
+                    for i, instance in instances_to_process
+                }
                 
-                try:
-                    eval_result = future.result()
+                # Process completed tasks as they finish
+                completed_count = len(completed_instances)
+                for future in as_completed(future_to_instance):
+                    # Check if interrupted
+                    if interrupted[0]:
+                        log_warning("Interrupted by user - cancelling remaining tasks...")
+                        # Cancel all pending futures
+                        for f in future_to_instance:
+                            f.cancel()
+                        break
                     
-                    # Thread-safe update of shared state
-                    with lock:
-                        results[instance_id] = eval_result["result"]
-                        completed_instances.add(instance_id)
-                        completed_count = len(completed_instances)
+                    i, instance_id = future_to_instance[future]
+                    
+                    try:
+                        eval_result = future.result()
                         
-                        # Update counters
-                        if eval_result["result"]["success"]:
-                            successful_evaluations += 1
-                        else:
+                        # Thread-safe update of shared state
+                        with lock:
+                            results[instance_id] = eval_result["result"]
+                            completed_instances.add(instance_id)
+                            completed_count = len(completed_instances)
+                            
+                            # Update counters
+                            if eval_result["result"]["success"]:
+                                successful_evaluations += 1
+                            else:
+                                failed_evaluations += 1
+                            
+                            # Save checkpoint after each completion
+                            save_checkpoint(output_dir, results, list(completed_instances), start_time)
+                            
+                            # Progress update
+                            progress = completed_count / len(instances) * 100
+                            log_status(
+                                f"Progress: {completed_count}/{len(instances)} ({progress:.1f}%) - "
+                                f"Success: {successful_evaluations}, Failed: {failed_evaluations}",
+                                Colors.BLUE
+                            )
+                    
+                    except Exception as e:
+                        log_error(f"Error processing {instance_id}: {e}")
+                        with lock:
+                            results[instance_id] = {
+                                "model_name_or_path": model_name,
+                                "instance_id": instance_id,
+                                "model_patch": "",
+                                "error": f"Exception during evaluation: {str(e)}",
+                                "success": False
+                            }
+                            completed_instances.add(instance_id)
                             failed_evaluations += 1
-                        
-                        # Save checkpoint after each completion
-                        save_checkpoint(output_dir, results, list(completed_instances), start_time)
-                        
-                        # Progress update
-                        progress = completed_count / len(instances) * 100
-                        log_status(
-                            f"Progress: {completed_count}/{len(instances)} ({progress:.1f}%) - "
-                            f"Success: {successful_evaluations}, Failed: {failed_evaluations}",
-                            Colors.BLUE
-                        )
+                            save_checkpoint(output_dir, results, list(completed_instances), start_time)
+            
+            finally:
+                # Clear executor reference
+                executor_ref[0] = None
                 
-                except Exception as e:
-                    log_error(f"Error processing {instance_id}: {e}")
+                # If interrupted, save final checkpoint and exit
+                if interrupted[0]:
+                    log_warning("Saving final checkpoint before exit...")
                     with lock:
-                        results[instance_id] = {
-                            "model_name_or_path": model_name,
-                            "instance_id": instance_id,
-                            "model_patch": "",
-                            "error": f"Exception during evaluation: {str(e)}",
-                            "success": False
-                        }
-                        completed_instances.add(instance_id)
-                        failed_evaluations += 1
                         save_checkpoint(output_dir, results, list(completed_instances), start_time)
+                    log_success("Checkpoint saved. You can resume later with the same command.")
+                    sys.exit(0)
     
     # Final summary
     log_status(f"\n{'='*60}", Colors.BOLD)
