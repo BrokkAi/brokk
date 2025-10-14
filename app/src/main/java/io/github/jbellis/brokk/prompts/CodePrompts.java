@@ -197,81 +197,31 @@ public abstract class CodePrompts {
     }
 
     public final List<ChatMessage> collectCodeMessages(
-            IContextManager cm,
             StreamingChatModel model,
+            Context ctx,
+            List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
             Set<ProjectFile> changedFiles)
             throws InterruptedException {
+        var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
-        Context ctx = cm.liveContext();
 
-        messages.add(systemMessage(cm, reminder));
+        messages.add(systemMessage(cm, ctx, reminder));
         // FIXME we're supposed to leave the unchanged files in their original position
         if (changedFiles.isEmpty()) {
             messages.addAll(getWorkspaceContentsMessages(ctx));
         } else {
-            messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx));
         }
+        messages.addAll(prologue);
 
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(List.of(), getWorkspaceEditableMessages(ctx)));
+            messages.addAll(getWorkspaceEditableMessages(ctx));
         }
-        messages.add(request);
-
-        return messages;
-    }
-
-    public final List<ChatMessage> getSingleFileCodeMessages(
-            IProject project,
-            List<ChatMessage> readOnlyMessages,
-            List<ChatMessage> taskMessages,
-            UserMessage request,
-            ProjectFile file) {
-        var messages = new ArrayList<ChatMessage>();
-
-        var systemPrompt =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .stripIndent()
-                        .formatted(systemIntro(""), project.getStyleGuide())
-                        .trim();
-        messages.add(new SystemMessage(systemPrompt));
-
-        messages.addAll(readOnlyMessages);
-        var content = file.read().orElseThrow();
-        String editableText =
-                """
-                                  <workspace_editable>
-                                  You are editing A SINGLE FILE in this Workspace.
-                                  This represents the current state of the file.
-
-                                  <file path="%s">
-                                  %s
-                                  </file>
-                                  </workspace_editable>
-                                  """
-                        .stripIndent()
-                        .formatted(file.toString(), content);
-        var editableUserMessage = new UserMessage(editableText);
-        messages.addAll(List.of(editableUserMessage, new AiMessage("Thank you for the editable context.")));
-
-        // Add *rules + examples* inline (no forged dialog). Leave <goal> blank here; the caller's `request` follows.
-        var flags = instructionsFlags(project, Set.of(file));
-        var rules = instructions("", flags, "");
-        messages.add(new UserMessage(rules));
-        messages.add(new AiMessage("Ok, I will follow these edit rules."));
-
-        messages.addAll(taskMessages);
         messages.add(request);
 
         return messages;
@@ -343,6 +293,42 @@ public abstract class CodePrompts {
             workspaceBuilder.append("<readonly-toc>\n%s\n</readonly-toc>".formatted(readOnlyContents));
         }
         return workspaceBuilder.toString();
+    }
+
+    public static String formatWorkspaceToc(IContextManager cm, Context ctx) {
+        var editableContents = ctx.getEditableToc();
+        var readOnlyContents = ctx.getReadOnlyToc();
+        var workspaceBuilder = new StringBuilder();
+        if (!editableContents.isBlank()) {
+            workspaceBuilder.append("<editable-toc>\n%s\n</editable-toc>".formatted(editableContents));
+        }
+        if (!readOnlyContents.isBlank()) {
+            workspaceBuilder.append("<readonly-toc>\n%s\n</readonly-toc>".formatted(readOnlyContents));
+        }
+        return workspaceBuilder.toString();
+    }
+
+    protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
+        var workspaceSummary = formatWorkspaceToc(cm, ctx);
+        var styleGuide = cm.getProject().getStyleGuide();
+
+        var text =
+                """
+          <instructions>
+          %s
+          </instructions>
+          <workspace-toc>
+          %s
+          </workspace-toc>
+          <style_guide>
+          %s
+          </style_guide>
+          """
+                        .stripIndent()
+                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .trim();
+
+        return new SystemMessage(text);
     }
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
