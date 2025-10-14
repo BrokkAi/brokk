@@ -157,17 +157,22 @@ public class CodeAgent {
                 originalFileContents,
                 Collections.emptyMap());
 
+        // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
+        // to date before we paused it, but empirically that is not the case as of this writing.
+        try {
+            contextManager.getAnalyzerWrapper().updateFiles(contextManager.getFilesInContext()).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
                 break;
             }
-
-            // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
-            // to date before we paused it, but empirically that is not the case as of this writing.
-            var filesToRefresh = es.changedFiles().isEmpty() ? contextManager.getFilesInContext() : es.changedFiles();
-            var analyzerFuture = contextManager.getAnalyzerWrapper().updateFiles(filesToRefresh);
 
             // Make the LLM request
             StreamingResult streamingResult;
@@ -223,16 +228,6 @@ public class CodeAgent {
             cs = parseOutcome.cs();
             es = parseOutcome.es();
 
-            // Wait for analyzer update before applying blocks
-            try {
-                analyzerFuture.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                continue; // let main loop interruption check handle
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-
             // APPLY PHASE applies blocks
             var applyOutcome = applyPhase(cs, es, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
@@ -273,6 +268,16 @@ public class CodeAgent {
             // Only do this if the turn had more than a single user/AI pair; for simple one-shot turns,
             // keep the original messages for clarity.
             if (es.blocksAppliedWithoutBuild() > 0) {
+                // update analyzer with changes so it can find newly created test files
+                try {
+                    contextManager.getAnalyzerWrapper().updateFiles(es.changedFiles()).get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue; // let main loop interruption check handle
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+
                 int msgsThisTurn = cs.taskMessages().size() - cs.turnStartIndex();
                 if (msgsThisTurn > 2) {
                     var srb = es.toSearchReplaceBlocks();
