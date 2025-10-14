@@ -269,11 +269,7 @@ public class CodeAgent {
                 var newFrags = justCreated.stream()
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
-                if (context == contextManager.topContext()) {
-                    context = contextManager.pushContextQuietly(current -> current.addPathFragments(newFrags));
-                } else {
-                    context = context.addPathFragments(newFrags);
-                }
+                context = context.addPathFragments(newFrags);
             }
 
             // After a successful apply, consider compacting the turn into a clean, synthetic summary.
