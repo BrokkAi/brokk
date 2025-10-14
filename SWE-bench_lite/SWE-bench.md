@@ -39,7 +39,7 @@ SWE-bench-lite is a benchmark for evaluating code generation models on real-worl
 - **Git**: For repository cloning and diff generation
 - **Gradle**: For building Brokk CLI
 - **16GB+ RAM**: Recommended for large repositories
-- **Network connection**: ideally fast/wired, there's a large amount of data that needs to be set up. As there's a lot of Django issues, you might think this requires only one repo, but the program has to fetch a specific commit for each, meaning you end up with one unique folder one per issue/problem. This essentially means 300 (if you do the full Verified dataset, not limiting it by `--max_repos 20` for instance) full repositories. You'll need some disk space too (TODO: specify how much)
+- **Network connection**: ideally fast/wired, there's a large amount of data that needs to be set up. As there's a lot of Django issues, you might think this requires only one repo, but the program has to fetch a specific commit for each, meaning you end up with one unique folder one per issue/problem. This essentially means 300 (if you do the full Verified dataset, not limiting it by `--max_repos 20` for instance) full repositories. You'll need some disk space too, ~82G for the repos plus some for program space.
 - **Linux**: Not tested on Windows/Max, so use at your own risk
 
 ### Brokk CLI Setup

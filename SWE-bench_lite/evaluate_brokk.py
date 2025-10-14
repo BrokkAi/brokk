@@ -935,10 +935,28 @@ def evaluate_instances(
     
     return results
 
-def save_predictions(results: Dict[str, Dict[str, Any]], output_file: str):
-    """Save results in preds.json format."""
-    # Convert to the required format (remove extra fields)
+def save_predictions(results: Dict[str, Dict[str, Any]], output_file: str, merge: bool = False):
+    """
+    Save results in preds.json format.
+    
+    Args:
+        results: Results dictionary to save
+        output_file: Path to output file
+        merge: If True and file exists, merge with existing results instead of overwriting
+    """
     preds_format = {}
+    
+    # Load existing predictions if merging
+    if merge and Path(output_file).exists():
+        try:
+            with open(output_file, 'r') as f:
+                preds_format = json.load(f)
+            log_info(f"Loaded {len(preds_format)} existing predictions for merging")
+        except Exception as e:
+            log_warning(f"Could not load existing predictions for merging: {e}")
+            preds_format = {}
+    
+    # Convert to the required format (remove extra fields) and merge
     for instance_id, result in results.items():
         preds_format[instance_id] = {
             "model_name_or_path": result["model_name_or_path"],
@@ -949,7 +967,10 @@ def save_predictions(results: Dict[str, Dict[str, Any]], output_file: str):
     with open(output_file, 'w') as f:
         json.dump(preds_format, f, indent=2)
     
-    log_success(f"Predictions saved to {output_file}")
+    if merge:
+        log_success(f"Predictions merged and saved to {output_file} ({len(preds_format)} total instances)")
+    else:
+        log_success(f"Predictions saved to {output_file}")
 
 def generate_results_json(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -1014,14 +1035,51 @@ def generate_results_json(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         "schema_version": 2
     }
 
-def save_results_json(results: Dict[str, Dict[str, Any]], output_file: str):
-    """Save results.json in SWE-bench format."""
-    results_data = generate_results_json(results)
+def save_results_json(results: Dict[str, Dict[str, Any]], output_file: str, merge: bool = False, preds_file: Optional[str] = None):
+    """
+    Save results.json in SWE-bench format.
+    
+    Args:
+        results: Results dictionary to save
+        output_file: Path to output file
+        merge: If True, merge with existing results
+        preds_file: Path to preds.json file (used to load full results when merging)
+    """
+    merged_results = results.copy()
+    
+    # Load and merge existing results if requested
+    if merge and preds_file and Path(preds_file).exists():
+        try:
+            with open(preds_file, 'r') as f:
+                existing_preds = json.load(f)
+            
+            log_info(f"Loaded {len(existing_preds)} existing predictions for merging")
+            
+            # Convert existing preds back to results format for instances not in current results
+            for instance_id, pred in existing_preds.items():
+                if instance_id not in merged_results:
+                    # Reconstruct minimal result entry from pred
+                    merged_results[instance_id] = {
+                        "model_name_or_path": pred["model_name_or_path"],
+                        "instance_id": pred["instance_id"],
+                        "model_patch": pred["model_patch"],
+                        "success": bool(pred.get("model_patch")),
+                        "changes": bool(pred.get("model_patch"))
+                    }
+            
+            log_success(f"Merged results: {len(results)} new + {len(existing_preds) - len(results)} existing = {len(merged_results)} total")
+        except Exception as e:
+            log_warning(f"Could not load existing results for merging: {e}")
+    
+    results_data = generate_results_json(merged_results)
     
     with open(output_file, 'w') as f:
         json.dump(results_data, f, indent=2)
     
-    log_success(f"Results summary saved to {output_file}")
+    if merge:
+        log_success(f"Results merged and saved to {output_file} ({len(merged_results)} total instances)")
+    else:
+        log_success(f"Results summary saved to {output_file}")
 
 def generate_diagnostics(
     results: Dict[str, Dict[str, Any]], 
@@ -1204,6 +1262,114 @@ def prompt_resume_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
         else:
             print("Please enter 'y' or 'n'")
 
+def load_results_json(results_file: Path) -> Optional[Dict[str, Any]]:
+    """
+    Load results.json from a previous evaluation run.
+    
+    Args:
+        results_file: Path to results.json file
+    
+    Returns:
+        Results data if found and valid, None otherwise
+    """
+    if not results_file.exists():
+        log_error(f"Results file not found: {results_file}")
+        return None
+    
+    try:
+        with open(results_file, 'r') as f:
+            results_data = json.load(f)
+        
+        log_success(f"Loaded results from {results_file}")
+        log_info(f"  Total instances: {results_data.get('total_instances', 'N/A')}")
+        log_info(f"  Completed: {results_data.get('completed_instances', 'N/A')}")
+        log_info(f"  Empty patches: {results_data.get('empty_patch_instances', 'N/A')}")
+        log_info(f"  Errors: {results_data.get('error_instances', 'N/A')}")
+        
+        return results_data
+    except Exception as e:
+        log_error(f"Failed to load results file: {e}")
+        return None
+
+def get_rerun_instance_ids(
+    results_data: Dict[str, Any], 
+    category: str,
+    repo_mapping: Optional[Dict[str, str]] = None,
+    dataset_instances: Optional[List[Dict[str, Any]]] = None
+) -> List[str]:
+    """
+    Extract instance IDs to rerun based on category.
+    
+    Args:
+        results_data: Loaded results.json data
+        category: Category to rerun (empty_patch, error, incomplete, all_failed, missing)
+        repo_mapping: Optional repository mapping to find missing instances
+        dataset_instances: Optional list of dataset instances to find missing instances
+    
+    Returns:
+        List of instance IDs to rerun
+    """
+    if category == "empty_patch":
+        instance_ids = results_data.get("empty_patch_ids", [])
+        log_info(f"Rerunning {len(instance_ids)} instances with empty patches")
+    elif category == "error":
+        instance_ids = results_data.get("error_ids", [])
+        log_info(f"Rerunning {len(instance_ids)} instances with errors")
+    elif category == "incomplete":
+        instance_ids = results_data.get("incomplete_ids", [])
+        log_info(f"Rerunning {len(instance_ids)} incomplete instances")
+    elif category == "missing":
+        # Find instances in repo mapping that weren't evaluated
+        if repo_mapping is None or dataset_instances is None:
+            log_error("Missing category requires repo_mapping and dataset_instances")
+            return []
+        
+        submitted_ids = set(results_data.get("submitted_ids", []))
+        
+        # Get all available instance IDs from dataset
+        all_available_ids = set()
+        for instance in dataset_instances:
+            instance_id = instance["instance_id"]
+            if instance_id in repo_mapping:
+                all_available_ids.add(instance_id)
+        
+        # Find instances that are available but weren't submitted
+        missing_ids = all_available_ids - submitted_ids
+        instance_ids = sorted(list(missing_ids))
+        
+        log_info(f"Found {len(instance_ids)} instances in repo mapping but not in results")
+        if instance_ids:
+            log_info(f"Missing instances: {instance_ids[:10]}{' ...' if len(instance_ids) > 10 else ''}")
+    elif category == "all_failed":
+        # Combine empty patches, errors, incomplete, and missing
+        empty = results_data.get("empty_patch_ids", [])
+        errors = results_data.get("error_ids", [])
+        incomplete = results_data.get("incomplete_ids", [])
+        
+        # Also find missing instances
+        missing = []
+        if repo_mapping is not None and dataset_instances is not None:
+            submitted_ids = set(results_data.get("submitted_ids", []))
+            all_available_ids = set()
+            for instance in dataset_instances:
+                instance_id = instance["instance_id"]
+                if instance_id in repo_mapping:
+                    all_available_ids.add(instance_id)
+            missing = list(all_available_ids - submitted_ids)
+        
+        instance_ids = list(set(empty + errors + incomplete + missing))
+        log_info(f"Rerunning {len(instance_ids)} instances:")
+        log_info(f"  - Empty patches: {len(empty)}")
+        log_info(f"  - Errors: {len(errors)}")
+        log_info(f"  - Incomplete: {len(incomplete)}")
+        log_info(f"  - Missing: {len(missing)}")
+    else:
+        log_error(f"Unknown category: {category}")
+        log_info("Valid categories: empty_patch, error, incomplete, missing, all_failed")
+        return []
+    
+    return instance_ids
+
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluate Brokk CLI on SWE-bench-lite instances",
@@ -1251,6 +1417,18 @@ Examples:
   
   # Parallel with code agent (fastest)
   python evaluate_brokk.py --split test --agent code --max-workers 4
+  
+  # Rerun empty patch instances from previous run (merges with existing results)
+  python evaluate_brokk.py --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json --rerun-category empty_patch
+  
+  # Rerun instances missing from previous run (in repos but not in results)
+  python evaluate_brokk.py --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json --rerun-category missing
+  
+  # Rerun all failed instances (empty patches + errors + incomplete + missing)
+  python evaluate_brokk.py --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json --rerun-category all_failed
+  
+  # Rerun only error instances with different agent (saves to new directory)
+  python evaluate_brokk.py --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json --rerun-category error --agent code --output_dir swe_bench_tests/20251014_errors_retry
         """
     )
     
@@ -1341,6 +1519,25 @@ Examples:
         help="Maximum number of parallel workers (default: 1 for sequential execution). Use 2-4 for parallelization."
     )
     
+    parser.add_argument(
+        "--rerun-from",
+        type=str,
+        help="Path to results.json from a previous run to selectively rerun instances"
+    )
+    
+    parser.add_argument(
+        "--rerun-category",
+        choices=["empty_patch", "error", "incomplete", "missing", "all_failed"],
+        default="empty_patch",
+        help="Category of instances to rerun when using --rerun-from: empty_patch, error, incomplete, missing (not in results), or all_failed (default: empty_patch)"
+    )
+    
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="Merge results with existing files in output directory instead of overwriting (useful for reruns)"
+    )
+    
     args = parser.parse_args()
     
     # Setup logging level
@@ -1405,6 +1602,53 @@ Examples:
             log_error(f"Instance {args.instance_id} not found in available instances")
             log_info(f"Available instances: {[i['instance_id'] for i in available_instances]}")
             sys.exit(1)
+    
+    # Filter to rerun instances from previous results if requested
+    if args.rerun_from:
+        if args.instance_id:
+            log_error("Cannot use --rerun-from with --instance_id")
+            sys.exit(1)
+        
+        results_file = Path(args.rerun_from)
+        results_data = load_results_json(results_file)
+        
+        if results_data is None:
+            sys.exit(1)
+        
+        # Get instance IDs to rerun (pass repo_mapping and instances for 'missing' and 'all_failed' categories)
+        rerun_instance_ids = get_rerun_instance_ids(
+            results_data, 
+            args.rerun_category,
+            repo_mapping=repo_mapping,
+            dataset_instances=available_instances
+        )
+        
+        if not rerun_instance_ids:
+            log_error("No instances to rerun")
+            sys.exit(1)
+        
+        # Filter available instances to only those in rerun list
+        rerun_instances = []
+        for instance in available_instances:
+            if instance["instance_id"] in rerun_instance_ids:
+                rerun_instances.append(instance)
+        
+        available_instances = rerun_instances
+        
+        log_success(f"Filtered to {len(available_instances)} instances for rerun ({args.rerun_category})")
+        
+        if len(available_instances) == 0:
+            log_error("None of the instances to rerun are available in the current dataset")
+            log_info(f"Requested: {rerun_instance_ids[:5]}...")
+            sys.exit(1)
+        
+        # Set default output directory based on the original run if not specified
+        if not args.output_dir:
+            # Use the SAME directory as the results.json file for in-place merging
+            original_run_dir = results_file.parent
+            args.output_dir = str(original_run_dir)
+            log_info(f"Setting output directory to original run directory (merge mode): {args.output_dir}")
+            log_warning("Rerun results will be MERGED with existing results in this directory")
     
     # Create output directory
     if args.output_dir:
@@ -1481,8 +1725,14 @@ Examples:
     results_file = output_dir / "results.json"
     diagnostics_file = output_dir / "diagnostics.json"
     
-    save_predictions(results, str(preds_file))
-    save_results_json(results, str(results_file))
+    # Use merge mode if --merge flag is set OR if --rerun-from is used
+    merge_mode = args.merge or args.rerun_from is not None
+    
+    if merge_mode:
+        log_info("Merge mode enabled - will combine with existing results in output directory")
+    
+    save_predictions(results, str(preds_file), merge=merge_mode)
+    save_results_json(results, str(results_file), merge=merge_mode, preds_file=str(preds_file))
     save_diagnostics(results, eval_start_time, eval_end_time, args.model_name, str(diagnostics_file))
     
     # Clean up checkpoint directory after successful completion
