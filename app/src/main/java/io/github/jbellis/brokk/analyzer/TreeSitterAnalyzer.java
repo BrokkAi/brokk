@@ -137,8 +137,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
 
-    public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
-
     private record ProjectFilePair(ProjectFile lhs, ProjectFile rhs) {
         @Override
         public boolean equals(Object o) {
@@ -264,16 +262,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
-                                () -> readFileBytes(pf, timing), ioExecutor)
-                        .thenApplyAsync(
-                                fileBytes -> {
+                                () -> {
                                     totalFilesAttempted.incrementAndGet();
-                                    return analyzeFile(pf, fileBytes, timing);
+                                    return readFileBytes(pf, timing);
                                 },
-                                parseExecutor)
+                                ioExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
-                        .whenComplete((Void ignored, @Nullable Throwable ex) -> {
+                        .whenComplete((ignored, ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
                             } else {
@@ -294,7 +291,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     log.warn("Error analyzing {}: {}", pf, cause.getMessage(), cause);
                                 }
                             }
-                        });
+                        })
+                        .exceptionally(ex -> null); // exceptions have been logged already, don't re-throw
 
                 futures.add(future);
             }
@@ -462,7 +460,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return fileProperties(file).topLevelCodeUnits();
     }
 
-    protected List<String> importStatementsOf(ProjectFile file) {
+    @Override
+    public List<String> importStatementsOf(ProjectFile file) {
         return fileProperties(file).importStatements();
     }
 
@@ -1041,7 +1040,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
 
     /** Get the project this analyzer is associated with. */
-    protected IProject getProject() {
+    @Override
+    public IProject getProject() {
         return project;
     }
 
@@ -2999,5 +2999,52 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected boolean isAnonymousStructure(String fqName) {
         return false;
+    }
+
+    // Helper container to track depth alongside the matching CodeUnit
+    private static final class CUWithDepth {
+        final CodeUnit cu;
+        final int depth;
+
+        CUWithDepth(CodeUnit cu, int depth) {
+            this.cu = cu;
+            this.depth = depth;
+        }
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        if (range.isEmpty()) return Optional.empty();
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+
+        // Start from top-level declarations to ensure deterministic traversal order
+        for (var top : topLevelCodeUnitsOf(file)) {
+            var res = findDeepestEnclosing(top, range, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+
+        return Optional.ofNullable(best);
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
+        // If the range is not contained within this CU, skip
+        boolean containsCurrent = rangesOf(current).stream().anyMatch(range::isContainedWithin);
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosing(child, range, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
     }
 }

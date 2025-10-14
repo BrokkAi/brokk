@@ -62,7 +62,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
-import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -97,12 +96,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Task List",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
 
@@ -884,7 +878,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // IMMEDIATE FEEDBACK: inform user tasks were submitted without waiting for LLM work
         int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-        int numTask = runningIndex + 1;
+        int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
+        // Calculate task number based on its position in the run queue, not its overall list index.
+        final int numTask = (pos >= 0) ? pos + 1 : 1;
         SwingUtilities.invokeLater(() -> chrome.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun

@@ -1941,8 +1941,7 @@ public class WorkspacePanel extends JPanel {
             chrome.toolError("No test files specified to run.");
             return;
         }
-
-        chrome.getContextManager().runTests(testFiles);
+        chrome.runTests(testFiles);
     }
 
     public void attachContextViaDialog() {

@@ -1,18 +1,14 @@
 package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.io.Files;
+import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class MultiAnalyzer
-        implements IAnalyzer,
-                CallGraphProvider,
-                UsagesProvider,
-                SkeletonProvider,
-                SourceCodeProvider,
-                TypeAliasProvider {
+        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -53,16 +49,22 @@ public class MultiAnalyzer
     }
 
     @Override
-    public List<CodeUnit> getUses(String fqName) {
+    public List<String> importStatementsOf(ProjectFile file) {
         return delegates.values().stream()
-                .flatMap(
-                        analyzer1 -> analyzer1
-                                .as(UsagesProvider.class)
-                                .map(up -> up.getUses(fqName))
-                                .orElse(Collections.emptyList())
-                                .stream())
-                .distinct()
-                .collect(Collectors.toList());
+                .flatMap(analyzer -> analyzer.importStatementsOf(file).stream())
+                .toList();
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, range).stream())
+                .findFirst();
+    }
+
+    @Override
+    public IProject getProject() {
+        return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
 
     @Override
