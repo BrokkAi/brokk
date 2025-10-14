@@ -54,9 +54,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -107,8 +110,8 @@ public class HistoryOutputPanel extends JPanel {
     private final JPanel notificationAreaPanel;
 
     private final MaterialButton notificationsButton = new MaterialButton();
-    private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
-    private final java.util.Queue<NotificationEntry> notificationQueue = new java.util.ArrayDeque<>();
+    private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
+    private final Queue<NotificationEntry> notificationQueue = new ConcurrentLinkedQueue<>();
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
 
