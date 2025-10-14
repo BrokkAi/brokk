@@ -102,8 +102,6 @@ dependencies {
     // TreeSitter parsers
     implementation(libs.bundles.treesitter)
 
-    // Eclipse LSP
-    implementation(libs.bundles.eclipse.lsp)
     // Eclipse JDT Core for Java parse without classpath
     implementation(libs.eclipse.jdt.core)
 
