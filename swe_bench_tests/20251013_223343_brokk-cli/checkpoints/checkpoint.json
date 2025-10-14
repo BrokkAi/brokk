@@ -1,0 +1,19 @@
+{
+  "completed_instances": [
+    "django__django-15213"
+  ],
+  "results": {
+    "django__django-15213": {
+      "model_name_or_path": "brokk-cli",
+      "instance_id": "django__django-15213",
+      "model_patch": "diff --git a/django/db/models/sql/where.py b/django/db/models/sql/where.py\nindex 50ff13be75..5029376c41 100644\n--- a/django/db/models/sql/where.py\n+++ b/django/db/models/sql/where.py\n@@ -215,7 +215,11 @@ class WhereNode(tree.Node):\n         # (e.g. Oracle) doesn't support boolean expression in SELECT or GROUP\n         # BY list.\n         if not compiler.connection.features.supports_boolean_expr_in_select_clause:\n-            sql = f'CASE WHEN {sql} THEN 1 ELSE 0 END'\n+            if sql:\n+                sql = f'CASE WHEN {sql} THEN 1 ELSE 0 END'\n+            else:\n+                # Empty SQL means the condition is always true\n+                sql = '1'\n         return sql, params\n \n     def get_db_converters(self, connection):\n",
+      "success": true,
+      "changes": true,
+      "error": null,
+      "execution_time": 81.08113503456116
+    }
+  },
+  "eval_start_time": 1760412823.9520102,
+  "last_checkpoint": "2025-10-13T22:39:31.313071",
+  "checkpoint_count": 1
+}

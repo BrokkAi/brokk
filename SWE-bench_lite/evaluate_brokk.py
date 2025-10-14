@@ -235,7 +235,8 @@ def run_brokk_cli_internal(
     instance_id: str, 
     additional_files: Optional[List[str]] = None,
     retry_attempt: int = 0,
-    agent: str = "code"
+    agent: str = "code",
+    use_deepscan: bool = True
 ) -> Dict[str, Any]:
     """
     Internal function to run Brokk CLI on a repository.
@@ -246,6 +247,8 @@ def run_brokk_cli_internal(
         instance_id: The instance identifier
         additional_files: Optional list of files to add with --edit
         retry_attempt: Current retry attempt number (for logging)
+        agent: Which Brokk agent to use
+        use_deepscan: Whether to use --deepscan (skip on retries to save time and avoid token limits)
     
     Returns:
         Dictionary with success status, git diff, and any errors
@@ -256,6 +259,8 @@ def run_brokk_cli_internal(
     log_info(f"Problem: {problem_statement[:100]}...")
     if additional_files:
         log_info(f"Adding {len(additional_files)} files explicitly: {additional_files}")
+    if not use_deepscan:
+        log_info("Skipping Deep Scan (using explicit files instead)")
     
     original_cwd = Path.cwd()
     
@@ -292,8 +297,11 @@ def run_brokk_cli_internal(
         brokk_cmd = [
             "../../cli",  # Relative path from repo to cli script
             "--project", ".",
-            "--deepscan",
         ]
+        
+        # Only use deepscan on first attempt or when explicitly requested
+        if use_deepscan:
+            brokk_cmd.append("--deepscan")
         
         # Add explicit files if provided
         if additional_files:
@@ -327,7 +335,7 @@ def run_brokk_cli_internal(
         stdout_lines: List[str] = []
         stderr_lines: List[str] = []
         last_output_time = time.time()
-        inactivity_timeout_sec = int(os.environ.get("BROKK_INACTIVITY_TIMEOUT", "180"))
+        inactivity_timeout_sec = int(os.environ.get("BROKK_INACTIVITY_TIMEOUT", "600"))
 
         def _drain_stream(stream, collector, label):
             for line in iter(stream.readline, ""):
@@ -531,8 +539,14 @@ def run_brokk_cli(
             "patch": ""
         }
     
-    # First attempt: run without additional files
-    result = run_brokk_cli_internal(repo_path_obj, problem_statement, instance_id, agent=agent)
+    # First attempt: run with deepscan, without additional files
+    result = run_brokk_cli_internal(
+        repo_path_obj, 
+        problem_statement, 
+        instance_id, 
+        agent=agent,
+        use_deepscan=True  # Use deepscan on first attempt
+    )
     
     # Track retry attempts
     retry_count = 0
@@ -561,14 +575,15 @@ def run_brokk_cli(
         used_files.update(new_files)
         retry_count += 1
         
-        # Retry with the requested files
+        # Retry with the requested files, but skip deepscan (we're providing explicit files)
         result = run_brokk_cli_internal(
             repo_path_obj, 
             problem_statement, 
             instance_id,
             additional_files=sorted(new_files),
             retry_attempt=retry_count,
-            agent=agent
+            agent=agent,
+            use_deepscan=False  # Skip deepscan on retries - we have explicit files
         )
     
     # Add retry metadata to result

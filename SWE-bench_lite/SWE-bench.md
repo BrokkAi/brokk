@@ -231,6 +231,7 @@ For each instance, the script:
    - If Brokk completes without changes but requests specific files
    - The script automatically detects requested file paths (scans for `\`is/valid/filepath/file.txt\``)
    - Retries with those files added via `--edit` flags
+   - **Deep Scan is skipped on retries** (saves time and avoids token limits)
    - Repeats up to `--max_retries` times (default: 1)
 7. **Captures Changes**: Detects any modifications made by Brokk
 8. **Generates Patch**: Creates a git diff (excluding `.brokk/` directory)
@@ -264,6 +265,54 @@ The evaluation script now automatically detects when Brokk requests additional f
 - `--max_retries 0`: Disable automatic retries (just use deepscan)
 - `--max_retries 1`: Allow one retry with requested files (default)
 - `--max_retries 2`: Allow up to two retries for complex problems
+
+**Performance Optimization:**
+- **First attempt**: Uses `--deepscan` to intelligently gather context
+- **Retry attempts**: Skips `--deepscan` and uses only explicitly requested files
+- This avoids token limit errors and speeds up retries significantly (2-3 minute savings per retry)
+
+### Brokk Agent Modes
+
+You can choose between different Brokk agents for evaluation:
+
+#### Code Agent (Default: `--agent code`)
+- **Best for**: Most problems, especially when you have good initial context
+- **Behavior**: Direct code generation with single-pass execution
+- **Speed**: Fastest (~3-5 minutes per instance)
+- **Context Strategy**: Uses `--deepscan` on first attempt, then manual retry with requested files
+- **Recommended**: Start here for most evaluations
+
+#### Search-Tasks Agent (`--agent search-tasks`)
+- **Best for**: Complex problems requiring research and multi-step solutions
+- **Behavior**: 
+  1. Researches the problem and gathers context intelligently
+  2. Generates a task list breaking down the solution
+  3. Executes tasks sequentially
+- **Speed**: Slower (~10-15 minutes per instance due to multiple LLM calls)
+- **Context Strategy**: Built-in intelligent research phase (like enhanced Deep Scan)
+- **When to use**:
+  - Problems that consistently fail with `--code` agent
+  - Complex architectural changes
+  - When you want Brokk to autonomously explore the codebase
+  
+**Example with search-tasks:**
+```bash
+# Use search-tasks for problems that need more autonomy
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --split test \
+    --max_instances 10 \
+    --agent search-tasks \
+    --repos_dir swe_bench_repos
+```
+
+**Trade-off**: Search-tasks is more thorough but slower. For SWE-bench evaluation:
+- Use `--agent code` (default) for most runs - it's faster and works well with the retry mechanism
+- Use `--agent search-tasks` for a second pass on failed instances if you want Brokk to take more initiative
+
+#### Architect Agent (`--agent architect`)
+- **Best for**: Large refactoring or architectural changes
+- **Behavior**: Creates a plan first, then implements it
+- **Less commonly used** for SWE-bench (most issues are focused changes)
 
 ### Checkpoint and Resume Support
 

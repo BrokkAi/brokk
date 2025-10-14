@@ -1,0 +1,35 @@
+{
+  "total_instances": 5,
+  "submitted_instances": 5,
+  "completed_instances": 5,
+  "resolved_instances": 0,
+  "unresolved_instances": 5,
+  "empty_patch_instances": 0,
+  "error_instances": 0,
+  "completed_ids": [
+    "django__django-11564",
+    "django__django-11727",
+    "django__django-14382",
+    "django__django-15213",
+    "matplotlib__matplotlib-18869"
+  ],
+  "incomplete_ids": [],
+  "empty_patch_ids": [],
+  "submitted_ids": [
+    "django__django-11564",
+    "django__django-11727",
+    "django__django-14382",
+    "django__django-15213",
+    "matplotlib__matplotlib-18869"
+  ],
+  "resolved_ids": [],
+  "unresolved_ids": [
+    "django__django-11564",
+    "django__django-11727",
+    "django__django-14382",
+    "django__django-15213",
+    "matplotlib__matplotlib-18869"
+  ],
+  "error_ids": [],
+  "schema_version": 2
+}
