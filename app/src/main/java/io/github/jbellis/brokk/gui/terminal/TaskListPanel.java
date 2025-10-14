@@ -884,7 +884,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // IMMEDIATE FEEDBACK: inform user tasks were submitted without waiting for LLM work
         int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-        int numTask = runningIndex + 1;
+        int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
+        final int numTask = (pos != -1) ? pos + 1 : 1;
         SwingUtilities.invokeLater(() -> chrome.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun
