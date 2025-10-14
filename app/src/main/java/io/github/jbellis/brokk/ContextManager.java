@@ -1576,6 +1576,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextGenerator A function that takes the current top context and returns an updated context.
      * @return The new top context, or the existing top context if no changes were made by the generator.
      */
+    @Override
     public Context pushContextQuietly(Function<Context, Context> contextGenerator) {
         var newTopContext = contextHistory.pushQuietly(contextGenerator);
         if (!topContext().equals(newTopContext)) {

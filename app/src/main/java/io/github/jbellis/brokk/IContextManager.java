@@ -155,6 +155,10 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    default Context pushContextQuietly(Function<Context, Context> contextGenerator) {
+        return pushContext(contextGenerator);
+    }
+
     default <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
         try {
             return CompletableFuture.completedFuture(task.call());

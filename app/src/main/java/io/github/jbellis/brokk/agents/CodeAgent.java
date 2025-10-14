@@ -93,6 +93,7 @@ public class CodeAgent {
 
         contextManager.getAnalyzerWrapper().pause();
         try {
+            // TODO runTaskInternal allows creating new files, should we prevent that?
             return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
         } finally {
             contextManager.getAnalyzerWrapper().resume();
@@ -257,12 +258,22 @@ public class CodeAgent {
             var justCreated = new HashSet<>(es.createdFilesToStage());
             justCreated.removeAll(prevCreatedFiles);
             if (!justCreated.isEmpty()) {
+                // Stage any files that were created during this task, regardless of stop reason
+                try {
+                    contextManager.getRepo().add(justCreated);
+                    contextManager.getRepo().invalidateCaches();
+                } catch (GitAPIException e) {
+                    io.toolError("Failed to add newly created files to git: " + e.getMessage());
+                }
+
                 var newFrags = justCreated.stream()
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
-                context = context.addPathFragments(newFrags);
-                // FIXME do this once at the end
-                contextManager.addFiles(justCreated);
+                if (context == contextManager.topContext()) {
+                    context = contextManager.pushContextQuietly(current -> current.addPathFragments(newFrags));
+                } else {
+                    context = context.addPathFragments(newFrags);
+                }
             }
 
             // After a successful apply, consider compacting the turn into a clean, synthetic summary.
@@ -323,17 +334,6 @@ public class CodeAgent {
         // everyone reports their own reasons for stopping, except for interruptions
         if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
             reportComplete("Cancelled by user.");
-        }
-
-        // Stage any files that were created during this task, regardless of stop reason
-        try {
-            var toStage = es.createdFilesToStage();
-            if (!toStage.isEmpty()) {
-                contextManager.getRepo().add(toStage);
-                contextManager.getRepo().invalidateCaches();
-            }
-        } catch (GitAPIException e) {
-            io.toolError("Failed to add newly created files to git: " + e.getMessage());
         }
 
         if (metrics != null) {
