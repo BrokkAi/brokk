@@ -51,11 +51,13 @@ public class TestRunnerPanelRunPersistenceTest {
         for (int i = 0; i < maxRuns + 2; i++) { // e.g., 7 runs for maxRuns = 5
             String id = panel1.beginRun(1, "cmd " + i, Instant.now());
             runIds.add(id);
+            awaitSave(panel1); // Ensure triggered save is complete
+
             if (i == maxRuns + 1) {
                 // Append output to the newest run for validation
                 panel1.appendToRun(id, "Output for run " + i + "\n");
+                awaitSave(panel1); // Ensure triggered save is complete
             }
-            awaitSave(panel1); // Ensure triggered save is complete
         }
 
         // Complete the newest run to ensure its state is saved correctly
@@ -173,6 +175,7 @@ public class TestRunnerPanelRunPersistenceTest {
         waitForEdt();
 
         String id = panel1.beginRun(1, "run1", Instant.now());
+        awaitSave(panel1);
         panel1.completeRun(id, 0, Instant.now());
         awaitSave(panel1); // Ensure run is saved
 
