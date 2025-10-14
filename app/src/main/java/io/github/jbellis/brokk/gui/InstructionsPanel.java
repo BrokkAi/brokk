@@ -33,6 +33,7 @@ import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.dnd.DnDConstants;
+import java.awt.dnd.DragSource;
 import java.awt.dnd.DropTarget;
 import java.awt.dnd.DropTargetAdapter;
 import java.awt.dnd.DropTargetDragEvent;
@@ -909,8 +910,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (transferHandler.canImport(support)) {
                     titledContainer.setDragOver(true);
                     e.acceptDrag(DnDConstants.ACTION_COPY);
+                    titledContainer.setCursor(DragSource.DefaultCopyDrop);
                 } else {
                     e.rejectDrag();
+                    titledContainer.setCursor(DragSource.DefaultCopyNoDrop);
                 }
             }
 
@@ -928,11 +931,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void dragExit(DropTargetEvent e) {
                 titledContainer.setDragOver(false);
+                titledContainer.setCursor(Cursor.getDefaultCursor());
             }
 
             @Override
             public void drop(DropTargetDropEvent e) {
                 titledContainer.setDragOver(false);
+                titledContainer.setCursor(Cursor.getDefaultCursor());
 
                 var transferable = e.getTransferable();
                 var support = new TransferHandler.TransferSupport(titledContainer, transferable);
