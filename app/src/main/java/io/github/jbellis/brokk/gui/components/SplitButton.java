@@ -16,9 +16,32 @@ public class SplitButton extends JButton {
 
     public SplitButton(String text) {
         super(text);
+        applyStyling();
         // updateUI will call setUI with the correct UI delegate.
         // This ensures our custom UI is (re)applied after L&F changes.
         updateUI();
+    }
+
+    private void applyStyling() {
+        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        setFocusable(true);
+        setOpaque(false);
+        putClientProperty("JButton.buttonType", "borderless");
+        setBorder(null);
+
+        // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
+        // and enabling rollover support on the button model.
+        setContentAreaFilled(true);
+        setRolloverEnabled(true);
+
+        Color linkColor = UIManager.getColor("Label.linkForeground");
+        if (linkColor == null) {
+            linkColor = UIManager.getColor("Label.foreground");
+        }
+        if (linkColor == null) {
+            linkColor = Color.BLUE;
+        }
+        setForeground(linkColor);
     }
 
     @Override
