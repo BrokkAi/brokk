@@ -951,7 +951,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         e.dropComplete(true);
                     }
                 } else {
-                	titledContainer.setCursor(Cursor.getDefaultCursor());
+                    titledContainer.setCursor(Cursor.getDefaultCursor());
                     e.rejectDrop();
                     e.dropComplete(false);
                 }
