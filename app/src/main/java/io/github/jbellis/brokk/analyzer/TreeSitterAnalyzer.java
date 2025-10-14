@@ -103,6 +103,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // New combined state maps (mirrors of legacy maps during migration)
     private final Map<CodeUnit, CodeUnitProperties> codeUnitState = new ConcurrentHashMap<>();
     private final Map<ProjectFile, FileProperties> fileState = new ConcurrentHashMap<>();
+    // Snapshot of file contents corresponding to the currently ingested state
+    private final Map<ProjectFile, String> fileContentSnapshots = new ConcurrentHashMap<>();
 
     // Ensures reads see a consistent view while updates mutate internal maps atomically
     private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
@@ -142,7 +144,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
-            List<String> importStatements // Added for module-level imports
+            List<String> importStatements, // Added for module-level imports
+            String fileContent // Snapshot of source content corresponding to the analyzed ranges
             ) {}
 
     // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
@@ -840,16 +843,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // For classes, expect one primary definition range (already expanded with comments)
             var range = ranges.getFirst();
 
-            var srcOpt = cu.source().read();
-            if (srcOpt.isEmpty()) {
-                return Optional.<String>empty();
+            // Prefer the ingested snapshot to guarantee consistency with recorded byte ranges
+            int startByte = includeComments ? range.commentStartByte() : range.startByte();
+            int endByte = range.endByte();
+
+            String src = fileContentSnapshots.get(cu.source());
+            if (src == null) {
+                var srcOpt = readStableFileContent(cu.source(), endByte, 200, 5);
+                if (srcOpt.isEmpty()) {
+                    return Optional.<String>empty();
+                }
+                src = srcOpt.get();
             }
-            String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
 
-            // Choose start byte based on includeComments parameter
-            int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-            var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
-
+            var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
             return Optional.of(extractedSource);
         });
     }
@@ -872,12 +879,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 return Collections.<String>emptySet();
             }
 
-            var fileContentOpt = cu.source().read();
-            if (fileContentOpt.isEmpty()) {
-                log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
-                return Collections.<String>emptySet();
+            // Compute max end byte to ensure we read enough bytes for any overload
+            int maxEndByte = rangesForOverloads.stream().mapToInt(Range::endByte).max().orElse(0);
+
+            String fileContent = fileContentSnapshots.get(cu.source());
+            if (fileContent == null) {
+                var fileContentOpt = readStableFileContent(cu.source(), maxEndByte, 200, 5);
+                if (fileContentOpt.isEmpty()) {
+                    log.warn("Could not read stable source for CU {} (fqName {}): {}", cu, fqName, "unreadable or truncated");
+                    return Collections.<String>emptySet();
+                }
+                fileContent = fileContentOpt.get();
             }
-            String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
 
             var methodSources = new LinkedHashSet<String>();
             for (Range range : rangesForOverloads) {
@@ -1110,7 +1123,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of());
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), src);
         }
         // Log root node type
         String rootNodeType = rootNode.getType();
@@ -1589,7 +1602,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 Collections.unmodifiableList(localTopLevelCUs),
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
-                Collections.unmodifiableList(localImportStatements));
+                Collections.unmodifiableList(localImportStatements),
+                src);
     }
 
     /* ---------- Signature Building Logic ---------- */
@@ -2520,6 +2534,37 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
+    /**
+     * Attempts to read file content that is at least minBytes long (after BOM removal), retrying a few times.
+     * This mitigates transient states where the file is being rewritten and appears truncated (e.g., length 0).
+     *
+     * @param pf the project file
+     * @param minBytesRequired minimum byte length (UTF-8) required to safely slice based on precomputed byte offsets
+     * @param maxAttempts maximum number of read attempts
+     * @param sleepMillis sleep duration between attempts
+     * @return Optional containing stable content, or empty if not achieved within attempts
+     */
+    private Optional<String> readStableFileContent(ProjectFile pf, int minBytesRequired, int maxAttempts, long sleepMillis) {
+        for (int attempt = 1; attempt <= Math.max(1, maxAttempts); attempt++) {
+            try {
+                byte[] raw = readFileBytes(pf, null);
+                raw = TextCanonicalizer.stripUtf8Bom(raw);
+                if (raw.length >= Math.max(0, minBytesRequired)) {
+                    return Optional.of(new String(raw, StandardCharsets.UTF_8));
+                }
+            } catch (UncheckedIOException uioe) {
+                // fall-through to retry (handled by readFileBytes)
+            } catch (RuntimeException re) {
+                // unexpected runtime error; don't spin forever
+                log.warn("Runtime error reading file {} on attempt {}: {}", pf, attempt, re.getMessage());
+            }
+            if (attempt < maxAttempts) {
+                sleepQuietly(Math.max(1L, sleepMillis));
+            }
+        }
+        return Optional.empty();
+    }
+
     private FileAnalysisResult analyzeFile(ProjectFile pf, byte[] fileBytes, ConstructionTiming timing) {
         log.trace("Processing file: {}", pf);
         var parser = getTSParser();
@@ -2678,6 +2723,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         filesCleanedCount.incrementAndGet();
                                         parsedTreeCache.remove(file);
                                         fileState.remove(file);
+                                        fileContentSnapshots.remove(file);
 
                                         Predicate<CodeUnit> fromFile = cu -> file.equals(cu.source());
 
@@ -2938,6 +2984,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(), parsedTreeCache.get(pf), analysisResult.importStatements()));
+        // Mirror the file content snapshot used to compute ranges for consistent source extraction
+        fileContentSnapshots.put(pf, analysisResult.fileContent());
     }
 
     /* ---------- comment detection for source expansion ---------- */
