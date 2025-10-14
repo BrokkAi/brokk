@@ -365,7 +365,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, this.getIo());
+        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener);
 
         // Load saved context history or create a new one
         var contextTask =
@@ -2601,7 +2601,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, null, this.io);
+        this.analyzerWrapper = new AnalyzerWrapper(project, null);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

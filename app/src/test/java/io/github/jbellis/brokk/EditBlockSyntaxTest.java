@@ -2,7 +2,7 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
@@ -29,7 +29,7 @@ public class EditBlockSyntaxTest {
     @TempDir
     Path tempDir;
 
-    private JavaTreeSitterAnalyzer analyzer;
+    private JavaAnalyzer analyzer;
     private TestProject testProject;
     private Path sandboxPath;
 
@@ -43,7 +43,7 @@ public class EditBlockSyntaxTest {
         copyDir(testResourcesPath, sandboxPath);
 
         testProject = new TestProject(sandboxPath, Languages.JAVA);
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
     }
 
     @AfterEach

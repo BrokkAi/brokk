@@ -15,10 +15,10 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JavaTreeSitterAnalyzerSearchTest {
+public class JavaAnalyzerSearchTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerSearchTest.class);
-    private static JavaTreeSitterAnalyzer analyzer;
+    private static final Logger logger = LoggerFactory.getLogger(JavaAnalyzerSearchTest.class);
+    private static JavaAnalyzer analyzer;
     private static IProject testProject;
 
     @BeforeAll
@@ -30,7 +30,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
     }
 
     @AfterAll

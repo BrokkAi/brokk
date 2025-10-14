@@ -37,7 +37,7 @@ public class MultiAnalyzerTest {
         testProject = new TestProject(tempDir, Languages.JAVA);
 
         // Create MultiAnalyzer with Java support
-        var javaAnalyzer = new JavaTreeSitterAnalyzer(testProject);
+        var javaAnalyzer = new JavaAnalyzer(testProject);
         multiAnalyzer = new MultiAnalyzer(Map.of(Languages.JAVA, javaAnalyzer));
     }
 

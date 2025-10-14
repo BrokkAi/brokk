@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.nio.file.Files;
@@ -236,27 +235,6 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
             // Check if the JDK path has actually changed
             final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
-            final String previousValue = prefs.get(getPrefKey(), "");
-            final boolean pathChanged = !value.equals(previousValue);
-
-            if (pathChanged) {
-                try {
-                    // Wait synchronously so we can detect errors and notify the user immediately
-                    SharedJdtLspServer.getInstance()
-                            .updateWorkspaceJdk(projectRoot, jdkPath)
-                            .join();
-                } catch (Exception ex) {
-                    io.systemNotify(
-                            "Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
-                            "JDK Update Failed",
-                            JOptionPane.ERROR_MESSAGE);
-                    logger.error("Failed updating workspace JDK to {}", jdkPath, ex);
-                    return;
-                }
-                logger.debug("Updated Java analyzer JDK home: {}", value);
-            } else {
-                logger.debug("Java analyzer JDK home unchanged: {}", value);
-            }
 
             // Persist the preference (even if unchanged, to ensure it's saved)
             prefs.put(getPrefKey(), value);

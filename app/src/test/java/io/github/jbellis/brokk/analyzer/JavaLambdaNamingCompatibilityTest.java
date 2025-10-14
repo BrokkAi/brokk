@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 public class JavaLambdaNamingCompatibilityTest {
 
     @Nullable
-    private static JavaTreeSitterAnalyzer tsAnalyzer;
+    private static JavaAnalyzer tsAnalyzer;
 
     @Nullable
     private static TestProject testProject;
@@ -45,7 +45,7 @@ public class JavaLambdaNamingCompatibilityTest {
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
 
         testProject = new TestProject(testPath, Languages.JAVA);
-        tsAnalyzer = new JavaTreeSitterAnalyzer(testProject);
+        tsAnalyzer = new JavaAnalyzer(testProject);
         jdtClient = new JdtClient(testProject);
     }
 

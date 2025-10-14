@@ -25,7 +25,7 @@ public class FuzzyUsageFinderJavaTest {
     @BeforeAll
     public static void setup() throws IOException {
         testProject = createTestProject("testcode-java");
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
         logger.debug(
                 "Setting up FuzzyUsageFinder tests with test code from {}",
                 testProject.getRoot().toAbsolutePath().normalize());
