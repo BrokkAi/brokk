@@ -240,6 +240,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
     private final io.github.jbellis.brokk.gui.terminal.TaskListPanel taskListPanel;
+    private final io.github.jbellis.brokk.gui.terminal.TerminalPanel terminalPanel;
 
     // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
     private @Nullable TerminalDrawerPanel terminalDrawer = null;
@@ -467,9 +468,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
 
         // Create and add TerminalPanel as third tab (with terminal icon)
-        var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(
+        this.terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(
                 this, () -> {}, true, getProject().getRoot());
-        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
         // No right-side drawer; the rightTabbedPanel occupies full right side
@@ -2477,6 +2478,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public @Nullable TerminalDrawerPanel getTerminalDrawer() {
         return terminalDrawer;
     }
+
+    public void updateTerminalFontSize() {}
 
     /**
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.

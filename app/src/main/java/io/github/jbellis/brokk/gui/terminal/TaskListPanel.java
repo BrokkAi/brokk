@@ -97,12 +97,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Task List",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
 
