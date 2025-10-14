@@ -261,17 +261,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
-                                () -> readFileBytes(pf, timing), ioExecutor)
-                        .thenApplyAsync(
-                                fileBytes -> {
-                                    totalFilesAttempted.incrementAndGet();
-                                    return analyzeFile(pf, fileBytes, timing);
-                                },
-                                parseExecutor)
-                        .thenAcceptAsync(
-                                analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
-                        .whenComplete((Void ignored, @Nullable Throwable ex) -> {
+                CompletableFuture<Void> future = CompletableFuture
+                        .supplyAsync(() -> {
+                            totalFilesAttempted.incrementAndGet();
+                            return readFileBytes(pf, timing);
+                        }, ioExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
+                        .thenAcceptAsync(analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
+                        .whenComplete((ignored, ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
                             } else {
@@ -292,7 +289,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     log.warn("Error analyzing {}: {}", pf, cause.getMessage(), cause);
                                 }
                             }
-                        });
+                        })
+                        .exceptionally(ex -> null); // exceptions have been logged already, don't re-throw
 
                 futures.add(future);
             }
