@@ -8,8 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,7 +28,7 @@ public class LocalFileRepo implements IGitRepo {
     }
 
     @Override
-    public void add(List<ProjectFile> files) throws GitAPIException {
+    public void add(Collection<ProjectFile> files) throws GitAPIException {
         // no-op
     }
 

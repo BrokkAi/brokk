@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.git;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import org.eclipse.jgit.api.MergeResult;
@@ -94,20 +95,14 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default void add(List<ProjectFile> files) throws GitAPIException {
-        throw new UnsupportedOperationException();
-    }
+    void add(Collection<ProjectFile> files) throws GitAPIException;
 
     /**
      * for the rare case when you need to add a file (e.g. .gitignore) that is not necessarily under the project's root
      */
-    default void add(Path path) throws GitAPIException {
-        throw new UnsupportedOperationException();
-    }
+    void add(Path path) throws GitAPIException;
 
-    default void remove(ProjectFile file) throws GitAPIException {
-        throw new UnsupportedOperationException();
-    }
+    void remove(ProjectFile file) throws GitAPIException;
 
     default void forceRemoveFiles(List<ProjectFile> files) throws GitAPIException {
         throw new UnsupportedOperationException();

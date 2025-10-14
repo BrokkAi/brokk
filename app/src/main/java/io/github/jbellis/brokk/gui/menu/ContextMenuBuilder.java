@@ -482,7 +482,7 @@ public class ContextMenuBuilder {
             if (testProjectFiles.isEmpty()) {
                 context.chrome().toolError("No test files were selected to run");
             } else {
-                context.contextManager().runTests(testProjectFiles);
+                context.chrome().runTests(testProjectFiles);
             }
         });
     }

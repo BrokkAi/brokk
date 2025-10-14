@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -13,16 +15,15 @@ import org.jetbrains.annotations.Nullable;
  * A simple in-memory IGitRepo implementation for testing purposes. It tracks added and removed files without actual Git
  * operations.
  */
-public class InMemoryRepo implements IGitRepo {
+public class TestRepo implements IGitRepo {
 
     private final Set<ProjectFile> trackedFiles = new HashSet<>();
     private final Set<ProjectFile> addedFiles = new HashSet<>();
     private final Set<ProjectFile> removedFiles = new HashSet<>();
+    private final Path root;
 
-    public InMemoryRepo() {}
-
-    public InMemoryRepo(Set<ProjectFile> initialTrackedFiles) {
-        this.trackedFiles.addAll(initialTrackedFiles);
+    public TestRepo(Path root) {
+        this.root = root;
     }
 
     @Override
@@ -34,12 +35,17 @@ public class InMemoryRepo implements IGitRepo {
     }
 
     @Override
-    public synchronized void add(List<ProjectFile> files) throws GitAPIException {
+    public synchronized void add(Collection<ProjectFile> files) throws GitAPIException {
         for (var file : files) {
             addedFiles.add(file);
             removedFiles.remove(file); // If it was removed, adding it back makes it not removed
             trackedFiles.add(file); // Ensure it's in the base tracked set
         }
+    }
+
+    @Override
+    public void add(Path path) throws GitAPIException {
+        add(List.of(new ProjectFile(root, path.getFileName())));
     }
 
     @Override
@@ -56,10 +62,10 @@ public class InMemoryRepo implements IGitRepo {
         // Basic diff representation for testing if needed
         var sb = new StringBuilder();
         for (ProjectFile file : addedFiles) {
-            sb.append(String.format("A %s\n", file.toString()));
+            sb.append(String.format("A %s\n", file));
         }
         for (ProjectFile file : removedFiles) {
-            sb.append(String.format("D %s\n", file.toString()));
+            sb.append(String.format("D %s\n", file));
         }
         return sb.toString();
     }
@@ -70,7 +76,7 @@ public class InMemoryRepo implements IGitRepo {
     }
 
     @Override
-    public String diffFiles(List<ProjectFile> selectedFiles) throws GitAPIException {
+    public String diffFiles(List<ProjectFile> selectedFiles) {
         var selectedPaths = selectedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
         var sb = new StringBuilder();
         for (ProjectFile file : addedFiles) {
@@ -124,22 +130,22 @@ public class InMemoryRepo implements IGitRepo {
     }
 
     @Override
-    public String getCurrentCommitId() throws GitAPIException {
+    public String getCurrentCommitId() {
         return "in-memory-commit-id";
     }
 
     @Override
-    public Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
+    public Set<ModifiedFile> getModifiedFiles() {
         return Collections.emptySet();
     }
 
     @Override
-    public void checkout(String branchOrCommit) throws GitAPIException {
+    public void checkout(String branchOrCommit) {
         // no-op
     }
 
     @Override
-    public void applyDiff(String diff) throws GitAPIException {
-        // no-op for tests
+    public void applyDiff(String diff) {
+        // no-op
     }
 }

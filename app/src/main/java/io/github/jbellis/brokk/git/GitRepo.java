@@ -411,7 +411,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Adds files to staging. */
     @Override
-    public synchronized void add(List<ProjectFile> files) throws GitAPIException {
+    public synchronized void add(Collection<ProjectFile> files) throws GitAPIException {
         var addCommand = git.add();
         for (var file : files) {
             addCommand.addFilepattern(toRepoRelativePath(file));
