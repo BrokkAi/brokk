@@ -380,6 +380,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
+    /* Unified state read-lock helpers for multi-step reads */
+
+    /**
+     * Execute supplier while holding the analyzer state read lock. Prefer this
+     * to piecemeal locking when a multi-step read must be consistent.
+     */
+    protected <T> T withStateReadLock(Supplier<T> supplier) {
+        var rl = stateRwLock.readLock();
+        rl.lock();
+        try {
+            return supplier.get();
+        } finally {
+            rl.unlock();
+        }
+    }
+
+    /**
+     * Execute runnable while holding the analyzer state read lock.
+     */
+    protected void withStateReadLock(Runnable runnable) {
+        var rl = stateRwLock.readLock();
+        rl.lock();
+        try {
+            runnable.run();
+        } finally {
+            rl.unlock();
+        }
+    }
+
     /**
      * A thread-safe way to interact with the "codeUnitState" field.
      *
@@ -790,81 +819,85 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public Optional<String> getClassSource(String fqName, boolean includeComments) {
-        var cuOpt = getDefinition(fqName).filter(CodeUnit::isClass);
-        if (cuOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        var cu = cuOpt.get();
+        return withStateReadLock(() -> {
+            var cuOpt = getDefinition(fqName).filter(CodeUnit::isClass);
+            if (cuOpt.isEmpty()) {
+                return Optional.<String>empty();
+            }
+            var cu = cuOpt.get();
 
-        var ranges = rangesOf(cu);
-        if (ranges.isEmpty()) {
-            return Optional.empty();
-        }
+            var ranges = rangesOf(cu);
+            if (ranges.isEmpty()) {
+                return Optional.<String>empty();
+            }
 
-        // For classes, expect one primary definition range (already expanded with comments)
-        var range = ranges.getFirst();
+            // For classes, expect one primary definition range (already expanded with comments)
+            var range = ranges.getFirst();
 
-        var srcOpt = cu.source().read();
-        if (srcOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
+            var srcOpt = cu.source().read();
+            if (srcOpt.isEmpty()) {
+                return Optional.<String>empty();
+            }
+            String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
 
-        // Choose start byte based on includeComments parameter
-        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
+            // Choose start byte based on includeComments parameter
+            int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+            var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
 
-        return Optional.of(extractedSource);
+            return Optional.of(extractedSource);
+        });
     }
 
     @Override
     public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
-                // overloads)
-                .filter(CodeUnit::isFunction)
-                .map(cu -> {
-                    List<Range> rangesForOverloads = rangesOf(cu);
-                    if (rangesForOverloads.isEmpty()) {
-                        log.warn(
-                                "No source ranges found for CU {} (fqName {}) although definition was found.",
-                                cu,
-                                fqName);
-                        return Collections.<String>emptySet();
-                    }
+        return withStateReadLock(() -> {
+            var cuOpt = getDefinition(fqName).filter(CodeUnit::isFunction);
+            if (cuOpt.isEmpty()) {
+                return Collections.<String>emptySet();
+            }
+            var cu = cuOpt.get();
 
-                    var fileContentOpt = cu.source().read();
-                    if (fileContentOpt.isEmpty()) {
-                        log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
-                        return Collections.<String>emptySet();
-                    }
-                    String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
+            List<Range> rangesForOverloads = rangesOf(cu);
+            if (rangesForOverloads.isEmpty()) {
+                log.warn(
+                        "No source ranges found for CU {} (fqName {}) although definition was found.",
+                        cu,
+                        fqName);
+                return Collections.<String>emptySet();
+            }
 
-                    var methodSources = new LinkedHashSet<String>();
-                    for (Range range : rangesForOverloads) {
-                        // Choose start byte based on includeComments parameter
-                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-                        String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, extractStartByte, range.endByte());
-                        if (!methodSource.isEmpty()) {
-                            methodSources.add(methodSource);
-                        } else {
-                            log.warn(
-                                    "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    extractStartByte,
-                                    range.endByte(),
-                                    cu,
-                                    fqName);
-                        }
-                    }
-                    if (methodSources.isEmpty()) {
-                        log.warn(
-                                "After processing ranges, no valid method sources found for CU {} (fqName {}).",
-                                cu,
-                                fqName);
-                    }
-                    return methodSources;
-                })
-                .orElse(Collections.emptySet());
+            var fileContentOpt = cu.source().read();
+            if (fileContentOpt.isEmpty()) {
+                log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
+                return Collections.<String>emptySet();
+            }
+            String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
+
+            var methodSources = new LinkedHashSet<String>();
+            for (Range range : rangesForOverloads) {
+                // Choose start byte based on includeComments parameter
+                int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+                String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
+                        fileContent, extractStartByte, range.endByte());
+                if (!methodSource.isEmpty()) {
+                    methodSources.add(methodSource);
+                } else {
+                    log.warn(
+                            "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                            extractStartByte,
+                            range.endByte(),
+                            cu,
+                            fqName);
+                }
+            }
+            if (methodSources.isEmpty()) {
+                log.warn(
+                        "After processing ranges, no valid method sources found for CU {} (fqName {}).",
+                        cu,
+                        fqName);
+            }
+            return methodSources;
+        });
     }
 
     @Override
