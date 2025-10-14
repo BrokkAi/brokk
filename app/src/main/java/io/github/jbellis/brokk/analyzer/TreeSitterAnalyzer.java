@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableSet;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
@@ -138,7 +137,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<String, SkeletonType> captureConfiguration,
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
-
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -392,8 +390,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /* Unified state read-lock helpers for multi-step reads */
 
     /**
-     * Execute supplier while holding the analyzer state read lock. Prefer this
-     * to piecemeal locking when a multi-step read must be consistent.
+     * Execute supplier while holding the analyzer state read lock. Prefer this to piecemeal locking when a multi-step
+     * read must be consistent.
      */
     protected <T> T withStateReadLock(Supplier<T> supplier) {
         var rl = stateRwLock.readLock();
@@ -405,9 +403,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
-    /**
-     * Execute runnable while holding the analyzer state read lock.
-     */
+    /** Execute runnable while holding the analyzer state read lock. */
     protected void withStateReadLock(Runnable runnable) {
         var rl = stateRwLock.readLock();
         rl.lock();
@@ -872,21 +868,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             List<Range> rangesForOverloads = rangesOf(cu);
             if (rangesForOverloads.isEmpty()) {
-                log.warn(
-                        "No source ranges found for CU {} (fqName {}) although definition was found.",
-                        cu,
-                        fqName);
+                log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, fqName);
                 return Collections.<String>emptySet();
             }
 
             // Compute max end byte to ensure we read enough bytes for any overload
-            int maxEndByte = rangesForOverloads.stream().mapToInt(Range::endByte).max().orElse(0);
+            int maxEndByte =
+                    rangesForOverloads.stream().mapToInt(Range::endByte).max().orElse(0);
 
             String fileContent = fileContentSnapshots.get(cu.source());
             if (fileContent == null) {
                 var fileContentOpt = readStableFileContent(cu.source(), maxEndByte, 200, 5);
                 if (fileContentOpt.isEmpty()) {
-                    log.warn("Could not read stable source for CU {} (fqName {}): {}", cu, fqName, "unreadable or truncated");
+                    log.warn(
+                            "Could not read stable source for CU {} (fqName {}): {}",
+                            cu,
+                            fqName,
+                            "unreadable or truncated");
                     return Collections.<String>emptySet();
                 }
                 fileContent = fileContentOpt.get();
@@ -896,8 +894,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             for (Range range : rangesForOverloads) {
                 // Choose start byte based on includeComments parameter
                 int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-                String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                        fileContent, extractStartByte, range.endByte());
+                String methodSource =
+                        ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, extractStartByte, range.endByte());
                 if (!methodSource.isEmpty()) {
                     methodSources.add(methodSource);
                 } else {
@@ -910,10 +908,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 }
             }
             if (methodSources.isEmpty()) {
-                log.warn(
-                        "After processing ranges, no valid method sources found for CU {} (fqName {}).",
-                        cu,
-                        fqName);
+                log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, fqName);
             }
             return methodSources;
         });
@@ -2535,8 +2530,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Attempts to read file content that is at least minBytes long (after BOM removal), retrying a few times.
-     * This mitigates transient states where the file is being rewritten and appears truncated (e.g., length 0).
+     * Attempts to read file content that is at least minBytes long (after BOM removal), retrying a few times. This
+     * mitigates transient states where the file is being rewritten and appears truncated (e.g., length 0).
      *
      * @param pf the project file
      * @param minBytesRequired minimum byte length (UTF-8) required to safely slice based on precomputed byte offsets
@@ -2544,7 +2539,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param sleepMillis sleep duration between attempts
      * @return Optional containing stable content, or empty if not achieved within attempts
      */
-    private Optional<String> readStableFileContent(ProjectFile pf, int minBytesRequired, int maxAttempts, long sleepMillis) {
+    private Optional<String> readStableFileContent(
+            ProjectFile pf, int minBytesRequired, int maxAttempts, long sleepMillis) {
         for (int attempt = 1; attempt <= Math.max(1, maxAttempts); attempt++) {
             try {
                 byte[] raw = readFileBytes(pf, null);
@@ -2612,7 +2608,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             codeUnitState.keySet().removeIf(fromFile);
             codeUnitState.replaceAll((parent, state) -> {
-                var filteredKids = state.children().stream().filter(fromFile.negate()).toList();
+                var filteredKids =
+                        state.children().stream().filter(fromFile.negate()).toList();
                 if (!filteredKids.equals(state.children())) {
                     parentsTouched.incrementAndGet();
                     return new CodeUnitProperties(List.copyOf(filteredKids), state.signatures(), state.ranges());
@@ -2675,8 +2672,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var parentsTouchedCount = new AtomicInteger(0);
         var writeLockHoldNanos = new AtomicLong(0L);
 
-        
-
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
@@ -2729,10 +2724,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
                                         codeUnitState.keySet().removeIf(fromFile);
                                         codeUnitState.replaceAll((parent, state) -> {
-                                            var filteredKids = state.children().stream().filter(fromFile.negate()).toList();
+                                            var filteredKids = state.children().stream()
+                                                    .filter(fromFile.negate())
+                                                    .toList();
                                             if (!filteredKids.equals(state.children())) {
                                                 parentsTouchedCount.incrementAndGet();
-                                                return new CodeUnitProperties(List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                                return new CodeUnitProperties(
+                                                        List.copyOf(filteredKids), state.signatures(), state.ranges());
                                             }
                                             return state;
                                         });
@@ -2742,7 +2740,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         for (var entry : symbolIndex.entrySet()) {
                                             var symbol = entry.getKey();
                                             var cus = entry.getValue();
-                                            var remaining = cus.stream().filter(fromFile.negate()).toList();
+                                            var remaining = cus.stream()
+                                                    .filter(fromFile.negate())
+                                                    .toList();
                                             if (remaining.isEmpty()) {
                                                 symbolsToPurge.add(symbol);
                                             } else if (remaining.size() < cus.size()) {
@@ -2757,10 +2757,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         log.debug("File {} deleted; state cleaned.", file);
                                     } else {
                                         // Analysis failed; keep old state
-                                        log.warn("Skipping state update for {} due to analysis failure; preserving old state.", file);
+                                        log.warn(
+                                                "Skipping state update for {} due to analysis failure; preserving old state.",
+                                                file);
                                     }
                                 } catch (Throwable t) {
-                                    log.error("Exception encountered while performing atomic update for file {}", file, t);
+                                    log.error(
+                                            "Exception encountered while performing atomic update for file {}",
+                                            file,
+                                            t);
                                 } finally {
                                     writeLockHoldNanos.addAndGet(System.nanoTime() - lockStartNanos);
                                     writeLock.unlock();
@@ -2774,7 +2779,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             if (!futures.isEmpty()) {
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .join();
             }
         }
 

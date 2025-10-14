@@ -171,7 +171,8 @@ class JavaAnalyzerUpdateTest {
                         return;
                     }
 
-                    // method2 may or may not exist depending on the current version; if present, contents must be non-blank
+                    // method2 may or may not exist depending on the current version; if present, contents must be
+                    // non-blank
                     var m2Sources = analyzer.getMethodSources("A.method2", true);
                     if (!m2Sources.isEmpty() && m2Sources.stream().anyMatch(String::isBlank)) {
                         anomalies.incrementAndGet();
