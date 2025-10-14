@@ -447,6 +447,7 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
 
 tasks.shadowJar {
     archiveBaseName.set("brokk")
+    archiveVersion.set(actualVersion)
     archiveClassifier.set("")
     mergeServiceFiles()
     isZip64 = true  // Enable zip64 for large archives

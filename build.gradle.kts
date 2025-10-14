@@ -37,13 +37,16 @@ fun getVersionFromGit(): String {
 
 fun getCurrentGitHead(): String? {
     return try {
-        val gitHeadProcess = ProcessBuilder("git", "rev-parse", "HEAD")
-            .directory(rootDir)
-            .start()
+        val processBuilder = ProcessBuilder("git", "rev-parse", "HEAD")
+        processBuilder.directory(rootDir)
+        processBuilder.environment().putAll(System.getenv())
+        val gitHeadProcess = processBuilder.start()
         gitHeadProcess.waitFor()
         if (gitHeadProcess.exitValue() == 0) {
             gitHeadProcess.inputStream.bufferedReader().readText().trim()
-        } else null
+        } else {
+            null
+        }
     } catch (e: Exception) {
         null
     }
@@ -52,9 +55,10 @@ fun getCurrentGitHead(): String? {
 fun calculateVersionFromGit(): String {
     return try {
         // First, try to get exact tag match with version pattern
-        val exactTagProcess = ProcessBuilder("git", "describe", "--tags", "--exact-match", "--match", "[0-9]*", "HEAD")
-            .directory(rootDir)
-            .start()
+        val exactTagBuilder = ProcessBuilder("git", "describe", "--tags", "--exact-match", "--match", "[0-9]*", "HEAD")
+        exactTagBuilder.directory(rootDir)
+        exactTagBuilder.environment().putAll(System.getenv())
+        val exactTagProcess = exactTagBuilder.start()
         exactTagProcess.waitFor()
 
         if (exactTagProcess.exitValue() == 0) {
@@ -62,9 +66,10 @@ fun calculateVersionFromGit(): String {
             exactTagProcess.inputStream.bufferedReader().readText().trim()
         } else {
             // Not on exact tag - get development version with version tags only
-            val devVersionProcess = ProcessBuilder("git", "describe", "--tags", "--always", "--match", "[0-9]*", "--dirty=-SNAPSHOT")
-                .directory(rootDir)
-                .start()
+            val devVersionBuilder = ProcessBuilder("git", "describe", "--tags", "--always", "--match", "[0-9]*", "--dirty=-SNAPSHOT")
+            devVersionBuilder.directory(rootDir)
+            devVersionBuilder.environment().putAll(System.getenv())
+            val devVersionProcess = devVersionBuilder.start()
             devVersionProcess.waitFor()
             devVersionProcess.inputStream.bufferedReader().readText().trim()
         }

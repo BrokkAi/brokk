@@ -16,7 +16,6 @@ import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ConflictInspector;
-import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
@@ -129,7 +128,8 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(
             names = "--search-workspace",
-            description = "Run Search agent in benchmark mode to find relevant context for a query. Outputs JSON report to stdout.")
+            description =
+                    "Run Search agent in benchmark mode to find relevant context for a query. Outputs JSON report to stdout.")
     private boolean searchWorkspace = false;
 
     @CommandLine.Option(
@@ -138,10 +138,10 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String query;
 
-    @SuppressWarnings("UnusedVariable")
     @CommandLine.Option(
             names = "--commit",
-            description = "Git commit hash to checkout for --search-workspace mode. Creates a temporary detached worktree.")
+            description =
+                    "Git commit hash to checkout when creating a worktree with --worktree. If not specified, uses the default branch's HEAD.")
     @Nullable
     private String commit;
 
@@ -252,12 +252,22 @@ public final class BrokkCli implements Callable<Integer> {
                 }
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
-                    var defaultBranch = gitRepo.getDefaultBranch();
-                    var commitId = gitRepo.resolveToCommit(defaultBranch).getName();
+                    String commitId;
+                    String ref;
+                    if (commit != null && !commit.isBlank()) {
+                        // Use the specified commit
+                        commitId = gitRepo.resolveToCommit(commit).getName();
+                        ref = commit;
+                    } else {
+                        // Use default branch HEAD
+                        var defaultBranch = gitRepo.getDefaultBranch();
+                        commitId = gitRepo.resolveToCommit(defaultBranch).getName();
+                        ref = defaultBranch;
+                    }
                     gitRepo.worktrees().addWorktreeDetached(worktreePath, commitId);
                     if (!searchWorkspace) {
                         System.out.println("Successfully created detached worktree at " + worktreePath);
-                        System.out.println("Checked out from " + defaultBranch + " at commit " + commitId);
+                        System.out.println("Checked out from " + ref + " at commit " + commitId);
                     }
                 } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
                     System.err.println("Error creating worktree: " + e.getMessage());
@@ -360,9 +370,12 @@ public final class BrokkCli implements Callable<Integer> {
                 long elapsedTime = System.currentTimeMillis() - startTime;
                 var json = String.format(
                         "{\"query\": \"%s\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": %d, \"success\": false, \"error\": \"%s\"}",
-                        escapeJson(query),
+                        escapeJson(requireNonNull(query)),
                         elapsedTime,
-                        escapeJson(th.getMessage() != null ? th.getMessage() : th.getClass().getName()));
+                        escapeJson(
+                                th.getMessage() != null
+                                        ? th.getMessage()
+                                        : th.getClass().getName()));
                 System.out.println(json);
                 return 2;
             }
@@ -378,7 +391,8 @@ public final class BrokkCli implements Callable<Integer> {
             String foundFile = extractFoundFile(project.getRepo().getTrackedFiles(), aiMessages);
 
             if (foundFile.isEmpty()) {
-                var files = cm.topContext().allFragments()
+                var files = cm.topContext()
+                        .allFragments()
                         .flatMap(f -> f.files().stream())
                         .map(ProjectFile::toString)
                         .distinct()
@@ -391,11 +405,7 @@ public final class BrokkCli implements Callable<Integer> {
 
             var json = String.format(
                     "{\"query\": \"%s\", \"found_file\": \"%s\", \"turns\": %d, \"elapsed_ms\": %d, \"success\": %b}",
-                    escapeJson(query),
-                    escapeJson(foundFile),
-                    turns,
-                    elapsedTime,
-                    success);
+                    escapeJson(query), escapeJson(foundFile), turns, elapsedTime, success);
             System.out.println(json);
 
             return 0;

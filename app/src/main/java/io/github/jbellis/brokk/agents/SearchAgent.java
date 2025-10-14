@@ -82,7 +82,11 @@ public class SearchAgent {
     private boolean beastMode;
 
     public SearchAgent(
-            String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals, boolean skipInitialScan) {
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            boolean skipInitialScan) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
