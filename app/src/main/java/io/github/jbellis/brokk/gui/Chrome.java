@@ -3121,17 +3121,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         mainVerticalSplitPane.setDividerLocation(safeDivider);
     }
 
-    /**
-     * Updates the terminal font size for all active terminals.
-     *
-     * <p>Note: TerminalDrawerPanel is no longer attached on the right side; this method is a no-op.
-     */
-    public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> {
-            // no-op
-        });
-    }
-
     @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
