@@ -794,6 +794,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 goStopButton.setToolTipText("Run Architect on all tasks in order");
             }
         }
+        goStopButton.repaint();
     }
 
     private UUID getCurrentSessionId() {
