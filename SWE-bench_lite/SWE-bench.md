@@ -196,6 +196,9 @@ The `evaluate_brokk.py` script orchestrates the evaluation process.
 | `--no-reset` | flag | False | Don't reset repos to clean state before evaluation |
 | `--resume` | flag | False | Auto-resume from checkpoint (non-interactive), requires specified output_dir from previous test! |
 | `--force-fresh` | flag | False | Ignore existing checkpoint and start fresh |
+| `--rerun-from` | string | None | Path to results.json from previous run to selectively rerun instances |
+| `--rerun-category` | choice | `empty_patch` | Category to rerun: `empty_patch`, `error`, `incomplete`, `missing`, `all_failed` |
+| `--merge` | flag | False | Merge results with existing files instead of overwriting (auto-enabled with --rerun-from) |
 | `--verbose` | flag | False | Enable verbose logging |
 
 ### Common Usage Examples
@@ -251,6 +254,52 @@ python3 SWE-bench_lite/evaluate_brokk.py \
     --repos_dir swe_bench_repos \
     --verbose
 ```
+
+### Selective Rerun Feature
+
+The evaluation script supports selectively rerunning specific categories of instances from previous runs. This is useful for:
+- Retrying instances that produced empty patches
+- Re-attempting instances that encountered errors  
+- Trying different agents or configurations on problematic instances
+
+**Rerun empty patch instances (merges with existing results):**
+```bash
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json \
+    --rerun-category empty_patch
+```
+
+**Rerun instances missing from previous run:**
+```bash
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json \
+    --rerun-category missing
+```
+
+**Rerun all failed instances (empty patches + errors + incomplete + missing):**
+```bash
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json \
+    --rerun-category all_failed
+```
+
+**Rerun error instances with different agent (saves to new directory):**
+```bash
+python3 SWE-bench_lite/evaluate_brokk.py \
+    --rerun-from swe_bench_tests/20251013_223343_brokk-cli/results.json \
+    --rerun-category error \
+    --agent code \
+    --output_dir swe_bench_tests/20251014_errors_retry
+```
+
+**Rerun categories:**
+- `empty_patch`: Instances that completed successfully but produced no code changes
+- `error`: Instances that failed with errors
+- `incomplete`: Instances that didn't complete
+- `missing`: Instances in repo mapping but not in results
+- `all_failed`: Combination of all above categories
+
+**Important:** By default, reruns automatically merge with existing results in the same directory. Use `--output_dir` to save to a different location if you want to preserve the original results.
 
 ### Agent Comparison
 

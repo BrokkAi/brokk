@@ -79,9 +79,23 @@ def clone_and_setup_repo(instance: Dict[str, Any], repos_dir: Path) -> Optional[
         logger.error(f"Available keys: {list(instance.keys()) if isinstance(instance, dict) else 'Not a dict'}")
         return None
     
-    # Create a safe directory name from the repo
+    # Create a clean directory name using commit SHA (first 8 chars)
+    # Format: org__repo_shortsha (e.g., django__django_abc12345)
     safe_repo_name = repo_name.replace("/", "__")
-    repo_dir = repos_dir / f"{safe_repo_name}_{instance_id}"
+    short_commit = base_commit[:8]  # Use first 8 characters of commit SHA
+    repo_dir = repos_dir / f"{safe_repo_name}_{short_commit}"
+    
+    # Handle collision: if directory exists with different instance, append instance suffix
+    if repo_dir.exists():
+        # Check if it's the same instance by looking for a marker file
+        marker_file = repo_dir / ".swebench_instance_id"
+        if marker_file.exists():
+            existing_instance = marker_file.read_text().strip()
+            if existing_instance != instance_id:
+                # Collision - different instance, same commit
+                # Append instance number from instance_id (e.g., "15213" from "django__django-15213")
+                instance_suffix = instance_id.split("-")[-1] if "-" in instance_id else instance_id[-6:]
+                repo_dir = repos_dir / f"{safe_repo_name}_{short_commit}_{instance_suffix}"
     
     logger.info(f"🔄 Setting up repository for {instance_id}")
     logger.info(f"   Repository: {repo_name}")
@@ -117,6 +131,10 @@ def clone_and_setup_repo(instance: Dict[str, Any], repos_dir: Path) -> Optional[
         subprocess.run([
             "git", "remote", "remove", "origin"
         ], cwd=repo_dir, capture_output=True, text=True)
+        
+        # Save instance_id marker for collision detection
+        marker_file = repo_dir / ".swebench_instance_id"
+        marker_file.write_text(instance_id)
         
         logger.info(f"   V Repository setup complete: {repo_dir}")
         return repo_dir
