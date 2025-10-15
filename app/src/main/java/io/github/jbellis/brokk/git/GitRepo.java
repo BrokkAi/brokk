@@ -1834,7 +1834,25 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         try (var lines = Files.lines(gitignoreFile, StandardCharsets.UTF_8)) {
-            return lines.map(String::trim)
+            return lines.map(line -> {
+                        // Strip leading/trailing whitespace (spaces/tabs) but preserve trailing slashes
+                        int start = 0;
+                        int end = line.length();
+
+                        // Trim leading whitespace
+                        while (start < end && Character.isWhitespace(line.charAt(start))) {
+                            start++;
+                        }
+
+                        // Trim trailing whitespace but not slashes
+                        while (end > start
+                                && line.charAt(end - 1) != '/'
+                                && Character.isWhitespace(line.charAt(end - 1))) {
+                            end--;
+                        }
+
+                        return line.substring(start, end);
+                    })
                     .filter(line -> !line.isEmpty() && !line.startsWith("#"))
                     .collect(Collectors.toList());
         } catch (IOException e) {

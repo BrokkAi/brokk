@@ -447,7 +447,20 @@ public class Languages {
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
             var excludedDirStrings = project.getExcludedDirectories();
-            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(Collectors.toSet());
+            // Filter out glob patterns to prevent InvalidPathException on Windows
+            var excludedPaths = excludedDirStrings.stream()
+                    .filter(s -> {
+                        if (io.github.jbellis.brokk.agents.BuildAgent.containsGlobMeta(s)) {
+                            org.apache.logging.log4j.LogManager.getLogger(Languages.class)
+                                    .warn(
+                                            "Skipping glob pattern '{}' in SQL analyzer excludedDirectories - should have been expanded by BuildAgent",
+                                            s);
+                            return false;
+                        }
+                        return true;
+                    })
+                    .map(Path::of)
+                    .collect(Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
 

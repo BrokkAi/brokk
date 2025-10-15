@@ -202,6 +202,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
 
         this.normalizedExcludedPaths = excludedFiles.stream()
+                .filter(s -> {
+                    // Filter out glob patterns to prevent InvalidPathException on Windows
+                    if (io.github.jbellis.brokk.agents.BuildAgent.containsGlobMeta(s)) {
+                        log.warn(
+                                "Skipping glob pattern '{}' in {} analyzer excludedFiles - should have been expanded by BuildAgent",
+                                s,
+                                language.name());
+                        return false;
+                    }
+                    return true;
+                })
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
                         ? p.normalize()

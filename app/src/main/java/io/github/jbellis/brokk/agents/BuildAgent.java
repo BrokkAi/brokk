@@ -32,10 +32,10 @@ import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
+import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.Comparator;
@@ -46,6 +46,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.ignore.IgnoreNode;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -113,53 +114,11 @@ public class BuildAgent {
                 detectedSystem,
                 this.currentExcludedDirectories);
 
-        // Add exclusions from .gitignore (treat globs as patterns; avoid Path.of on them)
+        // Add exclusions from .gitignore using JGit's IgnoreNode for proper glob matching
         var repo = project.getRepo();
-        if (repo instanceof GitRepo gitRepo) {
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            var addedFromGitignore = new ArrayList<String>();
-            for (var raw : ignoredPatterns) {
-                if (raw == null || raw.isBlank()) continue;
-
-                // Handle negation and trailing-slash directory semantics per .gitignore
-                boolean negated = raw.startsWith("!");
-                String patternBody = negated ? raw.substring(1) : raw;
-                boolean dirOnly = patternBody.endsWith("/");
-
-                // Sanitize for cross-platform stability (strip leading ./ or slashes, normalize separators)
-                String sanitized = sanitizeExclusion(patternBody);
-                if (sanitized == null) {
-                    continue;
-                }
-
-                boolean isGlob = containsGlobMeta(sanitized);
-
-                // We only add positive (non-negated) directory patterns to exclusion baseline
-                if (!negated) {
-                    if (isGlob) {
-                        // Only include directory globs (e.g., **/target/)
-                        if (dirOnly) {
-                            // ensure it remains directory-like for readability
-                            var toAdd = sanitized.endsWith("/") ? sanitized : sanitized + "/";
-                            this.currentExcludedDirectories.add(toAdd);
-                            addedFromGitignore.add(toAdd);
-                        }
-                    } else {
-                        // Literal path: check if it's a directory under the project or marked as directory with
-                        // trailing slash
-                        try {
-                            var p = project.getRoot().resolve(sanitized);
-                            boolean isDir = (Files.exists(p) && Files.isDirectory(p)) || dirOnly;
-                            if (isDir) {
-                                this.currentExcludedDirectories.add(sanitized);
-                                addedFromGitignore.add(sanitized);
-                            }
-                        } catch (InvalidPathException e) {
-                            logger.debug("Skipping invalid .gitignore literal pattern '{}': {}", raw, e.toString());
-                        }
-                    }
-                }
-            }
+        if (repo instanceof GitRepo) {
+            var addedFromGitignore = findIgnoredDirectories(project.getRoot());
+            this.currentExcludedDirectories.addAll(addedFromGitignore);
             if (!addedFromGitignore.isEmpty()) {
                 logger.debug(
                         "Added the following directory patterns from .gitignore to excluded directories: {}",
@@ -414,6 +373,46 @@ public class BuildAgent {
         return os.contains("win") ? base + ".exe" : base;
     }
 
+    /**
+     * Find all directories that match patterns in .gitignore using JGit's IgnoreNode.
+     * This correctly handles glob patterns like `**\/.idea/` without calling Path.of() on them.
+     */
+    private static List<String> findIgnoredDirectories(Path projectRoot) {
+        var ignoredDirs = new ArrayList<String>();
+
+        // Load .gitignore using JGit's IgnoreNode
+        var gitignorePath = projectRoot.resolve(".gitignore");
+        if (!Files.exists(gitignorePath)) {
+            return ignoredDirs;
+        }
+
+        var ignoreNode = new IgnoreNode();
+        try (var in = Files.newInputStream(gitignorePath)) {
+            ignoreNode.parse(in);
+        } catch (IOException e) {
+            logger.debug("Failed to parse .gitignore: {}", e.getMessage());
+            return ignoredDirs;
+        }
+
+        // Walk the project tree and check each directory against .gitignore rules
+        try (var paths = Files.walk(projectRoot)) {
+            paths.filter(Files::isDirectory)
+                    .filter(p -> !p.equals(projectRoot)) // Skip root
+                    .forEach(dir -> {
+                        var relPath = projectRoot.relativize(dir).toString().replace('\\', '/');
+                        // Check if this directory is ignored
+                        if (ignoreNode.isIgnored(relPath, true) == IgnoreNode.MatchResult.IGNORED) {
+                            ignoredDirs.add(relPath);
+                            logger.trace("Directory {} matches .gitignore pattern", relPath);
+                        }
+                    });
+        } catch (IOException e) {
+            logger.warn("Failed to walk project tree for .gitignore matching: {}", e.getMessage());
+        }
+
+        return ignoredDirs;
+    }
+
     // ---- Excluded directories sanitization helpers ----
 
     // Visible for tests (same package)
@@ -421,6 +420,7 @@ public class BuildAgent {
         return Stream.concat(baseline.stream(), extras.stream())
                 .map(BuildAgent::sanitizeExclusion)
                 .filter(Objects::nonNull)
+                // No need to filter globs - findIgnoredDirectories() expands them to literal paths
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -445,7 +445,11 @@ public class BuildAgent {
         return normalized != null ? normalized : s;
     }
 
-    private static boolean containsGlobMeta(String s) {
+    /**
+     * Check if a string contains glob metacharacters that are illegal in Windows paths.
+     * Public so analyzers can filter out globs before calling Path.of().
+     */
+    public static boolean containsGlobMeta(String s) {
         // Minimal detection of glob meta characters
         return s.indexOf('*') >= 0
                 || s.indexOf('?') >= 0
