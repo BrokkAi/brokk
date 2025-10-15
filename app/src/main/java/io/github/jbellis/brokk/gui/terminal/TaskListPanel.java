@@ -317,7 +317,60 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         controls.add(input, gbc);
 
-        goStopButton = new MaterialButton();
+        goStopButton = new MaterialButton() {
+            @Override
+            protected void paintComponent(java.awt.Graphics g) {
+                // Paint rounded background to match InstructionsPanel
+                var g2 = (java.awt.Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(
+                            java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    int arc = 12;
+                    var bg = getBackground();
+                    if (!isEnabled()) {
+                        var disabled = UIManager.getColor("Button.disabledBackground");
+                        if (disabled != null) {
+                            bg = disabled;
+                        }
+                    } else if (getModel().isPressed()) {
+                        bg = bg.darker();
+                    } else if (getModel().isRollover()) {
+                        bg = bg.brighter();
+                    }
+                    g2.setColor(bg);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+                } finally {
+                    g2.dispose();
+                }
+                super.paintComponent(g);
+            }
+
+            @Override
+            protected void paintBorder(java.awt.Graphics g) {
+                // Paint border, which will be visible even when disabled
+                var g2 = (java.awt.Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(
+                            java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    int arc = 12;
+                    Color borderColor;
+                    if (isFocusOwner()) {
+                        borderColor = new Color(0x1F6FEB);
+                    } else {
+                        borderColor = UIManager.getColor("Component.borderColor");
+                        if (borderColor == null) {
+                            borderColor = Color.GRAY;
+                        }
+                    }
+                    g2.setColor(borderColor);
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+                } finally {
+                    g2.dispose();
+                }
+            }
+        };
+        goStopButton.setOpaque(false);
+        goStopButton.setContentAreaFilled(false);
         goStopButton.addActionListener(e -> onGoStopButtonPressed());
 
         gbc.gridx = 1;
@@ -730,9 +783,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } else {
             goStopButton.setIcon(Icons.FAST_FORWARD);
             goStopButton.setText(null);
-            goStopButton.setToolTipText("Run Architect on all tasks in order");
             goStopButton.setBackground(defaultGoButtonBg);
             goStopButton.setEnabled(anyTasks && !queueActive);
+            if (!anyTasks) {
+                goStopButton.setToolTipText("Add a task to get started");
+            } else if (queueActive) {
+                goStopButton.setToolTipText("A task queue is already running");
+            } else {
+                goStopButton.setToolTipText("Run Architect on all tasks in order");
+            }
         }
     }
 
