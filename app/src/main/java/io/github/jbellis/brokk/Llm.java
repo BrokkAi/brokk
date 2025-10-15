@@ -1101,7 +1101,17 @@ public class Llm {
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
         NullSafeResponse cResponse = castNonNull(result.chatResponse());
-        String rawText = requireNonNull(cResponse.text());
+
+        // Claude sometimes uses extended thinking mode, putting JSON in reasoningContent instead of text
+        String rawText = cResponse.text();
+        if (rawText == null || rawText.isEmpty()) {
+            rawText = cResponse.reasoningContent();
+        }
+        if (rawText == null) {
+            throw new IllegalArgumentException(
+                    "No text content available for parsing (both text() and reasoningContent() are null)");
+        }
+
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
         JsonNode root;
