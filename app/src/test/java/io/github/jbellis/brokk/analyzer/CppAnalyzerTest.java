@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -17,12 +16,12 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class CppTreeSitterAnalyzerTest {
+public class CppAnalyzerTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(CppTreeSitterAnalyzerTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(CppAnalyzerTest.class);
 
     @Nullable
-    private static CppTreeSitterAnalyzer analyzer;
+    private static CppAnalyzer analyzer;
 
     @Nullable
     private static TestProject testProject;
@@ -36,7 +35,7 @@ public class CppTreeSitterAnalyzerTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
-        analyzer = new CppTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new CppAnalyzer(testProject);
     }
 
     @AfterAll

@@ -18,8 +18,8 @@ import org.treesitter.TSParser;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCpp;
 
-public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
-    private static final Logger log = LogManager.getLogger(CppTreeSitterAnalyzer.class);
+public class CppAnalyzer extends TreeSitterAnalyzer {
+    private static final Logger log = LogManager.getLogger(CppAnalyzer.class);
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -73,8 +73,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             "",
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
-    public CppTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.CPP_TREESITTER, excludedFiles);
+    public CppAnalyzer(IProject project) {
+        super(project, Languages.CPP_TREESITTER);
 
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();
@@ -85,6 +85,24 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         var templateParser = parserCache.get();
         this.skeletonGenerator = new SkeletonGenerator(templateParser);
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
+    }
+
+    private CppAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.CPP_TREESITTER, state);
+        this.parserCache = ThreadLocal.withInitial(() -> {
+            var parser = new TSParser();
+            parser.setLanguage(createTSLanguage());
+            return parser;
+        });
+
+        var templateParser = parserCache.get();
+        this.skeletonGenerator = new SkeletonGenerator(templateParser);
+        this.namespaceProcessor = new NamespaceProcessor(templateParser);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new CppAnalyzer(getProject(), state);
     }
 
     @Override
@@ -427,7 +445,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             if (codeUnitRegistry == null) {
                 // Use reflection to set the field since it's final
                 try {
-                    var field = CppTreeSitterAnalyzer.class.getDeclaredField("codeUnitRegistry");
+                    var field = CppAnalyzer.class.getDeclaredField("codeUnitRegistry");
                     field.setAccessible(true);
                     field.set(this, new ConcurrentHashMap<CodeUnitKey, CodeUnit>());
                     log.warn("Emergency registry initialization completed");

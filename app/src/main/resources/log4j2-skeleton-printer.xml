@@ -31,7 +31,7 @@
       <AppenderRef ref="SkeletonPrinterFileLogger"/>
     </Logger>
 
-    <Logger name="io.github.jbellis.brokk.analyzer.CppTreeSitterAnalyzer" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
+    <Logger name="io.github.jbellis.brokk.analyzer.CppAnalyzer" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
       <AppenderRef ref="SkeletonPrinterFileLogger"/>
     </Logger>
 
