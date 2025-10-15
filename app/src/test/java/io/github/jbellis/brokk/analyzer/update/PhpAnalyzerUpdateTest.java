@@ -25,7 +25,7 @@ class PhpAnalyzerUpdateTest {
                 function foo(): int { return 1; }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.PHP);
-        analyzer = new PhpAnalyzer(project);
+        analyzer = new PhpAnalyzer(project, project.getAnalyzableFiles(Languages.PHP));
     }
 
     @AfterEach

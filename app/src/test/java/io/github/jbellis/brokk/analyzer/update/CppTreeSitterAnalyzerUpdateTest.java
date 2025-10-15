@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
@@ -22,7 +21,7 @@ class CppTreeSitterAnalyzerUpdateTest {
                 int foo() { return 1; }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.CPP_TREESITTER);
-        analyzer = new CppTreeSitterAnalyzer(project, new HashSet<>());
+        analyzer = new CppTreeSitterAnalyzer(project, project.getAnalyzableFiles(Languages.CPP_TREESITTER));
     }
 
     @AfterEach

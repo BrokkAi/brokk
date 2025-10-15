@@ -21,7 +21,7 @@ class PythonTreeSitterAnalyzerUpdateTest {
             return 1
         """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
-        analyzer = new PythonAnalyzer(project);
+        analyzer = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
     }
 
     @AfterEach

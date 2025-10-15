@@ -46,7 +46,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         assertFalse(analyzer.isEmpty(), "Analyzer should not be empty.");
 
@@ -89,7 +89,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
         assertEquals(1, allDecls.size());
@@ -120,7 +120,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
         assertEquals(3, allDecls.size());
@@ -152,7 +152,7 @@ class SqlAnalyzerTest {
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         Optional<CodeUnit> tblOneOpt = analyzer.getDefinition("tbl_one");
         assertTrue(tblOneOpt.isPresent());
@@ -217,8 +217,12 @@ class SqlAnalyzerTest {
                         + excludedSqlFile.getFileName().toString());
 
         var testProject = createTestProject(Set.of(includedProjectFile, excludedProjectFile));
-        // Exclude the directory "excluded_dir"
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Set.of(Path.of("excluded_dir")));
+        // Filter to only include non-excluded files
+        var filesToAnalyze = testProject.getAllFiles().stream()
+                .filter(pf -> !pf.getRelPath().toString().startsWith("excluded_dir"))
+                .map(ProjectFile::absPath)
+                .toList();
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, filesToAnalyze);
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
         assertEquals(1, allDecls.size(), "Only one declaration from non-excluded file should be found.");
@@ -236,7 +240,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         assertTrue(analyzer.isEmpty(), "Analyzer should be empty for an empty SQL file.");
         assertEquals(0, analyzer.getAllDeclarations().size());
@@ -251,7 +255,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, txtFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         assertTrue(analyzer.isEmpty(), "Analyzer should be empty if no .sql files are processed.");
         assertEquals(0, analyzer.getAllDeclarations().size());
@@ -268,7 +272,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
         // Should only find the valid table and view
@@ -286,7 +290,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
         assertEquals(1, topLevelUnits.size(), "Should return one top-level code unit.");
@@ -307,7 +311,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
         assertEquals(3, topLevelUnits.size(), "Should return three top-level code units.");
@@ -326,7 +330,7 @@ class SqlAnalyzerTest {
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));
 
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for empty file.");
@@ -342,7 +346,7 @@ class SqlAnalyzerTest {
         ProjectFile nonExistentProjectFile = new ProjectFile(tempDir, "nonexistent.sql");
 
         var testProject = createTestProject(Set.of(existingProjectFile));
-        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, List.of());
 
         List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentProjectFile);
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file.");

@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -27,41 +26,25 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(
-            IProject projectInstance,
-            Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
+    public SqlAnalyzer(IProject projectInstance, List<Path> filesToAnalyze) {
         this.project = projectInstance;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
         this.allDeclarationsList = new ArrayList<>();
         this.definitionsByFqName = new HashMap<>();
 
-        var normalizedExclusions = excludedFiles.stream()
-                .map(p -> projectInstance.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toSet());
-
-        var filesToAnalyze = projectInstance.getAllFiles().stream()
-                .filter(pf -> {
-                    // Check extension
-                    if (!pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql")) {
-                        return false;
-                    }
-                    // Check exclusions
-                    Path absPfPath = pf.absPath().normalize();
-                    if (normalizedExclusions.stream().anyMatch(absPfPath::startsWith)) {
-                        logger.debug("Skipping excluded SQL file: {}", pf.absPath());
-                        return false;
-                    }
-                    return true;
-                })
+        // Convert absolute paths to ProjectFiles
+        Path projectRoot = projectInstance.getRoot();
+        var projectFiles = filesToAnalyze.stream()
+                .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .toList();
 
         logger.info(
-                "Found {} SQL files to analyze for project {}",
-                filesToAnalyze.size(),
-                projectInstance.getRoot()); // Use projectInstance
+                "Received {} pre-filtered SQL files to analyze for project {}",
+                projectFiles.size(),
+                projectInstance.getRoot());
 
-        for (var pf : filesToAnalyze) {
+        for (var pf : projectFiles) {
             try {
                 String content = Files.readString(pf.absPath(), StandardCharsets.UTF_8);
                 // byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // Unused variable removed

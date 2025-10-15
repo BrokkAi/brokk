@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
@@ -81,7 +82,7 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("C++ analyzer - extractClassName with :: separator and templates")
     void testCppAnalyzerExtractClassName() {
-        var analyzer = new CppTreeSitterAnalyzer(mockProject, Set.of());
+        var analyzer = new CppTreeSitterAnalyzer(mockProject, List.of());
 
         // Valid C++ method references
         assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::myMethod"));
@@ -112,7 +113,7 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("Rust analyzer - extractClassName with :: separator")
     void testRustAnalyzerExtractClassName() {
-        var analyzer = new RustAnalyzer(mockProject, Set.of());
+        var analyzer = new RustAnalyzer(mockProject, List.of());
 
         // Valid Rust method references
         assertEquals(Optional.of("MyStruct"), analyzer.extractClassName("MyStruct::new"));
@@ -144,7 +145,7 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("Python analyzer - extractClassName with . separator")
     void testPythonAnalyzerExtractClassName() {
-        var analyzer = new PythonAnalyzer(mockProject, Set.of());
+        var analyzer = new PythonAnalyzer(mockProject, List.of());
 
         // Valid Python method references
         assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.my_method"));
@@ -183,8 +184,8 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("JavaScript/TypeScript analyzers - extract class names correctly")
     void testJsTsExtractClassName() {
-        var js = new JavascriptAnalyzer(mockProject, Set.of());
-        var ts = new TypescriptAnalyzer(mockProject, Set.of());
+        var js = new JavascriptAnalyzer(mockProject, List.of());
+        var ts = new TypescriptAnalyzer(mockProject, List.of());
 
         // These should return empty due to lowercase anchors (heuristic for built-ins)
         assertEquals(Optional.empty(), js.extractClassName("console.log"));
@@ -283,7 +284,7 @@ public class ExtractClassNameTest {
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
         var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);
-        var cppAnalyzer = new CppTreeSitterAnalyzer(mockProject, Set.of());
+        var cppAnalyzer = new CppTreeSitterAnalyzer(mockProject, List.of());
 
         // Whitespace handling
         assertEquals(Optional.of("MyClass"), javaAnalyzer.extractClassName("  MyClass.myMethod  "));

@@ -114,7 +114,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     private final IProject project;
     private final Language language;
-    protected final Set<Path> normalizedExcludedPaths;
 
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
@@ -196,31 +195,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /* ---------- constructor ---------- */
-    protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
+    protected TreeSitterAnalyzer(IProject project, Language language, List<Path> filesToAnalyze) {
         this.project = project;
         this.language = language;
         // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
-
-        this.normalizedExcludedPaths = excludedFiles.stream()
-                .filter(s -> {
-                    // Filter out glob patterns to prevent InvalidPathException on Windows
-                    if (io.github.jbellis.brokk.agents.BuildAgent.containsGlobMeta(s)) {
-                        log.warn(
-                                "Skipping glob pattern '{}' in {} analyzer excludedFiles - should have been expanded by BuildAgent",
-                                s,
-                                language.name());
-                        return false;
-                    }
-                    return true;
-                })
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toUnmodifiableSet());
-        if (!this.normalizedExcludedPaths.isEmpty()) {
-            log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
-        }
 
         // Initialize query using a ThreadLocal for thread safety
         // The supplier will use the appropriate getQueryResource() from the subclass
@@ -236,32 +214,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 this.language,
                 getQueryResource());
 
-        var validExtensions = this.language.getExtensions();
-        log.trace("Filtering project files for extensions: {}", validExtensions);
-
         // Track processing statistics for better diagnostics
         var totalFilesAttempted = new AtomicInteger(0);
         var successfullyProcessed = new AtomicInteger(0);
         var failedFiles = new AtomicInteger(0);
 
-        // Collect files to process
-        List<ProjectFile> filesToProcess = project.getAllFiles().stream()
-                .filter(pf -> {
-                    var filePath = pf.absPath().toAbsolutePath().normalize();
-
-                    var excludedBy = normalizedExcludedPaths.stream()
-                            .filter(filePath::startsWith)
-                            .findFirst();
-
-                    if (excludedBy.isPresent()) {
-                        log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
-                        return false;
-                    }
-
-                    var extension = pf.extension();
-                    return validExtensions.contains(extension);
-                })
+        // Convert absolute paths to ProjectFiles
+        Path projectRoot = project.getRoot();
+        List<ProjectFile> filesToProcess = filesToAnalyze.stream()
+                .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .toList();
+        log.debug("Received {} pre-filtered files for {} analysis", filesToProcess.size(), language.name());
 
         var timing = ConstructionTiming.create();
         List<CompletableFuture<?>> futures = new ArrayList<>();
@@ -372,7 +335,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language) {
-        this(project, language, Collections.emptySet());
+        this(project, language, List.of());
     }
 
     /** Frees memory from the parsed AST cache. */
@@ -2701,16 +2664,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         long detectStartMs = System.currentTimeMillis();
 
         // files currently on disk that this analyser is interested in
-        Set<ProjectFile> currentFiles = project.getAllFiles().stream()
-                .filter(pf -> {
-                    Path abs = pf.absPath().toAbsolutePath().normalize();
-                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) {
-                        return false;
-                    }
-                    String p = abs.toString();
-                    boolean matches = language.getExtensions().stream().anyMatch(p::endsWith);
-                    return matches;
-                })
+        Path projectRoot = project.getRoot();
+        Set<ProjectFile> currentFiles = project.getAnalyzableFiles(language).stream()
+                .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .collect(Collectors.toSet());
 
         // Snapshot known files (those we've analyzed/cached)

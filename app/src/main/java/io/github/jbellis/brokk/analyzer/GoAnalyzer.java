@@ -3,7 +3,8 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import java.util.Collections;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -46,8 +47,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Nullable
     private final ThreadLocal<TSQuery> packageQuery;
 
-    public GoAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.GO, excludedFiles);
+    public GoAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.GO, filesToAnalyze);
         // Initialize the ThreadLocal for the package query.
         // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
         this.packageQuery = ThreadLocal.withInitial(() -> {
@@ -59,10 +60,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 throw e;
             }
         });
-    }
-
-    public GoAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
     }
 
     @Override

@@ -28,7 +28,7 @@ class CSharpAnalyzerUpdateTest {
                 }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.C_SHARP);
-        analyzer = new CSharpAnalyzer(project);
+        analyzer = new CSharpAnalyzer(project, project.getAnalyzableFiles(Languages.C_SHARP));
     }
 
     @AfterEach

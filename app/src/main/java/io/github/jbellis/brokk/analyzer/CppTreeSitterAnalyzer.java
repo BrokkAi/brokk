@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.cpp.NamespaceProcessor;
 import io.github.jbellis.brokk.analyzer.cpp.SkeletonGenerator;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.logging.log4j.LogManager;
@@ -73,8 +74,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             "",
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
-    public CppTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.CPP_TREESITTER, excludedFiles);
+    public CppTreeSitterAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.CPP_TREESITTER, filesToAnalyze);
 
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();

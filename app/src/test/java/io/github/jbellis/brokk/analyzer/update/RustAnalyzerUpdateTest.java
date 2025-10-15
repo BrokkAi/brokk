@@ -21,7 +21,7 @@ class RustAnalyzerUpdateTest {
                 pub fn foo() -> i32 { 1 }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.RUST);
-        analyzer = new RustAnalyzer(project);
+        analyzer = new RustAnalyzer(project, project.getAnalyzableFiles(Languages.RUST));
     }
 
     @AfterEach

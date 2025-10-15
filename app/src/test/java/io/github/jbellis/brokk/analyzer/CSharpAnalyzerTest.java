@@ -19,7 +19,7 @@ public final class CSharpAnalyzerTest {
     @Test
     void testCSharpInitializationAndSkeletons() {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
-        IAnalyzer ana = new CSharpAnalyzer(project);
+        IAnalyzer ana = new CSharpAnalyzer(project, project.getAnalyzableFiles(Languages.C_SHARP));
         assertInstanceOf(CSharpAnalyzer.class, ana);
 
         CSharpAnalyzer analyzer = (CSharpAnalyzer) ana;
@@ -87,7 +87,7 @@ public final class CSharpAnalyzerTest {
     @Test
     void testCSharpMixedScopesAndNestedNamespaces() {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project, project.getAnalyzableFiles(Languages.C_SHARP));
 
         ProjectFile mixedScopeFile = new ProjectFile(project.getRoot(), "MixedScope.cs");
         var skelMixed = analyzer.getSkeletons(mixedScopeFile); // Triggers parsing and populates internal maps
@@ -159,7 +159,7 @@ public final class CSharpAnalyzerTest {
     @Test
     void testCSharpGetMethodSource() throws IOException {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project, project.getAnalyzableFiles(Languages.C_SHARP));
         assertFalse(analyzer.isEmpty());
 
         // Case 1: Single method (Constructor in this case, as it's simple and unique)
@@ -228,7 +228,7 @@ public final class CSharpAnalyzerTest {
     @Test
     void testCSharpInterfaceSkeleton() {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project, project.getAnalyzableFiles(Languages.C_SHARP));
         ProjectFile file = new ProjectFile(project.getRoot(), "AssetRegistrySA.cs");
 
         // Define expected CodeUnits
@@ -331,7 +331,7 @@ public final class CSharpAnalyzerTest {
         // Without proper handling, names in non-ASCII files get truncated
 
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project, project.getAnalyzableFiles(Languages.C_SHARP));
 
         // GetTerminationRecordByIdHandler.cs contains a UTF-8 BOM
         ProjectFile bomFile = new ProjectFile(project.getRoot(), "GetTerminationRecordByIdHandler.cs");

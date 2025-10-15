@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
@@ -48,8 +49,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Nullable
     private final ThreadLocal<TSQuery> phpNamespaceQuery;
 
-    public PhpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.PHP, excludedFiles);
+    public PhpAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.PHP, filesToAnalyze);
         // Initialize the ThreadLocal for the PHP namespace query.
         // getTSLanguage() is safe to call here.
         this.phpNamespaceQuery = ThreadLocal.withInitial(() -> {
@@ -60,10 +61,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 throw e; // Re-throw to indicate critical setup error for this thread's query
             }
         });
-    }
-
-    public PhpAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
     }
 
     @Override

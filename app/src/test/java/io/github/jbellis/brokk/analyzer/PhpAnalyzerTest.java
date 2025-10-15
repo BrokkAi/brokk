@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -19,7 +20,7 @@ public class PhpAnalyzerTest {
     @BeforeAll
     static void setUp() throws IOException {
         testProject = createTestProject("testcode-php", Languages.PHP);
-        analyzer = new PhpAnalyzer(testProject); // This will trigger analysis
+        analyzer = new PhpAnalyzer(testProject, List.of()); // This will trigger analysis
     }
 
     @Test

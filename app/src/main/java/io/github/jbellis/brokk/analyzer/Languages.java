@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 public class Languages {
@@ -36,7 +35,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CSharpAnalyzer(project, project.getExcludedDirectories());
+            return new CSharpAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -90,7 +89,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new JavascriptAnalyzer(project, project.getExcludedDirectories());
+            return new JavascriptAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -167,7 +166,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
+            return new CppTreeSitterAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -220,7 +219,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new GoAnalyzer(project, project.getExcludedDirectories());
+            return new GoAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -274,7 +273,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
+            return new CppTreeSitterAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -376,7 +375,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new PhpAnalyzer(project, project.getExcludedDirectories());
+            return new PhpAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -446,22 +445,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            var excludedDirStrings = project.getExcludedDirectories();
-            // Filter out glob patterns to prevent InvalidPathException on Windows
-            var excludedPaths = excludedDirStrings.stream()
-                    .filter(s -> {
-                        if (io.github.jbellis.brokk.agents.BuildAgent.containsGlobMeta(s)) {
-                            org.apache.logging.log4j.LogManager.getLogger(Languages.class)
-                                    .warn(
-                                            "Skipping glob pattern '{}' in SQL analyzer excludedDirectories - should have been expanded by BuildAgent",
-                                            s);
-                            return false;
-                        }
-                        return true;
-                    })
-                    .map(Path::of)
-                    .collect(Collectors.toSet());
-            return new SqlAnalyzer(project, excludedPaths);
+            return new SqlAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override
@@ -511,7 +495,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new TypescriptAnalyzer(project, project.getExcludedDirectories());
+            return new TypescriptAnalyzer(project, project.getAnalyzableFiles(this));
         }
 
         @Override

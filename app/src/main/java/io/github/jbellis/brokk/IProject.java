@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.ignore.IgnoreNode;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
@@ -64,6 +65,87 @@ public interface IProject extends AutoCloseable {
         return getAllFiles().stream()
                 .filter(pf -> extensions.contains(pf.extension()))
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Gets all analyzable files for the given language, applying exclusions and .gitignore rules.
+     * This method centralizes file selection logic that was previously scattered across analyzers.
+     *
+     * @param language The language to filter files for
+     * @return List of absolute paths to files that should be analyzed
+     */
+    default List<Path> getAnalyzableFiles(Language language) {
+        Logger logger = LogManager.getLogger(IProject.class);
+        Path projectRoot = getRoot();
+
+        // 1. Load .gitignore with JGit IgnoreNode
+        IgnoreNode ignoreNode = null;
+        Path gitignorePath = projectRoot.resolve(".gitignore");
+        if (Files.exists(gitignorePath)) {
+            ignoreNode = new IgnoreNode();
+            try (var in = Files.newInputStream(gitignorePath)) {
+                ignoreNode.parse(in);
+                logger.debug("Loaded .gitignore rules from {}", gitignorePath);
+            } catch (IOException e) {
+                logger.warn("Failed to parse .gitignore at {}: {}", gitignorePath, e.getMessage());
+                ignoreNode = null;
+            }
+        }
+
+        // 2. Get baseline exclusions and normalize them to absolute paths
+        Set<Path> normalizedExcludedPaths = getExcludedDirectories().stream()
+                .filter(s -> !BuildAgent.containsGlobMeta(s)) // Skip any globs that slipped through
+                .map(Path::of)
+                .map(p -> p.isAbsolute()
+                        ? p.normalize()
+                        : projectRoot.resolve(p).toAbsolutePath().normalize())
+                .collect(Collectors.toSet());
+
+        if (!normalizedExcludedPaths.isEmpty()) {
+            logger.debug("Using {} baseline excluded paths", normalizedExcludedPaths.size());
+        }
+
+        // 3. Get language extensions for filtering
+        var validExtensions = language.getExtensions();
+        IgnoreNode finalIgnoreNode = ignoreNode;
+
+        // 4. Filter files
+        return getAllFiles().stream()
+                .map(ProjectFile::absPath)
+                .filter(absPath -> {
+                    Path normalizedPath = absPath.toAbsolutePath().normalize();
+
+                    // Check baseline exclusions first (fast path)
+                    if (normalizedExcludedPaths.stream().anyMatch(normalizedPath::startsWith)) {
+                        logger.trace("Skipping file excluded by baseline: {}", absPath);
+                        return false;
+                    }
+
+                    // Check .gitignore rules
+                    if (finalIgnoreNode != null) {
+                        String relPath = projectRoot
+                                .relativize(normalizedPath)
+                                .toString()
+                                .replace('\\', '/');
+                        if (finalIgnoreNode.isIgnored(relPath, false) == IgnoreNode.MatchResult.IGNORED) {
+                            logger.trace("Skipping file ignored by .gitignore: {}", absPath);
+                            return false;
+                        }
+                    }
+
+                    return true;
+                })
+                .filter(absPath -> {
+                    // Filter by language extension
+                    String fileName = absPath.getFileName().toString();
+                    int dotIndex = fileName.lastIndexOf('.');
+                    if (dotIndex > 0) {
+                        String extension = fileName.substring(dotIndex + 1);
+                        return validExtensions.contains(extension);
+                    }
+                    return false;
+                })
+                .collect(Collectors.toList());
     }
 
     default void invalidateAllFiles() {}

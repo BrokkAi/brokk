@@ -23,7 +23,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
@@ -32,7 +31,6 @@ import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
-import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -46,7 +44,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.ignore.IgnoreNode;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -101,7 +98,7 @@ public class BuildAgent {
         chatHistory.add(Messages.create("Thank you.", ChatMessageType.AI));
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
-        // Determine build system and set initial excluded directories
+        // Determine build system and set initial excluded directories (baseline only)
         var files = project.getAllFiles().stream()
                 .parallel()
                 .filter(f -> f.getParent().equals(Path.of("")))
@@ -110,24 +107,9 @@ public class BuildAgent {
         BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(files);
         this.currentExcludedDirectories = new ArrayList<>(BuildToolConventions.getDefaultExcludes(detectedSystem));
         logger.info(
-                "Determined build system: {}. Initial excluded directories: {}",
+                "Determined build system: {}. Baseline excluded directories: {}",
                 detectedSystem,
                 this.currentExcludedDirectories);
-
-        // Add exclusions from .gitignore using JGit's IgnoreNode for proper glob matching
-        var repo = project.getRepo();
-        if (repo instanceof GitRepo) {
-            var addedFromGitignore = findIgnoredDirectories(project.getRoot());
-            this.currentExcludedDirectories.addAll(addedFromGitignore);
-            if (!addedFromGitignore.isEmpty()) {
-                logger.debug(
-                        "Added the following directory patterns from .gitignore to excluded directories: {}",
-                        addedFromGitignore);
-            }
-        } else {
-            logger.debug(
-                    "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
-        }
 
         // 2. Iteration Loop
         while (true) {
@@ -371,46 +353,6 @@ public class BuildAgent {
     private static String exeName(String base) {
         var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         return os.contains("win") ? base + ".exe" : base;
-    }
-
-    /**
-     * Find all directories that match patterns in .gitignore using JGit's IgnoreNode.
-     * This correctly handles glob patterns like `**\/.idea/` without calling Path.of() on them.
-     */
-    private static List<String> findIgnoredDirectories(Path projectRoot) {
-        var ignoredDirs = new ArrayList<String>();
-
-        // Load .gitignore using JGit's IgnoreNode
-        var gitignorePath = projectRoot.resolve(".gitignore");
-        if (!Files.exists(gitignorePath)) {
-            return ignoredDirs;
-        }
-
-        var ignoreNode = new IgnoreNode();
-        try (var in = Files.newInputStream(gitignorePath)) {
-            ignoreNode.parse(in);
-        } catch (IOException e) {
-            logger.debug("Failed to parse .gitignore: {}", e.getMessage());
-            return ignoredDirs;
-        }
-
-        // Walk the project tree and check each directory against .gitignore rules
-        try (var paths = Files.walk(projectRoot)) {
-            paths.filter(Files::isDirectory)
-                    .filter(p -> !p.equals(projectRoot)) // Skip root
-                    .forEach(dir -> {
-                        var relPath = projectRoot.relativize(dir).toString().replace('\\', '/');
-                        // Check if this directory is ignored
-                        if (ignoreNode.isIgnored(relPath, true) == IgnoreNode.MatchResult.IGNORED) {
-                            ignoredDirs.add(relPath);
-                            logger.trace("Directory {} matches .gitignore pattern", relPath);
-                        }
-                    });
-        } catch (IOException e) {
-            logger.warn("Failed to walk project tree for .gitignore matching: {}", e.getMessage());
-        }
-
-        return ignoredDirs;
     }
 
     // ---- Excluded directories sanitization helpers ----
