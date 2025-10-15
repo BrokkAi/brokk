@@ -1060,6 +1060,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         // Add the shared context area above the controls.
         southPanel.add(contextArea, 0);
+        southPanel.add(javax.swing.Box.createVerticalStrut(2), 1);
         revalidate();
         repaint();
     }
