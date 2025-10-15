@@ -2582,9 +2582,8 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /**
-     * Kicks off a background load of the AI-response count for the given session.
-     * Runs on a platform thread to avoid blocking the common ForkJoinPool.
-     * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     * Kicks off a background load of the AI-response count for the given session. Runs on a platform thread to avoid
+     * blocking the common ForkJoinPool. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
      */
     private void triggerAiCountLoad(SessionInfo session) {
         final var id = session.id();
