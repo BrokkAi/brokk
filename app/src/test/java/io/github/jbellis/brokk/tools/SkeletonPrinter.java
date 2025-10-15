@@ -379,7 +379,7 @@ public class SkeletonPrinter {
             case "JavaScript" -> new JavascriptAnalyzer(project);
             case "Java" -> new JavaAnalyzer(project);
             case "Python" -> new PythonAnalyzer(project);
-            case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
+            case "CPP_TREESITTER" -> new CppAnalyzer(project);
             default -> null;
         };
     }

@@ -39,12 +39,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes
             );
 
-    public PythonAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.PYTHON, excludedFiles);
+    public PythonAnalyzer(IProject project) {
+        super(project, Languages.PYTHON);
     }
 
-    public PythonAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    private PythonAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.PYTHON, state);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new PythonAnalyzer(getProject(), state);
     }
 
     @Override

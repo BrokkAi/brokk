@@ -47,7 +47,7 @@ public class RustLanguage implements Language {
 
     @Override
     public IAnalyzer createAnalyzer(IProject project) {
-        return new RustAnalyzer(project, project.getExcludedDirectories());
+        return new RustAnalyzer(project);
     }
 
     @Override

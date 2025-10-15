@@ -38,12 +38,17 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes
             );
 
-    public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.JAVASCRIPT, excludedFiles);
+    public JavascriptAnalyzer(IProject project) {
+        super(project, Languages.JAVASCRIPT);
     }
 
-    public JavascriptAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    private JavascriptAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.JAVASCRIPT, state);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new JavascriptAnalyzer(getProject(), state);
     }
 
     @Override
