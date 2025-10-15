@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
@@ -75,7 +76,7 @@ class JavaAnalyzerUpdateTest {
         }
         """);
         // call update with empty set – no change expected
-        analyzer.update(Set.of());
+        analyzer = analyzer.update(Set.of());
         assertTrue(analyzer.getDefinition("A.method3").isEmpty());
     }
 
@@ -97,7 +98,7 @@ class JavaAnalyzerUpdateTest {
         // delete file – analyzer should drop symbols
         var maybeFile = analyzer.getFileFor("A");
         assertTrue(maybeFile.isPresent());
-        java.nio.file.Files.deleteIfExists(maybeFile.get().absPath());
+        Files.deleteIfExists(maybeFile.get().absPath());
 
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("A").isEmpty());
