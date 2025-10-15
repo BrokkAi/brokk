@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
@@ -861,6 +862,32 @@ public class CreatePullRequestDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage;
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
+                        boolean appInstalled = GitHubAuth.isBrokkAppInstalled();
+                        if (!appInstalled && GitHubAuth.tokenPresent()) {
+                            errorMessage =
+                                    """
+                                    Push to repository was denied because the Brokk GitHub App is not installed.
+
+                                    To push to GitHub repositories, you need to:
+                                    1. Install the Brokk GitHub App for your repositories
+                                    2. Grant the app write access to this repository
+
+                                    Would you like to open Settings to install the app?
+                                    """;
+                            int choice = JOptionPane.showConfirmDialog(
+                                    CreatePullRequestDialog.this,
+                                    errorMessage,
+                                    "Brokk App Not Installed",
+                                    JOptionPane.YES_NO_OPTION,
+                                    JOptionPane.WARNING_MESSAGE);
+                            if (choice == JOptionPane.YES_OPTION) {
+                                SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
+                            }
+                            if (isDisplayable()) {
+                                createPrButton.setLoading(false, null);
+                            }
+                            return;
+                        }
                         errorMessage =
                                 """
                                 Push to repository was denied. This usually means:

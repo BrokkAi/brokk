@@ -194,7 +194,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         gitHubInstallAppLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
         gitHubInstallAppLabel.setFont(gitHubInstallAppLabel
                 .getFont()
-                .deriveFont(Font.PLAIN, gitHubInstallAppLabel.getFont().getSize() * 0.9f));
+                .deriveFont(Font.PLAIN, gitHubInstallAppLabel.getFont().getSize() * 1.15f));
         gitHubInstallAppLabel.setVisible(false);
         gitHubInstallAppLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -250,23 +250,26 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             gitHubProgressBar.setVisible(authInProgress);
         }
 
-        // Show success message and app installation reminder when authentication just completed
+        // Show success message and app installation reminder
         if (gitHubSuccessMessageLabel != null && gitHubInstallAppLabel != null) {
             if (justCompleted) {
                 gitHubSuccessMessageLabel.setText("Successfully connected to GitHub!");
                 gitHubSuccessMessageLabel.setVisible(true);
-                gitHubInstallAppLabel.setVisible(true);
-                // Hide both messages after 10 seconds
+                // Hide success message after 10 seconds
                 var successLabel = gitHubSuccessMessageLabel;
-                var installLabel = gitHubInstallAppLabel;
                 Timer hideMessageTimer = new Timer(10000, e -> {
                     successLabel.setVisible(false);
-                    installLabel.setVisible(false);
                 });
                 hideMessageTimer.setRepeats(false);
                 hideMessageTimer.start();
             } else if (!connected) {
                 gitHubSuccessMessageLabel.setVisible(false);
+            }
+
+            // Always show app installation reminder when token is present but app not installed
+            if (connected && !GitHubAuth.isBrokkAppInstalled()) {
+                gitHubInstallAppLabel.setVisible(true);
+            } else {
                 gitHubInstallAppLabel.setVisible(false);
             }
         }
