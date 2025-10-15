@@ -1535,6 +1535,32 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 SwingUtil.runOnEdt(() -> {
                     String errorMessage;
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
+                        boolean appInstalled = GitHubAuth.isBrokkAppInstalled();
+                        if (!appInstalled && GitHubAuth.tokenPresent()) {
+                            errorMessage = String.format(
+                                    """
+                                    Push to %s was denied because the Brokk GitHub App is not installed.
+
+                                    To push to GitHub repositories, you need to:
+                                    1. Install the Brokk GitHub App for your repositories
+                                    2. Grant the app write access to this repository
+
+                                    Would you like to open Settings to install the app?
+                                    """,
+                                    branchName);
+                            int choice = JOptionPane.showConfirmDialog(
+                                    GitCommitBrowserPanel.this,
+                                    errorMessage,
+                                    "Brokk App Not Installed",
+                                    JOptionPane.YES_NO_OPTION,
+                                    JOptionPane.WARNING_MESSAGE);
+                            if (choice == JOptionPane.YES_OPTION) {
+                                io.github.jbellis.brokk.gui.dialogs.SettingsDialog.showSettingsDialog(
+                                        chrome, io.github.jbellis.brokk.gui.dialogs.SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
+                            }
+                            pushButton.setEnabled(true);
+                            return;
+                        }
                         errorMessage = String.format(
                                 """
                                 Push to %s was denied. This usually means:

@@ -247,6 +247,57 @@ public class GitHubAuth {
         }
     }
 
+    /**
+     * Checks if the Brokk GitHub App is installed for the authenticated user.
+     * This method requires a valid GitHub token and makes a direct API call to /user/installations.
+     *
+     * @return true if the Brokk app is installed, false otherwise (including errors)
+     */
+    public static boolean isBrokkAppInstalled() {
+        String token = getStoredToken();
+        if (token.isEmpty()) {
+            return false;
+        }
+
+        try {
+            var client = new OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build();
+
+            var request = new Request.Builder()
+                    .url("https://api.github.com/user/installations")
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .build();
+
+            try (var response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    logger.info("Failed to check GitHub App installations: HTTP {}", response.code());
+                    return false;
+                }
+
+                var body = response.body();
+                if (body == null) {
+                    logger.info("Empty response body from /user/installations");
+                    return false;
+                }
+
+                var json = body.string();
+                logger.debug("GitHub installations API response: {}", json.length() > 800 ? json.substring(0, 800) + "..." : json);
+
+                // Check for app_slug field in installation objects
+                var isInstalled = json.contains("\"app_slug\":\"brokkai\"") || json.contains("\"app_slug\":\"brokk\"");
+                logger.debug("Brokk GitHub App installation check: {}", isInstalled ? "INSTALLED" : "NOT INSTALLED");
+                return isInstalled;
+            }
+        } catch (Exception e) {
+            logger.warn("Could not check GitHub App installation status: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
     public String getOwner() {
         return owner;
     }
