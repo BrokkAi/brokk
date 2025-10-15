@@ -2751,9 +2751,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Snapshot known files (those we've analyzed/cached)
         var current = this.state;
-        Set<ProjectFile> knownFiles = current == null
-                ? Set.of()
-                : new HashSet<>(current.parsedTreeCache().keySet());
+        Set<ProjectFile> knownFiles = new HashSet<>(current.parsedTreeCache().keySet());
 
         Set<ProjectFile> changed = new HashSet<>();
         long last = lastUpdateEpochNanos.get();
