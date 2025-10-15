@@ -87,6 +87,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Chrome chrome;
     private final Timer llmStateTimer;
     private final Timer runningFadeTimer;
+    private final JComponent controls;
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
@@ -256,7 +257,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
 
         // South: controls
-        var controls = new JPanel(new GridBagLayout());
+        controls = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.gridy = 0;
@@ -979,6 +980,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     public void enablePlay() {
         updateButtonStates();
+    }
+
+    public void setSharedContextArea(JComponent contextArea) {
+        Component south = ((BorderLayout) getLayout()).getLayoutComponent(BorderLayout.SOUTH);
+        if (south != null) {
+            remove(south);
+        }
+        add(contextArea, BorderLayout.SOUTH);
+        revalidate();
+        repaint();
+    }
+
+    public void restoreControls() {
+        Component south = ((BorderLayout) getLayout()).getLayoutComponent(BorderLayout.SOUTH);
+        if (south != null) {
+            remove(south);
+        }
+        add(controls, BorderLayout.SOUTH);
+        revalidate();
+        repaint();
     }
 
     /**
