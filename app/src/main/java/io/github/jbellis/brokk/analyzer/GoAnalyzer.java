@@ -50,9 +50,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
         return ThreadLocal.withInitial(() -> {
             try {
-                return new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
+                return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
             } catch (Exception e) { // TSQuery constructor can throw various exceptions
-                log.error("Failed to compile phpNamespaceQuery for PhpAnalyzer ThreadLocal", e);
+                log.error("Failed to compile packageQuery for GoAnalyzer ThreadLocal", e);
                 throw e; // Re-throw to indicate critical setup error for this thread's query
             }
         });
