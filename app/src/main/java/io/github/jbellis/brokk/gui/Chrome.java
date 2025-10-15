@@ -870,6 +870,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
+            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
+            taskListPanel.disablePlay();
             // TerminalDrawerPanel removed from right side; no-op for terminal play control.
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
@@ -883,6 +885,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
+            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
+            taskListPanel.enablePlay();
             // TerminalDrawerPanel removed from right side; no-op for terminal play control.
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();

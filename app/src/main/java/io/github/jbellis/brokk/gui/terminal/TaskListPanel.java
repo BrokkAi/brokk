@@ -89,7 +89,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Chrome chrome;
     private final Color defaultGoButtonBg;
     private final Color stopButtonBg;
-    private final Timer llmStateTimer;
     private final Timer runningFadeTimer;
     private final JComponent controls;
     private final JPanel southPanel;
@@ -506,10 +505,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
         updateButtonStates();
-        llmStateTimer = new Timer(300, e -> updateButtonStates());
-        llmStateTimer.setRepeats(true);
-        llmStateTimer.start();
-
         runningFadeTimer = new Timer(40, e -> {
             Integer ri = runningIndex;
             if (ri != null) {
@@ -1563,7 +1558,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
-        llmStateTimer.stop();
         runningFadeTimer.stop();
         super.removeNotify();
     }
@@ -1714,12 +1708,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     public void disablePlay() {
-        // This method is a temporary stub to resolve a build error from TerminalDrawerPanel.
-        // The button state is now managed internally by a timer.
+        // Immediate, event-driven flip to "Stop" visuals when an LLM action starts
+        SwingUtilities.invokeLater(() -> {
+            goStopButton.setIcon(Icons.STOP);
+            goStopButton.setText(null);
+            goStopButton.setToolTipText("Cancel the current operation");
+            goStopButton.setBackground(stopButtonBg);
+            goStopButton.setEnabled(true);
+            goStopButton.repaint();
+        });
     }
 
     public void enablePlay() {
-        // This method is a temporary stub to resolve a build error from TerminalDrawerPanel.
-        // The button state is now managed internally by a timer.
+        // Recompute full state when an LLM action completes (accounts for selection, queue, etc.)
+        SwingUtilities.invokeLater(this::updateButtonStates);
     }
 }
