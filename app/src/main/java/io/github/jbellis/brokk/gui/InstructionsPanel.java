@@ -885,7 +885,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
-        titledContainer.setOpaque(false);
+        titledContainer.setOpaque(true);
         var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
         titledContainer.setTransferHandler(transferHandler);
         var dropTargetListener = new DropTargetAdapter() {
@@ -937,7 +937,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         titledContainer.setDropTarget(
                 new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
-        titledContainer.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
+        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+        titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         titledContainer.add(container, BorderLayout.CENTER);
 
         // Insert beneath the command-input area (index 2)
