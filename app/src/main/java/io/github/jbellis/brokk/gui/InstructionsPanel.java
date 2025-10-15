@@ -206,6 +206,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
+        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(chrome);
         this.commandInputUndoManager = new UndoManager();
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
@@ -774,9 +775,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * that targets the specific badge the mouse is over (mirrors ContextPanel behaviour).
      */
     private ContextAreaContainer createContextAreaContainer() {
-        // Replace former suggestion table with the workspace chips panel
-        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(this.chrome);
-
         // Wire chip removal behavior: block while LLM running; otherwise drop and refocus input
         workspaceItemsChipPanel.setOnRemoveFragment(fragment -> {
             var cm = chrome.getContextManager();
