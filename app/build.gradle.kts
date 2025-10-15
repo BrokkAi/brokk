@@ -86,6 +86,7 @@ dependencies {
     implementation(libs.disklrucache)
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
+    implementation(libs.pcollections)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 
