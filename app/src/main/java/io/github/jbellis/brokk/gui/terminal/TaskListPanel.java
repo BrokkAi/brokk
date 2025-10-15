@@ -951,6 +951,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Set running visuals
         runningIndex = idx;
+        updateButtonStates();
         runningAnimStartMs = System.currentTimeMillis();
         runningFadeTimer.start();
         list.repaint();
