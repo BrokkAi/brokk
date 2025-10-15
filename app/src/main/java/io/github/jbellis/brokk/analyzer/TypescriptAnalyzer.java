@@ -5,7 +5,6 @@ import static io.github.jbellis.brokk.analyzer.typescript.TypeScriptTreeSitterNo
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;

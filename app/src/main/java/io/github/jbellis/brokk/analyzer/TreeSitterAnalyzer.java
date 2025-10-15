@@ -5,7 +5,6 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorServiceUtil;
 import io.github.jbellis.brokk.util.TextCanonicalizer;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -40,7 +39,6 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
@@ -98,8 +96,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             PMap<ProjectFile, TSTree> parsedTreeCache,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
-            long snapshotEpochNanos) {
-    }
+            long snapshotEpochNanos) {}
 
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
@@ -115,8 +112,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * decorators.
      */
     protected record DefinitionInfoRecord(
-            String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {
-    }
+            String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {}
 
     protected record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
@@ -130,16 +126,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String typeParametersFieldName, // For generics on type aliases, classes, functions etc.
             Map<String, SkeletonType> captureConfiguration,
             String asyncKeywordNodeType,
-            Set<String> modifierNodeTypes) {
-    }
+            Set<String> modifierNodeTypes) {}
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements,
-            TSTree parsedTree) {
-    }
+            TSTree parsedTree) {}
 
     // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
     private record ConstructionTiming(
@@ -237,10 +231,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         List<CompletableFuture<?>> futures = new ArrayList<>();
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
-             var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
-                     Runtime.getRuntime().availableProcessors(), "ts-parse-");
-             var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
-                     Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
+                var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
+                        Runtime.getRuntime().availableProcessors(), "ts-parse-");
+                var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
+                        Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> {
@@ -383,7 +377,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Align last update watermark with snapshot's epoch for incremental detection semantics.
         this.lastUpdateEpochNanos.set(prebuiltState.snapshotEpochNanos());
-        log.debug("[{}] Snapshot TreeSitterAnalyzer created - codeUnits: {}, files: {}",
+        log.debug(
+                "[{}] Snapshot TreeSitterAnalyzer created - codeUnits: {}, files: {}",
                 language.name(),
                 state.codeUnitState().size(),
                 state.fileState().size());
@@ -1612,17 +1607,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 String innerType = declarationInExport.getType();
                 switch (skeletonType) {
                     case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
-                    case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType)
-                            ||
-                            // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                            ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
-                                    && ("lexical_declaration".equals(innerType)
-                                    || "variable_declaration".equals(innerType)));
+                    case FUNCTION_LIKE ->
+                        typeMatch = profile.functionLikeNodeTypes().contains(innerType)
+                                ||
+                                // Special case for TypeScript/JavaScript arrow functions in lexical declarations
+                                ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
+                                        && ("lexical_declaration".equals(innerType)
+                                                || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
-                    case ALIAS_LIKE -> typeMatch = (project.getAnalyzerLanguages().contains(Languages.TYPESCRIPT)
-                            && "type_alias_declaration".equals(innerType));
-                    default -> {
-                    }
+                    case ALIAS_LIKE ->
+                        typeMatch = (project.getAnalyzerLanguages().contains(Languages.TYPESCRIPT)
+                                && "type_alias_declaration".equals(innerType));
+                    default -> {}
                 }
                 if (typeMatch) {
                     nodeForContent = declarationInExport; // Unwrap for processing
@@ -1642,7 +1638,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
         if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && ("lexical_declaration".equals(nodeForContent.getType())
-                || "variable_declaration".equals(nodeForContent.getType()))
+                        || "variable_declaration".equals(nodeForContent.getType()))
                 && (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
             // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator
             // by name
@@ -1722,7 +1718,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     // For export statements, use the original node to include the export keyword
                     if (nodeForSignature != nodeForContent) {
                         classSignatureText = textSlice(
-                                nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes)
+                                        nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes)
                                 .stripTrailing();
                     } else {
                         classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), srcBytes)
@@ -1732,11 +1728,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     // For export statements, use the original node to include the export keyword
                     if (nodeForSignature != nodeForContent) {
                         classSignatureText = textSlice(
-                                nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
+                                        nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
                                 .stripTrailing();
                     } else {
                         classSignatureText = textSlice(
-                                nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes)
+                                        nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes)
                                 .stripTrailing();
                     }
                     // Attempt to remove trailing tokens like '{' or ';' if no body node found, to get a cleaner
@@ -1866,7 +1862,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 }
 
                 String aliasSignature = (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = "
-                        + valueText)
+                                + valueText)
                         .strip();
                 if (!aliasSignature.endsWith(";")) {
                     aliasSignature += ";";
@@ -2657,7 +2653,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 return filteredKids.equals(state.children())
                                         ? state
                                         : new CodeUnitProperties(
-                                        List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                                List.copyOf(filteredKids), state.signatures(), state.ranges());
                             });
                             // Purge from symbol index
                             var symbolsToRemove = new ArrayList<String>();

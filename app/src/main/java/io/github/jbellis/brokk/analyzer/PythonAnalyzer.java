@@ -5,7 +5,6 @@ import static io.github.jbellis.brokk.analyzer.python.PythonTreeSitterNodeTypes.
 import io.github.jbellis.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;

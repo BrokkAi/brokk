@@ -50,7 +50,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         return new CSharpAnalyzer(getProject(), state);
     }
 
-
     @Override
     protected TSLanguage createTSLanguage() {
         return new TreeSitterCSharp();

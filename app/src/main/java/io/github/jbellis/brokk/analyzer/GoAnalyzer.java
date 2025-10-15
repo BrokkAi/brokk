@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import java.util.Collections;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
