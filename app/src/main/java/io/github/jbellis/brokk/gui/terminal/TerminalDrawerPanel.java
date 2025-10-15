@@ -577,5 +577,4 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             }
         });
     }
-
 }
