@@ -33,16 +33,19 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         this.allDeclarationsList = new ArrayList<>();
         this.definitionsByFqName = new HashMap<>();
 
-        // Convert absolute paths to ProjectFiles
+        // Convert absolute paths to ProjectFiles, with a fallback if none provided
         Path projectRoot = projectInstance.getRoot();
-        var projectFiles = filesToAnalyze.stream()
+        var effectiveFiles =
+                filesToAnalyze.isEmpty() ? projectInstance.getAnalyzableFiles(Languages.SQL) : filesToAnalyze;
+        var projectFiles = effectiveFiles.stream()
                 .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .toList();
 
         logger.info(
-                "Received {} pre-filtered SQL files to analyze for project {}",
+                "Using {} SQL files to analyze for project {} (source: {})",
                 projectFiles.size(),
-                projectInstance.getRoot());
+                projectInstance.getRoot(),
+                filesToAnalyze.isEmpty() ? "computed from project" : "provided");
 
         for (var pf : projectFiles) {
             try {

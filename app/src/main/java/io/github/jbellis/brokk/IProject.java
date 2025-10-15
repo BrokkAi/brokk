@@ -94,7 +94,13 @@ public interface IProject extends AutoCloseable {
 
         // 2. Get baseline exclusions and normalize them to absolute paths
         Set<Path> normalizedExcludedPaths = getExcludedDirectories().stream()
-                .filter(s -> !BuildAgent.containsGlobMeta(s)) // Skip any globs that slipped through
+                // Skip any glob-like patterns that could cause InvalidPathException on some OSes
+                .filter(s -> !(s.contains("*")
+                        || s.contains("?")
+                        || s.contains("{")
+                        || s.contains("}")
+                        || s.contains("[")
+                        || s.contains("]")))
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
                         ? p.normalize()

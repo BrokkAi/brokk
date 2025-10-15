@@ -219,12 +219,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var successfullyProcessed = new AtomicInteger(0);
         var failedFiles = new AtomicInteger(0);
 
-        // Convert absolute paths to ProjectFiles
+        // Convert absolute paths to ProjectFiles, with fallback to project discovery if none provided
         Path projectRoot = project.getRoot();
-        List<ProjectFile> filesToProcess = filesToAnalyze.stream()
+        List<Path> effectivePaths =
+                filesToAnalyze.isEmpty() ? project.getAnalyzableFiles(this.language) : filesToAnalyze;
+        List<ProjectFile> filesToProcess = effectivePaths.stream()
                 .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .toList();
-        log.debug("Received {} pre-filtered files for {} analysis", filesToProcess.size(), language.name());
+        log.debug(
+                "Using {} files for {} analysis (pre-filtered: {})",
+                filesToProcess.size(),
+                language.name(),
+                filesToAnalyze.isEmpty() ? "computed from project" : "provided");
 
         var timing = ConstructionTiming.create();
         List<CompletableFuture<?>> futures = new ArrayList<>();
