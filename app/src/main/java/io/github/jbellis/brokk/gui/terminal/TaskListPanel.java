@@ -375,6 +375,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         gbc.gridx = 1;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(2, 2, 2, 4);
         int fixedHeight = Math.max(input.getPreferredSize().height, 32);
         var prefSize = new Dimension(64, fixedHeight);
         goStopButton.setPreferredSize(prefSize);
