@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
-class PythonTreeSitterAnalyzerUpdateTest {
+class PythonAnalyzerUpdateTest {
 
     private TestProject project;
     private IAnalyzer analyzer;

@@ -11,7 +11,7 @@ import org.junit.jupiter.api.*;
 class JavaAnalyzerUpdateTest {
 
     private TestProject project;
-    private JavaAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -58,7 +58,7 @@ class JavaAnalyzerUpdateTest {
         // update ONLY this file
         var maybeFile = analyzer.getFileFor("A");
         assertTrue(maybeFile.isPresent());
-        analyzer.update(Set.of(maybeFile.get()));
+        analyzer = analyzer.update(Set.of(maybeFile.get()));
 
         // method2 should now be visible
         assertTrue(analyzer.getDefinition("A.method2").isPresent());
@@ -91,7 +91,7 @@ class JavaAnalyzerUpdateTest {
           public int method4() { return 4; }
         }
         """);
-        analyzer.update(); // no-arg detection
+        analyzer = analyzer.update(); // no-arg detection
         assertTrue(analyzer.getDefinition("A.method4").isPresent());
 
         // delete file – analyzer should drop symbols
@@ -99,7 +99,7 @@ class JavaAnalyzerUpdateTest {
         assertTrue(maybeFile.isPresent());
         java.nio.file.Files.deleteIfExists(maybeFile.get().absPath());
 
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("A").isEmpty());
     }
 }

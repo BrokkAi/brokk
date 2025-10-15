@@ -35,7 +35,8 @@ public interface IAnalyzer {
 
     /**
      * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is O(M) in the number of
-     * changed files.
+     * changed files. Assume this update is not in place, and rather use the returned
+     * IAnalyzer.
      */
     default IAnalyzer update(Set<ProjectFile> changedFiles) {
         // should always be supported; UOE here is for convenience in mocking
@@ -43,8 +44,9 @@ public interface IAnalyzer {
     }
 
     /**
-     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) in the total
-     * number of files and relatively heavyweight.
+     * Scan for changes across all files in the project. This involves comparing the last modified time of the file with
+     * respect to this object's "last analyzed" time.  This is O(N) in the number of project files. Assume this update
+     * is not in place, and rather use the returned IAnalyzer.
      */
     default IAnalyzer update() {
         // should always be supported; UOE here is for convenience in mocking
