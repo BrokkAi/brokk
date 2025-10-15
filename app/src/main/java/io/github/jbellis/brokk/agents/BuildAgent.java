@@ -113,24 +113,51 @@ public class BuildAgent {
                 detectedSystem,
                 this.currentExcludedDirectories);
 
-        // Add exclusions from .gitignore
+        // Add exclusions from .gitignore (treat globs as patterns; avoid Path.of on them)
         var repo = project.getRepo();
         if (repo instanceof GitRepo gitRepo) {
             var ignoredPatterns = gitRepo.getIgnoredPatterns();
             var addedFromGitignore = new ArrayList<String>();
-            for (var pattern : ignoredPatterns) {
-                Path path;
-                try {
-                    path = project.getRoot().resolve(pattern);
-                } catch (InvalidPathException e) {
-                    // for now we only support literal paths, not globs
+            for (var raw : ignoredPatterns) {
+                if (raw == null || raw.isBlank()) continue;
+
+                // Handle negation and trailing-slash directory semantics per .gitignore
+                boolean negated = raw.startsWith("!");
+                String patternBody = negated ? raw.substring(1) : raw;
+                boolean dirOnly = patternBody.endsWith("/");
+
+                // Sanitize for cross-platform stability (strip leading ./ or slashes, normalize separators)
+                String sanitized = sanitizeExclusion(patternBody);
+                if (sanitized == null) {
                     continue;
                 }
-                // include non-existing paths if they end with `/` in case they get created later
-                var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!pattern.startsWith("!") && isDirectory) {
-                    this.currentExcludedDirectories.add(pattern);
-                    addedFromGitignore.add(pattern);
+
+                boolean isGlob = containsGlobMeta(sanitized);
+
+                // We only add positive (non-negated) directory patterns to exclusion baseline
+                if (!negated) {
+                    if (isGlob) {
+                        // Only include directory globs (e.g., **/target/)
+                        if (dirOnly) {
+                            // ensure it remains directory-like for readability
+                            var toAdd = sanitized.endsWith("/") ? sanitized : sanitized + "/";
+                            this.currentExcludedDirectories.add(toAdd);
+                            addedFromGitignore.add(toAdd);
+                        }
+                    } else {
+                        // Literal path: check if it's a directory under the project or marked as directory with
+                        // trailing slash
+                        try {
+                            var p = project.getRoot().resolve(sanitized);
+                            boolean isDir = (Files.exists(p) && Files.isDirectory(p)) || dirOnly;
+                            if (isDir) {
+                                this.currentExcludedDirectories.add(sanitized);
+                                addedFromGitignore.add(sanitized);
+                            }
+                        } catch (InvalidPathException e) {
+                            logger.debug("Skipping invalid .gitignore literal pattern '{}': {}", raw, e.toString());
+                        }
+                    }
                 }
             }
             if (!addedFromGitignore.isEmpty()) {
@@ -138,7 +165,6 @@ public class BuildAgent {
                         "Added the following directory patterns from .gitignore to excluded directories: {}",
                         addedFromGitignore);
             }
-
         } else {
             logger.debug(
                     "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
@@ -392,8 +418,7 @@ public class BuildAgent {
 
     // Visible for tests (same package)
     static Set<String> combineAndSanitizeExcludes(Collection<String> baseline, Collection<String> extras) {
-        return Stream.concat(baseline == null ? Stream.<String>empty() : baseline.stream(),
-                        extras == null ? Stream.<String>empty() : extras.stream())
+        return Stream.concat(baseline.stream(), extras.stream())
                 .map(BuildAgent::sanitizeExclusion)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -422,8 +447,12 @@ public class BuildAgent {
 
     private static boolean containsGlobMeta(String s) {
         // Minimal detection of glob meta characters
-        return s.indexOf('*') >= 0 || s.indexOf('?') >= 0 || s.indexOf('[') >= 0 || s.indexOf(']') >= 0
-                || s.indexOf('{') >= 0 || s.indexOf('}') >= 0;
+        return s.indexOf('*') >= 0
+                || s.indexOf('?') >= 0
+                || s.indexOf('[') >= 0
+                || s.indexOf(']') >= 0
+                || s.indexOf('{') >= 0
+                || s.indexOf('}') >= 0;
     }
 
     private static String stripLeadingSlashes(String s) {
