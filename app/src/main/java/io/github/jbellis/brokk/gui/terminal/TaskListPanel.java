@@ -902,6 +902,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // Immediately disable the button to provide instant feedback while compression runs.
+        goStopButton.setEnabled(false);
+        goStopButton.setToolTipText("Preparing to run tasks...");
+
         // Record the full ordered run for context awareness
         currentRunOrder = java.util.List.copyOf(toRun);
 
