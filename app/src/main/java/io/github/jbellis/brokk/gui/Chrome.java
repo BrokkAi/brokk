@@ -2546,6 +2546,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+            taskListPanel.refreshFromManager();
         });
     }
 
