@@ -1349,6 +1349,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Model selector on the right
         var modelComp = modelSelector.getComponent();
         modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
+        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP+120));
         bottomPanel.add(modelComp);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
@@ -2225,14 +2226,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Ensures the ModelSelector component is attached to the Instructions bottom bar,
-     * immediately before the actionButton, and revalidates the layout.
+     * immediately before the actionButton with proper spacing, and revalidates the layout.
      * Safe to call from any thread.
      */
     public void restoreModelSelectorToBottom() {
         Runnable r = () -> {
             try {
                 JComponent comp = modelSelector.getComponent();
-                // If it's already just before actionButton in the same parent, nothing to do.
                 var currentParent = comp.getParent();
                 var bottom = actionButton.getParent();
                 if (bottom == null) return;
@@ -2243,20 +2243,45 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         currentParent.revalidate();
                         currentParent.repaint();
                     }
-                    // Insert right before the action button
-                    int insertIndex = Math.max(0, indexOfChild(bottom, actionButton));
-                    bottom.add(comp, insertIndex);
-                    bottom.revalidate();
-                    bottom.repaint();
+                    // Insert right before the action button with spacing strut
+                    int actionIndex = indexOfChild(bottom, actionButton);
+                    if (actionIndex >= 0) {
+                        bottom.add(comp, actionIndex);
+                        bottom.add(Box.createHorizontalStrut(H_GAP), actionIndex + 1);
+                        bottom.revalidate();
+                        bottom.repaint();
+                    }
                 } else {
-                    // Ensure ordering is correct (model selector immediately before action button)
+                    // Already in the right parent; ensure correct ordering with strut
                     int compIndex = indexOfChild(bottom, comp);
                     int actionIndex = indexOfChild(bottom, actionButton);
-                    if (compIndex != actionIndex - 1) {
-                        // Remove and reinsert at the correct index
+                    
+                    // Check if strut exists right after model selector
+                    boolean strutExists = false;
+                    if (actionIndex >= 1) {
+                        Component potentialStrut = bottom.getComponent(actionIndex - 1);
+                        strutExists = potentialStrut instanceof Box.Filler;
+                    }
+                    
+                    if (compIndex != actionIndex - 2 || !strutExists) {
+                        // Reposition: remove model selector and any old strut, then re-add both
                         bottom.remove(comp);
-                        int insertIndex = Math.max(0, indexOfChild(bottom, actionButton));
-                        bottom.add(comp, insertIndex);
+                        
+                        // Also remove the old strut if it exists
+                        int newActionIndex = indexOfChild(bottom, actionButton);
+                        if (newActionIndex >= 1) {
+                            Component potentialStrut = bottom.getComponent(newActionIndex - 1);
+                            if (potentialStrut instanceof Box.Filler) {
+                                bottom.remove(potentialStrut);
+                                newActionIndex = indexOfChild(bottom, actionButton);
+                            }
+                        }
+                        
+                        // Add model selector and new strut before action button
+                        if (newActionIndex >= 0) {
+                            bottom.add(comp, newActionIndex);
+                            bottom.add(Box.createHorizontalStrut(H_GAP), newActionIndex + 1);
+                        }
                         bottom.revalidate();
                         bottom.repaint();
                     }
