@@ -102,7 +102,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
-    private @Nullable BranchSelectorButton branchSplitButton;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -534,18 +533,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
-        this.branchSplitButton = new BranchSelectorButton(chrome);
-
-        int branchWidth = 210;
-        var branchDim = new Dimension(branchWidth, micHeight);
-        branchSplitButton.setPreferredSize(branchDim);
-        branchSplitButton.setMinimumSize(branchDim);
-        branchSplitButton.setMaximumSize(branchDim);
-
+        // Center placeholder — header with branch selector has been moved to the main window (Chrome).
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.LINE_AXIS));
-        centerPanel.add(Box.createHorizontalGlue());
-        centerPanel.add(branchSplitButton);
         centerPanel.add(Box.createHorizontalGlue());
         topBarPanel.add(centerPanel, BorderLayout.CENTER);
 
@@ -1045,9 +1035,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void refreshBranchUi(String branchName) {
-        if (branchSplitButton != null) {
-            branchSplitButton.refreshBranch(branchName);
-        }
+        // Delegate to Chrome which now owns the BranchSelectorButton
+        chrome.refreshBranchUi(branchName);
     }
 
     /**
