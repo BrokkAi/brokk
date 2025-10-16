@@ -101,17 +101,8 @@ public class SplitButton extends JComponent {
 
             @Override
             public void mouseExited(MouseEvent e) {
-                // Only clear rollover if mouse actually left the entire SplitButton
-                var mousePos = e.getPoint();
-                SwingUtilities.convertPointToScreen(mousePos, e.getComponent());
-                var splitButtonPos = new Point(0, 0);
-                SwingUtilities.convertPointToScreen(splitButtonPos, SplitButton.this);
-                
-                var bounds = new Rectangle(splitButtonPos.x, splitButtonPos.y, getWidth(), getHeight());
-                if (!bounds.contains(mousePos)) {
-                    actionButton.getModel().setRollover(false);
-                    arrowButton.getModel().setRollover(false);
-                }
+                actionButton.getModel().setRollover(false);
+                arrowButton.getModel().setRollover(false);
             }
         };
 
