@@ -631,7 +631,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         var current = this.state;
 
-        if (usePrefixOptimization && current != null) {
+        if (usePrefixOptimization) {
             var keyIndex = current.symbolKeyIndex();
             try {
                 for (String symbol : keyIndex.tailFrom(query)) {
@@ -649,8 +649,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Generic scan: accept substring or CamelCase camel-hump matches.
         // Skip symbols already covered by the prefix optimization to avoid duplicate work.
-        Iterable<String> allKeysIterable =
-                (current != null) ? current.symbolKeyIndex().all() : List.of();
+        Iterable<String> allKeysIterable = current.symbolKeyIndex().all();
         for (String symbol : allKeysIterable) {
             String symbolLower = symbol.toLowerCase(Locale.ROOT);
 
@@ -661,13 +660,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             boolean matches = false;
             if (symbolLower.contains(lowerCaseQuery)) {
                 matches = true;
-            } else if (isAllUpper
-                    && camelCasePattern != null
-                    && camelCasePattern.matcher(symbol).find()) {
+            } else if (isAllUpper && camelCasePattern.matcher(symbol).find()) {
                 matches = true;
             }
 
-            if (matches && current != null) {
+            if (matches) {
                 results.addAll(current.symbolIndex().getOrDefault(symbol, List.of()));
             }
         }
