@@ -15,7 +15,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
-import io.github.jbellis.brokk.gui.components.ModelSelector;
+import io.github.jbellis.brokk.gui.components.MaterialDropdown;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
@@ -91,7 +91,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JLabel answerModeLabel = new JLabel("Ask");
     private final MaterialButton actionButton;
     private final WandButton wandButton;
-    private final ModelSelector modelSelector;
+    private MaterialDropdown modelSelectorDropdown;
+    private Service.ModelConfig selectedModelConfig;
+    private final List<Consumer<Service.ModelConfig>> modelSelectionListeners = new CopyOnWriteArrayList<>();
     private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private final ContextManager contextManager;
@@ -362,13 +364,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.addActionListener(e -> onActionButtonPressed());
         actionButton.setBackground(this.defaultActionButtonBg);
 
-        modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
-        // Also recompute token/cost indicator when model changes
-        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
+        modelSelectorDropdown = createModelSelectorDropdown();
+        // select initial model
+        var initialModelConfig = chrome.getProject().getCodeModelConfig();
+        if (initialModelConfig == null) {
+            initialModelConfig = new Service.ModelConfig(Service.GPT_5_MINI);
+        }
+        setSelectedModel(initialModelConfig);
+
+        // Persist selection to project and update token/cost indicator when model changes
+        addModelSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        addModelSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
+
         // Ensure model selector component is focusable
-        modelSelector.getComponent().setFocusable(true);
+        modelSelectorDropdown.setFocusable(true);
 
         // Initialize TokenUsageBar (left of Attach button)
         tokenUsageBar = new TokenUsageBar();
@@ -513,6 +522,58 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return area;
     }
 
+    private void setSelectedModel(Service.ModelConfig config) {
+        this.selectedModelConfig = config;
+        // Update dropdown text
+        if (modelSelectorDropdown != null) {
+            modelSelectorDropdown.setText(config.name());
+        }
+        // Notify listeners
+        for (var listener : modelSelectionListeners) {
+            try {
+                listener.accept(config);
+            } catch (Exception e) {
+                logger.error("Error in model selection listener", e);
+            }
+        }
+    }
+
+    private MaterialDropdown createModelSelectorDropdown() {
+        var dropdown = new MaterialDropdown("Select Model");
+        dropdown.setToolTipText("Select the model to use for Code or Ask actions");
+
+        Supplier<JPopupMenu> menuSupplier = () -> {
+            var menu = new JPopupMenu();
+            try {
+                var service = chrome.getContextManager().getService();
+                var available = service.getAvailableModels();
+                if (available != null && !available.isEmpty()) {
+                    var names = new java.util.ArrayList<>(available.keySet());
+                    names.sort(String::compareToIgnoreCase);
+                    for (var name : names) {
+                        var item = new JMenuItem(name);
+                        item.addActionListener(e -> setSelectedModel(new Service.ModelConfig(name)));
+                        menu.add(item);
+                    }
+                    menu.addSeparator();
+                }
+            } catch (Exception ex) {
+                logger.debug("Unable to load available models", ex);
+            }
+
+            var configureItem = new JMenuItem("Configure Models...");
+            configureItem.addActionListener(e -> {
+                SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE);
+            });
+            menu.add(configureItem);
+
+            return menu;
+        };
+
+        dropdown.setMenuSupplier(menuSupplier);
+        return dropdown;
+    }
+
     private JPanel buildTopBarPanel() {
         // Restored History dropdown alongside branch split button.
         // Replaced history dropdown with compact branch split button in top bar
@@ -520,7 +581,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        var modelComp = modelSelector.getComponent();
+        var modelComp = modelSelectorDropdown;
 
         // Lock control heights to the larger of mic and model selector so one growing won't shrink the other
         var micPref = micButton.getPreferredSize();
@@ -1525,13 +1586,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         var models = cm.getService();
 
-        Service.ModelConfig config;
-        try {
-            config = modelSelector.getModel();
-        } catch (IllegalStateException e) {
-            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-            return null;
-        }
+        Service.ModelConfig config = getSelectedModel();
 
         var selectedModel = models.getModel(config);
         if (selectedModel == null) {
@@ -1808,7 +1863,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             // Determine Code model from the Instructions dropdown
-            Service.ModelConfig codeCfg = modelSelector.getModel();
+            Service.ModelConfig codeCfg = getSelectedModel();
             var codeModel = service.getModel(codeCfg);
             if (codeModel == null) {
                 throw new ModelUnavailableException();
@@ -1824,14 +1879,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var contextManager = chrome.getContextManager();
 
         // fetch and save model config
-        Service.ModelConfig config;
-        try {
-            config = modelSelector.getModel();
-            chrome.getProject().setCodeModelConfig(config);
-        } catch (IllegalStateException e) {
-            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-            return;
-        }
+        Service.ModelConfig config = getSelectedModel();
+        chrome.getProject().setCodeModelConfig(config);
         var model = contextManager.getService().getModel(config);
         if (model == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
@@ -2199,12 +2248,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * default if none is available.
      */
     public Service.ModelConfig getSelectedModel() {
-        try {
-            return modelSelector.getModel();
-        } catch (IllegalStateException e) {
-            // Fallback to a basic default; Reasoning & Tier defaulted inside ModelConfig
-            return new Service.ModelConfig(Service.GPT_5_MINI);
+        if (selectedModelConfig != null) {
+            return selectedModelConfig;
         }
+        // Fallback to a basic default; Reasoning & Tier defaulted inside ModelConfig
+        return new Service.ModelConfig(Service.GPT_5_MINI);
     }
 
     public ContextAreaContainer getContextAreaContainer() {
@@ -2220,7 +2268,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * receives the new Service.ModelConfig.
      */
     public void addModelSelectionListener(Consumer<Service.ModelConfig> listener) {
-        modelSelector.addSelectionListener(listener);
+        modelSelectionListeners.add(listener);
     }
 
     private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
@@ -2396,8 +2444,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else if (aComponent == searchProjectCheckBox) {
                 return micButton;
             } else if (aComponent == micButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == modelSelector.getComponent()) {
+                return modelSelectorDropdown;
+            } else if (aComponent == modelSelectorDropdown) {
                 // Find history dropdown in the top bar
                 return findHistoryDropdown();
             } else if (aComponent == findHistoryDropdown()) {
@@ -2420,10 +2468,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return modeSwitch;
             } else if (aComponent == micButton) {
                 return modeSwitch.isSelected() ? searchProjectCheckBox : modeSwitch;
-            } else if (aComponent == modelSelector.getComponent()) {
+            } else if (aComponent == modelSelectorDropdown) {
                 return micButton;
             } else if (aComponent == findHistoryDropdown()) {
-                return modelSelector.getComponent();
+                return modelSelectorDropdown;
             } else if (aComponent == findBranchSplitButton()) {
                 return findHistoryDropdown();
             } else if (aComponent == getNextFocusableComponent()) {
