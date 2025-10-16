@@ -523,10 +523,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void setSelectedModel(Service.ModelConfig config) {
+        setSelectedModel(config, config.name());
+    }
+
+    private void setSelectedModel(Service.ModelConfig config, String alias) {
         this.selectedModelConfig = config;
-        // Update dropdown text
+        // Update dropdown text to the provided alias
         if (modelSelectorDropdown != null) {
-            modelSelectorDropdown.setText(config.name());
+            modelSelectorDropdown.setText(alias);
         }
         // Notify listeners
         for (var listener : modelSelectionListeners) {
@@ -552,7 +556,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     names.sort(String::compareToIgnoreCase);
                     for (var name : names) {
                         var item = new JMenuItem(name);
-                        item.addActionListener(e -> setSelectedModel(new Service.ModelConfig(name)));
+                        item.addActionListener(e -> setSelectedModel(new Service.ModelConfig(name), name));
                         menu.add(item);
                     }
                     menu.addSeparator();
