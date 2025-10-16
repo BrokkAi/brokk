@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
@@ -24,7 +24,7 @@ public class JavaTreeSitterSupertypesTest {
 
     private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterSupertypesTest.class);
     private static TestProject testProject;
-    private static JavaTreeSitterAnalyzer analyzer;
+    private static JavaAnalyzer analyzer;
 
     @BeforeAll
     static void setup() {
@@ -35,7 +35,7 @@ public class JavaTreeSitterSupertypesTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
-        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        analyzer = new JavaAnalyzer(testProject);
     }
 
     @AfterAll
@@ -45,7 +45,7 @@ public class JavaTreeSitterSupertypesTest {
         }
     }
 
-    private static List<CodeUnit> transitiveAncestors(JavaTreeSitterAnalyzer analyzer, CodeUnit start) {
+    private static List<CodeUnit> transitiveAncestors(JavaAnalyzer analyzer, CodeUnit start) {
         var result = new ArrayList<CodeUnit>();
         var visited = new HashSet<String>();
         var queue = new ArrayDeque<CodeUnit>();
