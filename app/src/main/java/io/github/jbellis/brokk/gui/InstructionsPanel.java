@@ -469,7 +469,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             break;
                         }
                     } catch (Exception ex) {
-                        // Ignore and fall back to default paste handling
+                        // Log at trace to avoid noise; proceed with default paste handling
+                        logger.trace("Clipboard flavor probe failed during smartPaste; falling back to default", ex);
                     }
                 }
 
@@ -1051,8 +1052,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 badgeFg = ThemeColors.getColor(isDark, "mode_code_fg");
                 accent = ThemeColors.getColor(isDark, "mode_code_accent");
             }
-        } catch (Exception ignored) {
-            // fallbacks below
+        } catch (Exception ex) {
+            // Log at debug and fall back to defaults below
+            logger.debug("Theme color lookup failed; using fallback colors", ex);
         }
         if (badgeBg == null) {
             badgeBg = askMode ? new Color(0x1F6FEB) : new Color(0x2EA043);
@@ -2211,6 +2213,69 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public JPanel getCenterPanel() {
         return centerPanel;
+    }
+
+    /**
+     * Returns the Swing component used by the ModelSelector so it can be moved
+     * between panels (Instructions <-> Tasks) as a single shared component.
+     */
+    public JComponent getModelSelectorComponent() {
+        return modelSelector.getComponent();
+    }
+
+    /**
+     * Ensures the ModelSelector component is attached to the Instructions bottom bar,
+     * immediately before the actionButton, and revalidates the layout.
+     * Safe to call from any thread.
+     */
+    public void restoreModelSelectorToBottom() {
+        Runnable r = () -> {
+            try {
+                JComponent comp = modelSelector.getComponent();
+                // If it's already just before actionButton in the same parent, nothing to do.
+                var currentParent = comp.getParent();
+                var bottom = actionButton.getParent();
+                if (bottom == null) return;
+
+                if (currentParent != bottom) {
+                    if (currentParent != null) {
+                        currentParent.remove(comp);
+                        currentParent.revalidate();
+                        currentParent.repaint();
+                    }
+                    // Insert right before the action button
+                    int insertIndex = Math.max(0, indexOfChild(bottom, actionButton));
+                    bottom.add(comp, insertIndex);
+                    bottom.revalidate();
+                    bottom.repaint();
+                } else {
+                    // Ensure ordering is correct (model selector immediately before action button)
+                    int compIndex = indexOfChild(bottom, comp);
+                    int actionIndex = indexOfChild(bottom, actionButton);
+                    if (compIndex != actionIndex - 1) {
+                        // Remove and reinsert at the correct index
+                        bottom.remove(comp);
+                        int insertIndex = Math.max(0, indexOfChild(bottom, actionButton));
+                        bottom.add(comp, insertIndex);
+                        bottom.revalidate();
+                        bottom.repaint();
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug(
+                        "restoreModelSelectorToBottom: non-fatal error repositioning model selector", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    private static int indexOfChild(Container parent, Component child) {
+        int n = parent.getComponentCount();
+        for (int i = 0; i < n; i++) {
+            if (parent.getComponent(i) == child) return i;
+        }
+        return -1;
     }
 
     /**

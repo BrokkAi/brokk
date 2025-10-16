@@ -491,11 +491,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addChangeListener(e -> {
             var selected = rightTabbedPanel.getSelectedComponent();
             if (selected == instructionsPanel) {
+                // Move shared Context area back to Instructions
                 taskListPanel.restoreControls();
                 instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
                 instructionsPanel.revalidate();
                 instructionsPanel.repaint();
+
+                // Move shared ModelSelector back to Instructions bottom bar
+                instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
+                // Move shared Context area to Tasks
                 var parent = contextAreaContainer.getParent();
                 if (parent != null) {
                     parent.remove(contextAreaContainer);
@@ -503,6 +508,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     parent.repaint();
                 }
                 taskListPanel.setSharedContextArea(contextAreaContainer);
+
+                // Move shared ModelSelector to the TaskList controls (next to Play/Stop)
+                try {
+                    var comp = instructionsPanel.getModelSelectorComponent();
+                    taskListPanel.setSharedModelSelector(comp);
+                } catch (Exception ex) {
+                    logger.debug("Unable to move shared ModelSelector to TaskListPanel", ex);
+                }
             }
         });
 
@@ -3005,8 +3018,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (icon instanceof io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon themedIcon) {
             try {
                 themedIcon.ensureResolved();
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
                 // Defensive: do not let icon resolution errors interrupt UI construction
+                logger.debug("Failed to resolve themed icon; continuing without blocking UI", ex);
             }
         }
 
@@ -3069,8 +3083,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         // Clamp to avoid pathological values
                         savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
                     }
-                } catch (Exception ignored) {
-                    // fallback will be used on restore
+                } catch (Exception ex) {
+                    // Non-fatal: we'll use default proportion on restore
+                    logger.debug("Failed to save top split proportion; using defaults on restore", ex);
                 }
 
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
@@ -3090,8 +3105,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         instructionsHeightPx =
                                 Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
                     }
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
                     // Defensive; we'll clamp during restore regardless
+                    logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
                 }
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
@@ -3110,8 +3126,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // as bottom
                 try {
                     topSplitPane.setBottomComponent(rightTabbedPanel);
-                } catch (Exception ignored) {
-                    // If it's already set due to prior operations, ignore
+                } catch (Exception ex) {
+                    // If it's already set due to prior operations, ignore but record for diagnostics
+                    logger.debug("topSplitPane.setBottomComponent() failed (likely already set)", ex);
                 }
                 mainVerticalSplitPane.setBottomComponent(topSplitPane);
 
@@ -3138,8 +3155,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     // Finally set the top split divider by proportion to restore Workspace share
                     try {
                         topSplitPane.setDividerLocation(p);
-                    } catch (Exception ignored) {
-                        // ignore
+                    } catch (Exception ex) {
+                        logger.debug("Failed to set topSplitPane divider by proportion; will rely on layout", ex);
                     }
                 });
 

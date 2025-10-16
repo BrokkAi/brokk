@@ -92,6 +92,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Timer runningFadeTimer;
     private final JComponent controls;
     private final JPanel southPanel;
+    private @Nullable JComponent sharedModelSelectorComp = null;
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
@@ -1076,6 +1077,40 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         revalidate();
         repaint();
+    }
+
+    /**
+     * Hosts the shared ModelSelector component next to the Play/Stop button in the controls row.
+     * The same Swing component instance is physically moved here from InstructionsPanel.
+     */
+    public void setSharedModelSelector(JComponent comp) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Detach from any previous parent first
+                var parent = comp.getParent();
+                if (parent != null) {
+                    parent.remove(comp);
+                    parent.revalidate();
+                    parent.repaint();
+                }
+                sharedModelSelectorComp = comp;
+
+                // Place to the right of the goStopButton in the GridBag row
+                GridBagConstraints gbc2 = new GridBagConstraints();
+                gbc2.gridx = 2;
+                gbc2.gridy = 0;
+                gbc2.insets = new Insets(2, 4, 2, 2);
+                gbc2.fill = GridBagConstraints.NONE;
+                gbc2.weightx = 0.0;
+                gbc2.anchor = GridBagConstraints.CENTER;
+                controls.add(comp, gbc2);
+
+                controls.revalidate();
+                controls.repaint();
+            } catch (Exception e) {
+                logger.debug("Error setting shared ModelSelector in TaskListPanel", e);
+            }
+        });
     }
 
     /**
