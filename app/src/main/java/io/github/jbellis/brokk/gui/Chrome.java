@@ -3070,7 +3070,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> {
             try {
                 String base = "Project Files";
-                String suffix = (branchName == null || branchName.isBlank()) ? "" : " — " + branchName;
+                String suffix = branchName.isBlank() ? "" : " — " + branchName;
                 projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
                 projectFilesPanel.revalidate();
                 projectFilesPanel.repaint();
