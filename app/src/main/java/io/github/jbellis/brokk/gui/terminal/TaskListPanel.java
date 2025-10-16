@@ -83,8 +83,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton goStopButton;
-    private final MaterialButton combineBtn = new MaterialButton();
-    private final MaterialButton splitBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
     private final Color defaultGoButtonBg;
@@ -384,16 +382,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
 
-        combineBtn.setIcon(Icons.CELL_MERGE);
-        combineBtn.setToolTipText(
-                "<html><body style='width:300px'>Combine selected tasks into one new task.<br>The text from all tasks will be merged and the originals deleted.<br>Enabled when 2 or more tasks are selected.</body></html>");
-        combineBtn.addActionListener(e -> combineSelectedTasks());
-
-        splitBtn.setIcon(Icons.FORK_RIGHT);
-        splitBtn.setToolTipText(
-                "<html><body style='width:300px'>Split the selected task into multiple tasks.<br>Enter one task per line in the dialog.</body></html>");
-        splitBtn.addActionListener(e -> splitSelectedTask());
-
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
         clearCompletedBtn.setToolTipText(
                 "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
@@ -403,8 +391,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Make the buttons visually tighter and grouped
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
-            combineBtn.setMargin(new Insets(0, 0, 0, 0));
-            splitBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             // Top toolbar (below title, above list): left group + separator + play all/clear completed
@@ -415,8 +401,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Left group: remaining buttons
             topToolbar.add(removeBtn);
             topToolbar.add(toggleDoneBtn);
-            topToolbar.add(combineBtn);
-            topToolbar.add(splitBtn);
 
             // Vertical separator between groups
             JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
@@ -738,11 +722,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
-
-        // Combine enabled only if 2 or more tasks selected and no running/pending in selection
-        combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
-        // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
-        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
