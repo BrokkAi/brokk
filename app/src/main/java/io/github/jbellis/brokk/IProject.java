@@ -132,6 +132,12 @@ public interface IProject extends AutoCloseable {
 
                     // Check .gitignore rules (root .gitignore only)
                     if (finalIgnoreNode != null) {
+                        // Skip if path is not under project root (protect relativize)
+                        if (!normalizedPath.startsWith(projectRoot)) {
+                            logger.warn(
+                                    "Skipping path outside project root when applying .gitignore: {}", normalizedPath);
+                            return false;
+                        }
                         // Compute relative path with forward slashes
                         String relPath = projectRoot
                                 .relativize(normalizedPath)

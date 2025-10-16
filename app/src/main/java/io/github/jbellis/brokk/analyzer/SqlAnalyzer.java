@@ -37,7 +37,17 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         Path projectRoot = projectInstance.getRoot();
         var effectiveFiles =
                 filesToAnalyze.isEmpty() ? projectInstance.getAnalyzableFiles(Languages.SQL) : filesToAnalyze;
-        var projectFiles = effectiveFiles.stream()
+        // Ensure files are under project root and only .sql files are processed
+        var filtered = effectiveFiles.stream()
+                .filter(absPath -> {
+                    if (!absPath.startsWith(projectRoot)) {
+                        logger.warn("Skipping SQL analyzable path outside project root: {}", absPath);
+                        return false;
+                    }
+                    return absPath.toString().toLowerCase(Locale.ROOT).endsWith(".sql");
+                })
+                .toList();
+        var projectFiles = filtered.stream()
                 .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .toList();
 

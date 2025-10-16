@@ -224,6 +224,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         List<Path> effectivePaths =
                 filesToAnalyze.isEmpty() ? project.getAnalyzableFiles(this.language) : filesToAnalyze;
         List<ProjectFile> filesToProcess = effectivePaths.stream()
+                .filter(absPath -> {
+                    if (!absPath.startsWith(projectRoot)) {
+                        log.warn("Skipping analyzable path outside project root: {}", absPath);
+                        return false;
+                    }
+                    return true;
+                })
                 .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .toList();
         log.debug(
@@ -2672,6 +2679,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // files currently on disk that this analyser is interested in
         Path projectRoot = project.getRoot();
         Set<ProjectFile> currentFiles = project.getAnalyzableFiles(language).stream()
+                .filter(absPath -> {
+                    if (!absPath.startsWith(projectRoot)) {
+                        log.warn("Skipping analyzable path outside project root in detection: {}", absPath);
+                        return false;
+                    }
+                    return true;
+                })
                 .map(absPath -> new ProjectFile(projectRoot, projectRoot.relativize(absPath)))
                 .collect(Collectors.toSet());
 

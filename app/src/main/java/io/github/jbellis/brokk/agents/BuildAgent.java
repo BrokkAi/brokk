@@ -420,7 +420,8 @@ public class BuildAgent {
             // Represent normalized value with forward slashes to avoid platform variance
             return p.toString().replace('\\', '/');
         } catch (Exception e) {
-            logger.debug("Skipping Path normalization for exclusion '{}': {}", s, e.toString());
+            LogManager.getLogger(BuildAgent.class)
+                    .debug("Skipping Path normalization for exclusion '{}': {}", s, e.toString());
             return null;
         }
     }
