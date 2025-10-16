@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
@@ -955,6 +956,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     return "Connection failed: " + ioException.getMessage();
                 } catch (Exception ex) {
                     logger.error("Unexpected error during Jira connection test: {}", ex.getMessage(), ex);
+                    ExceptionReporter.tryReportException(ex);
                     return "Connection failed with unexpected error: " + ex.getMessage();
                 }
             }
@@ -1470,7 +1472,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             try {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting Build Agent...");
                 var agent = new BuildAgent(
-                        proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
+                        proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
                 if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {

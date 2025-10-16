@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.github;
 
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
@@ -126,7 +127,10 @@ public class BackgroundGitHubAuth {
                 // This shouldn't happen as SLOW_DOWN is handled in polling loop
             }
             default -> {
+                RuntimeException ex = new IllegalStateException(
+                        "Background GitHub authentication unexpected result: " + tokenResponse.result());
                 logger.error("Background GitHub authentication unexpected result: {}", tokenResponse.result());
+                ExceptionReporter.tryReportException(ex);
             }
         }
 

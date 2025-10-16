@@ -33,5 +33,7 @@ public final class CSharpTreeSitterNodeTypes {
     // Namespace declaration
     public static final String NAMESPACE_DECLARATION = "namespace_declaration";
 
+    public static final String IMPORT_DECLARATION = "using_directive";
+
     private CSharpTreeSitterNodeTypes() {}
 }

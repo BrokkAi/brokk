@@ -16,6 +16,7 @@ import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
@@ -167,6 +168,7 @@ public class BuildAgent {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");
+                ExceptionReporter.tryReportException(e);
                 return BuildDetails.EMPTY;
             }
 

@@ -577,16 +577,4 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             }
         });
     }
-
-    public void disablePlay() {
-        if (activeTaskList != null) {
-            activeTaskList.disablePlay();
-        }
-    }
-
-    public void enablePlay() {
-        if (activeTaskList != null) {
-            activeTaskList.enablePlay();
-        }
-    }
 }

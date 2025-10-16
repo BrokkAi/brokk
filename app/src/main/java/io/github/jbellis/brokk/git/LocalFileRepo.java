@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.git;
 
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
@@ -81,6 +82,7 @@ public class LocalFileRepo implements IGitRepo {
             });
         } catch (IOException e) {
             logger.error("Unexpected error walking directory tree starting at {}", root, e);
+            ExceptionReporter.tryReportException(e);
             return Set.of();
         }
         return trackedFiles;

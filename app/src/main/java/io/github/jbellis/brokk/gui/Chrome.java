@@ -487,6 +487,25 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
 
+        var contextAreaContainer = instructionsPanel.getContextAreaContainer();
+        rightTabbedPanel.addChangeListener(e -> {
+            var selected = rightTabbedPanel.getSelectedComponent();
+            if (selected == instructionsPanel) {
+                taskListPanel.restoreControls();
+                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
+                instructionsPanel.revalidate();
+                instructionsPanel.repaint();
+            } else if (selected == taskListPanel) {
+                var parent = contextAreaContainer.getParent();
+                if (parent != null) {
+                    parent.remove(contextAreaContainer);
+                    parent.revalidate();
+                    parent.repaint();
+                }
+                taskListPanel.setSharedContextArea(contextAreaContainer);
+            }
+        });
+
         // Create and add TerminalPanel as third tab (with terminal icon)
         this.terminalPanel =
                 new TerminalPanel(this, () -> {}, true, getProject().getRoot());
@@ -853,6 +872,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
+            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
+            taskListPanel.disablePlay();
             // TerminalDrawerPanel removed from right side; no-op for terminal play control.
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
@@ -866,6 +887,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
+            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
+            taskListPanel.enablePlay();
             // TerminalDrawerPanel removed from right side; no-op for terminal play control.
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();

@@ -12,7 +12,7 @@ import org.junit.jupiter.api.*;
 class CSharpAnalyzerUpdateTest {
 
     private TestProject project;
-    private CSharpAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -54,7 +54,7 @@ class CSharpAnalyzerUpdateTest {
                 """);
 
         var file = analyzer.getFileFor("TestNs.A").orElseThrow();
-        analyzer.update(Set.of(file));
+        analyzer = analyzer.update(Set.of(file));
 
         assertTrue(analyzer.getDefinition("TestNs.A.Method2").isPresent());
     }
@@ -72,12 +72,12 @@ class CSharpAnalyzerUpdateTest {
                   }
                 }
                 """);
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("TestNs.A.Method3").isPresent());
 
         var file = analyzer.getFileFor("TestNs.A").orElseThrow();
         Files.deleteIfExists(file.absPath());
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("TestNs.A").isEmpty());
     }
 }

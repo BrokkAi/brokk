@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.exception;
 
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.util.LowMemoryWatcherManager;
 import java.lang.Thread.UncaughtExceptionHandler;
@@ -13,12 +14,15 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
 
     @Override
     public void uncaughtException(Thread t, Throwable throwable) {
-        // Check if the error is an OutOfMemoryError
+        logger.error("An uncaught exception occurred on thread: {}", t.getName(), throwable);
+
+        // Attempt to report the exception to the server
+        ExceptionReporter.tryReportException(throwable);
+
+        // Check if the error is an OutOfMemoryError and handle specially
         if (isOomError(throwable)) {
-            logger.error("Uncaught OutOfMemoryError detected on thread: {}", t.getName());
+            logger.error("OutOfMemoryError detected, initiating shutdown with recovery");
             shutdownWithRecovery();
-        } else {
-            logger.error("An uncaught exception occurred on thread: {}", t.getName(), throwable);
         }
     }
 

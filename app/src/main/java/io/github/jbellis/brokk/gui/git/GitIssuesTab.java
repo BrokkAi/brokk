@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.git;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
@@ -1173,6 +1174,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 }
             } catch (Exception e) {
                 logger.error("Unexpected error processing image {}: {}", imageUri.toString(), e.getMessage(), e);
+                ExceptionReporter.tryReportException(e);
                 chrome.toolError("Error processing image " + imageUri.toString() + ": " + e.getMessage());
             }
         }

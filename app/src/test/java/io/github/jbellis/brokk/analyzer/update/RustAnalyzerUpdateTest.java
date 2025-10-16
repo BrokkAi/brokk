@@ -12,7 +12,7 @@ import org.junit.jupiter.api.*;
 class RustAnalyzerUpdateTest {
 
     private TestProject project;
-    private RustAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -43,7 +43,7 @@ class RustAnalyzerUpdateTest {
                 """);
 
         var file = analyzer.getFileFor("foo").orElseThrow();
-        analyzer.update(Set.of(file));
+        analyzer = analyzer.update(Set.of(file));
 
         assertTrue(analyzer.getDefinition("bar").isPresent());
     }
@@ -57,12 +57,12 @@ class RustAnalyzerUpdateTest {
                 pub fn foo() -> i32 { 1 }
                 pub fn baz() -> i32 { 3 }
                 """);
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("baz").isPresent());
 
         var file = analyzer.getFileFor("foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo").isEmpty());
     }
 }

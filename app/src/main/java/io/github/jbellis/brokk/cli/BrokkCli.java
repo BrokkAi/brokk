@@ -358,7 +358,7 @@ public final class BrokkCli implements Callable<Integer> {
             var metrics = new SearchMetrics();
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
-                var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 var agent = new SearchAgent(
                         searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), disableContextScan, metrics);
                 searchResult = agent.execute();
@@ -582,6 +582,10 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");
                         return 1;
                     }
+                    if (codeModel == null) {
+                        System.err.println("Error: --lutz requires --codemodel to be specified.");
+                        return 1;
+                    }
                     var agent = new SearchAgent(
                             requireNonNull(lutzPrompt),
                             cm,
@@ -589,6 +593,7 @@ public final class BrokkCli implements Callable<Integer> {
                             EnumSet.of(Terminal.TASK_LIST),
                             false,
                             SearchMetrics.NO_OP);
+
                     result = agent.execute();
                     scope.append(result);
 
@@ -606,7 +611,7 @@ public final class BrokkCli implements Callable<Integer> {
                         for (var task : pendingTasks) {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
-                            var taskResult = cm.executeTask(task, true, true);
+                            var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
                             scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 

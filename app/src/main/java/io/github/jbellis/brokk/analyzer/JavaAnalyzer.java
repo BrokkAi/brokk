@@ -16,7 +16,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaAnalyzer(IProject project) {
-        super(project, Languages.JAVA, project.getExcludedDirectories());
+        super(project, Languages.JAVA);
+    }
+
+    private JavaAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.JAVA, state);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new JavaAnalyzer(getProject(), state);
     }
 
     @Override
@@ -44,6 +53,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
+            IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
             "parameters", // parameters field name

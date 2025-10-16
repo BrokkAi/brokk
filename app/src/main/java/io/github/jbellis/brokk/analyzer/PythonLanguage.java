@@ -48,7 +48,7 @@ public class PythonLanguage implements Language {
 
     @Override
     public IAnalyzer createAnalyzer(IProject project) {
-        return new PythonAnalyzer(project, project.getExcludedDirectories());
+        return new PythonAnalyzer(project);
     }
 
     @Override

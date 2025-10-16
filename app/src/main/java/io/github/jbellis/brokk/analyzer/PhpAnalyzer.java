@@ -20,6 +20,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
             Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
+            IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
             "parameters", // parametersFieldName
@@ -48,11 +49,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Nullable
     private final ThreadLocal<TSQuery> phpNamespaceQuery;
 
-    public PhpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.PHP, excludedFiles);
+    private ThreadLocal<TSQuery> createPhpNamespaceQuery() {
         // Initialize the ThreadLocal for the PHP namespace query.
         // getTSLanguage() is safe to call here.
-        this.phpNamespaceQuery = ThreadLocal.withInitial(() -> {
+        return ThreadLocal.withInitial(() -> {
             try {
                 return new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
             } catch (Exception e) { // TSQuery constructor can throw various exceptions
@@ -63,7 +63,18 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     public PhpAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+        super(project, Languages.PHP);
+        this.phpNamespaceQuery = createPhpNamespaceQuery();
+    }
+
+    private PhpAnalyzer(IProject project, Language language, AnalyzerState state) {
+        super(project, language, state);
+        this.phpNamespaceQuery = createPhpNamespaceQuery();
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new PhpAnalyzer(getProject(), Languages.PHP, state);
     }
 
     @Override

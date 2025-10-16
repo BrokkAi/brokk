@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.util;
 
+import io.github.jbellis.brokk.ExceptionReporter;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -24,8 +25,10 @@ public final class ExecutorServiceUtil {
                 var t = delegate.newThread(r);
                 t.setName(threadPrefix + ++count);
                 t.setDaemon(true);
-                t.setUncaughtExceptionHandler(
-                        (thr, ex) -> logger.error("Unhandled exception in {}", thr.getName(), ex));
+                t.setUncaughtExceptionHandler((thr, ex) -> {
+                    logger.error("Unhandled exception in {}", thr.getName(), ex);
+                    ExceptionReporter.tryReportException(ex);
+                });
                 return t;
             }
         };
@@ -62,8 +65,10 @@ public final class ExecutorServiceUtil {
                 };
 
                 var t = Thread.ofVirtual().name(threadPrefix + ++count).unstarted(wrapped);
-                t.setUncaughtExceptionHandler(
-                        (thr, ex) -> logger.error("Unhandled exception in {}", thr.getName(), ex));
+                t.setUncaughtExceptionHandler((thr, ex) -> {
+                    logger.error("Unhandled exception in {}", thr.getName(), ex);
+                    ExceptionReporter.tryReportException(ex);
+                });
                 return t;
             }
         };

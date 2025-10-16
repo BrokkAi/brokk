@@ -92,16 +92,14 @@ public final class MainProject extends AbstractProject {
 
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GPT_5)),
-            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO)));
+    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS =
+            Map.of("Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
+    private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -421,16 +419,6 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal("Architect");
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal("Architect", config);
-    }
-
-    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -438,21 +426,6 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setCodeModelConfig(ModelConfig config) {
         setModelConfigInternal("Code", config);
-    }
-
-    @Override
-    public void setAskModelConfig(ModelConfig config) {
-        setModelConfigInternal("Ask", config);
-    }
-
-    @Override
-    public ModelConfig getSearchModelConfig() {
-        return getModelConfigInternal("Search");
-    }
-
-    @Override
-    public void setSearchModelConfig(ModelConfig config) {
-        setModelConfigInternal("Search", config);
     }
 
     @Override
@@ -1131,6 +1104,17 @@ public final class MainProject extends AbstractProject {
     public static void setCodeBlockWrapMode(boolean wrap) {
         var props = loadGlobalProperties();
         props.setProperty("wordWrap", String.valueOf(wrap));
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getExceptionReportingEnabled() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "false"));
+    }
+
+    public static void setExceptionReportingEnabled(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(EXCEPTION_REPORTING_ENABLED_KEY, String.valueOf(enabled));
         saveGlobalProperties(props);
     }
 

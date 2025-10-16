@@ -5,6 +5,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -203,6 +204,7 @@ public class WorkspaceTools {
             throw new RuntimeException("Failed to fetch URL content for " + urlString + ": " + e.getMessage(), e);
         } catch (Exception e) {
             logger.error("Unexpected error processing URL: {}", urlString, e);
+            ExceptionReporter.tryReportException(e);
             throw new RuntimeException("Unexpected error processing URL " + urlString + ": " + e.getMessage(), e);
         }
 

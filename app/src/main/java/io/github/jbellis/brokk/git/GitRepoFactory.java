@@ -53,7 +53,11 @@ public class GitRepoFactory {
         try (var git = Git.init().setDirectory(root.toFile()).call()) {
             logger.info("Git repository initialized at {}.", root);
             ensureBrokkIgnored(root);
-            git.commit().setAllowEmpty(true).setMessage("Initial commit").call();
+            git.commit()
+                    .setAllowEmpty(true)
+                    .setMessage("Initial commit")
+                    .setSign(false)
+                    .call();
         }
     }
 

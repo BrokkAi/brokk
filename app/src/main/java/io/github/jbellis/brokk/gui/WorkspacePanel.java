@@ -2062,7 +2062,7 @@ public class WorkspacePanel extends JPanel {
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(int inputTokens, Service service) {
         var instructionsPanel = chrome.getInstructionsPanel();
-        Service.ModelConfig config = instructionsPanel.getSelectedModel();
+        Service.ModelConfig config = instructionsPanel.getSelectedConfig();
 
         if (config.name().isBlank()) {
             return "";
@@ -2103,7 +2103,7 @@ public class WorkspacePanel extends JPanel {
                     // Check for context size warning against the selected model only
                     var service = contextManager.getService();
                     var instructionsPanel = chrome.getInstructionsPanel();
-                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedModel();
+                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedConfig();
 
                     boolean showRedWarning = false;
                     boolean showYellowWarning = false;

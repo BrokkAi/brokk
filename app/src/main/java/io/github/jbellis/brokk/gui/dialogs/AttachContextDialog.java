@@ -416,9 +416,8 @@ public class AttachContextDialog extends JDialog {
     }
 
     private void confirmFile(String input) {
-        var tracked = cm.getProject().getRepo().getTrackedFiles();
         ProjectFile chosen = cm.toFile(input);
-        if (!tracked.contains(chosen)) {
+        if (!cm.getProject().getAllFiles().contains(chosen)) {
             selection = null;
             dispose();
             return;

@@ -218,15 +218,18 @@ public class MultiAnalyzer
 
     @Override
     public IAnalyzer update() {
-        for (var an : delegates.values()) {
-            an.update();
+        final var newDelegates = new HashMap<Language, IAnalyzer>(delegates.size());
+        for (var entry : delegates.entrySet()) {
+            var delegateKey = entry.getKey();
+            var analyzer = entry.getValue();
+            newDelegates.put(delegateKey, analyzer.update());
         }
-        return this;
+        return new MultiAnalyzer(newDelegates);
     }
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-
+        final var newDelegates = new HashMap<Language, IAnalyzer>(delegates.size());
         for (var entry : delegates.entrySet()) {
             var delegateKey = entry.getKey();
             var analyzer = entry.getValue();
@@ -238,13 +241,13 @@ public class MultiAnalyzer
                     .collect(Collectors.toSet());
 
             if (relevantFiles.isEmpty()) {
-                continue;
+                newDelegates.put(delegateKey, analyzer);
+            } else {
+                newDelegates.put(delegateKey, analyzer.update(relevantFiles));
             }
-
-            analyzer.update(relevantFiles);
         }
 
-        return this;
+        return new MultiAnalyzer(newDelegates);
     }
 
     @Override

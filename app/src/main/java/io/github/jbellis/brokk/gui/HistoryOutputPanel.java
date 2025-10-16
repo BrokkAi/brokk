@@ -895,29 +895,6 @@ public class HistoryOutputPanel extends JPanel {
         // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 
-        copyButton.setMnemonic(KeyEvent.VK_T);
-        copyButton.setToolTipText("Copy the output to clipboard");
-        copyButton.addActionListener(e -> {
-            performContextActionOnLatestHistoryFragment(
-                    WorkspacePanel.ContextAction.COPY, "No active context to copy from.");
-        });
-        // Set minimum size
-        copyButton.setMinimumSize(copyButton.getPreferredSize());
-        buttonsPanel.add(copyButton);
-
-        // "Capture" button
-        SwingUtilities.invokeLater(() -> {
-            captureButton.setIcon(Icons.CONTENT_CAPTURE);
-        });
-        captureButton.setMnemonic(KeyEvent.VK_C);
-        captureButton.setToolTipText("Add the output to context");
-        captureButton.addActionListener(e -> {
-            presentCaptureChoice();
-        });
-        // Set minimum size
-        captureButton.setMinimumSize(captureButton.getPreferredSize());
-        buttonsPanel.add(captureButton);
-
         // "Open in New Window" button
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
@@ -940,34 +917,6 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
-        // "Clear Output" button (drop Task History)
-        SwingUtilities.invokeLater(() -> {
-            clearButton.setIcon(Icons.CLEAR_ALL);
-        });
-        clearButton.setToolTipText("Clear the output");
-        clearButton.addActionListener(e -> {
-            performContextActionOnLatestHistoryFragment(
-                    WorkspacePanel.ContextAction.DROP, "No active context to clear from.");
-        });
-        clearButton.setMinimumSize(clearButton.getPreferredSize());
-        buttonsPanel.add(clearButton);
-
-        // Compress button (icon-only, with improved tooltip)
-        compressButton.setText(null);
-        SwingUtilities.invokeLater(() -> {
-            compressButton.setIcon(Icons.COMPRESS);
-            // Ensure minimum size is computed after icon is applied
-            compressButton.setMinimumSize(compressButton.getPreferredSize());
-        });
-        compressButton.setToolTipText(
-                "<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
-        for (var al : compressButton.getActionListeners()) {
-            compressButton.removeActionListener(al);
-        }
-        // Invoke compression immediately without asking for confirmation.
-        compressButton.addActionListener(e -> contextManager.compressHistoryAsync());
-        buttonsPanel.add(compressButton);
-
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -984,6 +933,56 @@ public class HistoryOutputPanel extends JPanel {
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
         // Compress control moved to left buttons; right-side panel removed
+
+        var popupListener = new MouseAdapter() {
+            private void showPopupMenu(MouseEvent e) {
+                var popup = new JPopupMenu();
+
+                var copyItem = new JMenuItem("Copy Output");
+                copyItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
+                        WorkspacePanel.ContextAction.COPY, "No active context to copy from."));
+                copyItem.setEnabled(copyButton.isEnabled());
+                popup.add(copyItem);
+
+                var captureItem = new JMenuItem("Capture Output...");
+                captureItem.addActionListener(event -> presentCaptureChoice());
+                captureItem.setEnabled(captureButton.isEnabled());
+                popup.add(captureItem);
+
+                popup.addSeparator();
+
+                var clearItem = new JMenuItem("Clear Output");
+                clearItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
+                        WorkspacePanel.ContextAction.DROP, "No active context to clear from."));
+                clearItem.setEnabled(clearButton.isEnabled());
+                popup.add(clearItem);
+
+                var compressItem = new JMenuItem("Compress History");
+                compressItem.addActionListener(event -> contextManager.compressHistoryAsync());
+                compressItem.setEnabled(compressButton.isEnabled());
+                popup.add(compressItem);
+
+                chrome.themeManager.registerPopupMenu(popup);
+                popup.show(e.getComponent(), e.getX(), e.getY());
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showPopupMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showPopupMenu(e);
+                }
+            }
+        };
+        panel.addMouseListener(popupListener);
+        buttonsPanel.addMouseListener(popupListener);
+        notificationAreaPanel.addMouseListener(popupListener);
 
         return panel;
     }

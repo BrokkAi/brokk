@@ -9,17 +9,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCpp;
 
-public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
-    private static final Logger log = LogManager.getLogger(CppTreeSitterAnalyzer.class);
+public class CppAnalyzer extends TreeSitterAnalyzer {
+    private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -30,10 +30,6 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private final NamespaceProcessor namespaceProcessor;
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
     private final ThreadLocal<TSParser> parserCache;
-    private final Map<CodeUnitKey, CodeUnit> codeUnitRegistry = new ConcurrentHashMap<>();
-
-    /** Key for CodeUnit registry to ensure unique instances for logically identical CodeUnits. */
-    public record CodeUnitKey(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {}
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
         var config = new HashMap<String, SkeletonType>();
@@ -64,6 +60,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
+            IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
@@ -73,8 +70,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             "",
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
-    public CppTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.CPP_TREESITTER, excludedFiles);
+    public CppAnalyzer(IProject project) {
+        super(project, Languages.CPP_TREESITTER);
 
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();
@@ -85,6 +82,24 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         var templateParser = parserCache.get();
         this.skeletonGenerator = new SkeletonGenerator(templateParser);
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
+    }
+
+    private CppAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.CPP_TREESITTER, state);
+        this.parserCache = ThreadLocal.withInitial(() -> {
+            var parser = new TSParser();
+            parser.setLanguage(createTSLanguage());
+            return parser;
+        });
+
+        var templateParser = parserCache.get();
+        this.skeletonGenerator = new SkeletonGenerator(templateParser);
+        this.namespaceProcessor = new NamespaceProcessor(templateParser);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new CppAnalyzer(getProject(), state);
     }
 
     @Override
@@ -138,7 +153,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
                     }
                 };
 
-        return getOrCreateCodeUnit(file, type, packageName, fqName);
+        return createCodeUnit(file, type, packageName, fqName);
     }
 
     @Override
@@ -158,7 +173,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         var namespaceParts = new ArrayList<String>();
 
         var current = definitionNode;
-        while (current != null && !current.isNull() && !current.equals(rootNode)) {
+        while (!current.isNull() && !current.equals(rootNode)) {
             var parent = current.getParent();
             if (parent == null || parent.isNull()) {
                 break;
@@ -312,7 +327,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
                         file,
                         rootNode,
                         fileContent,
-                        namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
+                        namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
             });
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
@@ -405,52 +420,16 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
      * Factory method to get or create a CodeUnit instance, ensuring object identity. This prevents duplicate CodeUnit
      * instances for the same logical entity.
      */
-    public CodeUnit getOrCreateCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
-        var registry = getCodeUnitRegistry();
-        var key = new CodeUnitKey(source, kind, packageName, fqName);
-        return registry.computeIfAbsent(key, k -> new CodeUnit(source, kind, packageName, fqName));
-    }
-
-    /**
-     * Get the code unit registry, initializing it if necessary. This provides thread-safe lazy initialization as a
-     * fallback.
-     */
-    @SuppressWarnings("RedundantNullCheck")
-    private Map<CodeUnitKey, CodeUnit> getCodeUnitRegistry() {
-        if (codeUnitRegistry != null) {
-            return codeUnitRegistry;
-        }
-
-        // This should never happen with field initialization, but provide a fallback
-        log.warn("CodeUnit registry was null, creating emergency fallback registry");
-        synchronized (this) {
-            if (codeUnitRegistry == null) {
-                // Use reflection to set the field since it's final
-                try {
-                    var field = CppTreeSitterAnalyzer.class.getDeclaredField("codeUnitRegistry");
-                    field.setAccessible(true);
-                    field.set(this, new ConcurrentHashMap<CodeUnitKey, CodeUnit>());
-                    log.warn("Emergency registry initialization completed");
-                } catch (Exception e) {
-                    log.error("Failed to initialize emergency registry", e);
-                    // Return a temporary map as last resort
-                    return new ConcurrentHashMap<>();
-                }
-            }
-        }
-        return codeUnitRegistry;
+    public CodeUnit createCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
+        return new CodeUnit(source, kind, packageName, fqName);
     }
 
     @Override
-    @SuppressWarnings("RedundantNullCheck")
     public void clearCaches() {
         super.clearCaches(); // Clear cached trees to free memory
         fileContentCache.clear();
         skeletonGenerator.clearCache();
         namespaceProcessor.clearCache();
-        if (codeUnitRegistry != null) {
-            codeUnitRegistry.clear();
-        }
     }
 
     @Override

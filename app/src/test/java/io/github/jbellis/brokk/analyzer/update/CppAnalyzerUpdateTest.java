@@ -6,14 +6,13 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
-class CppTreeSitterAnalyzerUpdateTest {
+class CppAnalyzerUpdateTest {
 
     private TestProject project;
-    private CppTreeSitterAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -22,7 +21,7 @@ class CppTreeSitterAnalyzerUpdateTest {
                 int foo() { return 1; }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.CPP_TREESITTER);
-        analyzer = new CppTreeSitterAnalyzer(project, new HashSet<>());
+        analyzer = new CppAnalyzer(project);
     }
 
     @AfterEach
@@ -46,7 +45,7 @@ class CppTreeSitterAnalyzerUpdateTest {
 
         var maybeFile = analyzer.getFileFor("foo");
         assertTrue(maybeFile.isPresent());
-        analyzer.update(Set.of(maybeFile.get()));
+        analyzer = analyzer.update(Set.of(maybeFile.get()));
 
         assertTrue(analyzer.getDefinition("bar").isPresent());
     }
@@ -60,12 +59,12 @@ class CppTreeSitterAnalyzerUpdateTest {
                 int foo() { return 1; }
                 int baz() { return 3; }
                 """);
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("baz").isPresent());
 
         var file = analyzer.getFileFor("foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo").isEmpty());
     }
 }

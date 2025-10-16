@@ -8,10 +8,10 @@ import java.io.IOException;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
-class PythonTreeSitterAnalyzerUpdateTest {
+class PythonAnalyzerUpdateTest {
 
     private TestProject project;
-    private PythonAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -48,7 +48,7 @@ class PythonTreeSitterAnalyzerUpdateTest {
 
         var maybeFile = analyzer.getFileFor("mod.foo");
         assertTrue(maybeFile.isPresent());
-        analyzer.update(Set.of(maybeFile.get()));
+        analyzer = analyzer.update(Set.of(maybeFile.get()));
         assertTrue(analyzer.getDefinition("mod.bar").isPresent());
     }
 
@@ -59,7 +59,7 @@ class PythonTreeSitterAnalyzerUpdateTest {
         def foo():
             return 42
         """);
-        analyzer.update();
+        analyzer = analyzer.update();
         // There is no separate fqName namespace for functions in a module-less python file,
         // the simple name remains 'foo', verify it's still present
         assertTrue(analyzer.getDefinition("mod.foo").isPresent());
@@ -67,7 +67,7 @@ class PythonTreeSitterAnalyzerUpdateTest {
         // delete file – symbols should disappear
         var pyFile = analyzer.getFileFor("mod.foo").orElseThrow();
         java.nio.file.Files.deleteIfExists(pyFile.absPath());
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("mod.foo").isEmpty());
     }
 }

@@ -5,13 +5,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
 class JavaAnalyzerUpdateTest {
 
     private TestProject project;
-    private JavaAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -58,7 +59,7 @@ class JavaAnalyzerUpdateTest {
         // update ONLY this file
         var maybeFile = analyzer.getFileFor("A");
         assertTrue(maybeFile.isPresent());
-        analyzer.update(Set.of(maybeFile.get()));
+        analyzer = analyzer.update(Set.of(maybeFile.get()));
 
         // method2 should now be visible
         assertTrue(analyzer.getDefinition("A.method2").isPresent());
@@ -75,7 +76,7 @@ class JavaAnalyzerUpdateTest {
         }
         """);
         // call update with empty set – no change expected
-        analyzer.update(Set.of());
+        analyzer = analyzer.update(Set.of());
         assertTrue(analyzer.getDefinition("A.method3").isEmpty());
     }
 
@@ -91,15 +92,15 @@ class JavaAnalyzerUpdateTest {
           public int method4() { return 4; }
         }
         """);
-        analyzer.update(); // no-arg detection
+        analyzer = analyzer.update(); // no-arg detection
         assertTrue(analyzer.getDefinition("A.method4").isPresent());
 
         // delete file – analyzer should drop symbols
         var maybeFile = analyzer.getFileFor("A");
         assertTrue(maybeFile.isPresent());
-        java.nio.file.Files.deleteIfExists(maybeFile.get().absPath());
+        Files.deleteIfExists(maybeFile.get().absPath());
 
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("A").isEmpty());
     }
 }

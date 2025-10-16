@@ -1,10 +1,7 @@
 package io.github.jbellis.brokk.gui.git;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.ConflictInspector;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -998,13 +995,8 @@ public class GitCommitTab extends JPanel {
 
             // Now execute the merge in an exclusive action
             contextManager.submitLlmAction(() -> {
-                var service = contextManager.getService();
-
-                // Resolve planning model from InstructionsPanel
-                var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
-                var planningModel = requireNonNull(service.getModel(modelConfig));
-                // Code model is hardcoded
-                var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
+                var planningModel = chrome.getInstructionsPanel().getSelectedModel();
+                var codeModel = contextManager.getCodeModel();
 
                 try (var scope = contextManager.beginTask("AI Merge", false)) {
                     var agent = new MergeAgent(

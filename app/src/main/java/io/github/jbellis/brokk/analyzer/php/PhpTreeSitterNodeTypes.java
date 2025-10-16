@@ -31,5 +31,8 @@ public final class PhpTreeSitterNodeTypes {
     public static final String PROPERTY_DECLARATION = "property_declaration";
     public static final String CONST_DECLARATION = "const_declaration";
 
+    // Import declarations
+    public static final String IMPORT_DECLARATION = "namespace_use_declaration";
+
     private PhpTreeSitterNodeTypes() {}
 }

@@ -12,7 +12,7 @@ import org.junit.jupiter.api.*;
 class TypescriptAnalyzerUpdateTest {
 
     private TestProject project;
-    private TypescriptAnalyzer analyzer;
+    private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -46,7 +46,7 @@ class TypescriptAnalyzerUpdateTest {
                 """);
 
         var file = analyzer.getFileFor("foo").orElseThrow();
-        analyzer.update(Set.of(file));
+        analyzer = analyzer.update(Set.of(file));
 
         assertTrue(analyzer.getDefinition("bar").isPresent());
     }
@@ -60,12 +60,12 @@ class TypescriptAnalyzerUpdateTest {
                 export function foo(): number { return 1; }
                 export function baz(): number { return 3; }
                 """);
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("baz").isPresent());
 
         var file = analyzer.getFileFor("foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
-        analyzer.update();
+        analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo").isEmpty());
     }
 }

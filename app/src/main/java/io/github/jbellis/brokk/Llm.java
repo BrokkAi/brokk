@@ -259,6 +259,7 @@ public class Llm {
                 logger.error(e);
                 errorRef.set(e);
                 completed.set(true);
+                ExceptionReporter.tryReportException(e);
             } finally {
                 if (firstToken.get()) {
                     firstToken.set(false);
