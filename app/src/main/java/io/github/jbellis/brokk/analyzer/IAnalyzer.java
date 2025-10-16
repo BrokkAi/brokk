@@ -324,4 +324,8 @@ public interface IAnalyzer {
             return startByte >= other.startByte && endByte <= other.endByte;
         }
     }
+
+    default List<CodeUnit> getAncestors(CodeUnit cu) {
+        throw new UnsupportedOperationException();
+    }
 }
