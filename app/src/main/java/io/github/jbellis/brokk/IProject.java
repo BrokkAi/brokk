@@ -78,7 +78,7 @@ public interface IProject extends AutoCloseable {
         Logger logger = LogManager.getLogger(IProject.class);
         Path projectRoot = getRoot();
 
-        // 1. Load .gitignore with JGit IgnoreNode
+        // 1. Load .gitignore with JGit IgnoreNode (root .gitignore only)
         IgnoreNode ignoreNode = null;
         Path gitignorePath = projectRoot.resolve(".gitignore");
         if (Files.exists(gitignorePath)) {
@@ -115,6 +115,9 @@ public interface IProject extends AutoCloseable {
         var validExtensions = language.getExtensions();
         IgnoreNode finalIgnoreNode = ignoreNode;
 
+        // Memoize ignored ancestor directories discovered during this call to avoid repeat checks
+        var ignoredAncestorCache = new java.util.HashSet<String>();
+
         // 4. Filter files
         return getAllFiles().stream()
                 .map(ProjectFile::absPath)
@@ -127,15 +130,64 @@ public interface IProject extends AutoCloseable {
                         return false;
                     }
 
-                    // Check .gitignore rules
+                    // Check .gitignore rules (root .gitignore only)
                     if (finalIgnoreNode != null) {
+                        // Compute relative path with forward slashes
                         String relPath = projectRoot
                                 .relativize(normalizedPath)
                                 .toString()
                                 .replace('\\', '/');
-                        if (finalIgnoreNode.isIgnored(relPath, false) == IgnoreNode.MatchResult.IGNORED) {
-                            logger.trace("Skipping file ignored by .gitignore: {}", absPath);
+
+                        // Determine if path represents an existing directory on disk.
+                        boolean isDir = Files.isDirectory(normalizedPath);
+
+                        // Direct check using correct isDirectory flag
+                        if (finalIgnoreNode.isIgnored(relPath, isDir) == IgnoreNode.MatchResult.IGNORED) {
+                            logger.trace("Skipping path ignored by .gitignore (direct): {}", absPath);
                             return false;
+                        }
+
+                        // If this is a file, also check ancestor directories (directory patterns with trailing slash)
+                        if (!isDir) {
+                            Path parent = normalizedPath.getParent();
+                            while (parent != null
+                                    && parent.startsWith(projectRoot)
+                                    && !parent.equals(projectRoot.getParent())) {
+                                // Stop at projectRoot's parent to avoid relativize errors outside project
+                                if (parent.equals(projectRoot)) {
+                                    break;
+                                }
+                                String parentRel = projectRoot
+                                        .relativize(parent)
+                                        .toString()
+                                        .replace('\\', '/');
+                                if (parentRel.isEmpty()) {
+                                    // skip empty relative path (shouldn't happen except when parent == projectRoot)
+                                    parent = parent.getParent();
+                                    continue;
+                                }
+
+                                // Cached result
+                                if (ignoredAncestorCache.contains(parentRel)) {
+                                    logger.trace(
+                                            "Skipping file because ancestor dir cached as ignored: {} (ancestor {})",
+                                            absPath,
+                                            parentRel);
+                                    return false;
+                                }
+
+                                var match = finalIgnoreNode.isIgnored(parentRel, true);
+                                if (match == IgnoreNode.MatchResult.IGNORED) {
+                                    ignoredAncestorCache.add(parentRel);
+                                    logger.trace(
+                                            "Skipping file because ancestor dir ignored by .gitignore: {} (ancestor {})",
+                                            absPath,
+                                            parentRel);
+                                    return false;
+                                }
+
+                                parent = parent.getParent();
+                            }
                         }
                     }
 
