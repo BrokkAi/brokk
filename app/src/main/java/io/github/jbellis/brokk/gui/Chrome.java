@@ -513,7 +513,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftHeader.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
         leftHeader.add(branchSelectorButton);
         headerPanel.add(leftHeader, BorderLayout.WEST);
-        
+
         rightTabbedContainer.add(headerPanel, BorderLayout.NORTH);
         rightTabbedContainer.add(rightTabbedPanel, BorderLayout.CENTER);
 
@@ -3202,7 +3202,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 this.workspaceCollapsed = true;
             } else {
-                // Ensure the workspace split bottom points to the instructions area (rightTabbedContainer), then restore it
+                // Ensure the workspace split bottom points to the instructions area (rightTabbedContainer), then
+                // restore it
                 // as bottom
                 try {
                     topSplitPane.setBottomComponent(rightTabbedContainer);

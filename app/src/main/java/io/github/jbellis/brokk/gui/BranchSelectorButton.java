@@ -6,12 +6,9 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.function.Supplier;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 
 /**
  * A specialized SplitButton for displaying and managing Git branches.
@@ -19,19 +16,19 @@ import org.eclipse.jgit.api.errors.GitAPIException;
  */
 public class BranchSelectorButton extends SplitButton {
     private static final Logger logger = LogManager.getLogger(BranchSelectorButton.class);
-    
+
     private final Chrome chrome;
-    
+
     public BranchSelectorButton(Chrome chrome) {
         super("No Git");
         this.chrome = chrome;
-        
+
         setUnifiedHover(true);
         setToolTipText("Current Git branch — click to create/select branches");
         setFocusable(true);
-        
+
         setMenuSupplier(this::buildBranchMenu);
-        
+
         addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = buildBranchMenu();
@@ -45,10 +42,10 @@ public class BranchSelectorButton extends SplitButton {
                 logger.error("Error showing branch dropdown", ex);
             }
         }));
-        
+
         initializeCurrentBranch();
     }
-    
+
     private void initializeCurrentBranch() {
         var project = chrome.getProject();
         try {
@@ -72,12 +69,12 @@ public class BranchSelectorButton extends SplitButton {
             setEnabled(false);
         }
     }
-    
+
     private JPopupMenu buildBranchMenu() {
         var menu = new JPopupMenu();
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
-        
+
         try {
             if (project.hasGit()) {
                 IGitRepo repo = project.getRepo();
@@ -88,14 +85,14 @@ public class BranchSelectorButton extends SplitButton {
                     localBranches = List.of();
                 }
                 String current = repo.getCurrentBranch();
-                
+
                 if (!current.isBlank()) {
                     JMenuItem header = new JMenuItem("Current: " + current);
                     header.setEnabled(false);
                     menu.add(header);
                     menu.add(new JSeparator());
                 }
-                
+
                 for (var b : localBranches) {
                     JMenuItem item = new JMenuItem(b);
                     item.addActionListener(ev -> {
@@ -123,7 +120,7 @@ public class BranchSelectorButton extends SplitButton {
                     });
                     menu.add(item);
                 }
-                
+
             } else {
                 JMenuItem noRepo = new JMenuItem("No Git repository");
                 noRepo.setEnabled(false);
@@ -135,10 +132,10 @@ public class BranchSelectorButton extends SplitButton {
             err.setEnabled(false);
             menu.add(err);
         }
-        
+
         if (project.hasGit()) {
             menu.addSeparator();
-            
+
             JMenuItem create = new JMenuItem("Create New Branch...");
             create.addActionListener(ev -> {
                 SwingUtilities.invokeLater(() -> {
@@ -183,7 +180,7 @@ public class BranchSelectorButton extends SplitButton {
                 });
             });
             menu.add(create);
-            
+
             JMenuItem refresh = new JMenuItem("Refresh Branches");
             refresh.addActionListener(ev -> {
                 SwingUtilities.invokeLater(
@@ -191,10 +188,10 @@ public class BranchSelectorButton extends SplitButton {
             });
             menu.add(refresh);
         }
-        
+
         return menu;
     }
-    
+
     public void refreshBranch(String branchName) {
         Runnable task = () -> {
             if (!chrome.getProject().hasGit()) {
@@ -202,7 +199,7 @@ public class BranchSelectorButton extends SplitButton {
             }
             setText(branchName);
             updateProjectFilesDrawerTitle(branchName);
-            
+
             chrome.updateLogTab();
             chrome.selectCurrentBranchInLogTab();
         };
@@ -212,7 +209,7 @@ public class BranchSelectorButton extends SplitButton {
             SwingUtilities.invokeLater(task);
         }
     }
-    
+
     private void updateProjectFilesDrawerTitle(String branchName) {
         var panel = chrome.getProjectFilesPanel();
         if (SwingUtilities.isEventDispatchThread()) {
