@@ -7,21 +7,36 @@ import java.awt.Insets;
 import java.util.function.Supplier;
 import javax.swing.Icon;
 import javax.swing.JPopupMenu;
+import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class MaterialDropdown extends MaterialButton {
 
     private static final int ARROW_PADDING = 4;
+    private static final int ARROW_FALLBACK_WIDTH = 16;
+
     private @Nullable Supplier<JPopupMenu> menuSupplier;
     private @Nullable JPopupMenu popupMenu;
-    private final Icon arrowIcon;
+    private volatile @Nullable Icon arrowIcon;
 
     public MaterialDropdown(String text) {
         super(text);
-        arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
+
+        // Use a conservative right padding up-front so text never overlaps where the arrow will be.
         var m = getMargin();
-        // Add space for the dropdown arrow, and make the text padding symmetric.
-        setMargin(new Insets(m.top, m.left, m.bottom, m.left + arrowIcon.getIconWidth() + ARROW_PADDING));
+        setMargin(new Insets(m.top, m.left, m.bottom, m.left + ARROW_FALLBACK_WIDTH + ARROW_PADDING));
+
+        // Initialize the arrow icon on the EDT and then re-calc the right margin based on the real width.
+        SwingUtilities.invokeLater(() -> {
+            try {
+                arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
+                recalculateRightMarginForArrow();
+                repaint();
+            } catch (Exception ignored) {
+                // If anything goes wrong, we keep the fallback padding and skip painting the icon.
+            }
+        });
+
         addActionListener(e -> showPopupMenuInternal());
     }
 
@@ -42,12 +57,23 @@ public class MaterialDropdown extends MaterialButton {
         }
     }
 
+    private void recalculateRightMarginForArrow() {
+        var m = getMargin();
+        int arrowWidth = arrowIcon != null ? arrowIcon.getIconWidth() : ARROW_FALLBACK_WIDTH;
+        setMargin(new Insets(m.top, m.left, m.bottom, m.left + arrowWidth + ARROW_PADDING));
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        int y = (getHeight() - arrowIcon.getIconHeight()) / 2;
-        // Place arrow on the right with padding
-        int x = getWidth() - arrowIcon.getIconWidth() - ARROW_PADDING;
-        arrowIcon.paintIcon(this, g, x, y);
+
+        Icon icon = arrowIcon;
+        if (icon == null) {
+            return; // Not ready yet; padding already accounts for it
+        }
+
+        int y = (getHeight() - icon.getIconHeight()) / 2;
+        int x = getWidth() - icon.getIconWidth() - ARROW_PADDING; // right-aligned with padding
+        icon.paintIcon(this, g, x, y);
     }
 }
