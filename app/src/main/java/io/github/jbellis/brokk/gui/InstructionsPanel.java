@@ -540,8 +540,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             config = new Service.ModelConfig(Service.GPT_5_MINI);
         }
 
-        // Default alias to the model name; favorites API not available here
         String alias = config.name();
+        try {
+            var favorites = chrome.getProject().getMainProject().loadFavoriteModels();
+            for (var favorite : favorites) {
+                if (favorite.config().equals(config)) {
+                    alias = favorite.alias();
+                    break;
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Unable to load favorite models for alias lookup", ex);
+        }
 
         setSelectedModel(config, alias);
     }
