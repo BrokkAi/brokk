@@ -15,6 +15,8 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import static io.github.jbellis.brokk.gui.Constants.H_GAP;
+
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tasks.TaskList;
 import java.awt.BorderLayout;
@@ -42,6 +44,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
@@ -263,15 +266,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // South: controls
-        controls = new JPanel(new GridBagLayout());
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 2, 2, 2);
-        gbc.gridy = 0;
-
-        gbc.gridx = 0;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        // South: controls - use BoxLayout(LINE_AXIS) to match InstructionsPanel for consistent model selector positioning
+        controls = new JPanel();
+        controls.setLayout(new BoxLayout(controls, BoxLayout.LINE_AXIS));
+        controls.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Single-line input (no wrap). Shortcuts: Enter adds, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps,
         // Escape clears
@@ -315,7 +313,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        controls.add(input, gbc);
+        controls.add(input);
+        controls.add(Box.createHorizontalGlue());
 
         goStopButton = new MaterialButton() {
             @Override
@@ -373,16 +372,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setContentAreaFilled(false);
         goStopButton.addActionListener(e -> onGoStopButtonPressed());
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.insets = new Insets(2, 2, 2, 4);
         int fixedHeight = Math.max(input.getPreferredSize().height, 32);
         var prefSize = new Dimension(64, fixedHeight);
         goStopButton.setPreferredSize(prefSize);
         goStopButton.setMinimumSize(prefSize);
         goStopButton.setMaximumSize(prefSize);
-        controls.add(goStopButton, gbc);
+        goStopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        controls.add(Box.createHorizontalStrut(2));
+        controls.add(goStopButton);
 
         removeBtn.setIcon(Icons.REMOVE);
         // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
@@ -1075,6 +1073,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 southPanel.remove(comp);
             }
         }
+        // Also remove the shared model selector from controls if present
+        if (sharedModelSelectorComp != null && sharedModelSelectorComp.getParent() == controls) {
+            controls.remove(sharedModelSelectorComp);
+            sharedModelSelectorComp = null;
+            controls.revalidate();
+        }
         revalidate();
         repaint();
     }
@@ -1095,32 +1099,37 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
                 sharedModelSelectorComp = comp;
 
-                // Remove goStopButton temporarily
-                controls.remove(goStopButton);
+                // With BoxLayout, insert modelSelector before the horizontal glue and goStopButton
+                // Position: input | glue | modelSelector | strut | goStopButton
+                // We need to remove and rebuild the right side of the controls
 
-                // Add modelSelector between input and goStopButton
-                GridBagConstraints gbcModel = new GridBagConstraints();
-                gbcModel.gridx = 1;
-                gbcModel.gridy = 0;
-                gbcModel.insets = new Insets(2, 2, 2, 2);
-                gbcModel.fill = GridBagConstraints.NONE;
-                gbcModel.weightx = 0.0;
-                gbcModel.anchor = GridBagConstraints.CENTER;
-                controls.add(comp, gbcModel);
+                // Find indices of components we need to work with
+                int glueIndex = -1;
+                int strutIndex = -1;
+                int buttonIndex = -1;
 
-                // Re-add goStopButton at the furthest right position
-                GridBagConstraints gbcGo = new GridBagConstraints();
-                gbcGo.gridx = 2;
-                gbcGo.gridy = 0;
-                gbcGo.insets = new Insets(2, 2, 2, 4);
-                gbcGo.fill = GridBagConstraints.NONE;
-                gbcGo.weightx = 0.0;
-                int fixedHeight = Math.max(input.getPreferredSize().height, 32);
-                var prefSize = new Dimension(64, fixedHeight);
-                goStopButton.setPreferredSize(prefSize);
-                goStopButton.setMinimumSize(prefSize);
-                goStopButton.setMaximumSize(prefSize);
-                controls.add(goStopButton, gbcGo);
+                for (int i = 0; i < controls.getComponentCount(); i++) {
+                    Component c = controls.getComponent(i);
+                    if (c == goStopButton) {
+                        buttonIndex = i;
+                    } else if (c instanceof Box.Filler && i == controls.getComponentCount() - 3) {
+                        glueIndex = i;
+                    } else if (c instanceof Box.Filler && i == controls.getComponentCount() - 2) {
+                        strutIndex = i;
+                    }
+                }
+
+                // Remove glue, strut, and button
+                if (buttonIndex >= 0) controls.remove(buttonIndex);
+                if (strutIndex >= 0) controls.remove(strutIndex);
+                if (glueIndex >= 0) controls.remove(glueIndex);
+
+                // Re-add in correct order: glue | modelSelector | strut | button
+                controls.add(Box.createHorizontalGlue());
+                comp.setAlignmentY(Component.CENTER_ALIGNMENT);
+                controls.add(comp);
+                controls.add(Box.createHorizontalStrut(H_GAP));
+                controls.add(goStopButton);
 
                 controls.revalidate();
                 controls.repaint();
