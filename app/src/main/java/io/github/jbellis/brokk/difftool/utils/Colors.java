@@ -1,41 +1,35 @@
 package io.github.jbellis.brokk.difftool.utils;
 
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import javax.swing.*;
 
+/**
+ * Compatibility shim that delegates to {@link ThemeColors}.
+ * New code should use ThemeColors directly.
+ */
 public class Colors {
-    // Light Theme Colors. These are BACKGROUND colors for highlighting (pastel/soft colors)
-    private static final Color LIGHT_ADDED = new Color(220, 250, 220);
-    private static final Color LIGHT_CHANGED = new Color(220, 235, 250);
-    private static final Color LIGHT_DELETED = new Color(250, 220, 220);
-
-    // Dark Theme Colors. These are BACKGROUND colors for highlighting
-    private static final Color DARK_ADDED = new Color(60, 80, 60);
-    private static final Color DARK_CHANGED = new Color(49, 75, 101);
-    private static final Color DARK_DELETED = new Color(80, 60, 60);
-
     // Search colors (currently theme-independent)
-    public static final Color SEARCH = Color.yellow;
-    public static final Color CURRENT_SEARCH = new Color(255, 165, 0); // Orange
+    public static final Color SEARCH = ThemeColors.getSearchHighlight();
+    public static final Color CURRENT_SEARCH = ThemeColors.getCurrentSearchHighlight();
 
     // --- Theme-aware Getters ---
 
     public static Color getAdded(boolean isDark) {
-        return isDark ? DARK_ADDED : LIGHT_ADDED;
+        return ThemeColors.getDiffAdded(isDark);
     }
 
     public static Color getChanged(boolean isDark) {
-        return isDark ? DARK_CHANGED : LIGHT_CHANGED;
+        return ThemeColors.getDiffChanged(isDark);
     }
 
     public static Color getDeleted(boolean isDark) {
-        return isDark ? DARK_DELETED : LIGHT_DELETED;
+        return ThemeColors.getDiffDeleted(isDark);
     }
 
     // --- Other Colors ---
 
     public static Color getPanelBackground() {
-        // This might need theme awareness too, but using default for now
         return new JPanel().getBackground();
     }
 }

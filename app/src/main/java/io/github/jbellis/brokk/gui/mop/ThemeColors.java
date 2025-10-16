@@ -145,6 +145,20 @@ public class ThemeColors {
         LIGHT_COLORS.put("notif_info_bg", new Color(0xFFF3E0));
         LIGHT_COLORS.put("notif_info_fg", Color.decode("#E65100"));
         LIGHT_COLORS.put("notif_info_border", new Color(0xFFCC80));
+
+        // Diff viewer colors (background highlights for added/changed/deleted lines)
+        DARK_COLORS.put("diff_added", new Color(60, 80, 60));
+        DARK_COLORS.put("diff_changed", new Color(49, 75, 101));
+        DARK_COLORS.put("diff_deleted", new Color(80, 60, 60));
+        LIGHT_COLORS.put("diff_added", new Color(220, 250, 220));
+        LIGHT_COLORS.put("diff_changed", new Color(220, 235, 250));
+        LIGHT_COLORS.put("diff_deleted", new Color(250, 220, 220));
+
+        // Search highlight colors (theme-independent for now)
+        DARK_COLORS.put("search_highlight", Color.yellow);
+        DARK_COLORS.put("search_current", new Color(255, 165, 0)); // Orange
+        LIGHT_COLORS.put("search_highlight", Color.yellow);
+        LIGHT_COLORS.put("search_current", new Color(255, 165, 0)); // Orange
     }
 
     /**
@@ -199,5 +213,60 @@ public class ThemeColors {
     public static void setColor(String key, Color darkColor, Color lightColor) {
         DARK_COLORS.put(key, darkColor);
         LIGHT_COLORS.put(key, lightColor);
+    }
+
+    // Compatibility helpers for migrating from difftool.utils.Colors
+
+    /**
+     * Gets the diff added color for the specified theme.
+     * Compatibility method for transitioning from Colors.getAdded().
+     *
+     * @param isDarkTheme true for dark theme, false for light theme
+     * @return the added color
+     */
+    public static Color getDiffAdded(boolean isDarkTheme) {
+        return getColor(isDarkTheme, "diff_added");
+    }
+
+    /**
+     * Gets the diff changed color for the specified theme.
+     * Compatibility method for transitioning from Colors.getChanged().
+     *
+     * @param isDarkTheme true for dark theme, false for light theme
+     * @return the changed color
+     */
+    public static Color getDiffChanged(boolean isDarkTheme) {
+        return getColor(isDarkTheme, "diff_changed");
+    }
+
+    /**
+     * Gets the diff deleted color for the specified theme.
+     * Compatibility method for transitioning from Colors.getDeleted().
+     *
+     * @param isDarkTheme true for dark theme, false for light theme
+     * @return the deleted color
+     */
+    public static Color getDiffDeleted(boolean isDarkTheme) {
+        return getColor(isDarkTheme, "diff_deleted");
+    }
+
+    /**
+     * Gets the search highlight color.
+     * Compatibility method for transitioning from Colors.SEARCH.
+     *
+     * @return the search highlight color
+     */
+    public static Color getSearchHighlight() {
+        return getColor(false, "search_highlight"); // Theme-independent for now
+    }
+
+    /**
+     * Gets the current search highlight color.
+     * Compatibility method for transitioning from Colors.CURRENT_SEARCH.
+     *
+     * @return the current search highlight color
+     */
+    public static Color getCurrentSearchHighlight() {
+        return getColor(false, "search_current"); // Theme-independent for now
     }
 }
