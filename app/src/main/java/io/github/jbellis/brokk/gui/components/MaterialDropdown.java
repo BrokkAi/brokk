@@ -26,18 +26,19 @@ public class MaterialDropdown extends MaterialButton {
         var m = getMargin();
         setMargin(new Insets(m.top, m.left, m.bottom, m.left + ARROW_FALLBACK_WIDTH + ARROW_PADDING));
 
-        // Initialize the arrow icon on the EDT and then re-calc the right margin based on the real width.
+        addActionListener(e -> showPopupMenuInternal());
+
+        // Defer arrow icon creation to the EDT; then recalc margin and refresh layout/painting.
         SwingUtilities.invokeLater(() -> {
             try {
-                arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
+                this.arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
                 recalculateRightMarginForArrow();
+                revalidate();
                 repaint();
             } catch (Exception ignored) {
                 // If anything goes wrong, we keep the fallback padding and skip painting the icon.
             }
         });
-
-        addActionListener(e -> showPopupMenuInternal());
     }
 
     public void setMenuSupplier(@Nullable Supplier<JPopupMenu> menuSupplier) {
