@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.Graphics;
 import java.awt.Insets;
 import java.util.function.Supplier;
@@ -17,7 +18,7 @@ public class MaterialDropdown extends MaterialButton {
 
     public MaterialDropdown(String text) {
         super(text);
-        arrowIcon = SwingUtil.uiIcon("ComboBox.arrowIcon");
+        arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
         var m = getMargin();
         // Add space for the dropdown arrow and padding
         setMargin(new Insets(m.top, m.left, m.bottom, m.right + arrowIcon.getIconWidth() + ARROW_PADDING));
