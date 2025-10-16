@@ -561,35 +561,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.setToolTipText("Select the model to use for Code or Ask actions");
 
         Supplier<JPopupMenu> menuSupplier = () -> {
-            var menu = new JPopupMenu();
-            try {
-                var favorites = chrome.getProject().getMainProject().loadFavoriteModels();
-                if (!favorites.isEmpty()) {
-                    for (var favorite : favorites) {
-                        var item = new JMenuItem(favorite.alias());
-                        item.addActionListener(e -> setSelectedModel(favorite.config(), favorite.alias()));
-                        menu.add(item);
-                    }
-                } else {
-                var noFavoritesItem = new JMenuItem("(No favorite models configured)");
-                noFavoritesItem.setEnabled(false);
-                menu.add(noFavoritesItem);
-                }
-            } catch (Exception ex) {
-                logger.debug("Unable to load favorite models", ex);
-            }
-
-            if (menu.getComponentCount() > 0) {
-                menu.addSeparator();
-            }
-
-            var configureItem = new JMenuItem("Configure Models...");
-            configureItem.addActionListener(e -> {
-                SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE);
-            });
-            menu.add(configureItem);
-
-            return menu;
+        var menu = new JPopupMenu();
+        List<Service.FavoriteModel> favorites = List.of();
+        try {
+        favorites = chrome.getProject().getMainProject().loadFavoriteModels();
+        } catch (Exception ex) {
+        logger.debug("Unable to load favorite models", ex);
+        }
+        
+        if (!favorites.isEmpty()) {
+        for (var favorite : favorites) {
+        var item = new JMenuItem(favorite.alias());
+        item.addActionListener(e -> setSelectedModel(favorite.config(), favorite.alias()));
+        menu.add(item);
+        }
+        menu.addSeparator();
+        } else {
+        var noFavoritesItem = new JMenuItem("(No favorite models configured)");
+        noFavoritesItem.setEnabled(false);
+        menu.add(noFavoritesItem);
+        }
+        
+        var configureItem = new JMenuItem("Configure Models...");
+        configureItem.addActionListener(e -> {
+        SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE);
+        });
+        menu.add(configureItem);
+        
+        return menu;
         };
 
         dropdown.setMenuSupplier(menuSupplier);
