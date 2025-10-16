@@ -1095,15 +1095,32 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
                 sharedModelSelectorComp = comp;
 
-                // Place to the right of the goStopButton in the GridBag row
-                GridBagConstraints gbc2 = new GridBagConstraints();
-                gbc2.gridx = 2;
-                gbc2.gridy = 0;
-                gbc2.insets = new Insets(2, 4, 2, 2);
-                gbc2.fill = GridBagConstraints.NONE;
-                gbc2.weightx = 0.0;
-                gbc2.anchor = GridBagConstraints.CENTER;
-                controls.add(comp, gbc2);
+                // Remove goStopButton temporarily
+                controls.remove(goStopButton);
+
+                // Add modelSelector between input and goStopButton
+                GridBagConstraints gbcModel = new GridBagConstraints();
+                gbcModel.gridx = 1;
+                gbcModel.gridy = 0;
+                gbcModel.insets = new Insets(2, 2, 2, 2);
+                gbcModel.fill = GridBagConstraints.NONE;
+                gbcModel.weightx = 0.0;
+                gbcModel.anchor = GridBagConstraints.CENTER;
+                controls.add(comp, gbcModel);
+
+                // Re-add goStopButton at the furthest right position
+                GridBagConstraints gbcGo = new GridBagConstraints();
+                gbcGo.gridx = 2;
+                gbcGo.gridy = 0;
+                gbcGo.insets = new Insets(2, 2, 2, 4);
+                gbcGo.fill = GridBagConstraints.NONE;
+                gbcGo.weightx = 0.0;
+                int fixedHeight = Math.max(input.getPreferredSize().height, 32);
+                var prefSize = new Dimension(64, fixedHeight);
+                goStopButton.setPreferredSize(prefSize);
+                goStopButton.setMinimumSize(prefSize);
+                goStopButton.setMaximumSize(prefSize);
+                controls.add(goStopButton, gbcGo);
 
                 controls.revalidate();
                 controls.repaint();
