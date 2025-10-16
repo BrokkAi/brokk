@@ -2262,8 +2262,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }
             } catch (Exception ex) {
-                logger.debug(
-                        "restoreModelSelectorToBottom: non-fatal error repositioning model selector", ex);
+                logger.debug("restoreModelSelectorToBottom: non-fatal error repositioning model selector", ex);
             }
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();

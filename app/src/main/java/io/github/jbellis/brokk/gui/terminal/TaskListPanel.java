@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import static io.github.jbellis.brokk.gui.Constants.H_GAP;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
@@ -15,8 +16,6 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import static io.github.jbellis.brokk.gui.Constants.H_GAP;
-
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tasks.TaskList;
 import java.awt.BorderLayout;
@@ -25,8 +24,6 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
@@ -266,7 +263,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // South: controls - use BoxLayout(LINE_AXIS) to match InstructionsPanel for consistent model selector positioning
+        // South: controls - use BoxLayout(LINE_AXIS) to match InstructionsPanel for consistent model selector
+        // positioning
         controls = new JPanel();
         controls.setLayout(new BoxLayout(controls, BoxLayout.LINE_AXIS));
         controls.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
