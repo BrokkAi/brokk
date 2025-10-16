@@ -190,6 +190,14 @@ public interface IProject extends AutoCloseable {
                                             absPath,
                                             parentRel);
                                     return false;
+                                } else if (match == IgnoreNode.MatchResult.NOT_IGNORED) {
+                                    // Negation pattern explicitly un-ignores this ancestor directory
+                                    // Stop checking further ancestors and include the file
+                                    logger.trace(
+                                            "Including file because ancestor dir explicitly un-ignored: {} (ancestor {})",
+                                            absPath,
+                                            parentRel);
+                                    break;
                                 }
 
                                 parent = parent.getParent();

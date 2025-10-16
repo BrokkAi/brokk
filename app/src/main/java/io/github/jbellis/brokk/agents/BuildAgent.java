@@ -362,7 +362,6 @@ public class BuildAgent {
         return Stream.concat(baseline.stream(), extras.stream())
                 .map(BuildAgent::sanitizeExclusion)
                 .filter(Objects::nonNull)
-                // No need to filter globs - findIgnoredDirectories() expands them to literal paths
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
