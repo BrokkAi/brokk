@@ -44,7 +44,8 @@ public class ThemeColors {
         DARK_COLORS.put("code_block_border", getUIManagerColor("Component.borderColor", new Color(80, 80, 80)));
         DARK_COLORS.put("plain_text_foreground", getUIManagerColor("TextArea.foreground", new Color(230, 230, 230)));
         DARK_COLORS.put("custom_message_background", getUIManagerColor("TextField.background", new Color(60, 60, 60)));
-        DARK_COLORS.put("custom_message_foreground", getUIManagerColor("TextField.foreground", new Color(220, 220, 220)));
+        DARK_COLORS.put(
+                "custom_message_foreground", getUIManagerColor("TextField.foreground", new Color(220, 220, 220)));
 
         // HTML specific colors
         DARK_COLORS.put("link_color_hex", getUIManagerColor("Component.linkColor", Color.decode("#678cb1")));
@@ -67,7 +68,8 @@ public class ThemeColors {
         LIGHT_COLORS.put("code_block_background", getUIManagerColor("EditorPane.background", new Color(240, 240, 240)));
         LIGHT_COLORS.put("code_block_border", getUIManagerColor("Component.borderColor", Color.GRAY));
         LIGHT_COLORS.put("plain_text_foreground", getUIManagerColor("TextArea.foreground", Color.BLACK));
-        LIGHT_COLORS.put("custom_message_background", getUIManagerColor("TextField.background", new Color(245, 245, 245)));
+        LIGHT_COLORS.put(
+                "custom_message_background", getUIManagerColor("TextField.background", new Color(245, 245, 245)));
         LIGHT_COLORS.put("custom_message_foreground", getUIManagerColor("TextField.foreground", new Color(30, 30, 30)));
 
         // HTML specific colors
@@ -93,7 +95,8 @@ public class ThemeColors {
         LIGHT_COLORS.put("git_changed", getUIManagerColor("Actions.Yellow", new Color(204, 143, 0)));
 
         // Git tab badge colors - use semantic button colors
-        DARK_COLORS.put("git_badge_background", getUIManagerColor("Button.default.background", Color.decode("#007ACC")));
+        DARK_COLORS.put(
+                "git_badge_background", getUIManagerColor("Button.default.background", Color.decode("#007ACC")));
         DARK_COLORS.put("git_badge_text", getUIManagerColor("Button.default.foreground", Color.WHITE));
         LIGHT_COLORS.put("git_badge_background", getUIManagerColor("Actions.Red", Color.decode("#DC3545")));
         LIGHT_COLORS.put("git_badge_text", Color.WHITE);
@@ -114,11 +117,14 @@ public class ThemeColors {
         // Filter box colors - use warning/accent colors
         DARK_COLORS.put("filter_unselected_foreground", getUIManagerColor("Actions.Yellow", new Color(0xFF8800)));
         DARK_COLORS.put("filter_selected_foreground", getUIManagerColor("Label.foreground", Color.WHITE));
-        DARK_COLORS.put("filter_icon_hover_background", new Color(255, 255, 255, 64)); // Semi-transparent (no UIManager equivalent)
+        DARK_COLORS.put(
+                "filter_icon_hover_background",
+                new Color(255, 255, 255, 64)); // Semi-transparent (no UIManager equivalent)
 
         LIGHT_COLORS.put("filter_unselected_foreground", getUIManagerColor("Actions.Yellow", new Color(0xFF6600)));
         LIGHT_COLORS.put("filter_selected_foreground", getUIManagerColor("Label.foreground", Color.BLACK));
-        LIGHT_COLORS.put("filter_icon_hover_background", new Color(0, 0, 0, 32)); // Semi-transparent (no UIManager equivalent)
+        LIGHT_COLORS.put(
+                "filter_icon_hover_background", new Color(0, 0, 0, 32)); // Semi-transparent (no UIManager equivalent)
 
         // Diff chevron colors - use label/text colors
         DARK_COLORS.put("chevron_normal", getUIManagerColor("Label.disabledForeground", new Color(200, 200, 200)));
