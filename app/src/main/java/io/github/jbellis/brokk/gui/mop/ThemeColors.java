@@ -3,115 +3,129 @@ package io.github.jbellis.brokk.gui.mop;
 import java.awt.Color;
 import java.util.HashMap;
 import java.util.Map;
+import javax.swing.UIManager;
 
-/** Helper class for managing theme-specific colors throughout the application. */
+/**
+ * Helper class for managing theme-specific colors throughout the application.
+ * Uses UIManager colors from FlatLaf where appropriate, with custom colors for app-specific needs.
+ */
 public class ThemeColors {
     // Color constants for dark theme
     private static final Map<String, Color> DARK_COLORS = new HashMap<>();
     // Color constants for light theme
     private static final Map<String, Color> LIGHT_COLORS = new HashMap<>();
 
+    /**
+     * Gets a color from UIManager with a fallback.
+     *
+     * @param key the UIManager key
+     * @param fallback the fallback color if key is not found
+     * @return the color from UIManager or fallback
+     */
+    private static Color getUIManagerColor(String key, Color fallback) {
+        Color color = UIManager.getColor(key);
+        return color != null ? color : fallback;
+    }
+
     static {
-        // Initialize dark theme colors
-        DARK_COLORS.put("chat_background", new Color(37, 37, 37));
-        DARK_COLORS.put("message_background", new Color(64, 64, 64));
-        DARK_COLORS.put("chat_text", new Color(212, 212, 212));
-        DARK_COLORS.put("chat_header_text", new Color(114, 159, 207));
+        // Initialize dark theme colors using UIManager where available
+        DARK_COLORS.put("chat_background", getUIManagerColor("Panel.background", new Color(37, 37, 37)));
+        DARK_COLORS.put("message_background", getUIManagerColor("TextField.background", new Color(64, 64, 64)));
+        DARK_COLORS.put("chat_text", getUIManagerColor("Label.foreground", new Color(212, 212, 212)));
+        DARK_COLORS.put("chat_header_text", getUIManagerColor("Component.linkColor", new Color(114, 159, 207)));
+
+        // Custom message border colors (app-specific, no UIManager equivalent)
         DARK_COLORS.put("message_border_custom", new Color(46, 100, 55));
         DARK_COLORS.put("message_border_ai", new Color(86, 142, 130));
         DARK_COLORS.put("message_border_user", new Color(94, 125, 175));
 
         // Code and text colors
-        DARK_COLORS.put("code_block_background", new Color(50, 50, 50));
-        DARK_COLORS.put("code_block_border", new Color(80, 80, 80));
-        DARK_COLORS.put("plain_text_foreground", new Color(230, 230, 230));
-        DARK_COLORS.put("custom_message_background", new Color(60, 60, 60));
-        DARK_COLORS.put("custom_message_foreground", new Color(220, 220, 220));
+        DARK_COLORS.put("code_block_background", getUIManagerColor("EditorPane.background", new Color(50, 50, 50)));
+        DARK_COLORS.put("code_block_border", getUIManagerColor("Component.borderColor", new Color(80, 80, 80)));
+        DARK_COLORS.put("plain_text_foreground", getUIManagerColor("TextArea.foreground", new Color(230, 230, 230)));
+        DARK_COLORS.put("custom_message_background", getUIManagerColor("TextField.background", new Color(60, 60, 60)));
+        DARK_COLORS.put("custom_message_foreground", getUIManagerColor("TextField.foreground", new Color(220, 220, 220)));
 
-        // HTML specific colors as hex strings
-        DARK_COLORS.put("link_color_hex", Color.decode("#678cb1"));
-        DARK_COLORS.put("border_color_hex", Color.decode("#555555"));
-        DARK_COLORS.put("codeHighlight", new Color(125, 140, 111));
-        DARK_COLORS.put("rsyntax_background", new Color(50, 50, 50));
+        // HTML specific colors
+        DARK_COLORS.put("link_color_hex", getUIManagerColor("Component.linkColor", Color.decode("#678cb1")));
+        DARK_COLORS.put("border_color_hex", getUIManagerColor("Component.borderColor", Color.decode("#555555")));
+        DARK_COLORS.put("codeHighlight", new Color(125, 140, 111)); // Custom syntax highlight color
+        DARK_COLORS.put("rsyntax_background", getUIManagerColor("EditorPane.background", new Color(50, 50, 50)));
 
-        // Initialize light theme colors
-        LIGHT_COLORS.put("chat_background", new Color(240, 240, 240));
-        LIGHT_COLORS.put("message_background", new Color(250, 250, 250));
-        LIGHT_COLORS.put("chat_text", new Color(30, 30, 30));
-        LIGHT_COLORS.put("chat_header_text", new Color(51, 103, 214));
+        // Initialize light theme colors using UIManager where available
+        LIGHT_COLORS.put("chat_background", getUIManagerColor("Panel.background", new Color(240, 240, 240)));
+        LIGHT_COLORS.put("message_background", getUIManagerColor("TextField.background", new Color(250, 250, 250)));
+        LIGHT_COLORS.put("chat_text", getUIManagerColor("Label.foreground", new Color(30, 30, 30)));
+        LIGHT_COLORS.put("chat_header_text", getUIManagerColor("Component.linkColor", new Color(51, 103, 214)));
+
+        // Custom message border colors (app-specific, no UIManager equivalent)
         LIGHT_COLORS.put("message_border_custom", new Color(46, 100, 55));
         LIGHT_COLORS.put("message_border_ai", new Color(86, 142, 130));
         LIGHT_COLORS.put("message_border_user", new Color(94, 125, 175));
 
         // Code and text colors
-        LIGHT_COLORS.put("code_block_background", new Color(240, 240, 240));
-        LIGHT_COLORS.put("code_block_border", Color.GRAY);
-        LIGHT_COLORS.put("plain_text_foreground", Color.BLACK);
-        LIGHT_COLORS.put("custom_message_background", new Color(245, 245, 245));
-        LIGHT_COLORS.put("custom_message_foreground", new Color(30, 30, 30));
+        LIGHT_COLORS.put("code_block_background", getUIManagerColor("EditorPane.background", new Color(240, 240, 240)));
+        LIGHT_COLORS.put("code_block_border", getUIManagerColor("Component.borderColor", Color.GRAY));
+        LIGHT_COLORS.put("plain_text_foreground", getUIManagerColor("TextArea.foreground", Color.BLACK));
+        LIGHT_COLORS.put("custom_message_background", getUIManagerColor("TextField.background", new Color(245, 245, 245)));
+        LIGHT_COLORS.put("custom_message_foreground", getUIManagerColor("TextField.foreground", new Color(30, 30, 30)));
 
-        // HTML specific colors as hex strings
-        LIGHT_COLORS.put("link_color_hex", Color.decode("#2675BF"));
-        LIGHT_COLORS.put("border_color_hex", Color.decode("#dddddd"));
-        LIGHT_COLORS.put("codeHighlight", new Color(125, 140, 111));
-        LIGHT_COLORS.put("rsyntax_background", Color.WHITE);
+        // HTML specific colors
+        LIGHT_COLORS.put("link_color_hex", getUIManagerColor("Component.linkColor", Color.decode("#2675BF")));
+        LIGHT_COLORS.put("border_color_hex", getUIManagerColor("Component.borderColor", Color.decode("#dddddd")));
+        LIGHT_COLORS.put("codeHighlight", new Color(125, 140, 111)); // Custom syntax highlight color
+        LIGHT_COLORS.put("rsyntax_background", getUIManagerColor("EditorPane.background", Color.WHITE));
 
-        // Git status colors for Commit tab
-        DARK_COLORS.put("git_status_new", new Color(88, 203, 63));
-        DARK_COLORS.put("git_status_modified", new Color(71, 239, 230));
-        DARK_COLORS.put("git_status_deleted", new Color(147, 99, 63));
-        DARK_COLORS.put("git_status_unknown", new Color(128, 128, 128));
-        DARK_COLORS.put("git_status_added", new Color(88, 203, 63)); // Same as new
-        LIGHT_COLORS.put("git_status_new", new Color(42, 119, 34));
-        LIGHT_COLORS.put("git_status_modified", new Color(60, 118, 202));
-        LIGHT_COLORS.put("git_status_deleted", new Color(67, 100, 109));
-        LIGHT_COLORS.put("git_status_unknown", new Color(180, 180, 180));
-        LIGHT_COLORS.put("git_status_added", new Color(42, 119, 34)); // Same as new
+        // Git status colors for Commit tab - use FlatLaf Actions colors
+        DARK_COLORS.put("git_status_new", getUIManagerColor("Actions.Green", new Color(88, 203, 63)));
+        DARK_COLORS.put("git_status_modified", getUIManagerColor("Actions.Blue", new Color(71, 239, 230)));
+        DARK_COLORS.put("git_status_deleted", getUIManagerColor("Actions.Red", new Color(147, 99, 63)));
+        DARK_COLORS.put("git_status_unknown", getUIManagerColor("Actions.Grey", new Color(128, 128, 128)));
+        DARK_COLORS.put("git_status_added", getUIManagerColor("Actions.Green", new Color(88, 203, 63))); // Same as new
+        LIGHT_COLORS.put("git_status_new", getUIManagerColor("Actions.Green", new Color(42, 119, 34)));
+        LIGHT_COLORS.put("git_status_modified", getUIManagerColor("Actions.Blue", new Color(60, 118, 202)));
+        LIGHT_COLORS.put("git_status_deleted", getUIManagerColor("Actions.Red", new Color(67, 100, 109)));
+        LIGHT_COLORS.put("git_status_unknown", getUIManagerColor("Actions.Grey", new Color(180, 180, 180)));
+        LIGHT_COLORS.put("git_status_added", getUIManagerColor("Actions.Green", new Color(42, 119, 34))); // Same as new
 
         // Git changed lines color
-        DARK_COLORS.put("git_changed", new Color(239, 202, 8)); // Amber/Yellow
-        LIGHT_COLORS.put("git_changed", new Color(204, 143, 0)); // Darker Amber/Yellow
+        DARK_COLORS.put("git_changed", getUIManagerColor("Actions.Yellow", new Color(239, 202, 8)));
+        LIGHT_COLORS.put("git_changed", getUIManagerColor("Actions.Yellow", new Color(204, 143, 0)));
 
-        // Git tab badge colors
-        DARK_COLORS.put("git_badge_background", Color.decode("#007ACC")); // VSCode blue for dark theme
-        DARK_COLORS.put("git_badge_text", Color.WHITE);
-        LIGHT_COLORS.put("git_badge_background", Color.decode("#DC3545")); // Red for light theme
+        // Git tab badge colors - use semantic button colors
+        DARK_COLORS.put("git_badge_background", getUIManagerColor("Button.default.background", Color.decode("#007ACC")));
+        DARK_COLORS.put("git_badge_text", getUIManagerColor("Button.default.foreground", Color.WHITE));
+        LIGHT_COLORS.put("git_badge_background", getUIManagerColor("Actions.Red", Color.decode("#DC3545")));
         LIGHT_COLORS.put("git_badge_text", Color.WHITE);
 
-        // File reference badge colors (same for both themes for now)
-        Color badgeBorder = new Color(66, 139, 202);
-        Color badgeForeground = new Color(66, 139, 202);
-        Color badgeHoverBorder = new Color(51, 122, 183);
-        Color selectedBadgeBorder = Color.BLACK;
-        Color selectedBadgeForeground = Color.BLACK;
+        // File reference badge colors - use link/accent colors
+        DARK_COLORS.put("badge_border", getUIManagerColor("Component.linkColor", new Color(66, 139, 202)));
+        DARK_COLORS.put("badge_foreground", getUIManagerColor("Component.linkColor", new Color(66, 139, 202)));
+        DARK_COLORS.put("badge_hover_border", getUIManagerColor("Component.focusColor", new Color(51, 122, 183)));
+        DARK_COLORS.put("selected_badge_border", getUIManagerColor("Label.foreground", Color.BLACK));
+        DARK_COLORS.put("selected_badge_foreground", getUIManagerColor("Label.foreground", Color.BLACK));
 
-        DARK_COLORS.put("badge_border", badgeBorder);
-        DARK_COLORS.put("badge_foreground", badgeForeground);
-        DARK_COLORS.put("badge_hover_border", badgeHoverBorder);
-        DARK_COLORS.put("selected_badge_border", selectedBadgeBorder);
-        DARK_COLORS.put("selected_badge_foreground", selectedBadgeForeground);
+        LIGHT_COLORS.put("badge_border", getUIManagerColor("Component.linkColor", new Color(66, 139, 202)));
+        LIGHT_COLORS.put("badge_foreground", getUIManagerColor("Component.linkColor", new Color(66, 139, 202)));
+        LIGHT_COLORS.put("badge_hover_border", getUIManagerColor("Component.focusColor", new Color(51, 122, 183)));
+        LIGHT_COLORS.put("selected_badge_border", getUIManagerColor("Label.foreground", Color.BLACK));
+        LIGHT_COLORS.put("selected_badge_foreground", getUIManagerColor("Label.foreground", Color.BLACK));
 
-        LIGHT_COLORS.put("badge_border", badgeBorder);
-        LIGHT_COLORS.put("badge_foreground", badgeForeground);
-        LIGHT_COLORS.put("badge_hover_border", badgeHoverBorder);
-        LIGHT_COLORS.put("selected_badge_border", selectedBadgeBorder);
-        LIGHT_COLORS.put("selected_badge_foreground", selectedBadgeForeground);
+        // Filter box colors - use warning/accent colors
+        DARK_COLORS.put("filter_unselected_foreground", getUIManagerColor("Actions.Yellow", new Color(0xFF8800)));
+        DARK_COLORS.put("filter_selected_foreground", getUIManagerColor("Label.foreground", Color.WHITE));
+        DARK_COLORS.put("filter_icon_hover_background", new Color(255, 255, 255, 64)); // Semi-transparent (no UIManager equivalent)
 
-        // Filter box colors
-        DARK_COLORS.put("filter_unselected_foreground", new Color(0xFF8800)); // IntellJ-like Orange
-        DARK_COLORS.put("filter_selected_foreground", Color.WHITE);
-        DARK_COLORS.put("filter_icon_hover_background", new Color(255, 255, 255, 64)); // Semi-transparent white
+        LIGHT_COLORS.put("filter_unselected_foreground", getUIManagerColor("Actions.Yellow", new Color(0xFF6600)));
+        LIGHT_COLORS.put("filter_selected_foreground", getUIManagerColor("Label.foreground", Color.BLACK));
+        LIGHT_COLORS.put("filter_icon_hover_background", new Color(0, 0, 0, 32)); // Semi-transparent (no UIManager equivalent)
 
-        LIGHT_COLORS.put("filter_unselected_foreground", new Color(0xFF6600)); // Slightly darker orange for light theme
-        LIGHT_COLORS.put("filter_selected_foreground", Color.BLACK);
-        LIGHT_COLORS.put("filter_icon_hover_background", new Color(0, 0, 0, 32)); // Semi-transparent black
+        // Diff chevron colors - use label/text colors
+        DARK_COLORS.put("chevron_normal", getUIManagerColor("Label.disabledForeground", new Color(200, 200, 200)));
+        DARK_COLORS.put("chevron_hover", getUIManagerColor("Label.foreground", Color.WHITE));
 
-        // Diff chevron colors
-        DARK_COLORS.put("chevron_normal", new Color(200, 200, 200)); // Lighter gray for dark theme (more visible)
-        DARK_COLORS.put("chevron_hover", Color.WHITE);
-
-        LIGHT_COLORS.put("chevron_normal", new Color(80, 80, 80)); // Darker gray for light theme (more visible)
-        LIGHT_COLORS.put("chevron_hover", new Color(40, 40, 40)); // Very dark gray for light theme
+        LIGHT_COLORS.put("chevron_normal", getUIManagerColor("Label.disabledForeground", new Color(80, 80, 80)));
+        LIGHT_COLORS.put("chevron_hover", getUIManagerColor("Label.foreground", new Color(40, 40, 40)));
 
         // Notification colors (bg/fg/border) by role
         // Error
