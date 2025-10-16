@@ -72,8 +72,20 @@ public class MaterialDropdown extends MaterialButton {
             return; // Not ready yet; padding already accounts for it
         }
 
-        int y = (getHeight() - icon.getIconHeight()) / 2;
-        int x = getWidth() - icon.getIconWidth() - ARROW_PADDING; // right-aligned with padding
+        // If themed, ensure underlying delegate is resolved before measuring/painting
+        if (icon instanceof SwingUtil.ThemedIcon themed) {
+            themed.ensureResolved();
+            icon = themed.delegate();
+        }
+
+        int w = icon.getIconWidth();
+        int h = icon.getIconHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+
+        int y = (getHeight() - h) / 2;
+        int x = getWidth() - w - ARROW_PADDING; // right-aligned with padding
         icon.paintIcon(this, g, x, y);
     }
 }
