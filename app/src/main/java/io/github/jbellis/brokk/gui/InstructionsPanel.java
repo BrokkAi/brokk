@@ -539,7 +539,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (config == null) {
             config = new Service.ModelConfig(Service.GPT_5_MINI);
         }
-        setSelectedModel(config, config.name());
+
+        // Default alias to the model name; favorites API not available here
+        String alias = config.name();
+
+        setSelectedModel(config, alias);
     }
 
     private MaterialDropdown createModelSelectorDropdown() {
@@ -559,10 +563,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         item.addActionListener(e -> setSelectedModel(new Service.ModelConfig(name), name));
                         menu.add(item);
                     }
-                    menu.addSeparator();
                 }
             } catch (Exception ex) {
                 logger.debug("Unable to load available models", ex);
+            }
+
+            if (menu.getComponentCount() > 0) {
+                menu.addSeparator();
             }
 
             var configureItem = new JMenuItem("Configure Models...");
