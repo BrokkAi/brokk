@@ -9,7 +9,6 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -415,9 +414,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
 
-            // Initial refreshes
-            updateGitRepo();
-            projectFilesPanel.updatePanel();
+            // Initial refreshes are now done in the background
+            contextManager.submitBackgroundTask("Loading project state", () -> {
+                updateGitRepo();
+                projectFilesPanel.updatePanel();
+                return null;
+            });
         } else {
             gitCommitTab = null;
             gitLogTab = null;
@@ -905,6 +907,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
+        assert !SwingUtilities.isEventDispatchThread() : "Long running git refresh running on the EDT";
         logger.trace("updateGitRepo invoked");
 
         // Determine current branch (if available) and update InstructionsPanel on EDT
@@ -932,20 +935,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
             }
             final String display = branchToDisplay;
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    // Redundancy guard: only refresh if the displayed branch text actually changed
-                    if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
-                        logger.trace(
-                                "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
-                        return;
-                    }
-                    instructionsPanel.refreshBranchUi(display);
-                    lastDisplayedBranchLabel = display;
-                } catch (Exception ex) {
-                    logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+            try {
+                // Redundancy guard: only refresh if the displayed branch text actually changed
+                if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
+                    logger.trace("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
+                    return;
                 }
-            });
+                instructionsPanel.refreshBranchUi(display);
+                lastDisplayedBranchLabel = display;
+            } catch (Exception ex) {
+                logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+            }
         }
 
         // Update individual Git-related panels and log what is being updated

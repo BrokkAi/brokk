@@ -341,6 +341,10 @@ public final class MainProject extends AbstractProject {
             }
             saveProjectProperties();
         }
+        setBuildDetails(details);
+    }
+
+    public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
         }

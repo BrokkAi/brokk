@@ -131,9 +131,9 @@ public final class BrokkCli implements Callable<Integer> {
     private Path worktreePath;
 
     //  Model overrides
-    @CommandLine.Option(names = "--model", description = "Override the task model to use.")
+    @CommandLine.Option(names = "--planmodel", description = "Override the planning model to use.")
     @Nullable
-    private String modelName;
+    private String planModelName;
 
     @CommandLine.Option(names = "--codemodel", description = "Override the code model to use.")
     @Nullable
@@ -164,26 +164,13 @@ public final class BrokkCli implements Callable<Integer> {
         if (merge) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --merge) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --merge) or --worktree is required.");
             return 1;
-        }
-
-        // Extra rules for model overrides
-        if (codePrompt != null) {
-            if (modelName != null && codeModelName != null) {
-                System.err.println("For the --code action, specify at most one of --model or --codemodel.");
-                return 1;
-            }
-        } else if (askPrompt != null || searchAnswerPrompt != null || lutzPrompt != null) {
-            if (codeModelName != null) {
-                System.err.println("--codemodel is not valid with --ask or --search actions.");
-                return 1;
-            }
         }
 
         //  Expand @file syntax for prompt parameters
@@ -241,20 +228,35 @@ public final class BrokkCli implements Callable<Integer> {
         //  Model Overrides initialization
         var service = cm.getService();
 
-        StreamingChatModel taskModelOverride = null;
-        if (modelName != null) {
-            Service.FavoriteModel fav;
-            try {
-                fav = MainProject.getFavoriteModel(modelName);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Unknown model specified via --model: " + modelName);
-                return 1;
-            }
-            taskModelOverride = service.getModel(fav.config());
-            assert taskModelOverride != null : service.getAvailableModels();
+        StreamingChatModel planModel = null;
+        StreamingChatModel codeModel = null;
+
+        // Determine which models are required by the chosen action(s).
+        boolean needsPlanModel =
+                architectPrompt != null || searchAnswerPrompt != null || lutzPrompt != null || deepScan || merge;
+        boolean needsCodeModel = codePrompt != null || askPrompt != null || architectPrompt != null || merge;
+
+        if (needsPlanModel && planModelName == null) {
+            System.err.println("Error: This action requires --planmodel to be specified.");
+            return 1;
+        }
+        if (needsCodeModel && codeModelName == null) {
+            System.err.println("Error: This action requires --codemodel to be specified.");
+            return 1;
         }
 
-        StreamingChatModel codeModelOverride = null;
+        if (planModelName != null) {
+            Service.FavoriteModel fav;
+            try {
+                fav = MainProject.getFavoriteModel(planModelName);
+            } catch (IllegalArgumentException e) {
+                System.err.println("Unknown planning model specified via --planmodel: " + planModelName);
+                return 1;
+            }
+            planModel = service.getModel(fav.config());
+            assert planModel != null : service.getAvailableModels();
+        }
+
         if (codeModelName != null) {
             Service.FavoriteModel fav;
             try {
@@ -263,8 +265,8 @@ public final class BrokkCli implements Callable<Integer> {
                 System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
                 return 1;
             }
-            codeModelOverride = service.getModel(fav.config());
-            assert codeModelOverride != null : service.getAvailableModels();
+            codeModel = service.getModel(fav.config());
+            assert codeModel != null : service.getAvailableModels();
         }
 
         var workspaceTools = new WorkspaceTools(cm);
@@ -307,6 +309,11 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
+            if (planModel == null) {
+                System.err.println("Deep Scan requires --planmodel to be specified.");
+                return 1;
+            }
+
             io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
@@ -316,8 +323,7 @@ public final class BrokkCli implements Callable<Integer> {
                     .filter(s -> s != null && !s.isBlank())
                     .findFirst()
                     .orElseThrow();
-            var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-            var agent = new ContextAgent(cm, scanModel, goalForScan);
+            var agent = new ContextAgent(cm, planModel, goalForScan);
             var recommendations = agent.getRecommendations(false);
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
@@ -349,7 +355,7 @@ public final class BrokkCli implements Callable<Integer> {
                 IConsoleIO.NotificationRole.INFO,
                 ContextFragment.getSummary(cm.topContext().allFragments()));
 
-        TaskResult result = null;
+        TaskResult result;
         // Decide scope action/input
         String scopeInput;
         if (architectPrompt != null) {
@@ -362,33 +368,51 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = "Merge";
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
-        } else { // searchTasksPrompt != null
+        } else { // lutzPrompt != null
             scopeInput = requireNonNull(lutzPrompt);
         }
 
         try (var scope = cm.beginTask(scopeInput, false)) {
             try {
                 if (architectPrompt != null) {
-                    var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
-                    var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                    var agent = new ArchitectAgent(cm, architectModel, codeModel, architectPrompt, scope);
+                    // Architect requires a plan model and a code model
+                    if (planModel == null) {
+                        System.err.println("Error: --architect requires --planmodel to be specified.");
+                        return 1;
+                    }
+                    if (codeModel == null) {
+                        System.err.println("Error: --architect requires --codemodel to be specified.");
+                        return 1;
+                    }
+                    var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
                     result = agent.execute();
                     scope.append(result);
                 } else if (codePrompt != null) {
-                    var effectiveModel = codeModelOverride == null
-                            ? (taskModelOverride != null ? taskModelOverride : cm.getCodeModel())
-                            : codeModelOverride;
-                    var agent = new CodeAgent(cm, effectiveModel);
+                    // CodeAgent must use codemodel only
+                    if (codeModel == null) {
+                        System.err.println("Error: --code requires --codemodel to be specified.");
+                        return 1;
+                    }
+                    var agent = new CodeAgent(cm, codeModel);
                     result = agent.runTask(codePrompt, Set.of());
                     scope.append(result);
                 } else if (askPrompt != null) {
-                    StreamingChatModel askModel;
-                    askModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                    result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
+                    if (codeModel == null) {
+                        System.err.println("Error: --ask requires --codemodel to be specified.");
+                        return 1;
+                    }
+                    result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
                     scope.append(result);
                 } else if (merge) {
-                    var planningModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
-                    var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
+                    if (planModel == null) {
+                        System.err.println("Error: --merge requires --planmodel to be specified.");
+                        return 1;
+                    }
+                    if (codeModel == null) {
+                        System.err.println("Error: --merge requires --codemodel to be specified.");
+                        return 1;
+                    }
+
                     var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
                     if (conflictOpt.isEmpty()) {
                         System.out.println(
@@ -398,7 +422,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var conflict = conflictOpt.get();
                     System.out.println(conflict);
                     MergeAgent mergeAgent = new MergeAgent(
-                            cm, planningModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+                            cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
                     try {
                         result = mergeAgent.execute();
                         scope.append(result);
@@ -408,15 +432,21 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     return 0; // merge is terminal for this CLI command
                 } else if (searchAnswerPrompt != null) {
-                    var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                    if (planModel == null) {
+                        System.err.println("Error: --search-answer requires --planmodel to be specified.");
+                        return 1;
+                    }
                     var agent = new SearchAgent(
-                            requireNonNull(searchAnswerPrompt), cm, searchModel, EnumSet.of(Terminal.ANSWER));
+                            requireNonNull(searchAnswerPrompt), cm, planModel, EnumSet.of(Terminal.ANSWER));
                     result = agent.execute();
                     scope.append(result);
-                } else { // searchTasksPrompt != null
-                    var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                    var agent = new SearchAgent(
-                            requireNonNull(lutzPrompt), cm, searchModel, EnumSet.of(Terminal.TASK_LIST));
+                } else { // lutzPrompt != null
+                    if (planModel == null) {
+                        System.err.println("Error: --lutz requires --planmodel to be specified.");
+                        return 1;
+                    }
+                    var agent =
+                            new SearchAgent(requireNonNull(lutzPrompt), cm, planModel, EnumSet.of(Terminal.TASK_LIST));
                     result = agent.execute();
                     scope.append(result);
 

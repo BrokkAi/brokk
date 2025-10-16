@@ -83,6 +83,48 @@ public abstract class CodePrompts {
                 """;
     }
 
+    public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
+        return instructionsFlags(
+                ctx.getContextManager().getProject(),
+                ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
+    }
+
+    public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
+        var flags = new HashSet<InstructionsFlags>();
+        var languages = project.getAnalyzerLanguages();
+
+        // we'll inefficiently read the files every time this method is called but at least we won't do it twice
+        var fileContents = editableFiles.stream()
+                .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
+
+        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
+        var unsupported = fileContents.keySet().stream()
+                .filter(f -> {
+                    var ext = f.extension();
+                    return ext.isEmpty()
+                            || languages.stream()
+                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
+                })
+                .collect(Collectors.toSet());
+        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
+        if (false) {
+            flags.add(InstructionsFlags.SYNTAX_AWARE);
+        } else {
+            IContextManager.logger.debug("Syntax-unsupported files are {}", unsupported);
+        }
+
+        // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
+        var hasMergeMarkers = fileContents.values().stream()
+                .filter(s -> s.contains("BRK_CONFLICT_BEGIN_") && s.contains("BRK_CONFLICT_END_"))
+                .collect(Collectors.toSet());
+        if (!hasMergeMarkers.isEmpty()) {
+            flags.add(InstructionsFlags.MERGE_AGENT_MARKERS);
+            IContextManager.logger.debug("Files with merge markers: {}", hasMergeMarkers);
+        }
+
+        return flags;
+    }
+
     public String codeReminder(Service service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
 
@@ -152,81 +194,31 @@ public abstract class CodePrompts {
     }
 
     public final List<ChatMessage> collectCodeMessages(
-            IContextManager cm,
             StreamingChatModel model,
+            Context ctx,
+            List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
             Set<ProjectFile> changedFiles)
             throws InterruptedException {
+        var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
-        Context ctx = cm.liveContext();
 
-        messages.add(systemMessage(cm, reminder));
+        messages.add(systemMessage(cm, ctx, reminder));
         // FIXME we're supposed to leave the unchanged files in their original position
         if (changedFiles.isEmpty()) {
             messages.addAll(getWorkspaceContentsMessages(ctx));
         } else {
-            messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx));
         }
+        messages.addAll(prologue);
 
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(List.of(), getWorkspaceEditableMessages(ctx)));
+            messages.addAll(getWorkspaceEditableMessages(ctx));
         }
-        messages.add(request);
-
-        return messages;
-    }
-
-    public final List<ChatMessage> getSingleFileCodeMessages(
-            IProject project,
-            List<ChatMessage> readOnlyMessages,
-            List<ChatMessage> taskMessages,
-            UserMessage request,
-            ProjectFile file) {
-        var messages = new ArrayList<ChatMessage>();
-
-        var systemPrompt =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .stripIndent()
-                        .formatted(systemIntro(""), project.getStyleGuide())
-                        .trim();
-        messages.add(new SystemMessage(systemPrompt));
-
-        messages.addAll(readOnlyMessages);
-        var content = file.read().orElseThrow();
-        String editableText =
-                """
-                                  <workspace_editable>
-                                  You are editing A SINGLE FILE in this Workspace.
-                                  This represents the current state of the file.
-
-                                  <file path="%s">
-                                  %s
-                                  </file>
-                                  </workspace_editable>
-                                  """
-                        .stripIndent()
-                        .formatted(file.toString(), content);
-        var editableUserMessage = new UserMessage(editableText);
-        messages.addAll(List.of(editableUserMessage, new AiMessage("Thank you for the editable context.")));
-
-        // Add *rules + examples* inline (no forged dialog). Leave <goal> blank here; the caller's `request` follows.
-        var flags = IContextManager.instructionsFlags(project, Set.of(file));
-        var rules = instructions("", flags, "");
-        messages.add(new UserMessage(rules));
-        messages.add(new AiMessage("Ok, I will follow these edit rules."));
-
-        messages.addAll(taskMessages);
         messages.add(request);
 
         return messages;
@@ -300,6 +292,42 @@ public abstract class CodePrompts {
         return workspaceBuilder.toString();
     }
 
+    public static String formatWorkspaceToc(IContextManager cm, Context ctx) {
+        var editableContents = ctx.getEditableToc();
+        var readOnlyContents = ctx.getReadOnlyToc();
+        var workspaceBuilder = new StringBuilder();
+        if (!editableContents.isBlank()) {
+            workspaceBuilder.append("<editable-toc>\n%s\n</editable-toc>".formatted(editableContents));
+        }
+        if (!readOnlyContents.isBlank()) {
+            workspaceBuilder.append("<readonly-toc>\n%s\n</readonly-toc>".formatted(readOnlyContents));
+        }
+        return workspaceBuilder.toString();
+    }
+
+    protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
+        var workspaceSummary = formatWorkspaceToc(cm, ctx);
+        var styleGuide = cm.getProject().getStyleGuide();
+
+        var text =
+                """
+          <instructions>
+          %s
+          </instructions>
+          <workspace-toc>
+          %s
+          </workspace-toc>
+          <style_guide>
+          %s
+          </style_guide>
+          """
+                        .stripIndent()
+                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .trim();
+
+        return new SystemMessage(text);
+    }
+
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
         var styleGuide = cm.getProject().getStyleGuide();
@@ -335,7 +363,7 @@ public abstract class CodePrompts {
                 .formatted(reminder);
     }
 
-    public UserMessage codeRequest(IContextManager cm, String input, String reminder) {
+    public UserMessage codeRequest(Context ctx, String input, String reminder) {
         var instructions =
                 """
         <instructions>
@@ -366,7 +394,7 @@ public abstract class CodePrompts {
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions");
-        return new UserMessage(instructions + instructions(input, cm.instructionsFlags(), reminder));
+        return new UserMessage(instructions + instructions(input, instructionsFlags(ctx), reminder));
     }
 
     public UserMessage askRequest(String input) {

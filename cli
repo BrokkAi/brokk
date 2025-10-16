@@ -21,15 +21,68 @@ CLASSPATH="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
 # Launch BrokkCli.
 # We use PGC because it's more space-efficient than the default G1,
 # and in cli mode we're not latency sensitive.
-# Split out any -X* or -D* flags into JVM_ARGS, rest into APP_ARGS
+# Remote debugger is ENABLED by default. Disable via --no-debug or BROKK_DEBUG=false.
+# Supported CLI flags:
+#   --debug[=PORT]         enable JDWP on PORT (default 5005)
+#   --debug-port=PORT      same as --debug=PORT
+#   --debug-suspend        wait for debugger to attach before starting
+#   --no-debug             disable JDWP (overrides env/default)
+# Env vars:
+#   BROKK_DEBUG=true|false|PORT  enable/disable debug; PORT overrides port (true/1/yes/on; false/0/no/off)
+#   BROKK_DEBUG_PORT=PORT        port to listen on (default 5005)
+#   BROKK_DEBUG_SUSPEND=y|n      whether to suspend on start (default n)
 declare -a JVM_ARGS=()
 declare -a APP_ARGS=()
+DEBUG_ENABLED=false
+DEBUG_PORT="${BROKK_DEBUG_PORT:-5005}"
+DEBUG_SUSPEND="${BROKK_DEBUG_SUSPEND:-n}"
+# Environment override for debug behavior
+if [[ -n "${BROKK_DEBUG:-}" ]]; then
+  case "${BROKK_DEBUG,,}" in
+    false|0|no|off)
+      DEBUG_ENABLED=false
+      ;;
+    true|1|yes|on)
+      DEBUG_ENABLED=true
+      ;;
+    *)
+      if [[ "${BROKK_DEBUG}" =~ ^[0-9]+$ ]]; then
+        DEBUG_ENABLED=true
+        DEBUG_PORT="${BROKK_DEBUG}"
+      else
+        # Unknown value; keep default enabled
+        DEBUG_ENABLED=true
+      fi
+      ;;
+  esac
+fi
 for arg in "$@"; do
-  if [[ $arg == -X* || $arg == -D* ]]; then
-    JVM_ARGS+=("$arg")
-  else
-    APP_ARGS+=("$arg")
-  fi
+  case "$arg" in
+    --debug)
+      DEBUG_ENABLED=true
+      ;;
+    --debug=*)
+      DEBUG_ENABLED=true
+      DEBUG_PORT="${arg#--debug=}"
+      ;;
+    --debug-port=*)
+      DEBUG_ENABLED=true
+      DEBUG_PORT="${arg#--debug-port=}"
+      ;;
+    --debug-suspend)
+      DEBUG_ENABLED=true
+      DEBUG_SUSPEND="y"
+      ;;
+    --no-debug)
+      DEBUG_ENABLED=false
+      ;;
+    -X*|-D*)
+      JVM_ARGS+=("$arg")
+      ;;
+    *)
+      APP_ARGS+=("$arg")
+      ;;
+  esac
 done
 
 # Build the final JVM argument list, adding a default -Xmx1G unless the caller
@@ -47,6 +100,19 @@ if ! $xmx_specified; then
 fi
 # Append any user-supplied JVM args (which may include their own -Xmx)
 EFFECTIVE_JVM_ARGS+=(${JVM_ARGS[@]+"${JVM_ARGS[@]}"})
+
+# Add JDWP agent if debugging is enabled and not already specified by the user
+jdwp_specified=false
+for arg in "${JVM_ARGS[@]-}"; do
+  if [[ $arg == -agentlib:jdwp* || $arg == -Xrunjdwp* ]]; then
+    jdwp_specified=true
+    break
+  fi
+done
+if $DEBUG_ENABLED && ! $jdwp_specified; then
+  EFFECTIVE_JVM_ARGS+=("-agentlib:jdwp=transport=dt_socket,server=y,suspend=$DEBUG_SUSPEND,address=*:$DEBUG_PORT")
+  echo "Debugging enabled on port $DEBUG_PORT (suspend=$DEBUG_SUSPEND)" >&2
+fi
 
 # Launch BrokkCli with the JVM flags first, then classpath, then app args
 exec java \

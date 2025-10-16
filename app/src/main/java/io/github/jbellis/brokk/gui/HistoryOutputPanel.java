@@ -219,8 +219,10 @@ public class HistoryOutputPanel extends JPanel {
         this.undoButton = new MaterialButton();
         this.redoButton = new MaterialButton();
         this.sessionComboBox = new JComboBox<>();
-        this.newSessionButton = new SplitButton("New");
-        this.manageSessionsButton = new SplitButton("Manage");
+        this.newSessionButton = new SplitButton("");
+        SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
+        this.manageSessionsButton = new SplitButton("");
+        SwingUtilities.invokeLater(() -> this.manageSessionsButton.setIcon(Icons.SETTINGS));
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
@@ -331,8 +333,8 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Buttons panel
-        // Use GridLayout to make buttons share width equally
-        var buttonsPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
+        // Use BorderLayout to place buttons on opposite ends
+        var buttonsPanel = new JPanel(new BorderLayout());
 
         // Tooltip and action listener for the new session button
         newSessionButton.setToolTipText("Create a new session");
@@ -378,8 +380,8 @@ public class HistoryOutputPanel extends JPanel {
             dialog.setVisible(true);
         });
 
-        buttonsPanel.add(newSessionButton);
-        buttonsPanel.add(manageSessionsButton);
+        buttonsPanel.add(newSessionButton, BorderLayout.WEST);
+        buttonsPanel.add(manageSessionsButton, BorderLayout.EAST);
 
         panel.add(sessionComboBox, BorderLayout.CENTER);
         panel.add(buttonsPanel, BorderLayout.SOUTH);
