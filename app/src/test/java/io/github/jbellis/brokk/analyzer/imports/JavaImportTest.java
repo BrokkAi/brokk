@@ -17,7 +17,7 @@ public class JavaImportTest {
     }
 
     @Test
-    public void testImport() throws IOException {
+    public void testOrdinaryImport() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
                 import foo.bar.Baz;
@@ -31,6 +31,42 @@ public class JavaImportTest {
             var file = analyzer.getFileFor("Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.Baz;", "import Bar;");
+            assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
+        }
+    }
+
+    @Test
+    public void testStaticImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import static foo.bar.Baz.method;
+
+                public class Foo {}
+                """,
+                        "Foo.java")
+                .build()) {
+            var analyzer = createAnalyzer(testProject);
+            var file = analyzer.getFileFor("Foo").get();
+            var imports = analyzer.importStatementsOf(file);
+            var expected = Set.of("import static foo.bar.Baz.method;");
+            assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
+        }
+    }
+
+    @Test
+    public void testWildcardImport() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                import foo.bar.*;
+
+                public class Foo {}
+                """,
+                        "Foo.java")
+                .build()) {
+            var analyzer = createAnalyzer(testProject);
+            var file = analyzer.getFileFor("Foo").get();
+            var imports = analyzer.importStatementsOf(file);
+            var expected = Set.of("import foo.bar.*;");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
         }
     }
