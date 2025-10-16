@@ -548,6 +548,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         var project = chrome.getProject();
         this.branchSplitButton = new SplitButton("No Git");
+        branchSplitButton.setUnifiedHover(true);
         branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
         branchSplitButton.setFocusable(true);
 
@@ -1416,6 +1417,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var project = chrome.getProject();
 
         var dropdown = new SplitButton(placeholder);
+        dropdown.setUnifiedHover(true);
         dropdown.setToolTipText("Select a previous instruction from history");
         dropdown.setFocusable(true);
 
