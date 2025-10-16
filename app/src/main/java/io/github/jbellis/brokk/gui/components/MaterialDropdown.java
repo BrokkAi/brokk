@@ -30,7 +30,12 @@ public class MaterialDropdown extends MaterialButton {
         // Defer arrow icon creation to the EDT; then recalc margin and refresh layout/painting.
         SwingUtilities.invokeLater(() -> {
             try {
-                this.arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
+                Icon base = Icons.KEYBOARD_DOWN;
+                if (base instanceof SwingUtil.ThemedIcon themed) {
+                    // Warm-resolve to avoid transient artifacts and ensure correct dimensions
+                    themed.ensureResolved();
+                }
+                this.arrowIcon = new SwingUtil.ScaledIcon(base, 0.75);
                 recalculateRightMarginForArrow();
             } catch (Exception ignored) {
                 // If anything goes wrong, we keep the fallback padding and skip painting the icon.
