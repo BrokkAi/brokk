@@ -24,8 +24,31 @@
                   (type_identifier) @type.super
                   )
                 )?
-  )
+  ) @type.decl
 
-; Add interfaces
+(interface_declaration
+  name: (identifier) @type.name
+  interfaces: (super_interfaces
+                (type_list
+                  (type_identifier) @type.super
+                  )
+                )?
+  ) @type.decl
 
-; Add records
+(enum_declaration
+  name: (identifier) @type.name
+  interfaces: (super_interfaces
+                (type_list
+                  (type_identifier) @type.super
+                  )
+                )?
+  ) @type.decl
+
+(record_declaration
+  name: (identifier) @type.name
+  interfaces: (super_interfaces
+                (type_list
+                  (type_identifier) @type.super
+                  )
+                )?
+  ) @type.decl
