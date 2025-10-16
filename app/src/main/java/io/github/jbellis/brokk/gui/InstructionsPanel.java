@@ -364,13 +364,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.addActionListener(e -> onActionButtonPressed());
         actionButton.setBackground(this.defaultActionButtonBg);
 
-        modelSelectorDropdown = createModelSelectorDropdown();
-        // select initial model
-        var initialModelConfig = chrome.getProject().getCodeModelConfig();
-        if (initialModelConfig == null) {
-            initialModelConfig = new Service.ModelConfig(Service.GPT_5_MINI);
-        }
-        setSelectedModel(initialModelConfig);
+        this.modelSelectorDropdown = createModelSelectorDropdown();
+        // initialize model selection from project config
+        selectModelConfig(chrome.getProject().getCodeModelConfig());
 
         // Persist selection to project and update token/cost indicator when model changes
         addModelSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
@@ -522,9 +518,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return area;
     }
 
-    private void setSelectedModel(Service.ModelConfig config) {
-        setSelectedModel(config, config.name());
-    }
 
     private void setSelectedModel(Service.ModelConfig config, String alias) {
         this.selectedModelConfig = config;
@@ -540,6 +533,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 logger.error("Error in model selection listener", e);
             }
         }
+    }
+
+    private void selectModelConfig(@org.jetbrains.annotations.Nullable Service.ModelConfig config) {
+        if (config == null) {
+            config = new Service.ModelConfig(Service.GPT_5_MINI);
+        }
+        setSelectedModel(config, config.name());
     }
 
     private MaterialDropdown createModelSelectorDropdown() {
