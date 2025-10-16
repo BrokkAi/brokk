@@ -30,10 +30,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     private final NamespaceProcessor namespaceProcessor;
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
     private final ThreadLocal<TSParser> parserCache;
-    private final Map<CodeUnitKey, CodeUnit> codeUnitRegistry = new ConcurrentHashMap<>();
-
-    /** Key for CodeUnit registry to ensure unique instances for logically identical CodeUnits. */
-    public record CodeUnitKey(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {}
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
         var config = new HashMap<String, SkeletonType>();
@@ -156,7 +152,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     }
                 };
 
-        return getOrCreateCodeUnit(file, type, packageName, fqName);
+        return createCodeUnit(file, type, packageName, fqName);
     }
 
     @Override
@@ -330,7 +326,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                         file,
                         rootNode,
                         fileContent,
-                        namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
+                        namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
             });
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
@@ -423,18 +419,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * Factory method to get or create a CodeUnit instance, ensuring object identity. This prevents duplicate CodeUnit
      * instances for the same logical entity.
      */
-    public CodeUnit getOrCreateCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
-        var registry = getCodeUnitRegistry();
-        var key = new CodeUnitKey(source, kind, packageName, fqName);
-        return registry.computeIfAbsent(key, k -> new CodeUnit(source, kind, packageName, fqName));
-    }
-
-    /**
-     * Get the code unit registry, initializing it if necessary. This provides thread-safe lazy initialization as a
-     * fallback.
-     */
-    private Map<CodeUnitKey, CodeUnit> getCodeUnitRegistry() {
-        return codeUnitRegistry;
+    public CodeUnit createCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
+        return new CodeUnit(source, kind, packageName, fqName);
     }
 
     @Override
@@ -443,7 +429,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         fileContentCache.clear();
         skeletonGenerator.clearCache();
         namespaceProcessor.clearCache();
-        codeUnitRegistry.clear();
     }
 
     @Override
