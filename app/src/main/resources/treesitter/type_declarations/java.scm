@@ -1,15 +1,27 @@
-; Add imports
-; Import declarations (optional capture, might be noisy)
-; (import_declaration) @import.definition
+; Parse package
+(package_declaration
+  [
+    (scoped_identifier)
+    (identifier)
+    ] @package.path
+  )
+
+; Parse imports
+(import_declaration
+  [
+    (scoped_identifier)
+    (identifier)
+    ] @import.path
+  )
 
 (class_declaration
-  name: (identifier) @class.name
+  name: (identifier) @type.name
   superclass: (superclass
-                (type_identifier) @class.super
+                (type_identifier) @type.super
                 )?
   interfaces: (super_interfaces
                 (type_list
-                  (type_identifier) @class.interface
+                  (type_identifier) @type.super
                   )
                 )?
   )
