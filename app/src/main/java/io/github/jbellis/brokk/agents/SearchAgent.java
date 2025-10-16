@@ -660,9 +660,12 @@ public class SearchAgent {
 
     @Tool(
             "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
-    public String workspaceComplete() {
-        logger.debug("workspaceComplete selected");
-        return "Workspace marked complete for the current goal.";
+    public String workspaceComplete(
+            @P(
+                            "The primary file that answers the query or is the main target for code changes. Must be a project-relative path.")
+                    String primaryFile) {
+        logger.debug("workspaceComplete selected with primaryFile: {}", primaryFile);
+        return "Workspace marked complete for the current goal. Primary file: " + primaryFile;
     }
 
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")

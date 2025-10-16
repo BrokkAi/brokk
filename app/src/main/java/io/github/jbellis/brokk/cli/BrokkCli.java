@@ -2,6 +2,9 @@ package io.github.jbellis.brokk.cli;
 
 import static java.util.Objects.requireNonNull;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -388,11 +391,9 @@ public final class BrokkCli implements Callable<Integer> {
             // Extract results from conversation
             var messages = searchResult.output().messages();
             int turns = countTurns(messages);
-            var aiMessages = messages.stream()
-                    .filter(msg -> msg.type() == ChatMessageType.AI)
-                    .map(msg -> (AiMessage) msg)
-                    .toList();
-            String foundFile = extractFoundFile(project.getRepo().getTrackedFiles(), aiMessages);
+
+            // Extract found file from workspaceComplete tool call
+            String foundFile = extractFoundFileFromToolCall(messages);
 
             // Output enhanced JSON result with metrics
             var json = metrics.toJson(searchWorkspace, foundFile, turns, elapsedTime, success);
@@ -797,21 +798,33 @@ public final class BrokkCli implements Callable<Integer> {
                 .count();
     }
 
-    private static String extractFoundFile(Set<ProjectFile> trackedFiles, List<AiMessage> aiMessages) {
-        // Look through AI messages for file paths
-        // Check most recent messages first
-        for (int i = aiMessages.size() - 1; i >= 0; i--) {
-            var msg = aiMessages.get(i);
-            String text = msg.text();
-
-            // Look for exact matches of tracked files in the message
-            for (ProjectFile file : trackedFiles) {
-                if (text.contains(file.toString())) {
-                    return file.toString();
+    private static String extractFoundFileFromToolCall(List<ChatMessage> messages) {
+        // Find the workspaceComplete tool call and extract the primaryFile argument
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            var msg = messages.get(i);
+            if (msg.type() == ChatMessageType.AI) {
+                var aiMsg = (AiMessage) msg;
+                if (aiMsg.hasToolExecutionRequests()) {
+                    for (var toolReq : aiMsg.toolExecutionRequests()) {
+                        if ("workspaceComplete".equals(toolReq.name())) {
+                            // Extract primaryFile argument from tool arguments JSON
+                            try {
+                                var mapper = new ObjectMapper();
+                                var args = mapper.readValue(
+                                        toolReq.arguments(), new TypeReference<Map<String, Object>>() {});
+                                var primaryFile = args.get("primaryFile");
+                                if (primaryFile != null) {
+                                    return primaryFile.toString();
+                                }
+                            } catch (JsonProcessingException e) {
+                                // If parsing fails, return empty string
+                                return "";
+                            }
+                        }
+                    }
                 }
             }
         }
-
         return "";
     }
 
