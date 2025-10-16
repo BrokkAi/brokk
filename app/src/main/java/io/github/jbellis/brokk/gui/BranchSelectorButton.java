@@ -56,10 +56,10 @@ public class BranchSelectorButton extends SplitButton {
                 IGitRepo repo = project.getRepo();
                 String cur = repo.getCurrentBranch();
                 if (!cur.isBlank()) {
-                    setText("branch: " + cur);
+                    setText(cur);
                     setEnabled(true);
                 } else {
-                    setText("branch: Unknown");
+                    setText("Unknown");
                     setEnabled(true);
                 }
             } else {
@@ -200,7 +200,7 @@ public class BranchSelectorButton extends SplitButton {
             if (!chrome.getProject().hasGit()) {
                 return;
             }
-            setText("branch: " + branchName);
+            setText(branchName);
             updateProjectFilesDrawerTitle(branchName);
             
             chrome.updateLogTab();

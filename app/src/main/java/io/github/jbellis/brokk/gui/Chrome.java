@@ -510,6 +510,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         leftHeader.setOpaque(false);
+        leftHeader.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
         leftHeader.add(branchSelectorButton);
         headerPanel.add(leftHeader, BorderLayout.WEST);
         
