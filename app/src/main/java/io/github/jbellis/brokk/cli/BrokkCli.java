@@ -367,15 +367,19 @@ public final class BrokkCli implements Callable<Integer> {
             } catch (Throwable th) {
                 System.err.println("Fatal error during SearchAgent execution: " + getStackTrace(th));
                 long elapsedTime = System.currentTimeMillis() - startTime;
-                var json = String.format(
-                        "{\"query\": \"%s\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": %d, \"success\": false, \"error\": \"%s\"}",
-                        escapeJson(searchWorkspace),
-                        elapsedTime,
-                        escapeJson(
-                                th.getMessage() != null
-                                        ? th.getMessage()
-                                        : th.getClass().getName()));
-                System.out.println(json);
+                String errorMessage = th.getMessage() != null
+                        ? th.getMessage()
+                        : th.getClass().getName();
+                var errorResult = new SearchErrorResult(searchWorkspace, "", -1, elapsedTime, false, errorMessage);
+                try {
+                    var json = AbstractProject.objectMapper.writeValueAsString(errorResult);
+                    System.out.println(json);
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    // Fallback to minimal JSON if serialization fails
+                    System.out.println("{\"query\": \"error\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": "
+                            + elapsedTime
+                            + ", \"success\": false}");
+                }
                 return 2;
             }
 
@@ -806,21 +810,26 @@ public final class BrokkCli implements Callable<Integer> {
         return "";
     }
 
-    private static String escapeJson(String str) {
-        return str.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
     private static String getModelsJson() {
         var models = MainProject.loadFavoriteModels();
-        var jsonElements = models.stream()
-                .map(m -> String.format(
-                        "{\"alias\":\"%s\",\"model\":\"%s\"}",
-                        escapeJson(m.alias()), escapeJson(m.config().name())))
-                .collect(Collectors.joining(","));
-        return "[" + jsonElements + "]";
+        var modelInfos = models.stream()
+                .map(m -> new ModelInfo(m.alias(), m.config().name()))
+                .toList();
+        try {
+            return AbstractProject.objectMapper.writeValueAsString(modelInfos);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize models list", e);
+        }
     }
+
+    /**
+     * Model information for JSON serialization.
+     */
+    private record ModelInfo(String alias, String model) {}
+
+    /**
+     * Error result for search-workspace mode failures.
+     */
+    private record SearchErrorResult(
+            String query, String found_file, int turns, long elapsed_ms, boolean success, String error) {}
 }

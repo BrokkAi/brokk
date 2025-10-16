@@ -138,15 +138,30 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
     }
 }
 
-// Get git commit hash at configuration time
+// Get git commit hash - reuse cached value from version computation
 val gitCommit = try {
-    val gitDir = project.rootProject.projectDir.absolutePath
-    // Filter out GIT_DIR and GIT_WORK_TREE to avoid Gradle's empty values interfering with git
-    val env = System.getenv().filter { it.key != "GIT_DIR" && it.key != "GIT_WORK_TREE" }.map { "${it.key}=${it.value}" }.toTypedArray()
-    val process = Runtime.getRuntime().exec(arrayOf("git", "-C", gitDir, "rev-parse", "HEAD"), env)
-    val output = process.inputStream.bufferedReader().use { it.readLine() }
-    process.waitFor()
-    output?.trim()?.takeIf { it.matches(Regex("[0-9a-f]{40}")) } ?: "unknown"
+    val versionCacheFile = File(project.rootDir, "build/version.txt")
+    if (versionCacheFile.exists()) {
+        val lines = versionCacheFile.readLines()
+        if (lines.isNotEmpty()) {
+            val cachedCommit = lines[0].trim()
+            if (cachedCommit.matches(Regex("[0-9a-f]{40}"))) {
+                cachedCommit
+            } else {
+                "unknown"
+            }
+        } else {
+            "unknown"
+        }
+    } else {
+        // Fallback: read directly from git if cache doesn't exist
+        val gitDir = project.rootProject.projectDir.absolutePath
+        val env = System.getenv().filter { it.key != "GIT_DIR" && it.key != "GIT_WORK_TREE" }.map { "${it.key}=${it.value}" }.toTypedArray()
+        val process = Runtime.getRuntime().exec(arrayOf("git", "-C", gitDir, "rev-parse", "HEAD"), env)
+        val output = process.inputStream.bufferedReader().use { it.readLine() }
+        process.waitFor()
+        output?.trim()?.takeIf { it.matches(Regex("[0-9a-f]{40}")) } ?: "unknown"
+    }
 } catch (e: Exception) {
     "unknown"
 }

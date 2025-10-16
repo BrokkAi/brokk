@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.cli;
 
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.TaskResult;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -35,9 +37,22 @@ public class SearchMetrics {
 
         @Override
         public String toJson(String query, String foundFile, int turns, long elapsedMs, boolean success) {
-            return String.format(
-                    "{\"query\": \"%s\", \"found_file\": \"%s\", \"turns\": %d, \"elapsed_ms\": %d, \"success\": %s}",
-                    escapeJson(query), escapeJson(foundFile), turns, elapsedMs, success);
+            var result = new SearchResult(
+                    query,
+                    foundFile,
+                    turns,
+                    elapsedMs,
+                    success,
+                    new ContextScanInfo(0, 0, false),
+                    List.of(),
+                    null,
+                    null,
+                    0);
+            try {
+                return AbstractProject.objectMapper.writeValueAsString(result);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException("Failed to serialize search result", e);
+            }
         }
     };
 
@@ -114,88 +129,100 @@ public class SearchMetrics {
      * Maintains backward compatibility by keeping original fields in same order.
      */
     public String toJson(String query, String foundFile, int turns, long elapsedMs, boolean success) {
-        var json = new StringBuilder();
-        json.append("{");
+        var contextScan = new ContextScanInfo(contextScanFilesAdded, contextScanTimeMs, contextScanSkipped);
+        var result = new SearchResult(
+                query,
+                foundFile,
+                turns,
+                elapsedMs,
+                success,
+                contextScan,
+                this.turns,
+                failureType,
+                stopReason,
+                finalWorkspaceSize);
 
-        // Original fields first (backward compatibility)
-        json.append("\"query\": ").append(escapeJson(query)).append(", ");
-        json.append("\"found_file\": ").append(escapeJson(foundFile)).append(", ");
-        json.append("\"turns\": ").append(turns).append(", ");
-        json.append("\"elapsed_ms\": ").append(elapsedMs).append(", ");
-        json.append("\"success\": ").append(success);
-
-        // Context scan metrics
-        json.append(", \"context_scan\": {");
-        json.append("\"files_added\": ").append(contextScanFilesAdded).append(", ");
-        json.append("\"scan_time_ms\": ").append(contextScanTimeMs).append(", ");
-        json.append("\"skipped\": ").append(contextScanSkipped);
-        json.append("}");
-
-        // Per-turn details
-        json.append(", \"turns_detail\": [");
-        json.append(this.turns.stream().map(TurnMetrics::toJson).collect(Collectors.joining(", ")));
-        json.append("]");
-
-        // Failure classification
-        json.append(", \"failure_type\": ");
-        if (failureType == null) {
-            json.append("null");
-        } else {
-            json.append("\"").append(failureType).append("\"");
+        try {
+            return AbstractProject.objectMapper.writeValueAsString(result);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize search result", e);
         }
-        json.append(", \"stop_reason\": \"").append(stopReason).append("\"");
-        json.append(", \"final_workspace_size\": ").append(finalWorkspaceSize);
-
-        json.append("}");
-        return json.toString();
     }
 
-    private static String escapeJson(String str) {
-        return "\""
-                + str.replace("\\", "\\\\")
-                        .replace("\"", "\\\"")
-                        .replace("\n", "\\n")
-                        .replace("\r", "\\r")
-                        .replace("\t", "\\t")
-                + "\"";
-    }
+    /**
+     * Complete search result with all metrics.
+     * Field order matches backward compatibility requirements.
+     */
+    @JsonPropertyOrder({
+        "query",
+        "found_file",
+        "turns",
+        "elapsed_ms",
+        "success",
+        "context_scan",
+        "turns_detail",
+        "failure_type",
+        "stop_reason",
+        "final_workspace_size"
+    })
+    public record SearchResult(
+            String query,
+            String found_file,
+            int turns,
+            long elapsed_ms,
+            boolean success,
+            ContextScanInfo context_scan,
+            List<TurnMetrics> turns_detail,
+            @Nullable String failure_type,
+            @Nullable String stop_reason,
+            int final_workspace_size) {}
+
+    /**
+     * Context scan metrics.
+     */
+    public record ContextScanInfo(int files_added, long scan_time_ms, boolean skipped) {}
 
     /**
      * Metrics for a single search turn.
      */
+    @JsonPropertyOrder({"turn", "tool_calls", "files_added", "time_ms"})
     public static class TurnMetrics {
-        private final int turnNumber;
-        private final List<String> toolCalls = new ArrayList<>();
-        private int filesAdded = 0;
-        private long timeMs = 0;
+        private final int turn;
+        private final List<String> tool_calls = new ArrayList<>();
+        private int files_added = 0;
+        private long time_ms = 0;
 
         public TurnMetrics(int turnNumber) {
-            this.turnNumber = turnNumber;
+            this.turn = turnNumber;
         }
 
         public void addToolCall(String toolName) {
-            toolCalls.add(toolName);
+            tool_calls.add(toolName);
         }
 
         public void addFiles(int count) {
-            filesAdded += count;
+            files_added += count;
         }
 
         public void setTimeMs(long timeMs) {
-            this.timeMs = timeMs;
+            this.time_ms = timeMs;
         }
 
-        public String toJson() {
-            var json = new StringBuilder();
-            json.append("{");
-            json.append("\"turn\": ").append(turnNumber).append(", ");
-            json.append("\"tool_calls\": [");
-            json.append(toolCalls.stream().map(t -> "\"" + t + "\"").collect(Collectors.joining(", ")));
-            json.append("], ");
-            json.append("\"files_added\": ").append(filesAdded).append(", ");
-            json.append("\"time_ms\": ").append(timeMs);
-            json.append("}");
-            return json.toString();
+        // Jackson getters (required for serialization)
+        public int getTurn() {
+            return turn;
+        }
+
+        public List<String> getTool_calls() {
+            return tool_calls;
+        }
+
+        public int getFiles_added() {
+            return files_added;
+        }
+
+        public long getTime_ms() {
+            return time_ms;
         }
     }
 }
