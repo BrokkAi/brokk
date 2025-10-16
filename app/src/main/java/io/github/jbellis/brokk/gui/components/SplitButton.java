@@ -5,8 +5,6 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Insets;
-import java.awt.Point;
-import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Supplier;
@@ -31,7 +29,7 @@ public class SplitButton extends JComponent {
 
     private @Nullable Supplier<JPopupMenu> menuSupplier;
     private @Nullable JPopupMenu popupMenu; // optional cache
-    
+
     private boolean unifiedHover;
     private @Nullable MouseAdapter hoverListener;
 
@@ -72,16 +70,16 @@ public class SplitButton extends JComponent {
         if (this.unifiedHover == unified) {
             return;
         }
-        
+
         this.unifiedHover = unified;
-        
+
         if (unified) {
             setupUnifiedHoverBehavior();
         } else {
             removeUnifiedHoverBehavior();
         }
     }
-    
+
     public boolean isUnifiedHover() {
         return unifiedHover;
     }
@@ -89,7 +87,7 @@ public class SplitButton extends JComponent {
     private void setupUnifiedHoverBehavior() {
         // Remove any existing listener first
         removeUnifiedHoverBehavior();
-        
+
         hoverListener = new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
@@ -109,7 +107,7 @@ public class SplitButton extends JComponent {
         actionButton.addMouseListener(hoverListener);
         arrowButton.addMouseListener(hoverListener);
     }
-    
+
     private void removeUnifiedHoverBehavior() {
         if (hoverListener != null) {
             actionButton.removeMouseListener(hoverListener);

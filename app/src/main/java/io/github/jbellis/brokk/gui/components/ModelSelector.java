@@ -35,7 +35,7 @@ public class ModelSelector {
         Supplier<JPopupMenu> menuSupplier = () -> {
             var menu = new JPopupMenu();
             var favorites = MainProject.loadFavoriteModels();
-            
+
             if (favorites.isEmpty()) {
                 JMenuItem noFavorites = new JMenuItem("(No favorite models)");
                 noFavorites.setEnabled(false);
@@ -51,15 +51,15 @@ public class ModelSelector {
                     menu.add(item);
                 }
             }
-            
+
             menu.add(new JSeparator());
             JMenuItem manage = new JMenuItem("Manage...");
             manage.addActionListener(e -> openCustomDialog());
             menu.add(manage);
-            
+
             return menu;
         };
-        
+
         splitButton.setMenuSupplier(menuSupplier);
         splitButton.addActionListener(e -> splitButton.showPopupMenuInternal());
 

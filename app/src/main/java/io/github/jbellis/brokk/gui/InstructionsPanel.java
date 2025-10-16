@@ -725,23 +725,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Right panel with history and wand button
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        
+
         var historyDropdown = createHistoryDropdown();
         historyDropdown.setPreferredSize(new Dimension(120, micHeight));
         historyDropdown.setMinimumSize(new Dimension(120, micHeight));
         historyDropdown.setMaximumSize(new Dimension(400, micHeight));
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        
+
         var wandDim = new Dimension(micHeight, micHeight);
         wandButton.setPreferredSize(wandDim);
         wandButton.setMinimumSize(wandDim);
         wandButton.setMaximumSize(wandDim);
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        
+
         rightPanel.add(historyDropdown);
         rightPanel.add(Box.createHorizontalStrut(H_GAP));
         rightPanel.add(wandButton);
-        
+
         topBarPanel.add(rightPanel, BorderLayout.EAST);
 
         return topBarPanel;
