@@ -520,26 +520,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        var modelComp = modelSelector.getComponent();
 
-        // Lock control heights to the larger of mic and model selector so one growing won't shrink the other
+        // Set mic button size
         var micPref = micButton.getPreferredSize();
-        var modelPref = modelComp.getPreferredSize();
-        int controlHeight = Math.max(micPref.height, modelPref.height);
-
-        var micDim = new Dimension(controlHeight, controlHeight);
+        int micHeight = micPref.height;
+        var micDim = new Dimension(micHeight, micHeight);
         micButton.setPreferredSize(micDim);
         micButton.setMinimumSize(micDim);
         micButton.setMaximumSize(micDim);
 
-        var modelDim = new Dimension(modelPref.width, controlHeight);
-        modelComp.setPreferredSize(modelDim);
-        modelComp.setMinimumSize(new Dimension(50, controlHeight));
-        modelComp.setMaximumSize(new Dimension(Integer.MAX_VALUE, controlHeight));
-
         leftPanel.add(micButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-        leftPanel.add(modelComp);
 
         // Place mic, model, branch dropdown, and history dropdown left-to-right in the top bar
         // Insert small gap, branch split button, then history dropdown so ordering is: mic, model, branch, history.
@@ -553,7 +543,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         branchSplitButton.setFocusable(true);
 
         int branchWidth = 210;
-        var branchDim = new Dimension(branchWidth, controlHeight);
+        var branchDim = new Dimension(branchWidth, micHeight);
         branchSplitButton.setPreferredSize(branchDim);
         branchSplitButton.setMinimumSize(branchDim);
         branchSplitButton.setMaximumSize(branchDim);
@@ -728,19 +718,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             branchSplitButton.setEnabled(false);
         }
 
-        var historyDropdown = createHistoryDropdown();
-        // Make the control itself compact; popup will expand on open
-        historyDropdown.setPreferredSize(new Dimension(120, controlHeight));
-        historyDropdown.setMinimumSize(new Dimension(120, controlHeight));
-        historyDropdown.setMaximumSize(new Dimension(400, controlHeight));
-        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        leftPanel.add(historyDropdown);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Add branchSplitButton after the History dropdown
+        // Add branchSplitButton after the model selector
         leftPanel.add(branchSplitButton);
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
+
+        // Right panel with history and wand button
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        
+        var historyDropdown = createHistoryDropdown();
+        historyDropdown.setPreferredSize(new Dimension(120, micHeight));
+        historyDropdown.setMinimumSize(new Dimension(120, micHeight));
+        historyDropdown.setMaximumSize(new Dimension(400, micHeight));
+        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
+        
+        var wandDim = new Dimension(micHeight, micHeight);
+        wandButton.setPreferredSize(wandDim);
+        wandButton.setMinimumSize(wandDim);
+        wandButton.setMaximumSize(wandDim);
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        
+        rightPanel.add(historyDropdown);
+        rightPanel.add(Box.createHorizontalStrut(H_GAP));
+        rightPanel.add(wandButton);
+        
+        topBarPanel.add(rightPanel, BorderLayout.EAST);
 
         return topBarPanel;
     }
@@ -1342,11 +1344,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Wand button (Magic Ask) on the right
-        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Size set after fixedHeight is computed below
-        bottomPanel.add(wandButton);
-        bottomPanel.add(Box.createHorizontalStrut(4));
+        // Model selector on the right
+        var modelComp = modelSelector.getComponent();
+        modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(modelComp);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Action button (Go/Stop toggle) on the right
         actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -1370,12 +1372,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.repaint();
             }
         });
-
-        // Size the wand button to match height of action button
-        var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
-        wandButton.setPreferredSize(iconButtonSize);
-        wandButton.setMinimumSize(iconButtonSize);
-        wandButton.setMaximumSize(iconButtonSize);
 
         bottomPanel.add(actionButton);
 
