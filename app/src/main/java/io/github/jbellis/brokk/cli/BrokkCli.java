@@ -362,10 +362,12 @@ public final class BrokkCli implements Callable<Integer> {
             long startTime = System.currentTimeMillis();
             TaskResult searchResult;
             boolean success;
+            var metrics = new SearchMetrics();
 
             try (var scope = cm.beginTask(requireNonNull(query), false)) {
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                var agent = new SearchAgent(query, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), disableContextScan);
+                var agent = new SearchAgent(
+                        query, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), disableContextScan, metrics);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -395,10 +397,8 @@ public final class BrokkCli implements Callable<Integer> {
                     .toList();
             String foundFile = extractFoundFile(project.getRepo().getTrackedFiles(), aiMessages);
 
-            // Output JSON result
-            var json = String.format(
-                    "{\"query\": \"%s\", \"found_file\": \"%s\", \"turns\": %d, \"elapsed_ms\": %d, \"success\": %s}",
-                    escapeJson(requireNonNull(query)), escapeJson(foundFile), turns, elapsedTime, success);
+            // Output enhanced JSON result with metrics
+            var json = metrics.toJson(requireNonNull(query), foundFile, turns, elapsedTime, success);
             System.out.println(json);
 
             return success ? 0 : 1;
@@ -572,7 +572,12 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new SearchAgent(
-                            requireNonNull(searchAnswerPrompt), cm, planModel, EnumSet.of(Terminal.ANSWER), false);
+                            requireNonNull(searchAnswerPrompt),
+                            cm,
+                            planModel,
+                            EnumSet.of(Terminal.ANSWER),
+                            false,
+                            SearchMetrics.NO_OP);
                     result = agent.execute();
                     scope.append(result);
                 } else { // lutzPrompt != null
@@ -581,7 +586,12 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new SearchAgent(
-                            requireNonNull(lutzPrompt), cm, planModel, EnumSet.of(Terminal.TASK_LIST), false);
+                            requireNonNull(lutzPrompt),
+                            cm,
+                            planModel,
+                            EnumSet.of(Terminal.TASK_LIST),
+                            false,
+                            SearchMetrics.NO_OP);
                     result = agent.execute();
                     scope.append(result);
 
