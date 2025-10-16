@@ -487,6 +487,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
 
+        // Create and add TerminalPanel as third tab (with terminal icon)
+        this.terminalPanel =
+                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
+        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
+        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
+
         var contextAreaContainer = instructionsPanel.getContextAreaContainer();
         rightTabbedPanel.addChangeListener(e -> {
             var selected = rightTabbedPanel.getSelectedComponent();
@@ -503,14 +509,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     parent.repaint();
                 }
                 taskListPanel.setSharedContextArea(contextAreaContainer);
+            } else if (selected == terminalPanel) {
+                if (terminalPanel.isReady()) {
+                    terminalPanel.requestFocusInTerminal();
+                } else {
+                    terminalPanel.whenReady().thenRun(() -> terminalPanel.requestFocusInTerminal());
+                }
             }
         });
-
-        // Create and add TerminalPanel as third tab (with terminal icon)
-        this.terminalPanel =
-                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
-        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
-        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
         // No right-side drawer; the rightTabbedPanel occupies full right side
         rightTabbedPanel.setMinimumSize(new Dimension(200, 325));
