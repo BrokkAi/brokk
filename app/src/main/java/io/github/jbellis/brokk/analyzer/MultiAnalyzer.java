@@ -241,10 +241,10 @@ public class MultiAnalyzer
                     .collect(Collectors.toSet());
 
             if (relevantFiles.isEmpty()) {
-                continue;
+                newDelegates.put(delegateKey, analyzer);
+            } else {
+                newDelegates.put(delegateKey, analyzer.update(relevantFiles));
             }
-
-            newDelegates.put(delegateKey, analyzer.update(relevantFiles));
         }
 
         return new MultiAnalyzer(newDelegates);
