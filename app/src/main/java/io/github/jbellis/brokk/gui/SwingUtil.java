@@ -261,4 +261,46 @@ public class SwingUtil {
             return delegate().getIconHeight();
         }
     }
+
+    /**
+     * An Icon wrapper that scales the delegate icon by a given factor. This is useful for making
+     * icons larger or smaller without modifying the original icon image. The scaling is done at paint
+     * time by transforming the Graphics2D context.
+     */
+    public static class ScaledIcon implements Icon {
+
+        private final Icon delegate;
+        private final double scale;
+        private final int width;
+        private final int height;
+
+        public ScaledIcon(Icon delegate, double scale) {
+            this.delegate = delegate;
+            this.scale = scale;
+            this.width = (int) (delegate.getIconWidth() * scale);
+            this.height = (int) (delegate.getIconHeight() * scale);
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            var g2d = (Graphics2D) g.create();
+            try {
+                g2d.translate(x, y);
+                g2d.scale(scale, scale);
+                delegate.paintIcon(c, g2d, 0, 0);
+            } finally {
+                g2d.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return width;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return height;
+        }
+    }
 }
