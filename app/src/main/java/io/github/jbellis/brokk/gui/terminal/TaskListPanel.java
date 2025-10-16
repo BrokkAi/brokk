@@ -204,66 +204,46 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         popup.add(deleteItem);
 
         list.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    boolean includesRunning = false;
-                    boolean includesPending = false;
-                    int[] sel = list.getSelectedIndices();
-                    if (runningIndex != null) {
-                        for (int si : sel) {
-                            if (si == runningIndex.intValue()) {
-                                includesRunning = true;
-                                break;
-                            }
-                        }
-                    }
+            private void showContextMenu(java.awt.event.MouseEvent e) {
+                if (!e.isPopupTrigger()) {
+                    return;
+                }
+
+                boolean includesRunning = false;
+                boolean includesPending = false;
+                int[] sel = list.getSelectedIndices();
+                if (runningIndex != null) {
                     for (int si : sel) {
-                        if (pendingQueue.contains(si)) {
-                            includesPending = true;
+                        if (si == runningIndex.intValue()) {
+                            includesRunning = true;
                             break;
                         }
                     }
-                    boolean block = includesRunning || includesPending;
-                    toggleItem.setEnabled(!block);
-                    editItem.setEnabled(!block);
-                    boolean exactlyOne = sel.length == 1;
-                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
-                    combineItem.setEnabled(!block && sel.length >= 2);
-                    deleteItem.setEnabled(!block);
-                    popup.show(list, e.getX(), e.getY());
                 }
+                for (int si : sel) {
+                    if (pendingQueue.contains(si)) {
+                        includesPending = true;
+                        break;
+                    }
+                }
+                boolean block = includesRunning || includesPending;
+                toggleItem.setEnabled(!block);
+                editItem.setEnabled(!block);
+                boolean exactlyOne = sel.length == 1;
+                splitItem.setEnabled(!block && exactlyOne && !queueActive);
+                combineItem.setEnabled(!block && sel.length >= 2);
+                deleteItem.setEnabled(!block);
+                popup.show(list, e.getX(), e.getY());
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                showContextMenu(e);
             }
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    boolean includesRunning = false;
-                    boolean includesPending = false;
-                    int[] sel = list.getSelectedIndices();
-                    if (runningIndex != null) {
-                        for (int si : sel) {
-                            if (si == runningIndex.intValue()) {
-                                includesRunning = true;
-                                break;
-                            }
-                        }
-                    }
-                    for (int si : sel) {
-                        if (pendingQueue.contains(si)) {
-                            includesPending = true;
-                            break;
-                        }
-                    }
-                    boolean block = includesRunning || includesPending;
-                    toggleItem.setEnabled(!block);
-                    editItem.setEnabled(!block);
-                    boolean exactlyOne = sel.length == 1;
-                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
-                    combineItem.setEnabled(!block && sel.length >= 2);
-                    deleteItem.setEnabled(!block);
-                    popup.show(list, e.getX(), e.getY());
-                }
+                showContextMenu(e);
             }
         });
 
