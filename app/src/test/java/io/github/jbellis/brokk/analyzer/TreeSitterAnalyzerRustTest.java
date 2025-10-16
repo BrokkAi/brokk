@@ -27,7 +27,7 @@ public class TreeSitterAnalyzerRustTest {
     @BeforeAll
     static void setup() {
         rsTestProject = createTestProject("testcode-rs", Languages.RUST);
-        rsAnalyzer = new RustAnalyzer(rsTestProject);
+        rsAnalyzer = new RustAnalyzer(rsTestProject, List.of());
         assertFalse(rsAnalyzer.isEmpty(), "RustAnalyzer should have processed Rust files");
 
         pointRsFile = new ProjectFile(rsTestProject.getRoot(), "Point.rs");

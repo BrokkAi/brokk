@@ -3,7 +3,9 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -36,17 +38,12 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "",
             Set.of());
 
-    public CSharpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.C_SHARP, excludedFiles);
+    public CSharpAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.C_SHARP, filesToAnalyze);
         log.debug(
-                "CSharpAnalyzer: Constructor called for project: {} with {} excluded files",
+                "CSharpAnalyzer: Constructor called for project: {} with {} files to analyze",
                 project,
-                excludedFiles.size());
-    }
-
-    public CSharpAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
-        log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
+                filesToAnalyze.size());
     }
 
     @Override

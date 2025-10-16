@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -36,7 +35,7 @@ public class CppTreeSitterAnalyzerTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
-        analyzer = new CppTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new CppTreeSitterAnalyzer(testProject, List.of());
     }
 
     @AfterAll

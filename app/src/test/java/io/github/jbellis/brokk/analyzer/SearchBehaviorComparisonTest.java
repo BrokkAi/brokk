@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,7 @@ public final class SearchBehaviorComparisonTest {
         javaTestProject = createTestProject("", "testcode-java", Languages.JAVA);
         javaAnalyzer = new JavaAnalyzer(javaTestProject);
         jsTestProject = createTestProject("", "testcode-js", Languages.JAVASCRIPT);
-        jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
+        jsAnalyzer = new JavascriptAnalyzer(jsTestProject, List.of());
     }
 
     static TestProject createTestProject(String root, String subDir, Language lang) {

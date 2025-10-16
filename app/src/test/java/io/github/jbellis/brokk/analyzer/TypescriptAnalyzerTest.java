@@ -35,7 +35,7 @@ public class TypescriptAnalyzerTest {
 
         // For TypescriptAnalyzerTest, we'll point the TestProject root directly to testcode-ts
         project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        analyzer = new TypescriptAnalyzer(project); // Initialize with default excluded files (none)
+        analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
         assertFalse(analyzer.isEmpty(), "Analyzer should have processed TypeScript files and not be empty.");
     }
 
@@ -757,7 +757,7 @@ public class TypescriptAnalyzerTest {
     void testCodeUnitEqualityFixed() throws IOException {
         // Test that verifies the CodeUnit equality fix prevents byte range corruption
         var project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        var analyzer = new TypescriptAnalyzer(project);
+        var analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
 
         // Find both Point interfaces from different files
         var allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
@@ -971,7 +971,7 @@ public class TypescriptAnalyzerTest {
                     """);
 
             // Create TypeScript analyzer
-            var analyzer = new TypescriptAnalyzer(tsProject);
+            var analyzer = new TypescriptAnalyzer(tsProject, List.of());
 
             // Verify analyzer is not empty (it found TypeScript files)
             assertFalse(analyzer.isEmpty(), "TypeScript analyzer should find TypeScript files");
@@ -1184,7 +1184,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTypescriptAnnotationComments() throws IOException {
         TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
@@ -1239,7 +1239,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTypescriptGenericClassAnnotations() throws IOException {
         TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
@@ -1270,7 +1270,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTypescriptFunctionOverloadsWithAnnotations() throws IOException {
         TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
@@ -1309,7 +1309,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTypescriptInterfaceAndEnumAnnotations() throws IOException {
         TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
-        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
+        TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));

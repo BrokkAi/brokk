@@ -25,7 +25,7 @@ class GoAnalyzerUpdateTest {
                 func Foo() int { return 1 }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.GO);
-        analyzer = new GoAnalyzer(project);
+        analyzer = new GoAnalyzer(project, project.getAnalyzableFiles(Languages.GO));
     }
 
     @AfterEach

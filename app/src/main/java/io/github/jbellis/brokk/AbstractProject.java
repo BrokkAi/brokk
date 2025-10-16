@@ -530,6 +530,26 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Set<ProjectFile> allFilesCache;
 
+    // Cache for getAnalyzableFiles() to avoid re-filtering on every analyzer update
+    private final Map<Language, List<Path>> cachedAnalyzableFiles = new HashMap<>();
+    private volatile long cachedGitignoreMtime = -1;
+
+    @Nullable
+    private volatile Set<String> cachedExcludedDirs = null;
+
+    private long getGitignoreMtime() {
+        var gitignorePath = root.resolve(".gitignore");
+        if (!Files.exists(gitignorePath)) {
+            return -1;
+        }
+        try {
+            return Files.getLastModifiedTime(gitignorePath).toMillis();
+        } catch (IOException e) {
+            logger.trace("Could not get .gitignore mtime: {}", e.getMessage());
+            return -1;
+        }
+    }
+
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
@@ -557,6 +577,43 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
+        cachedAnalyzableFiles.clear();
+        cachedGitignoreMtime = -1;
+        cachedExcludedDirs = null;
+    }
+
+    @Override
+    public synchronized List<Path> getAnalyzableFiles(Language language) {
+        // Check cache validity
+        long currentGitignoreMtime = getGitignoreMtime();
+        Set<String> currentExcludedDirs = getExcludedDirectories();
+
+        boolean cacheValid = cachedAnalyzableFiles.containsKey(language)
+                && cachedGitignoreMtime == currentGitignoreMtime
+                && Objects.equals(cachedExcludedDirs, currentExcludedDirs)
+                && allFilesCache != null;
+
+        if (cacheValid) {
+            logger.trace("Using cached analyzable files for language: {}", language);
+            return Objects.requireNonNull(cachedAnalyzableFiles.get(language));
+        }
+
+        // Cache miss - perform expensive filtering using default implementation
+        logger.debug(
+                "Cache miss for analyzable files (language: {}, gitignore mtime changed: {}, excluded dirs changed: {}, allFiles cache invalid: {})",
+                language,
+                cachedGitignoreMtime != currentGitignoreMtime,
+                !Objects.equals(cachedExcludedDirs, currentExcludedDirs),
+                allFilesCache == null);
+
+        List<Path> result = IProject.super.getAnalyzableFiles(language);
+
+        // Update cache with immutable copy to prevent external mutation
+        cachedAnalyzableFiles.put(language, List.copyOf(result));
+        cachedGitignoreMtime = currentGitignoreMtime;
+        cachedExcludedDirs = new HashSet<>(currentExcludedDirs);
+
+        return cachedAnalyzableFiles.get(language);
     }
 
     @Override

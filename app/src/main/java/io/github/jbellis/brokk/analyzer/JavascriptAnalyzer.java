@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -38,12 +39,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes
             );
 
-    public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.JAVASCRIPT, excludedFiles);
-    }
-
-    public JavascriptAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    public JavascriptAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.JAVASCRIPT, filesToAnalyze);
     }
 
     @Override

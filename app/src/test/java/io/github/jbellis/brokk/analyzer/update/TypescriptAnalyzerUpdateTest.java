@@ -24,7 +24,7 @@ class TypescriptAnalyzerUpdateTest {
                 export function foo(): number { return 1; }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Languages.TYPESCRIPT);
-        analyzer = new TypescriptAnalyzer(project);
+        analyzer = new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
     }
 
     @AfterEach

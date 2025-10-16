@@ -16,7 +16,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaAnalyzer(IProject project) {
-        super(project, Languages.JAVA, project.getExcludedDirectories());
+        super(project, Languages.JAVA, project.getAnalyzableFiles(Languages.JAVA));
     }
 
     @Override

@@ -4,8 +4,8 @@ import static io.github.jbellis.brokk.analyzer.typescript.TypeScriptTreeSitterNo
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,12 +108,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     // "var" is a token type, often first child of variable_declaration.
                     ));
 
-    public TypescriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.TYPESCRIPT, excludedFiles);
-    }
-
-    public TypescriptAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    public TypescriptAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.TYPESCRIPT, filesToAnalyze);
     }
 
     private String cachedTextSliceStripped(TSNode node, String src) {

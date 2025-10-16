@@ -24,7 +24,6 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
@@ -36,7 +35,6 @@ import io.github.jbellis.brokk.util.Messages;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.Comparator;
@@ -102,7 +100,7 @@ public class BuildAgent {
         chatHistory.add(Messages.create("Thank you.", ChatMessageType.AI));
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
-        // Determine build system and set initial excluded directories
+        // Determine build system and set initial excluded directories (baseline only)
         var files = project.getAllFiles().stream()
                 .parallel()
                 .filter(f -> f.getParent().equals(Path.of("")))
@@ -111,40 +109,9 @@ public class BuildAgent {
         BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(files);
         this.currentExcludedDirectories = new ArrayList<>(BuildToolConventions.getDefaultExcludes(detectedSystem));
         logger.info(
-                "Determined build system: {}. Initial excluded directories: {}",
+                "Determined build system: {}. Baseline excluded directories: {}",
                 detectedSystem,
                 this.currentExcludedDirectories);
-
-        // Add exclusions from .gitignore
-        var repo = project.getRepo();
-        if (repo instanceof GitRepo gitRepo) {
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            var addedFromGitignore = new ArrayList<String>();
-            for (var pattern : ignoredPatterns) {
-                Path path;
-                try {
-                    path = project.getRoot().resolve(pattern);
-                } catch (InvalidPathException e) {
-                    // for now we only support literal paths, not globs
-                    continue;
-                }
-                // include non-existing paths if they end with `/` in case they get created later
-                var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!pattern.startsWith("!") && isDirectory) {
-                    this.currentExcludedDirectories.add(pattern);
-                    addedFromGitignore.add(pattern);
-                }
-            }
-            if (!addedFromGitignore.isEmpty()) {
-                logger.debug(
-                        "Added the following directory patterns from .gitignore to excluded directories: {}",
-                        addedFromGitignore);
-            }
-
-        } else {
-            logger.debug(
-                    "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
-        }
 
         // 2. Iteration Loop
         while (true) {
@@ -319,13 +286,8 @@ public class BuildAgent {
                     String testSomeCommand,
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
                     List<String> excludedDirectories) {
-        // Combine baseline excluded directories with those suggested by the LLM
-        var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(s -> Path.of(s).normalize())
-                .map(Path::toString)
-                .collect(Collectors.toSet());
+        // Combine baseline excluded directories with those suggested by the LLM, sanitizing for cross-platform safety.
+        var finalExcludes = combineAndSanitizeExcludes(this.currentExcludedDirectories, excludedDirectories);
 
         this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
         logger.debug(
@@ -393,6 +355,76 @@ public class BuildAgent {
     private static String exeName(String base) {
         var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         return os.contains("win") ? base + ".exe" : base;
+    }
+
+    // ---- Excluded directories sanitization helpers ----
+
+    // Visible for tests (same package)
+    static Set<String> combineAndSanitizeExcludes(Collection<String> baseline, Collection<String> extras) {
+        return Stream.concat(baseline.stream(), extras.stream())
+                .map(BuildAgent::sanitizeExclusion)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    // Visible for tests (same package)
+    static @Nullable String sanitizeExclusion(@Nullable String raw) {
+        if (raw == null) return null;
+        var s = raw.trim();
+        if (s.isEmpty()) return null;
+
+        // Normalize leading ./, leading slashes and separators for cross-platform stability
+        while (s.startsWith("./")) s = s.substring(2);
+        s = stripLeadingSlashes(s);
+        s = normalizeSeparators(s);
+
+        // If it contains glob meta, do NOT attempt Path.of on Windows; keep as-is
+        if (containsGlobMeta(s)) {
+            return s;
+        }
+
+        // Try to normalize as a regular path; if it fails (e.g. illegal chars on Windows), keep as-is.
+        var normalized = tryNormalizeAsPath(s);
+        return normalized != null ? normalized : s;
+    }
+
+    /**
+     * Check if a string contains glob metacharacters that are illegal in Windows paths.
+     * Public so analyzers can filter out globs before calling Path.of().
+     */
+    public static boolean containsGlobMeta(String s) {
+        // Minimal detection of glob meta characters
+        return s.indexOf('*') >= 0
+                || s.indexOf('?') >= 0
+                || s.indexOf('[') >= 0
+                || s.indexOf(']') >= 0
+                || s.indexOf('{') >= 0
+                || s.indexOf('}') >= 0;
+    }
+
+    private static String stripLeadingSlashes(String s) {
+        int i = 0;
+        while (i < s.length() && (s.charAt(i) == '/' || s.charAt(i) == '\\')) {
+            i++;
+        }
+        return i == 0 ? s : s.substring(i);
+    }
+
+    private static String normalizeSeparators(String s) {
+        // Use forward slashes consistently; keeps glob semantics readable across platforms
+        return s.replace('\\', '/');
+    }
+
+    private static @Nullable String tryNormalizeAsPath(String s) {
+        try {
+            var p = Path.of(s).normalize();
+            // Represent normalized value with forward slashes to avoid platform variance
+            return p.toString().replace('\\', '/');
+        } catch (Exception e) {
+            LogManager.getLogger(BuildAgent.class)
+                    .debug("Skipping Path normalization for exclusion '{}': {}", s, e.toString());
+            return null;
+        }
     }
 
     /** Holds semi-structured information about a project's build process */

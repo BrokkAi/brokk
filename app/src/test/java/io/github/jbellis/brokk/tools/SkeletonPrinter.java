@@ -375,11 +375,12 @@ public class SkeletonPrinter {
 
     private static @Nullable IAnalyzer createAnalyzer(IProject project, Language language) {
         return switch (language.internalName()) {
-            case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
-            case "JavaScript" -> new JavascriptAnalyzer(project);
+            case "TYPESCRIPT" -> new TypescriptAnalyzer(project, project.getAnalyzableFiles(Languages.TYPESCRIPT));
+            case "JavaScript" -> new JavascriptAnalyzer(project, project.getAnalyzableFiles(Languages.JAVASCRIPT));
             case "Java" -> new JavaAnalyzer(project);
-            case "Python" -> new PythonAnalyzer(project);
-            case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
+            case "Python" -> new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
+            case "CPP_TREESITTER" ->
+                new CppTreeSitterAnalyzer(project, project.getAnalyzableFiles(Languages.CPP_TREESITTER));
             default -> null;
         };
     }

@@ -39,12 +39,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             /* async keyword node   */ "",
             /* modifier node types  */ Set.of(VISIBILITY_MODIFIER));
 
-    public RustAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.RUST, excludedFiles);
-    }
-
-    public RustAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    public RustAnalyzer(IProject project, List<Path> filesToAnalyze) {
+        super(project, Languages.RUST, filesToAnalyze);
     }
 
     @Override

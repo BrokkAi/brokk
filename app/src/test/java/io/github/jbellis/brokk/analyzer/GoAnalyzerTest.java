@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
@@ -33,7 +34,7 @@ public class GoAnalyzerTest {
         Path testCodeDir = Path.of("src/test/resources/testcode-go").toAbsolutePath();
         assertTrue(Files.exists(testCodeDir), "Test resource directory 'testcode-go' not found.");
         testProject = new TestProject(testCodeDir, Languages.GO);
-        analyzer = new GoAnalyzer(testProject);
+        analyzer = new GoAnalyzer(testProject, List.of());
 
         packagesGoFile = new ProjectFile(testProject.getRoot(), "packages.go");
         anotherGoFile = new ProjectFile(testProject.getRoot(), Path.of("anotherpkg", "another.go"));

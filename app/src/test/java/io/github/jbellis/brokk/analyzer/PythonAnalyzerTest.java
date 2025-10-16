@@ -26,7 +26,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonInitializationAndSkeletons() {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON); // Use Brokk's Language enum
-        PythonAnalyzer ana = new PythonAnalyzer(project);
+        PythonAnalyzer ana = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
         assertInstanceOf(PythonAnalyzer.class, ana);
         // Cast to PythonAnalyzer
         assertFalse(ana.isEmpty(), "Analyzer should have processed Python files");
@@ -88,7 +88,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonTopLevelVariables() {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        IAnalyzer ana = new PythonAnalyzer(project);
+        IAnalyzer ana = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
         assertInstanceOf(PythonAnalyzer.class, ana);
         PythonAnalyzer analyzer = (PythonAnalyzer) ana;
 
@@ -137,7 +137,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonGetClassSourceWithComments() {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
@@ -173,7 +173,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonGetMethodSourceWithComments() {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
@@ -235,7 +235,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonCommentExpansionEdgeCases() {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
 
         // Test constructor with comment (use correct FQN format)
         Optional<String> constructorSource = analyzer.getMethodSource("DocumentedClass.__init__", true);
@@ -271,7 +271,7 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonDualRangeExtraction() {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project, project.getAnalyzableFiles(Languages.PYTHON));
 
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
