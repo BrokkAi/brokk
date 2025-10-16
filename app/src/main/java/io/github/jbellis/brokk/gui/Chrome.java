@@ -493,8 +493,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.rightTabbedContainer.setOpaque(false);
 
         var headerPanel = new JPanel(new BorderLayout(H_GAP, 0));
-        headerPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
-        headerPanel.setOpaque(false);
+        headerPanel.setOpaque(true);
+        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
+        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Branch");
+        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+        headerPanel.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
 
         // Branch selector button on the left
         branchSelectorButton = new BranchSelectorButton(this);
@@ -509,12 +512,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftHeader.setOpaque(false);
         leftHeader.add(branchSelectorButton);
         headerPanel.add(leftHeader, BorderLayout.WEST);
-
-        // Center title label for the header
-        var titleLabel = new JLabel("Instructions", SwingConstants.CENTER);
-        titleLabel.setOpaque(false);
-        headerPanel.add(titleLabel, BorderLayout.CENTER);
-
+        
         rightTabbedContainer.add(headerPanel, BorderLayout.NORTH);
         rightTabbedContainer.add(rightTabbedPanel, BorderLayout.CENTER);
 
