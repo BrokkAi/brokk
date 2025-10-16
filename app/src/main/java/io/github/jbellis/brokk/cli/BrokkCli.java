@@ -150,14 +150,9 @@ public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(
             names = "--search-workspace",
             description =
-                    "Run Search agent in benchmark mode to find relevant context for a query. Outputs JSON report to stdout.")
-    private boolean searchWorkspace = false;
-
-    @CommandLine.Option(
-            names = "--query",
-            description = "Natural language query for --search-workspace mode. Describes what to find in the codebase.")
+                    "Run Search agent in benchmark mode to find relevant context for the given query. Outputs JSON report to stdout.")
     @Nullable
-    private String query;
+    private String searchWorkspace;
 
     @CommandLine.Option(
             names = "--commit",
@@ -214,11 +209,11 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Action Validation ---
-        long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+        long actionCount = Stream.of(
+                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
-        if (searchWorkspace) actionCount++;
         if (actionCount > 1) {
             System.err.println(
                     "At most one action (--architect, --code, --ask, --search-answer, --lutz, --merge, --search-workspace) can be specified.");
@@ -231,11 +226,7 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // Add search-workspace validation
-        if (searchWorkspace) {
-            if (query == null || query.isBlank()) {
-                System.err.println("--search-workspace requires --query to be specified.");
-                return 1;
-            }
+        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
             if (codeModelName != null) {
                 System.err.println("--codemodel is not valid with --search-workspace.");
                 return 1;
@@ -249,6 +240,7 @@ public final class BrokkCli implements Callable<Integer> {
             askPrompt = maybeLoadFromFile(askPrompt);
             searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
             lutzPrompt = maybeLoadFromFile(lutzPrompt);
+            searchWorkspace = maybeLoadFromFile(searchWorkspace);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -268,8 +260,9 @@ public final class BrokkCli implements Callable<Integer> {
         // Worktree setup
         if (worktreePath != null) {
             worktreePath = worktreePath.toAbsolutePath();
+            boolean isSearchWorkspaceMode = searchWorkspace != null && !searchWorkspace.isBlank();
             if (Files.exists(worktreePath)) {
-                if (!searchWorkspace) {
+                if (!isSearchWorkspaceMode) {
                     System.out.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
                 }
             } else {
@@ -285,7 +278,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                     gitRepo.worktrees().addWorktreeDetached(worktreePath, targetCommit);
 
-                    if (!searchWorkspace) {
+                    if (!isSearchWorkspaceMode) {
                         System.out.println("Successfully created detached worktree at " + worktreePath);
                         System.out.println("Checked out commit " + targetCommit);
                     }
@@ -320,7 +313,7 @@ public final class BrokkCli implements Callable<Integer> {
                 || lutzPrompt != null
                 || deepScan
                 || merge
-                || searchWorkspace;
+                || (searchWorkspace != null && !searchWorkspace.isBlank());
         boolean needsCodeModel = codePrompt != null || askPrompt != null || architectPrompt != null || merge;
 
         if (needsPlanModel && planModelName == null) {
@@ -358,16 +351,16 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Search Workspace Mode ---
-        if (searchWorkspace) {
+        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
             long startTime = System.currentTimeMillis();
             TaskResult searchResult;
             boolean success;
             var metrics = new SearchMetrics();
 
-            try (var scope = cm.beginTask(requireNonNull(query), false)) {
+            try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                 var agent = new SearchAgent(
-                        query, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), disableContextScan, metrics);
+                        searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), disableContextScan, metrics);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -376,7 +369,7 @@ public final class BrokkCli implements Callable<Integer> {
                 long elapsedTime = System.currentTimeMillis() - startTime;
                 var json = String.format(
                         "{\"query\": \"%s\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": %d, \"success\": false, \"error\": \"%s\"}",
-                        escapeJson(requireNonNull(query)),
+                        escapeJson(searchWorkspace),
                         elapsedTime,
                         escapeJson(
                                 th.getMessage() != null
@@ -398,7 +391,7 @@ public final class BrokkCli implements Callable<Integer> {
             String foundFile = extractFoundFile(project.getRepo().getTrackedFiles(), aiMessages);
 
             // Output enhanced JSON result with metrics
-            var json = metrics.toJson(requireNonNull(query), foundFile, turns, elapsedTime, success);
+            var json = metrics.toJson(searchWorkspace, foundFile, turns, elapsedTime, success);
             System.out.println(json);
 
             return success ? 0 : 1;
