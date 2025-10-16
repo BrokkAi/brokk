@@ -58,6 +58,9 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
     private JLabel gitHubInstallAppLabel;
 
     @Nullable
+    private JLabel gitHubAppInstalledLabel;
+
+    @Nullable
     private Timer authProgressTimer;
 
     @Nullable
@@ -213,6 +216,16 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         gbc.fill = GridBagConstraints.HORIZONTAL;
         add(gitHubInstallAppLabel, gbc);
 
+        // Row: App Installed Confirmation (initially hidden)
+        gitHubAppInstalledLabel = new JLabel("Brokk GitHub App is installed");
+        gitHubAppInstalledLabel.setFont(gitHubAppInstalledLabel.getFont().deriveFont(Font.PLAIN));
+        gitHubAppInstalledLabel.setForeground(new Color(0, 128, 0)); // Green color
+        gitHubAppInstalledLabel.setVisible(false);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        add(gitHubAppInstalledLabel, gbc);
+
         // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -251,7 +264,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         }
 
         // Show success message and app installation reminder
-        if (gitHubSuccessMessageLabel != null && gitHubInstallAppLabel != null) {
+        if (gitHubSuccessMessageLabel != null && gitHubInstallAppLabel != null && gitHubAppInstalledLabel != null) {
             if (justCompleted) {
                 gitHubSuccessMessageLabel.setText("Successfully connected to GitHub!");
                 gitHubSuccessMessageLabel.setVisible(true);
@@ -266,11 +279,19 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
                 gitHubSuccessMessageLabel.setVisible(false);
             }
 
-            // Always show app installation reminder when token is present but app not installed
-            if (connected && !GitHubAuth.isBrokkAppInstalled()) {
-                gitHubInstallAppLabel.setVisible(true);
+            // Check app installation in background to avoid blocking EDT
+            if (connected) {
+                CompletableFuture.supplyAsync(GitHubAuth::isBrokkAppInstalled).thenAccept(appInstalled -> {
+                    SwingUtilities.invokeLater(() -> {
+                        if (gitHubInstallAppLabel != null && gitHubAppInstalledLabel != null) {
+                            gitHubInstallAppLabel.setVisible(!appInstalled);
+                            gitHubAppInstalledLabel.setVisible(appInstalled);
+                        }
+                    });
+                });
             } else {
                 gitHubInstallAppLabel.setVisible(false);
+                gitHubAppInstalledLabel.setVisible(false);
             }
         }
 

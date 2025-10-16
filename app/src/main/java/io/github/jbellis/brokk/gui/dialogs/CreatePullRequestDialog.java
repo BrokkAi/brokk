@@ -862,7 +862,14 @@ public class CreatePullRequestDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage;
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
-                        boolean appInstalled = GitHubAuth.isBrokkAppInstalled();
+                        // Check if app is installed for this specific repo
+                        boolean appInstalled = false;
+                        try {
+                            var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+                            appInstalled = GitHubAuth.isBrokkAppInstalledForRepo(auth.getOwner(), auth.getRepoName());
+                        } catch (Exception e) {
+                            logger.debug("Could not check app installation for repo", e);
+                        }
                         if (!appInstalled && GitHubAuth.tokenPresent()) {
                             errorMessage =
                                     """
