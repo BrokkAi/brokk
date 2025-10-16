@@ -270,27 +270,23 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     c.getContextManager().submitContextTask(() -> {
                         try {
                             c.getContextManager().addPastedTextFragment(content);
-                        } catch (Exception ex) {
-                            logger.debug("Error adding terminal content to workspace", ex);
                             SwingUtilities.invokeLater(() -> {
-                                try {
-                                    console.toolError(
-                                            "Failed to add terminal content to workspace: " + ex.getMessage(),
-                                            "Terminal Capture");
-                                } catch (Exception ignore) {
-                                    logger.debug("Error reporting capture failure", ignore);
-                                }
+                                console.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
+                            });
+                        } catch (Exception ex) {
+                            logger.error("Error adding terminal content to workspace", ex);
+                            SwingUtilities.invokeLater(() -> {
+                                console.toolError(
+                                        "Failed to add terminal content to workspace: " + ex.getMessage(),
+                                        "Terminal Capture Failed");
                             });
                         }
                     });
                 }
             } catch (Exception ex) {
-                logger.debug("Error capturing terminal output", ex);
-                try {
-                    console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture");
-                } catch (Exception ignore) {
-                    logger.debug("Error reporting capture failure", ignore);
-                }
+                logger.error("Error capturing terminal output", ex);
+                console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed");
             }
         }));
 
