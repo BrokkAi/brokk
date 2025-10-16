@@ -23,6 +23,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
             Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
             Set.of("attribute_list"),
+            IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",

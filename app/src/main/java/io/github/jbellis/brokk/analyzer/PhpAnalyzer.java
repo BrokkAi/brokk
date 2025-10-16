@@ -20,6 +20,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
             Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
+            IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
             "parameters", // parametersFieldName

@@ -30,5 +30,7 @@ public final class JavaScriptTreeSitterNodeTypes {
     // Function-like declarations
     public static final String FUNCTION_EXPRESSION = "function_expression";
 
+    public static final String IMPORT_DECLARATION = "module.import_statement";
+
     private JavaScriptTreeSitterNodeTypes() {}
 }

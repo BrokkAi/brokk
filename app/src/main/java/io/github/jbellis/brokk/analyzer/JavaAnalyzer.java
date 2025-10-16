@@ -53,6 +53,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
+            IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
             "parameters", // parameters field name

@@ -22,22 +22,23 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            /* classLikeNodeTypes  */ Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
-            /* functionLikeNodes   */ Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
-            /* fieldLikeNodes      */ Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
-            /* decoratorNodes      */ Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
-            /* identifierFieldName */ "name", // Common field name for identifiers
-            /* bodyFieldName       */ "body", // e.g., function_item.body, impl_item.body
-            /* parametersFieldName */ "parameters", // e.g., function_item.parameters
-            /* returnTypeFieldName */ "return_type", // e.g., function_item.return_type
-            /* typeParametersFieldName */ "type_parameters", // Rust generics
-            /* capture → Skeleton  */ Map.of(
+            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
+            Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
+            Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
+            Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
+            IMPORT_DECLARATION,
+            "name", // Common field name for identifiers
+            "body", // e.g., function_item.body, impl_item.body
+            "parameters", // e.g., function_item.parameters
+            "return_type", // e.g., function_item.return_type
+            "type_parameters", // Rust generics
+            Map.of(
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "impl.definition", SkeletonType.CLASS_LIKE,
                     "function.definition", SkeletonType.FUNCTION_LIKE,
                     "field.definition", SkeletonType.FIELD_LIKE),
-            /* async keyword node   */ "",
-            /* modifier node types  */ Set.of(VISIBILITY_MODIFIER));
+            "",
+            Set.of(VISIBILITY_MODIFIER));
 
     public RustAnalyzer(IProject project) {
         super(project, Languages.RUST);
@@ -71,10 +72,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
      * Determines the Rust module path for a given file. This considers common Rust project structures like `src/`
      * layouts, `lib.rs`, `main.rs` as crate roots, and `mod.rs` for directory modules.
      *
-     * @param file The project file being analyzed.
-     * @param defNode The TSNode representing the definition (unused in this implementation).
+     * @param file     The project file being analyzed.
+     * @param defNode  The TSNode representing the definition (unused in this implementation).
      * @param rootNode The root TSNode of the file's syntax tree (unused in this implementation).
-     * @param src The source code of the file (unused in this implementation).
+     * @param src      The source code of the file (unused in this implementation).
      * @return The module path string (e.g., "foo.bar"), or an empty string for the crate root.
      */
     @Override

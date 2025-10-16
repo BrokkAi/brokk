@@ -144,6 +144,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
             Set<String> decoratorNodeTypes,
+            String importNodeType,
             String identifierFieldName,
             String bodyFieldName,
             String parametersFieldName,
@@ -1216,8 +1217,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-            // Handle module-level import statements first if present in this match
-            TSNode importNode = capturedNodesForMatch.get("module.import_statement");
+
+            // Handle import statements first if present in this match
+            TSNode importNode =
+                    capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
             if (importNode != null && !importNode.isNull()) {
                 String importText = textSlice(importNode, fileBytes).strip();
                 if (!importText.isEmpty()) {

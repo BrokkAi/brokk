@@ -66,6 +66,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
             Set.of(DECORATOR),
+            // imports
+            IMPORT_DECLARATION,
             // identifierFieldName
             "name",
             // bodyFieldName

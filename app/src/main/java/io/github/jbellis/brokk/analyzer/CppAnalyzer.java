@@ -60,6 +60,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
+            IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
