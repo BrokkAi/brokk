@@ -531,10 +531,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         leftPanel.add(micButton);
 
-        // Place mic, model, branch dropdown, and history dropdown left-to-right in the top bar
-        // Insert small gap, branch split button, then history dropdown so ordering is: mic, model, branch, history.
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+        topBarPanel.add(leftPanel, BorderLayout.WEST);
 
+        // Center panel with branch split button
         var cm = chrome.getContextManager();
         var project = chrome.getProject();
         this.branchSplitButton = new SplitButton("No Git");
@@ -547,7 +546,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         branchSplitButton.setPreferredSize(branchDim);
         branchSplitButton.setMinimumSize(branchDim);
         branchSplitButton.setMaximumSize(branchDim);
-        branchSplitButton.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Build a fresh popup menu on demand so the branch list is always up-to-date
         Supplier<JPopupMenu> branchMenuSupplier = () -> {
@@ -718,10 +716,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             branchSplitButton.setEnabled(false);
         }
 
-        // Add branchSplitButton after the model selector
-        leftPanel.add(branchSplitButton);
-
-        topBarPanel.add(leftPanel, BorderLayout.WEST);
+        JPanel centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.LINE_AXIS));
+        centerPanel.add(Box.createHorizontalGlue());
+        centerPanel.add(branchSplitButton);
+        centerPanel.add(Box.createHorizontalGlue());
+        topBarPanel.add(centerPanel, BorderLayout.CENTER);
 
         // Right panel with history and wand button
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
