@@ -248,10 +248,10 @@ public class GitHubAuth {
     }
 
     /**
-     * Checks if the Brokk GitHub App is installed for the authenticated user.
+     * Checks if the Brokk GitHub App is installed for the authenticated user (any org/repo).
      * This method requires a valid GitHub token and makes a direct API call to /user/installations.
      *
-     * @return true if the Brokk app is installed, false otherwise (including errors)
+     * @return true if the Brokk app is installed anywhere, false otherwise (including errors)
      */
     public static boolean isBrokkAppInstalled() {
         String token = getStoredToken();
@@ -294,6 +294,66 @@ public class GitHubAuth {
             }
         } catch (Exception e) {
             logger.warn("Could not check GitHub App installation status: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if the Brokk GitHub App is installed for a specific repository.
+     * This requires checking if the app installation has access to the specific repo.
+     *
+     * @param owner The repository owner
+     * @param repo The repository name
+     * @return true if the Brokk app has access to this specific repo, false otherwise
+     */
+    public static boolean isBrokkAppInstalledForRepo(String owner, String repo) {
+        String token = getStoredToken();
+        if (token.isEmpty()) {
+            return false;
+        }
+
+        try {
+            var client = new OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build();
+
+            // Check /repos/{owner}/{repo}/installation to see if an app is installed
+            var request = new Request.Builder()
+                    .url(String.format("https://api.github.com/repos/%s/%s/installation", owner, repo))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .build();
+
+            try (var response = client.newCall(request).execute()) {
+                if (response.code() == 404) {
+                    // No installation found for this repo
+                    logger.debug("No GitHub App installation found for {}/{}", owner, repo);
+                    return false;
+                }
+
+                if (!response.isSuccessful()) {
+                    logger.info("Failed to check GitHub App installation for {}/{}: HTTP {}", owner, repo, response.code());
+                    return false;
+                }
+
+                var body = response.body();
+                if (body == null) {
+                    logger.info("Empty response body from /repos/{}/{}/installation", owner, repo);
+                    return false;
+                }
+
+                var json = body.string();
+                logger.debug("GitHub repo installation API response for {}/{}: {}", owner, repo, json.length() > 800 ? json.substring(0, 800) + "..." : json);
+
+                // Check if this installation is the Brokk app
+                var isInstalled = json.contains("\"app_slug\":\"brokkai\"") || json.contains("\"app_slug\":\"brokk\"");
+                logger.debug("Brokk GitHub App installation check for {}/{}: {}", owner, repo, isInstalled ? "INSTALLED" : "NOT INSTALLED");
+                return isInstalled;
+            }
+        } catch (Exception e) {
+            logger.warn("Could not check GitHub App installation status for {}/{}: {}", owner, repo, e.getMessage(), e);
             return false;
         }
     }
