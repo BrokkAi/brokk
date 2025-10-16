@@ -30,7 +30,7 @@ public final class JavaTreeSitterNodeTypes {
     public static final String PACKAGE_DECLARATION = "package_declaration";
 
     // Import declarations
-    public static final String IMPORT_DECLARATION = "import_declaration";
+    public static final String IMPORT_DECLARATION = "import.declaration";
 
     private JavaTreeSitterNodeTypes() {}
 }

@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -31,7 +32,7 @@ public class InlineTestProjectCreator {
         private TestProjectBuilder() {}
 
         public TestProjectBuilder addFileContents(String contents, String filename) {
-            entries.add(new FileContents(contents, filename));
+            entries.add(new FileContents(filename, contents));
             return this;
         }
 

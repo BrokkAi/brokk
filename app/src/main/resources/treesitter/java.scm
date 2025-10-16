@@ -7,7 +7,7 @@
 ) @package.declaration
 
 ; Import declarations
-(import_declaration) @import.definition
+(import_declaration) @import.declaration
 
 ; Annotation declarations
 (annotation_type_declaration
