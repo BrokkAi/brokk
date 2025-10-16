@@ -20,8 +20,8 @@ public class MaterialDropdown extends MaterialButton {
         super(text);
         arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
         var m = getMargin();
-        // Add space for the dropdown arrow and padding
-        setMargin(new Insets(m.top, m.left, m.bottom, m.right + arrowIcon.getIconWidth() + ARROW_PADDING));
+        // Add space for the dropdown arrow, and make the text padding symmetric.
+        setMargin(new Insets(m.top, m.left, m.bottom, m.left + arrowIcon.getIconWidth() + ARROW_PADDING));
         addActionListener(e -> showPopupMenuInternal());
     }
 
