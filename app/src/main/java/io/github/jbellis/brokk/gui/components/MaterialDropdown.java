@@ -23,8 +23,7 @@ public class MaterialDropdown extends MaterialButton {
         super(text);
 
         // Use a conservative right padding up-front so text never overlaps where the arrow will be.
-        var m = getMargin();
-        setMargin(new Insets(m.top, m.left, m.bottom, m.left + ARROW_FALLBACK_WIDTH + ARROW_PADDING));
+        recalculateRightMarginForArrow();
 
         addActionListener(e -> showPopupMenuInternal());
 
@@ -33,8 +32,6 @@ public class MaterialDropdown extends MaterialButton {
             try {
                 this.arrowIcon = new SwingUtil.ScaledIcon(Icons.KEYBOARD_DOWN, 0.75);
                 recalculateRightMarginForArrow();
-                revalidate();
-                repaint();
             } catch (Exception ignored) {
                 // If anything goes wrong, we keep the fallback padding and skip painting the icon.
             }
@@ -62,6 +59,8 @@ public class MaterialDropdown extends MaterialButton {
         var m = getMargin();
         int arrowWidth = arrowIcon != null ? arrowIcon.getIconWidth() : ARROW_FALLBACK_WIDTH;
         setMargin(new Insets(m.top, m.left, m.bottom, m.left + arrowWidth + ARROW_PADDING));
+        revalidate();
+        repaint();
     }
 
     @Override
