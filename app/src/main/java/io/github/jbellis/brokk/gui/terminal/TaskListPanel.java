@@ -193,6 +193,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var splitItem = new JMenuItem("Split...");
         splitItem.addActionListener(e -> splitSelectedTask());
         popup.add(splitItem);
+        var combineItem = new JMenuItem("Combine");
+        combineItem.addActionListener(e -> combineSelectedTasks());
+        popup.add(combineItem);
         var copyItem = new JMenuItem("Copy");
         copyItem.addActionListener(e -> copySelectedTasks());
         popup.add(copyItem);
@@ -226,6 +229,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     editItem.setEnabled(!block);
                     boolean exactlyOne = sel.length == 1;
                     splitItem.setEnabled(!block && exactlyOne && !queueActive);
+                    combineItem.setEnabled(!block && sel.length >= 2);
                     deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
@@ -256,6 +260,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     editItem.setEnabled(!block);
                     boolean exactlyOne = sel.length == 1;
                     splitItem.setEnabled(!block && exactlyOne && !queueActive);
+                    combineItem.setEnabled(!block && sel.length >= 2);
                     deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
