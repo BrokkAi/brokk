@@ -242,7 +242,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                // Get the terminal content from the buffer
                 var buffer = w.getTerminalTextBuffer();
                 if (buffer == null) {
                     console.systemNotify(
@@ -267,9 +266,23 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                // Add to workspace
                 if (console instanceof Chrome c) {
-                    c.getContextManager().addPastedTextFragment(content);
+                    c.getContextManager().submitContextTask(() -> {
+                        try {
+                            c.getContextManager().addPastedTextFragment(content);
+                        } catch (Exception ex) {
+                            logger.debug("Error adding terminal content to workspace", ex);
+                            SwingUtilities.invokeLater(() -> {
+                                try {
+                                    console.toolError(
+                                            "Failed to add terminal content to workspace: " + ex.getMessage(),
+                                            "Terminal Capture");
+                                } catch (Exception ignore) {
+                                    logger.debug("Error reporting capture failure", ignore);
+                                }
+                            });
+                        }
+                    });
                 }
             } catch (Exception ex) {
                 logger.debug("Error capturing terminal output", ex);
