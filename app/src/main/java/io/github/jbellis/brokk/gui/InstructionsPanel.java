@@ -571,9 +571,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         menu.add(item);
                     }
                 } else {
-                    var noFavoritesItem = new JMenuItem("No favorite models configured");
-                    noFavoritesItem.setEnabled(false);
-                    menu.add(noFavoritesItem);
+                var noFavoritesItem = new JMenuItem("(No favorite models configured)");
+                noFavoritesItem.setEnabled(false);
+                menu.add(noFavoritesItem);
                 }
             } catch (Exception ex) {
                 logger.debug("Unable to load favorite models", ex);
