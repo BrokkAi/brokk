@@ -102,7 +102,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
-    private @Nullable SplitButton branchSplitButton;
+    private @Nullable BranchSelectorButton branchSplitButton;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -534,188 +534,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
-        // Center panel with branch split button
-        var cm = chrome.getContextManager();
-        var project = chrome.getProject();
-        this.branchSplitButton = new SplitButton("No Git");
-        branchSplitButton.setUnifiedHover(true);
-        branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
-        branchSplitButton.setFocusable(true);
+        this.branchSplitButton = new BranchSelectorButton(chrome);
 
         int branchWidth = 210;
         var branchDim = new Dimension(branchWidth, micHeight);
         branchSplitButton.setPreferredSize(branchDim);
         branchSplitButton.setMinimumSize(branchDim);
         branchSplitButton.setMaximumSize(branchDim);
-
-        // Build a fresh popup menu on demand so the branch list is always up-to-date
-        Supplier<JPopupMenu> branchMenuSupplier = () -> {
-            var menu = new JPopupMenu();
-            try {
-                if (project.hasGit()) {
-                    IGitRepo repo = project.getRepo();
-                    List<String> localBranches;
-                    if (repo instanceof GitRepo gitRepo) {
-                        localBranches = gitRepo.listLocalBranches();
-                    } else {
-                        localBranches = List.of();
-                    }
-                    String current = repo.getCurrentBranch();
-
-                    if (!current.isBlank()) {
-                        JMenuItem header = new JMenuItem("Current: " + current);
-                        header.setEnabled(false);
-                        menu.add(header);
-                        menu.add(new JSeparator());
-                    }
-
-                    // Local branches
-                    for (var b : localBranches) {
-                        JMenuItem item = new JMenuItem(b);
-                        item.addActionListener(ev -> {
-                            // Checkout in background via ContextManager to get spinner/cancel behavior
-                            cm.submitExclusiveAction(() -> {
-                                try {
-                                    IGitRepo r = project.getRepo();
-                                    r.checkout(b);
-                                    SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            var currentBranch = r.getCurrentBranch();
-                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                            refreshBranchUi(displayBranch);
-                                        } catch (Exception ex) {
-                                            logger.debug("Error updating branch UI after checkout", ex);
-                                            refreshBranchUi(b);
-                                        }
-                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                    });
-                                } catch (Exception ex) {
-                                    logger.error("Error checking out branch {}", b, ex);
-                                    SwingUtilities.invokeLater(
-                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                                }
-                            });
-                        });
-                        menu.add(item);
-                    }
-
-                } else {
-                    JMenuItem noRepo = new JMenuItem("No Git repository");
-                    noRepo.setEnabled(false);
-                    menu.add(noRepo);
-                }
-            } catch (Exception ex) {
-                logger.error("Error building branch menu", ex);
-                JMenuItem err = new JMenuItem("Error loading branches");
-                err.setEnabled(false);
-                menu.add(err);
-            }
-
-            // If project has git, add actions
-            if (project.hasGit()) {
-                menu.addSeparator();
-
-                JMenuItem create = new JMenuItem("Create New Branch...");
-                create.addActionListener(ev -> {
-                    // Prompt on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        String name = JOptionPane.showInputDialog(chrome.getFrame(), "New branch name:");
-                        if (name == null || name.isBlank()) return;
-                        final String proposed = name.strip();
-                        cm.submitExclusiveAction(() -> {
-                            try {
-                                IGitRepo r = project.getRepo();
-                                String sanitized = r.sanitizeBranchName(proposed);
-                                String source = r.getCurrentBranch();
-                                try {
-                                    if (r instanceof GitRepo gitRepo) {
-                                        // Prefer atomic create+checkout if available on concrete GitRepo
-                                        try {
-                                            gitRepo.createAndCheckoutBranch(sanitized, source);
-                                        } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
-                                            // Fallback to create + checkout on GitRepo
-                                            gitRepo.createBranch(sanitized, source);
-                                            gitRepo.checkout(sanitized);
-                                        }
-                                    } else {
-                                        // Repo implementation doesn't support branch creation via IGitRepo
-                                        throw new UnsupportedOperationException(
-                                                "Repository implementation does not support branch creation");
-                                    }
-                                } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
-                                    // Re-throw so outer catch displays the error to the user as before
-                                    throw nsme;
-                                }
-                                SwingUtilities.invokeLater(() -> {
-                                    try {
-                                        refreshBranchUi(sanitized);
-                                    } catch (Exception ex) {
-                                        logger.debug("Error updating branch UI after branch creation", ex);
-                                    }
-                                    chrome.showNotification(
-                                            IConsoleIO.NotificationRole.INFO, "Created and checked out: " + sanitized);
-                                });
-                            } catch (Exception ex) {
-                                logger.error("Error creating branch", ex);
-                                SwingUtilities.invokeLater(
-                                        () -> chrome.toolError("Error creating branch: " + ex.getMessage()));
-                            }
-                        });
-                    });
-                });
-                menu.add(create);
-
-                JMenuItem refresh = new JMenuItem("Refresh Branches");
-                refresh.addActionListener(ev -> {
-                    // Menu is rebuilt when shown; simply notify user
-                    SwingUtilities.invokeLater(
-                            () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
-                });
-                menu.add(refresh);
-            }
-
-            return menu;
-        };
-        branchSplitButton.setMenuSupplier(branchMenuSupplier);
-
-        // Show the popup when the main button area is clicked (treat as a dropdown)
-        branchSplitButton.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
-            try {
-                var menu = branchMenuSupplier.get();
-                // Allow theme manager to style/popups as other popups do
-                try {
-                    chrome.themeManager.registerPopupMenu(menu);
-                } catch (Exception e) {
-                    logger.debug("Error registering popup menu", e);
-                }
-                var bsb = requireNonNull(branchSplitButton);
-                menu.show(bsb, 0, bsb.getHeight());
-            } catch (Exception ex) {
-                logger.error("Error showing branch dropdown", ex);
-            }
-        }));
-
-        // Initialize current branch label and enabled state
-        try {
-            if (project.hasGit()) {
-                IGitRepo repo = project.getRepo();
-                String cur = repo.getCurrentBranch();
-                if (!cur.isBlank()) {
-                    branchSplitButton.setText("branch: " + cur);
-                    branchSplitButton.setEnabled(true);
-                } else {
-                    branchSplitButton.setText("branch: Unknown");
-                    branchSplitButton.setEnabled(true);
-                }
-            } else {
-                branchSplitButton.setText("No Git");
-                branchSplitButton.setEnabled(false);
-            }
-        } catch (Exception ex) {
-            logger.error("Error initializing branch button", ex);
-            branchSplitButton.setText("No Git");
-            branchSplitButton.setEnabled(false);
-        }
 
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.LINE_AXIS));
@@ -1084,16 +909,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionGroupPanel.setAccentColor(accent);
     }
 
-    /** Updates the Project Files drawer title to reflect the current Git branch. Ensures EDT execution. */
-    private void updateProjectFilesDrawerTitle(String branchName) {
-        var panel = chrome.getProjectFilesPanel();
-        if (SwingUtilities.isEventDispatchThread()) {
-            GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName);
-        } else {
-            SwingUtilities.invokeLater(() -> GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName));
-        }
-    }
-
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
@@ -1229,30 +1044,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    /**
-     * Public hook to refresh branch UI (branch selector label and Project Files drawer title). Ensures EDT compliance
-     * and no-ops if not a git project or selector not initialized.
-     */
     public void refreshBranchUi(String branchName) {
-        Runnable task = () -> {
-            if (!chrome.getProject().hasGit()) {
-                return;
-            }
-            if (branchSplitButton == null) {
-                // Selector not initialized (e.g., no Git or UI not yet built) -> no-op
-                return;
-            }
-            branchSplitButton.setText("branch: " + branchName);
-            updateProjectFilesDrawerTitle(branchName);
-
-            // Also notify the Git Log tab to refresh and select the current branch
-            chrome.updateLogTab();
-            chrome.selectCurrentBranchInLogTab();
-        };
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
+        if (branchSplitButton != null) {
+            branchSplitButton.refreshBranch(branchName);
         }
     }
 
