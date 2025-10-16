@@ -138,8 +138,22 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
     }
 }
 
+// Get git commit hash at configuration time
+val gitCommit = try {
+    val gitDir = project.rootProject.projectDir.absolutePath
+    // Filter out GIT_DIR and GIT_WORK_TREE to avoid Gradle's empty values interfering with git
+    val env = System.getenv().filter { it.key != "GIT_DIR" && it.key != "GIT_WORK_TREE" }.map { "${it.key}=${it.value}" }.toTypedArray()
+    val process = Runtime.getRuntime().exec(arrayOf("git", "-C", gitDir, "rev-parse", "HEAD"), env)
+    val output = process.inputStream.bufferedReader().use { it.readLine() }
+    process.waitFor()
+    output?.trim()?.takeIf { it.matches(Regex("[0-9a-f]{40}")) } ?: "unknown"
+} catch (e: Exception) {
+    "unknown"
+}
+
 buildConfig {
     buildConfigField("String", "version", "\"$actualVersion\"")
+    buildConfigField("String", "gitCommit", "\"$gitCommit\"")
     packageName("io.github.jbellis.brokk")
     className("BuildInfo")
 }

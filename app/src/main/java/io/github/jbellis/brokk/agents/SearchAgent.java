@@ -73,6 +73,7 @@ public class SearchAgent {
     private final String goal;
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
+    private final boolean skipInitialScan;
 
     // Session-local conversation for this agent
     private final List<ChatMessage> sessionMessages = new ArrayList<>();
@@ -81,7 +82,11 @@ public class SearchAgent {
     private boolean beastMode;
 
     public SearchAgent(
-            String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            boolean skipInitialScan) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
@@ -94,6 +99,7 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
+        this.skipInitialScan = skipInitialScan;
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();
@@ -119,7 +125,9 @@ public class SearchAgent {
 
     private @NotNull TaskResult executeInternal() throws InterruptedException {
         // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
-        addInitialContextToWorkspace();
+        if (!skipInitialScan) {
+            addInitialContextToWorkspace();
+        }
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
