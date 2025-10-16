@@ -1349,7 +1349,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Model selector on the right
         var modelComp = modelSelector.getComponent();
         modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
-        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP+120));
+        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP + 120));
         bottomPanel.add(modelComp);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
@@ -2255,18 +2255,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Already in the right parent; ensure correct ordering with strut
                     int compIndex = indexOfChild(bottom, comp);
                     int actionIndex = indexOfChild(bottom, actionButton);
-                    
+
                     // Check if strut exists right after model selector
                     boolean strutExists = false;
                     if (actionIndex >= 1) {
                         Component potentialStrut = bottom.getComponent(actionIndex - 1);
                         strutExists = potentialStrut instanceof Box.Filler;
                     }
-                    
+
                     if (compIndex != actionIndex - 2 || !strutExists) {
                         // Reposition: remove model selector and any old strut, then re-add both
                         bottom.remove(comp);
-                        
+
                         // Also remove the old strut if it exists
                         int newActionIndex = indexOfChild(bottom, actionButton);
                         if (newActionIndex >= 1) {
@@ -2276,7 +2276,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 newActionIndex = indexOfChild(bottom, actionButton);
                             }
                         }
-                        
+
                         // Add model selector and new strut before action button
                         if (newActionIndex >= 0) {
                             bottom.add(comp, newActionIndex);
