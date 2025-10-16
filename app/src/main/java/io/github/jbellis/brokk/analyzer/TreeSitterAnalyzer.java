@@ -660,7 +660,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             boolean matches = false;
             if (symbolLower.contains(lowerCaseQuery)) {
                 matches = true;
-            } else if (isAllUpper && camelCasePattern.matcher(symbol).find()) {
+            } else if (isAllUpper
+                    && camelCasePattern != null
+                    && camelCasePattern.matcher(symbol).find()) {
                 matches = true;
             }
 
