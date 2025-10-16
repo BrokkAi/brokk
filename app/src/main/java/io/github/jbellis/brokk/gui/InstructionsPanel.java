@@ -553,19 +553,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         Supplier<JPopupMenu> menuSupplier = () -> {
             var menu = new JPopupMenu();
             try {
-                var service = chrome.getContextManager().getService();
-                var available = service.getAvailableModels();
-                if (available != null && !available.isEmpty()) {
-                    var names = new java.util.ArrayList<>(available.keySet());
-                    names.sort(String::compareToIgnoreCase);
-                    for (var name : names) {
-                        var item = new JMenuItem(name);
-                        item.addActionListener(e -> setSelectedModel(new Service.ModelConfig(name), name));
+                var favorites = chrome.getProject().getMainProject().loadFavoriteModels();
+                if (!favorites.isEmpty()) {
+                    for (var favorite : favorites) {
+                        var item = new JMenuItem(favorite.alias());
+                        item.addActionListener(e -> setSelectedModel(favorite.config(), favorite.alias()));
                         menu.add(item);
                     }
+                } else {
+                    var noFavoritesItem = new JMenuItem("No favorite models configured");
+                    noFavoritesItem.setEnabled(false);
+                    menu.add(noFavoritesItem);
                 }
             } catch (Exception ex) {
-                logger.debug("Unable to load available models", ex);
+                logger.debug("Unable to load favorite models", ex);
             }
 
             if (menu.getComponentCount() > 0) {
