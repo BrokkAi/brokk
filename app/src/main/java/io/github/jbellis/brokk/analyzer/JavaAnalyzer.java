@@ -3,11 +3,14 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.java.JavaTypeAnalyzer;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer {
@@ -234,7 +237,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
      * Strips Java generic type arguments (e.g., "<K, V extends X>") from any segments of the provided name. Handles
      * nested generics by tracking angle bracket depth.
      */
-    private String stripGenericTypeArguments(String name) {
+    public static String stripGenericTypeArguments(String name) {
         if (name.isEmpty()) return name;
         StringBuilder sb = new StringBuilder(name.length());
         int depth = 0;
@@ -344,5 +347,117 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     protected boolean isAnonymousStructure(String fqName) {
         var matcher = LAMBDA_REGEX.matcher(fqName);
         return matcher.find();
+    }
+
+    /**
+     * Java-specific implementation to compute direct supertypes by traversing the cached Tree-sitter AST. Preserves
+     * Java order: superclass (if any) first, then implemented interfaces in source order. Attempts to resolve names
+     * using file imports, then package-local names, then global search. First tries a focused in-code Tree-sitter query
+     * (string literal) for fast extraction; falls back to manual field traversal if needed.
+     */
+    @Override
+    public List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        if (!cu.isClass()) return List.of();
+
+        // Obtain the cached parse tree for this file
+        TSTree tree = getCachedTree(cu.source());
+        if (tree == null) {
+            return List.of();
+        }
+        // Load source text for slice operations
+        final String src;
+        try {
+            src = Files.readString(cu.source().absPath());
+        } catch (Exception e) {
+            return List.of();
+        }
+
+        return JavaTypeAnalyzer.compute(cu, tree, src, getTSLanguage(), this::textSlice, this::searchDefinitions);
+
+        // Parse import statements from this file for resolution assistance.
+        //        List<String> importLines = importStatementsOf(cu.source());
+        //        Map<String, String> explicitImports = new LinkedHashMap<>(); // simpleName -> FQCN
+        //        List<String> wildcardPackages = new ArrayList<>(); // package prefixes from .* imports
+        //        for (String line : importLines) {
+        //            if (line.isBlank()) continue;
+        //            String t = line.strip();
+        //            if (!t.startsWith("import ")) continue;
+        //            if (t.startsWith("import static ")) continue; // ignore static imports
+        //
+        //            if (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
+        //            t = t.substring("import ".length()).trim();
+        //
+        //            if (t.endsWith(".*")) {
+        //                String pkg = t.substring(0, t.length() - 2).trim();
+        //                if (!pkg.isEmpty()) wildcardPackages.add(pkg);
+        //                continue;
+        //            }
+        //
+        //            if (!t.isEmpty()) {
+        //                String fq = t;
+        //                int lastDot = fq.lastIndexOf('.');
+        //                if (lastDot > 0 && lastDot < fq.length() - 1) {
+        //                    String simple = fq.substring(lastDot + 1);
+        //                    explicitImports.putIfAbsent(simple, fq);
+        //                }
+        //            }
+        //        }
+        //
+        //        // Resolve collected raw names to known CodeUnits using imports/package/search
+        //        List<CodeUnit> resolved = new ArrayList<>(rawNames.size());
+        //        for (String raw : rawNames) {
+        //            if (raw.isEmpty()) continue;
+        //
+        //            String normalized = normalizeFullName(raw).trim();
+        //            String simpleName =
+        //                    normalized.contains(".") ? normalized.substring(normalized.lastIndexOf('.') + 1) :
+        // normalized;
+        //
+        //            LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        //
+        //            if (normalized.contains(".")) {
+        //                candidates.add(normalized);
+        //            }
+        //            String explicit = explicitImports.get(simpleName);
+        //            if (explicit != null && !explicit.isBlank()) {
+        //                candidates.add(explicit);
+        //            }
+        //            for (String wp : wildcardPackages) {
+        //                candidates.add(wp + "." + simpleName);
+        //            }
+        //            if (!cu.packageName().isEmpty()) {
+        //                candidates.add(cu.packageName() + "." + simpleName);
+        //            }
+        //            candidates.add(simpleName);
+        //
+        //            CodeUnit match = null;
+        //            for (String fq : candidates) {
+        //                var def = getDefinition(fq);
+        //                if (def.isPresent() && def.get().isClass()) {
+        //                    match = def.get();
+        //                    break;
+        //                }
+        //            }
+        //
+        //            if (match == null) {
+        //                String pattern = ".*\\." + Pattern.quote(simpleName) + "$";
+        //                var options = searchDefinitions(pattern).stream()
+        //                        .filter(CodeUnit::isClass)
+        //                        .toList();
+        //
+        //                if (!options.isEmpty()) {
+        //                    Optional<CodeUnit> samePkg = options.stream()
+        //                            .filter(o -> o.packageName().equals(cu.packageName()))
+        //                            .findFirst();
+        //                    match = samePkg.orElse(options.getFirst());
+        //                }
+        //            }
+        //
+        //            if (match != null) {
+        //                resolved.add(match);
+        //            }
+        //        }
+        //
+        //        return List.copyOf(resolved);
     }
 }

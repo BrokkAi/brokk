@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer.java;
 
-import static io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer.stripGenericTypeArguments;
+import static io.github.jbellis.brokk.analyzer.JavaAnalyzer.stripGenericTypeArguments;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.TSQueryLoader;
