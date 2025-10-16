@@ -23,9 +23,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -63,6 +65,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
     private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
 
+    // Common separators across languages to denote hierarchy or member access.
+    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
+    private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
     // Definition priority constants - lower values are preferred for sorting
     protected static final int PRIORITY_DEFAULT = 0;
     protected static final int PRIORITY_HIGH = -1;
@@ -91,11 +97,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // transferable snapshot of analyzer state
     private volatile AnalyzerState state;
 
+    /**
+     * Read-only index of symbol keys with efficient prefix scan.
+     */
+    record SymbolKeyIndex(NavigableSet<String> keys) {
+
+        Iterable<String> tailFrom(String fromInclusive) {
+            return () -> keys.tailSet(fromInclusive, true).iterator();
+        }
+
+        Iterable<String> all() {
+            return keys;
+        }
+
+        int size() {
+            return keys.size();
+        }
+    }
+
     protected record AnalyzerState(
             PMap<String, List<CodeUnit>> symbolIndex,
             PMap<ProjectFile, TSTree> parsedTreeCache,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
+            SymbolKeyIndex symbolKeyIndex,
             long snapshotEpochNanos) {}
 
     // Timestamp of the last successful full-project update (epoch nanos)
@@ -286,11 +311,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Build immutable snapshot state from accumulated maps
         var snapshotInstant = Instant.now();
         long snapshotNanos = snapshotInstant.getEpochSecond() * 1_000_000_000L + snapshotInstant.getNano();
+
+        // Precompute a read-only navigable index of symbol keys for efficient prefix scans
+        var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        keySet.addAll(localSymbolIndex.keySet());
+        var symbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet));
+
         this.state = new AnalyzerState(
                 HashTreePMap.from(localSymbolIndex),
                 HashTreePMap.from(localParsedTreeCache),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
+                symbolKeyIndex,
                 snapshotNanos);
 
         // Log summary of file processing results
@@ -403,6 +435,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 newParsed,
                 current.codeUnitState(),
                 HashTreePMap.from(newFileState),
+                current.symbolKeyIndex(),
                 current.snapshotEpochNanos());
     }
 
@@ -583,30 +616,50 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var results = new LinkedHashSet<CodeUnit>();
         final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
 
-        // Determine if this is a CamelCase-style query (all uppercase letters, length > 1)
+        // CamelCase-style query detection (all uppercase letters, length > 1)
         boolean isAllUpper = query.length() > 1 && query.chars().allMatch(Character::isUpperCase);
         Pattern camelCasePattern = null;
         if (isAllUpper) {
-            // Case-insensitive camel-hump matching so symbols that may be stored in different case forms still match.
             camelCasePattern = Pattern.compile(
                     query.chars().mapToObj(c -> String.valueOf((char) c)).collect(Collectors.joining("[a-z0-9_]*")),
                     Pattern.CASE_INSENSITIVE);
         }
 
-        // If the query looks like a simple non-hierarchical prefix (no dots/dollars, not a camel all-upper pattern),
-        // we will do a simple linear scan with early startsWith checks.
+        // Prefix optimization when the query looks like a simple non-hierarchical prefix
+        boolean usePrefixOptimization =
+                !containsAnyHierarchySeparator(lowerCaseQuery) && !isAllUpper && query.length() >= 2;
 
         var current = this.state;
-        var keys = current == null ? Set.<String>of() : current.symbolIndex().keySet();
 
-        // Scan all keys; optimize only by simple startsWith early-accept
-        for (String symbol : keys) {
+        if (usePrefixOptimization && current != null) {
+            var keyIndex = current.symbolKeyIndex();
+            try {
+                for (String symbol : keyIndex.tailFrom(query)) {
+                    String symbolLower = symbol.toLowerCase(Locale.ROOT);
+                    if (!symbolLower.startsWith(lowerCaseQuery)) {
+                        break; // stop when the prefix no longer matches
+                    }
+                    results.addAll(current.symbolIndex().getOrDefault(symbol, List.of()));
+                }
+            } catch (IllegalArgumentException e) {
+                // Defensive fallback: if tail scan fails for any reason, ignore and continue with generic scan
+                log.debug("Prefix optimization fallback for query '{}': {}", query, e.toString());
+            }
+        }
+
+        // Generic scan: accept substring or CamelCase camel-hump matches.
+        // Skip symbols already covered by the prefix optimization to avoid duplicate work.
+        Iterable<String> allKeysIterable =
+                (current != null) ? current.symbolKeyIndex().all() : List.of();
+        for (String symbol : allKeysIterable) {
             String symbolLower = symbol.toLowerCase(Locale.ROOT);
-            boolean matches = false;
 
-            if (symbolLower.startsWith(lowerCaseQuery)) {
-                matches = true;
-            } else if (symbolLower.contains(lowerCaseQuery)) {
+            if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
+                continue; // already collected by prefix scan
+            }
+
+            boolean matches = false;
+            if (symbolLower.contains(lowerCaseQuery)) {
                 matches = true;
             } else if (isAllUpper
                     && camelCasePattern != null
@@ -619,7 +672,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
 
-        // Fallback for very short queries (single letter): ensure we include declarations whose FQNs contain the query.
+        // Fallback for very short queries (single letter): include any declarations with FQNs containing the query.
         if (query.length() == 1) {
             uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lowerCaseQuery))
@@ -767,6 +820,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
         log.trace("getSkeleton: fqName='{}', found=false", fqName);
         return Optional.empty();
+    }
+
+    private static boolean containsAnyHierarchySeparator(String s) {
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            if (s.contains(sep)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2705,11 +2767,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Build new immutable snapshot and return a new analyzer instance
         var snapshotInstant = Instant.now();
         long snapshotNanos = snapshotInstant.getEpochSecond() * 1_000_000_000L + snapshotInstant.getNano();
+
+        var nextKeySet = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        nextKeySet.addAll(newSymbolIndex.keySet());
+        var nextSymbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(nextKeySet));
+
         var nextState = new AnalyzerState(
                 HashTreePMap.from(newSymbolIndex),
                 HashTreePMap.from(newParsedTreeCache),
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
+                nextSymbolKeyIndex,
                 snapshotNanos);
 
         long totalMs = System.currentTimeMillis() - overallStartMs;
