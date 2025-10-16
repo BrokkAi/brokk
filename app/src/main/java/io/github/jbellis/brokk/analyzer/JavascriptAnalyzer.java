@@ -219,11 +219,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
             String jsxReturnQueryStr =
                     """
-                (return_statement (jsx_element) @jsx_return)
-                (return_statement (jsx_self_closing_element) @jsx_return)
-                (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
-                (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
-                """
+                            (return_statement (jsx_element) @jsx_return)
+                            (return_statement (jsx_self_closing_element) @jsx_return)
+                            (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
+                            (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
+                            """
                             .stripIndent();
             // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
             // Ensure cursor is handled if it were AutoCloseable.
@@ -256,12 +256,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         Set<String> mutatedIdentifiers = new HashSet<>();
         String mutationQueryStr =
                 """
-            (assignment_expression left: (identifier) @mutated.id)
-            (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
-            (assignment_expression left: (subscript_expression index: _ @mutated.id))
-            (update_expression argument: (identifier) @mutated.id)
-            (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
-            """
+                        (assignment_expression left: (identifier) @mutated.id)
+                        (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
+                        (assignment_expression left: (subscript_expression index: _ @mutated.id))
+                        (update_expression argument: (identifier) @mutated.id)
+                        (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
+                        """
                         .stripIndent();
 
         // TSLanguage and TSQuery are not AutoCloseable.
@@ -420,19 +420,16 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         return JS_SYNTAX_PROFILE;
     }
 
-    @Override
-    protected void createModulesFromImports(
+    public static void createModulesFromJavaScriptLikeImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
-            String src,
+            String modulePackageName,
             Map<String, CodeUnit> localCuByFqName,
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges) {
         if (!localImportStatements.isEmpty()) {
-            String modulePackageName =
-                    determinePackageName(file, rootNode, rootNode, src); // Use rootNode for general package name
             // Use a consistent, unique short name for the module CU, based on filename.
             // This ensures module CUs from different files have distinct fqNames.
             String moduleShortName = file.getFileName();
@@ -469,5 +466,26 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                         moduleCU.fqName());
             }
         }
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        createModulesFromJavaScriptLikeImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
     }
 }

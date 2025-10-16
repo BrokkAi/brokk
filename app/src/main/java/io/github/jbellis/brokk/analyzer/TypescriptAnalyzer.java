@@ -773,4 +773,25 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
         return null;
     }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        JavascriptAnalyzer.createModulesFromJavaScriptLikeImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
+    }
 }
