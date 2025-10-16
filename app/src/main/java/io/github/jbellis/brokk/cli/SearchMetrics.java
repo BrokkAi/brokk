@@ -70,6 +70,17 @@ public class SearchMetrics {
     private @Nullable String stopReason = null;
     private int finalWorkspaceSize = 0;
 
+    // Found file from workspaceComplete
+    private @Nullable String foundFile = null;
+
+    public void recordFoundFile(String file) {
+        this.foundFile = file;
+    }
+
+    public @Nullable String getFoundFile() {
+        return foundFile;
+    }
+
     public void recordContextScan(int filesAdded, long timeMs, boolean skipped) {
         this.contextScanFilesAdded = filesAdded;
         this.contextScanTimeMs = timeMs;

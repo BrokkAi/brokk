@@ -665,6 +665,7 @@ public class SearchAgent {
                             "The primary file that answers the query or is the main target for code changes. Must be a project-relative path.")
                     String primaryFile) {
         logger.debug("workspaceComplete selected with primaryFile: {}", primaryFile);
+        metrics.recordFoundFile(primaryFile);
         return "Workspace marked complete for the current goal. Primary file: " + primaryFile;
     }
 
