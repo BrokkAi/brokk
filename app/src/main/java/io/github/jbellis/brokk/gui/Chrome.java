@@ -3069,13 +3069,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void updateProjectFilesDrawerTitle(String branchName) {
         SwingUtilities.invokeLater(() -> {
             try {
-                if (projectFilesPanel != null) {
-                    String base = "Project Files";
-                    String suffix = (branchName == null || branchName.isBlank()) ? "" : " — " + branchName;
-                    projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
-                    projectFilesPanel.revalidate();
-                    projectFilesPanel.repaint();
-                }
+                String base = "Project Files";
+                String suffix = (branchName == null || branchName.isBlank()) ? "" : " — " + branchName;
+                projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
+                projectFilesPanel.revalidate();
+                projectFilesPanel.repaint();
             } catch (Exception ex) {
                 // Defensive: don't let UI-sync failures propagate
                 logger.debug("updateProjectFilesDrawerTitle inner failed", ex);
