@@ -14,11 +14,13 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tasks.TaskList;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
@@ -40,6 +42,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
 import javax.swing.JCheckBox;
@@ -62,7 +65,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
-import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -80,14 +82,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
-    private final MaterialButton playBtn = new MaterialButton();
-    private final MaterialButton playAllBtn = new MaterialButton();
+    private final MaterialButton goStopButton;
     private final MaterialButton combineBtn = new MaterialButton();
     private final MaterialButton splitBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
-    private final Timer llmStateTimer;
+    private final Color defaultGoButtonBg;
+    private final Color stopButtonBg;
     private final Timer runningFadeTimer;
+    private final JComponent controls;
+    private final JPanel southPanel;
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
@@ -96,15 +100,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable List<Integer> currentRunOrder = null;
 
     public TaskListPanel(Chrome chrome) {
-        super(new BorderLayout(4, 4));
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Task List",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        super(new BorderLayout(4, 0));
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
+        this.defaultGoButtonBg = UIManager.getColor("Button.default.background");
+        this.stopButtonBg = ThemeColors.getColor(false, "git_badge_background");
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
@@ -262,7 +263,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
 
         // South: controls
-        var controls = new JPanel(new GridBagLayout());
+        controls = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.gridy = 0;
@@ -315,6 +316,73 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         controls.add(input, gbc);
 
+        goStopButton = new MaterialButton() {
+            @Override
+            protected void paintComponent(java.awt.Graphics g) {
+                // Paint rounded background to match InstructionsPanel
+                var g2 = (java.awt.Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(
+                            java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    int arc = 12;
+                    var bg = getBackground();
+                    if (!isEnabled()) {
+                        var disabled = UIManager.getColor("Button.disabledBackground");
+                        if (disabled != null) {
+                            bg = disabled;
+                        }
+                    } else if (getModel().isPressed()) {
+                        bg = bg.darker();
+                    } else if (getModel().isRollover()) {
+                        bg = bg.brighter();
+                    }
+                    g2.setColor(bg);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+                } finally {
+                    g2.dispose();
+                }
+                super.paintComponent(g);
+            }
+
+            @Override
+            protected void paintBorder(java.awt.Graphics g) {
+                // Paint border, which will be visible even when disabled
+                var g2 = (java.awt.Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(
+                            java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    int arc = 12;
+                    Color borderColor;
+                    if (isFocusOwner()) {
+                        borderColor = new Color(0x1F6FEB);
+                    } else {
+                        borderColor = UIManager.getColor("Component.borderColor");
+                        if (borderColor == null) {
+                            borderColor = Color.GRAY;
+                        }
+                    }
+                    g2.setColor(borderColor);
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+                } finally {
+                    g2.dispose();
+                }
+            }
+        };
+        goStopButton.setOpaque(false);
+        goStopButton.setContentAreaFilled(false);
+        goStopButton.addActionListener(e -> onGoStopButtonPressed());
+
+        gbc.gridx = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(2, 2, 2, 4);
+        int fixedHeight = Math.max(input.getPreferredSize().height, 32);
+        var prefSize = new Dimension(64, fixedHeight);
+        goStopButton.setPreferredSize(prefSize);
+        goStopButton.setMinimumSize(prefSize);
+        goStopButton.setMaximumSize(prefSize);
+        controls.add(goStopButton, gbc);
+
         removeBtn.setIcon(Icons.REMOVE);
         // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
         removeBtn.setAppendShortcutToTooltip(true);
@@ -330,24 +398,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         toggleDoneBtn.setToolTipText(
                 "<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
-
-        playBtn.setIcon(Icons.PLAY);
-        // Show a helpful HTML tooltip and append the platform Enter shortcut (Ctrl/Cmd+Enter display only).
-        playBtn.setAppendShortcutToTooltip(true);
-        playBtn.setShortcut(
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                null,
-                null,
-                null);
-        playBtn.setToolTipText(
-                "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
-        playBtn.addActionListener(e -> runArchitectOnSelected());
-
-        playAllBtn.setIcon(Icons.FAST_FORWARD);
-        playAllBtn.setToolTipText(
-                "<html><body style='width:300px'>Run Architect on all tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
-        playAllBtn.addActionListener(e -> runArchitectOnAll());
 
         combineBtn.setIcon(Icons.CELL_MERGE);
         combineBtn.setToolTipText(
@@ -368,20 +418,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Make the buttons visually tighter and grouped
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
-            playBtn.setMargin(new Insets(0, 0, 0, 0));
-            playAllBtn.setMargin(new Insets(0, 0, 0, 0));
             combineBtn.setMargin(new Insets(0, 0, 0, 0));
             splitBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             // Top toolbar (below title, above list): left group + separator + play all/clear completed
             JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            topToolbar.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
             topToolbar.setOpaque(false);
 
             // Left group: remaining buttons
             topToolbar.add(removeBtn);
             topToolbar.add(toggleDoneBtn);
-            topToolbar.add(playBtn);
             topToolbar.add(combineBtn);
             topToolbar.add(splitBtn);
 
@@ -390,8 +438,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             sep.setPreferredSize(new java.awt.Dimension(8, 24));
             topToolbar.add(sep);
 
-            // Right group: Play All and Clear Completed
-            topToolbar.add(playAllBtn);
+            // Right group: Clear Completed
             topToolbar.add(clearCompletedBtn);
 
             add(topToolbar, BorderLayout.NORTH);
@@ -424,7 +471,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        add(controls, BorderLayout.SOUTH);
+        southPanel = new JPanel();
+        southPanel.setLayout(new BoxLayout(southPanel, BoxLayout.PAGE_AXIS));
+        southPanel.add(controls);
+        add(southPanel, BorderLayout.SOUTH);
 
         // Ensure correct initial layout and reload tasks when the panel becomes visible
         addHierarchyListener(e -> {
@@ -456,10 +506,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
         updateButtonStates();
-        llmStateTimer = new Timer(300, e -> updateButtonStates());
-        llmStateTimer.setRepeats(true);
-        llmStateTimer.start();
-
         runningFadeTimer = new Timer(40, e -> {
             Integer ri = runningIndex;
             if (ri != null) {
@@ -500,6 +546,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             input.requestFocusInWindow();
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
+            updateButtonStates();
         }
     }
 
@@ -585,6 +632,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 updateButtonStates();
                 saveTasksForCurrentSession();
             }
+        }
+    }
+
+    private void onGoStopButtonPressed() {
+        var contextManager = chrome.getContextManager();
+        if (contextManager.isLlmTaskInProgress()) {
+            contextManager.interruptLlmAction();
+        } else {
+            runArchitectOnAll();
         }
     }
 
@@ -681,7 +737,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             logger.debug("Unable to query LLM busy state", ex);
         }
 
-        boolean selectedIsDone = false;
         boolean selectionIncludesRunning = false;
         boolean selectionIncludesPending = false;
         int[] selIndices = list.getSelectedIndices();
@@ -693,24 +748,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 selectionIncludesPending = true;
             }
         }
-        int sel = list.getSelectedIndex();
-        if (sel >= 0 && sel < model.getSize()) {
-            TaskList.TaskItem it = requireNonNull(model.get(sel));
-            selectedIsDone = it.done();
-        }
 
         // Remove/Toggle disabled if no selection OR selection includes running/pending
         boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
-
-        // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active
-        // queue
-        playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
-
-        // Play All enabled if: there are tasks, not busy, no active queue
-        boolean hasTasks = model.getSize() > 0;
-        playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
 
         // Combine enabled only if 2 or more tasks selected and no running/pending in selection
         combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
@@ -727,6 +769,28 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
         clearCompletedBtn.setEnabled(anyCompleted);
+
+        boolean anyTasks = model.getSize() > 0;
+        if (llmBusy) {
+            goStopButton.setIcon(Icons.STOP);
+            goStopButton.setText(null);
+            goStopButton.setToolTipText("Cancel the current operation");
+            goStopButton.setBackground(stopButtonBg);
+            goStopButton.setEnabled(true);
+        } else {
+            goStopButton.setIcon(Icons.FAST_FORWARD);
+            goStopButton.setText(null);
+            goStopButton.setBackground(defaultGoButtonBg);
+            goStopButton.setEnabled(anyTasks && !queueActive);
+            if (!anyTasks) {
+                goStopButton.setToolTipText("Add a task to get started");
+            } else if (queueActive) {
+                goStopButton.setToolTipText("A task queue is already running");
+            } else {
+                goStopButton.setToolTipText("Run Architect on all tasks in order");
+            }
+        }
+        goStopButton.repaint();
     }
 
     private UUID getCurrentSessionId() {
@@ -786,6 +850,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnSelected() {
+        if (chrome.getContextManager().isLlmTaskInProgress() || queueActive) {
+            // A run is already in progress, do not start another.
+            // The UI should prevent this, but this is a safeguard for the keyboard shortcut.
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] selected = list.getSelectedIndices();
         if (selected.length == 0) {
             JOptionPane.showMessageDialog(
@@ -828,6 +898,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+
+        // Immediately disable the button to provide instant feedback while compression runs.
+        goStopButton.setEnabled(false);
+        goStopButton.setToolTipText("Preparing to run tasks...");
 
         // Record the full ordered run for context awareness
         currentRunOrder = java.util.List.copyOf(toRun);
@@ -878,13 +952,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Set running visuals
         runningIndex = idx;
+        updateButtonStates();
         runningAnimStartMs = System.currentTimeMillis();
         runningFadeTimer.start();
         list.repaint();
 
         // IMMEDIATE FEEDBACK: inform user tasks were submitted without waiting for LLM work
         int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-        int numTask = runningIndex + 1;
+        int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
+        // Calculate task number based on its position in the run queue, not its overall list index.
+        final int numTask = (pos >= 0) ? pos + 1 : 1;
         SwingUtilities.invokeLater(() -> chrome.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun
@@ -976,13 +1053,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         repaint();
     }
 
-    public void disablePlay() {
-        playBtn.setEnabled(false);
-        playAllBtn.setEnabled(false);
+    public void setSharedContextArea(JComponent contextArea) {
+        // Remove any existing context area, but keep the controls.
+        for (Component comp : southPanel.getComponents()) {
+            if (comp != controls) {
+                southPanel.remove(comp);
+            }
+        }
+        // Add the shared context area above the controls.
+        southPanel.add(contextArea, 0);
+        southPanel.add(javax.swing.Box.createVerticalStrut(2), 1);
+        revalidate();
+        repaint();
     }
 
-    public void enablePlay() {
-        updateButtonStates();
+    public void restoreControls() {
+        // Remove the shared context area, leaving only the controls visible.
+        for (Component comp : southPanel.getComponents()) {
+            if (comp != controls) {
+                southPanel.remove(comp);
+            }
+        }
+        revalidate();
+        repaint();
     }
 
     /**
@@ -1466,7 +1559,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
-        llmStateTimer.stop();
         runningFadeTimer.stop();
         super.removeNotify();
     }
@@ -1614,5 +1706,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             return this;
         }
+    }
+
+    public void disablePlay() {
+        // Immediate, event-driven flip to "Stop" visuals when an LLM action starts
+        SwingUtilities.invokeLater(() -> {
+            goStopButton.setIcon(Icons.STOP);
+            goStopButton.setText(null);
+            goStopButton.setToolTipText("Cancel the current operation");
+            goStopButton.setBackground(stopButtonBg);
+            goStopButton.setEnabled(true);
+            goStopButton.repaint();
+        });
+    }
+
+    public void enablePlay() {
+        // Recompute full state when an LLM action completes (accounts for selection, queue, etc.)
+        SwingUtilities.invokeLater(this::updateButtonStates);
     }
 }

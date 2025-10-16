@@ -992,10 +992,8 @@ public class GitLogTab extends JPanel {
     // ==================================================================
 
     private void refreshAllGitUi(String branchName) {
-        SwingUtilities.invokeLater(() -> {
-            chrome.updateGitRepo();
-            chrome.getInstructionsPanel().refreshBranchUi(branchName);
-        });
+        chrome.updateGitRepo();
+        chrome.getInstructionsPanel().refreshBranchUi(branchName);
     }
 
     private GitRepo getRepo() {

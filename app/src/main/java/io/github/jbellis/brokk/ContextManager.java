@@ -10,7 +10,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.agents.NonTextResolutionMode;
+import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -20,6 +20,8 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
+import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -91,18 +93,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
-    public void runTests(Set<ProjectFile> testFiles) {
-        String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
-        if (cmd.isEmpty()) {
-            getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
-            return;
-        }
-        var io = getIo();
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.getTerminalDrawer().openTerminalAndPasteText(cmd));
-        }
-    }
-
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
         return createLoggingExecutorService(toWrap, Set.of());
     }
@@ -155,6 +145,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
     private final AbstractProject project;
+
+    // Cached exception reporter for this context
+    private final ExceptionReporter exceptionReporter;
 
     private final ToolRegistry toolRegistry;
 
@@ -236,6 +229,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.contextHistory = new ContextHistory(new Context(this, null));
         this.service = new ServiceWrapper();
         this.service.reinit(project);
+
+        // Initialize exception reporter with lazy service access
+        this.exceptionReporter = new ExceptionReporter(this.service::get);
 
         // set up global tools
         this.toolRegistry = new ToolRegistry(this);
@@ -363,7 +359,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, this.getIo());
+        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener);
 
         // Load saved context history or create a new one
         var contextTask =
@@ -627,6 +623,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public Service getService() {
         return service.get();
+    }
+
+    public ExceptionReporter getExceptionReporter() {
+        return exceptionReporter;
     }
 
     /** Returns the configured Architect model, falling back to the system model if unavailable. */
@@ -1021,63 +1021,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Adds any virtual fragment directly to the live context. */
     public void addVirtualFragment(VirtualFragment fragment) {
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-    }
-
-    /**
-     * Update the Build fragment based on structured success/failure. Always clears previous BUILD_LOG fragments. Only
-     * adds a new fragment when the build failed.
-     */
-    @Override
-    public void updateBuildFragment(boolean success, String buildOutput) {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        pushContextQuietly(currentTopCtx -> {
-            // Collect build-related fragments to drop:
-            //  - Legacy: BuildFragment (BUILD_LOG)
-            //  - New: StringFragment with description "Latest Build Results"
-            var idsToDrop = currentTopCtx
-                    .virtualFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
-                            || (f.getType() == ContextFragment.FragmentType.STRING
-                                    && f instanceof ContextFragment.StringFragment sf
-                                    && desc.equals(sf.description())))
-                    .map(ContextFragment::id)
-                    .toList();
-
-            var modified = idsToDrop.isEmpty() ? currentTopCtx : currentTopCtx.removeFragmentsByIds(idsToDrop);
-
-            if (success) {
-                logger.debug(
-                        "Cleared {} previous build fragment(s); build succeeded so not adding new results.",
-                        idsToDrop.size());
-                return modified;
-            }
-
-            var sf = new ContextFragment.StringFragment(
-                    this, buildOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
-
-            logger.debug(
-                    "Cleared {} previous build fragment(s); added new build results StringFragment {}",
-                    idsToDrop.size(),
-                    sf.id());
-            return modified.addVirtualFragment(sf);
-        });
-    }
-
-    @Override
-    public String getProcessedBuildOutput() {
-        // Prefer new StringFragment with the BUILD_RESULTS description
-        var latestString = liveContext()
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
-                .filter(f -> f instanceof ContextFragment.StringFragment)
-                .map(f -> (ContextFragment.StringFragment) f)
-                .filter(sf -> sf.description().equals(ContextFragment.BUILD_RESULTS.description()))
-                .findFirst();
-
-        if (latestString.isPresent()) {
-            return latestString.get().text();
-        }
-        return "";
     }
 
     /**
@@ -1621,22 +1564,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return newLiveContext;
     }
 
-    /**
-     * Pushes context changes silently using a generator function. The generator is applied to the current
-     * `topContext()` (frozen context) instead of `liveContext()`. This creates a new context state without triggering
-     * history compression or other side effects.
-     *
-     * @param contextGenerator A function that takes the current top context and returns an updated context.
-     * @return The new top context, or the existing top context if no changes were made by the generator.
-     */
-    public Context pushContextQuietly(Function<Context, Context> contextGenerator) {
-        var newTopContext = contextHistory.pushQuietly(contextGenerator);
-        if (!topContext().equals(newTopContext)) {
-            contextPushed(newTopContext);
-        }
-        return newTopContext;
-    }
-
     private void contextPushed(Context frozen) {
         captureGitState(frozen);
         // Ensure listeners are notified on the EDT
@@ -1902,13 +1829,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
+        if (!project.hasGit()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
+            return;
+        }
+
         submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
-                var topClasses = AnalyzerUtil.combinedRankingFor(project, Map.of()).stream()
-                        .limit(10)
-                        .toList();
+                var topClasses =
+                        GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES)
+                                .stream()
+                                .limit(10)
+                                .toList();
 
                 if (topClasses.isEmpty()) {
                     io.showNotification(
@@ -2046,7 +1981,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+    public TaskScope beginTask(String input, boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
@@ -2058,19 +1993,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Backwards-compatible overload: defaults non-text handling to OFF. */
     public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, NonTextResolutionMode.OFF);
+        return beginTask(input, compressAtCommit, MergeAgent.NonTextResolutionMode.OFF);
     }
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
-        private final boolean compressAtCommit;
-        private final NonTextResolutionMode nonTextMode;
+        private final boolean compressResults;
+        private final MergeAgent.NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressResults, MergeAgent.NonTextResolutionMode nonTextMode) {
             io.blockLlmOutput(true);
-            this.compressAtCommit = compressAtCommit;
+            this.compressResults = compressResults;
             this.nonTextMode = nonTextMode;
             this.results = new ArrayList<>();
         }
@@ -2080,7 +2015,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             results.add(result);
         }
 
-        public NonTextResolutionMode nonTextMode() {
+        public MergeAgent.NonTextResolutionMode nonTextMode() {
             return nonTextMode;
         }
 
@@ -2099,7 +2034,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         addFiles(only.changedFiles());
                     }
                     // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(only, compressAtCommit);
+                    pushFinalHistory(only, compressResults);
                     return;
                 }
 
@@ -2137,7 +2072,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 var finalResult = new TaskResult(
                         ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
-                pushFinalHistory(finalResult, compressAtCommit);
+                pushFinalHistory(finalResult, compressResults);
             } finally {
                 io.blockLlmOutput(false);
             }
@@ -2590,20 +2525,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.io = new HeadlessConsole();
         this.userActions.setIo(this.io);
 
+        initializeCurrentSessionAndHistory(true);
+
+        ensureReviewGuide();
+        cleanupOldHistoryAsync();
+        // we deliberately don't infer style guide or build details here -- if they already exist, great;
+        // otherwise we leave them empty
+        var mp = project.getMainProject();
+        if (mp.loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+            mp.setBuildDetails(BuildAgent.BuildDetails.EMPTY);
+        }
+
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, null, this.io);
+        this.analyzerWrapper = new AnalyzerWrapper(project, null);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-
-        initializeCurrentSessionAndHistory(true);
-
-        ensureStyleGuide();
-        ensureReviewGuide();
-        ensureBuildDetailsAsync();
-        cleanupOldHistoryAsync();
 
         checkBalanceAndNotify();
     }

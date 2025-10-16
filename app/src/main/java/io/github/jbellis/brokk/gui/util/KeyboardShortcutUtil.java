@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.util;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
@@ -26,6 +27,20 @@ public class KeyboardShortcutUtil {
     public static KeyStroke createPlatformShiftShortcut(int keyCode) {
         return KeyStroke.getKeyStroke(
                 keyCode, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+    }
+
+    /** Creates an Alt (Windows/Linux) or Cmd (Mac) shortcut for panel navigation. */
+    public static KeyStroke createAltShortcut(int keyCode) {
+        int modifier = SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(keyCode, modifier);
+    }
+
+    /** Creates an Alt+Shift (Windows/Linux) or Cmd+Shift (Mac) shortcut. */
+    public static KeyStroke createAltShiftShortcut(int keyCode) {
+        int modifier = SystemInfo.isMacOS
+                ? KeyEvent.META_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(keyCode, modifier);
     }
 
     /** Creates a simple shortcut with no modifiers. */

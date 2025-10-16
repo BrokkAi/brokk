@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepoFactory;
@@ -707,6 +708,7 @@ public class OpenProjectDialog extends JDialog {
                     }
                 } catch (Exception e) {
                     logger.error("Unexpected error loading GitHub repositories", e);
+                    ExceptionReporter.tryReportException(e);
                     disableGitHubTab("Failed to load GitHub repositories: " + e.getMessage());
                     clearTable(tableModel);
                 }
@@ -769,6 +771,7 @@ public class OpenProjectDialog extends JDialog {
                     clearTable(tableModel);
                 } catch (Exception e) {
                     logger.error("Unexpected error loading GitHub repositories", e);
+                    ExceptionReporter.tryReportException(e);
                     disableGitHubTab("Failed to load GitHub repositories: " + e.getMessage());
                     clearTable(tableModel);
                 }

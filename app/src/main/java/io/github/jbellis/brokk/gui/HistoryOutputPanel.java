@@ -54,9 +54,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -107,8 +110,8 @@ public class HistoryOutputPanel extends JPanel {
     private final JPanel notificationAreaPanel;
 
     private final MaterialButton notificationsButton = new MaterialButton();
-    private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
-    private final java.util.Queue<NotificationEntry> notificationQueue = new java.util.ArrayDeque<>();
+    private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
+    private final Queue<NotificationEntry> notificationQueue = new ConcurrentLinkedQueue<>();
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
 
@@ -216,8 +219,10 @@ public class HistoryOutputPanel extends JPanel {
         this.undoButton = new MaterialButton();
         this.redoButton = new MaterialButton();
         this.sessionComboBox = new JComboBox<>();
-        this.newSessionButton = new SplitButton("New");
-        this.manageSessionsButton = new SplitButton("Manage");
+        this.newSessionButton = new SplitButton("");
+        SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
+        this.manageSessionsButton = new SplitButton("");
+        SwingUtilities.invokeLater(() -> this.manageSessionsButton.setIcon(Icons.SETTINGS));
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
@@ -328,8 +333,8 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Buttons panel
-        // Use GridLayout to make buttons share width equally
-        var buttonsPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
+        // Use BorderLayout to place buttons on opposite ends
+        var buttonsPanel = new JPanel(new BorderLayout());
 
         // Tooltip and action listener for the new session button
         newSessionButton.setToolTipText("Create a new session");
@@ -375,8 +380,8 @@ public class HistoryOutputPanel extends JPanel {
             dialog.setVisible(true);
         });
 
-        buttonsPanel.add(newSessionButton);
-        buttonsPanel.add(manageSessionsButton);
+        buttonsPanel.add(newSessionButton, BorderLayout.WEST);
+        buttonsPanel.add(manageSessionsButton, BorderLayout.EAST);
 
         panel.add(sessionComboBox, BorderLayout.CENTER);
         panel.add(buttonsPanel, BorderLayout.SOUTH);
@@ -890,29 +895,6 @@ public class HistoryOutputPanel extends JPanel {
         // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 
-        copyButton.setMnemonic(KeyEvent.VK_T);
-        copyButton.setToolTipText("Copy the output to clipboard");
-        copyButton.addActionListener(e -> {
-            performContextActionOnLatestHistoryFragment(
-                    WorkspacePanel.ContextAction.COPY, "No active context to copy from.");
-        });
-        // Set minimum size
-        copyButton.setMinimumSize(copyButton.getPreferredSize());
-        buttonsPanel.add(copyButton);
-
-        // "Capture" button
-        SwingUtilities.invokeLater(() -> {
-            captureButton.setIcon(Icons.CONTENT_CAPTURE);
-        });
-        captureButton.setMnemonic(KeyEvent.VK_C);
-        captureButton.setToolTipText("Add the output to context");
-        captureButton.addActionListener(e -> {
-            presentCaptureChoice();
-        });
-        // Set minimum size
-        captureButton.setMinimumSize(captureButton.getPreferredSize());
-        buttonsPanel.add(captureButton);
-
         // "Open in New Window" button
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
@@ -935,34 +917,6 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
-        // "Clear Output" button (drop Task History)
-        SwingUtilities.invokeLater(() -> {
-            clearButton.setIcon(Icons.CLEAR_ALL);
-        });
-        clearButton.setToolTipText("Clear the output");
-        clearButton.addActionListener(e -> {
-            performContextActionOnLatestHistoryFragment(
-                    WorkspacePanel.ContextAction.DROP, "No active context to clear from.");
-        });
-        clearButton.setMinimumSize(clearButton.getPreferredSize());
-        buttonsPanel.add(clearButton);
-
-        // Compress button (icon-only, with improved tooltip)
-        compressButton.setText(null);
-        SwingUtilities.invokeLater(() -> {
-            compressButton.setIcon(Icons.COMPRESS);
-            // Ensure minimum size is computed after icon is applied
-            compressButton.setMinimumSize(compressButton.getPreferredSize());
-        });
-        compressButton.setToolTipText(
-                "<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
-        for (var al : compressButton.getActionListeners()) {
-            compressButton.removeActionListener(al);
-        }
-        // Invoke compression immediately without asking for confirmation.
-        compressButton.addActionListener(e -> contextManager.compressHistoryAsync());
-        buttonsPanel.add(compressButton);
-
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -979,6 +933,56 @@ public class HistoryOutputPanel extends JPanel {
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
         // Compress control moved to left buttons; right-side panel removed
+
+        var popupListener = new MouseAdapter() {
+            private void showPopupMenu(MouseEvent e) {
+                var popup = new JPopupMenu();
+
+                var copyItem = new JMenuItem("Copy Output");
+                copyItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
+                        WorkspacePanel.ContextAction.COPY, "No active context to copy from."));
+                copyItem.setEnabled(copyButton.isEnabled());
+                popup.add(copyItem);
+
+                var captureItem = new JMenuItem("Capture Output...");
+                captureItem.addActionListener(event -> presentCaptureChoice());
+                captureItem.setEnabled(captureButton.isEnabled());
+                popup.add(captureItem);
+
+                popup.addSeparator();
+
+                var clearItem = new JMenuItem("Clear Output");
+                clearItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
+                        WorkspacePanel.ContextAction.DROP, "No active context to clear from."));
+                clearItem.setEnabled(clearButton.isEnabled());
+                popup.add(clearItem);
+
+                var compressItem = new JMenuItem("Compress History");
+                compressItem.addActionListener(event -> contextManager.compressHistoryAsync());
+                compressItem.setEnabled(compressButton.isEnabled());
+                popup.add(compressItem);
+
+                chrome.themeManager.registerPopupMenu(popup);
+                popup.show(e.getComponent(), e.getX(), e.getY());
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showPopupMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showPopupMenu(e);
+                }
+            }
+        };
+        panel.addMouseListener(popupListener);
+        buttonsPanel.addMouseListener(popupListener);
+        notificationAreaPanel.addMouseListener(popupListener);
 
         return panel;
     }
@@ -2578,30 +2582,33 @@ public class HistoryOutputPanel extends JPanel {
         return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
+    /**
+     * Kicks off a background load of the AI-response count for the given session. Runs on a platform thread to avoid
+     * blocking the common ForkJoinPool. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     */
     private void triggerAiCountLoad(SessionInfo session) {
-        var id = session.id();
-        if (sessionAiResponseCounts.containsKey(id) || sessionCountLoading.contains(id)) {
+        final var id = session.id();
+
+        // Fast-path dedupe: if we already have a value or a load is in-flight, bail.
+        if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
             return;
         }
-        sessionCountLoading.add(id);
-        CompletableFuture.supplyAsync(() -> {
-                    try {
-                        var sm = contextManager.getProject().getSessionManager();
-                        var ch = sm.loadHistory(id, contextManager);
-                        if (ch == null) return 0;
-                        return countAiResponses(ch);
-                    } catch (Exception e) {
-                        logger.warn("Failed to load history for session {}", id, e);
-                        return 0;
-                    }
-                })
-                .thenAccept(count -> {
-                    sessionAiResponseCounts.put(id, count);
-                    sessionCountLoading.remove(id);
-                    SwingUtilities.invokeLater(() -> {
-                        sessionComboBox.repaint();
-                    });
-                });
+
+        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
+            int count = 0;
+            try {
+                var sm = contextManager.getProject().getSessionManager();
+                var ch = sm.loadHistory(id, contextManager);
+                count = (ch == null) ? 0 : countAiResponses(ch);
+            } catch (Throwable t) {
+                logger.warn("Failed to load history for session {}", id, t);
+                count = 0;
+            } finally {
+                sessionAiResponseCounts.put(id, count);
+                sessionCountLoading.remove(id);
+                SwingUtilities.invokeLater(sessionComboBox::repaint);
+            }
+        });
     }
 
     private int countAiResponses(ContextHistory ch) {

@@ -416,7 +416,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     // This case might occur if selection changes between menu population and action
                     chrome.toolError("No test files were selected to run");
                 } else {
-                    chrome.getContextManager().runTests(testProjectFiles);
+                    chrome.runTests(testProjectFiles);
                 }
             });
         });

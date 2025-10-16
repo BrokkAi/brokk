@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.Desktop;
@@ -368,23 +369,24 @@ public class MenuBar {
                 windowMenu.removeAll();
 
                 // Add IntelliJ-style sidebar panel switching shortcuts
-                // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
-                int modifier = System.getProperty("os.name")
-                                .toLowerCase(java.util.Locale.ROOT)
-                                .contains("mac")
-                        ? KeyEvent.META_DOWN_MASK
-                        : KeyEvent.ALT_DOWN_MASK;
-
                 var projectFilesItem = new JMenuItem("Project Files");
-                projectFilesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
+                projectFilesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
                 projectFilesItem.addActionListener(actionEvent -> {
                     chrome.getLeftTabbedPanel().setSelectedIndex(0);
                 });
                 windowMenu.add(projectFilesItem);
 
+                var dependenciesItem = new JMenuItem("Dependencies");
+                dependenciesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+                dependenciesItem.addActionListener(actionEvent -> {
+                    var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getDependenciesPanel());
+                    if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                });
+                windowMenu.add(dependenciesItem);
+
                 if (chrome.getProject().hasGit()) {
                     var gitItem = new JMenuItem("Commit");
-                    gitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
+                    gitItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                     gitItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
@@ -394,7 +396,7 @@ public class MenuBar {
 
                 if (chrome.getProject().isGitHubRepo() && chrome.getProject().hasGit()) {
                     var pullRequestsItem = new JMenuItem("Pull Requests");
-                    pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
+                    pullRequestsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                     pullRequestsItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
@@ -406,7 +408,7 @@ public class MenuBar {
                                 != io.github.jbellis.brokk.issues.IssueProviderType.NONE
                         && chrome.getProject().hasGit()) {
                     var issuesItem = new JMenuItem("Issues");
-                    issuesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
+                    issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                     issuesItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);

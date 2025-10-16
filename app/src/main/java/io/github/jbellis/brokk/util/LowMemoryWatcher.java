@@ -27,7 +27,7 @@ public final class LowMemoryWatcher {
     private static final AtomicBoolean ourNotificationsSuppressed = new AtomicBoolean();
 
     public static void onLowMemorySignalReceived(boolean afterGc) {
-        logger.info("Low memory signal received: afterGc={}", afterGc);
+        logger.warn("Low memory signal received: afterGc={}", afterGc);
         for (LowMemoryWatcher watcher : ourListeners.toStrongList()) {
             try {
                 if (watcher.myType == LowMemoryWatcherType.ALWAYS

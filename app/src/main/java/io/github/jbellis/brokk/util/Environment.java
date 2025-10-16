@@ -4,15 +4,20 @@ import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -52,7 +57,7 @@ public class Environment {
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
             (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null);
+                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null, null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -80,7 +85,7 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null, null);
     }
 
     /**
@@ -91,7 +96,18 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, Consumer<String> outputConsumer, Duration timeout, @Nullable IProject project)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project);
+        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project, null);
+    }
+
+    public String runShellCommand(
+            String command,
+            Path root,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable IProject project,
+            @Nullable Consumer<Process> processConsumer)
+            throws SubprocessException, InterruptedException {
+        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project, processConsumer);
     }
 
     /**
@@ -107,7 +123,7 @@ public class Environment {
             Duration timeout,
             @Nullable IProject project)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project, null);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
@@ -117,9 +133,15 @@ public class Environment {
             boolean sandbox,
             Duration timeout,
             Consumer<String> outputConsumer,
-            @Nullable IProject project)
+            @Nullable IProject project,
+            @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        logger.debug("Running internal `{}` in `{}` (sandbox={})", command, root, sandbox);
+        logger.debug(
+                "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
+                command,
+                root,
+                sandbox,
+                processConsumer != null);
 
         String[] shellCommand;
         if (sandbox) {
@@ -200,16 +222,29 @@ public class Environment {
                     logger.warn("invalid custom executor '{}', using system default", config);
                 }
                 // Fall back to system default
-                shellCommand =
-                        isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
+                shellCommand = isWindows()
+                        ? new String[] {"powershell.exe", "-Command", command}
+                        : new String[] {"/bin/sh", "-c", command};
             }
         }
 
         logger.trace("command: {}", String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
+
+        if (project != null) {
+            String jdkPath = project.getJdk();
+            if (jdkPath != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(jdkPath)) {
+                pb.environment().put("JAVA_HOME", jdkPath);
+                logger.debug("Set JAVA_HOME={} for subprocess.", jdkPath);
+            }
+        }
+
         Process process;
         try {
             process = pb.start();
+            if (processConsumer != null) {
+                processConsumer.accept(process);
+            }
         } catch (IOException e) {
             var shell = isWindows() ? "cmd.exe" : "/bin/sh";
             throw new StartupException(
@@ -262,10 +297,9 @@ public class Environment {
         return combinedOutput;
     }
 
-    private static String readStream(java.io.InputStream in, java.util.function.Consumer<String> outputConsumer) {
-        var lines = new java.util.ArrayList<String>();
-        try (var reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+    private static String readStream(InputStream in, Consumer<String> outputConsumer) {
+        var lines = new ArrayList<String>();
+        try (var reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 outputConsumer.accept(line);

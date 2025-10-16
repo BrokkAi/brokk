@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.git;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
@@ -1495,6 +1496,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 });
             } catch (Exception ex) {
                 logger.error("Unexpected error pulling {}: {}", branchName, ex.getMessage(), ex);
+                ExceptionReporter.tryReportException(ex);
                 SwingUtil.runOnEdt(() -> {
                     chrome.toolError("Unexpected error pulling " + branchName + ": " + ex.getMessage());
                     pullButton.setEnabled(true);
@@ -1551,6 +1553,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 });
             } catch (Exception ex) {
                 logger.error("Unexpected error pushing {}: {}", branchName, ex.getMessage(), ex);
+                ExceptionReporter.tryReportException(ex);
                 SwingUtil.runOnEdt(() -> {
                     chrome.toolError("Unexpected error pushing " + branchName + ": " + ex.getMessage());
                     pushButton.setEnabled(true);

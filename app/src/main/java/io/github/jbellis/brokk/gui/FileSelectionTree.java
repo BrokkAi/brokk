@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.awt.*;
@@ -122,7 +123,9 @@ public class FileSelectionTree extends JTree {
         // Parent node doesn't exist, create it and its parents recursively
         Path parentOfTarget = targetParentDirAbs.getParent();
         if (parentOfTarget == null) { // Should not happen if targetParentDirAbs is under projectRoot
+            RuntimeException ex = new IllegalStateException("Unexpected null parent for path: " + targetParentDirAbs);
             logger.error("Unexpected null parent for path: {}", targetParentDirAbs);
+            ExceptionReporter.tryReportException(ex);
             return rootNode; // Fallback
         }
 

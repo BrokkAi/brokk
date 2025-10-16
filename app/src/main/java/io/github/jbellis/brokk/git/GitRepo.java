@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.*;
@@ -10,6 +11,7 @@ import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -51,7 +53,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Repository repository;
     private final Git git;
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
-    private final java.util.function.Supplier<String> tokenSupplier; // Supplier for GitHub token
+    private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
     // New field holding remote-related helpers
@@ -131,10 +133,10 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     public GitRepo(Path projectRoot) {
-        this(projectRoot, () -> io.github.jbellis.brokk.MainProject.getGitHubToken());
+        this(projectRoot, MainProject::getGitHubToken);
     }
 
-    GitRepo(Path projectRoot, java.util.function.Supplier<String> tokenSupplier) {
+    GitRepo(Path projectRoot, Supplier<String> tokenSupplier) {
         this.projectRoot = projectRoot;
         this.tokenSupplier = tokenSupplier;
 
@@ -409,7 +411,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Adds files to staging. */
     @Override
-    public synchronized void add(List<ProjectFile> files) throws GitAPIException {
+    public synchronized void add(Collection<ProjectFile> files) throws GitAPIException {
         var addCommand = git.add();
         for (var file : files) {
             addCommand.addFilepattern(toRepoRelativePath(file));
@@ -477,8 +479,8 @@ public class GitRepo implements Closeable, IGitRepo {
             // HEAD (unchanged) files
             ObjectId headTreeId = null;
             try {
-                headTreeId = resolve("HEAD^{tree}");
-            } catch (GitRepoException e) {
+                headTreeId = resolveToObject("HEAD^{tree}");
+            } catch (GitAPIException e) {
                 // HEAD^{tree} might not exist in empty repos - this is allowed
                 logger.debug("HEAD^{{tree}} not resolvable: {}", e.getMessage());
             }
@@ -521,7 +523,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Get the current commit ID (HEAD) */
     @Override
     public String getCurrentCommitId() throws GitAPIException {
-        var head = resolve("HEAD");
+        var head = resolveToCommit("HEAD");
         return head.getName();
     }
 
@@ -531,7 +533,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public String shortHash(String rev) {
         try {
-            var id = resolve(rev);
+            var id = resolveToObject(rev);
             try (var reader = repository.newObjectReader()) {
                 var abbrev = reader.abbreviate(id);
                 return abbrev.name();
@@ -1010,7 +1012,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return The result of the merge operation.
      */
     public MergeResult mergeIntoHead(String branchName) throws GitAPIException {
-        var result = git.merge().include(resolve(branchName)).call();
+        var result = git.merge().include(resolveToCommit(branchName)).call();
 
         logger.trace("Merge result status: {}", result.getMergeStatus());
         logger.trace("isSuccessful(): {}", result.getMergeStatus().isSuccessful());
@@ -1048,7 +1050,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Perform squash merge
-        ObjectId resolvedBranch = resolve(branchName);
+        ObjectId resolvedBranch = resolveToCommit(branchName);
 
         // Check repository state before merge
         var status = git.status().call();
@@ -1145,7 +1147,7 @@ public class GitRepo implements Closeable, IGitRepo {
             checkout(tempRebaseBranchName);
 
             // Rebase the temporary branch onto target
-            ObjectId resolvedTarget = resolve(targetBranch);
+            ObjectId resolvedTarget = resolveToCommit(targetBranch);
             var rebaseResult = git.rebase().setUpstream(resolvedTarget).call();
 
             if (!isRebaseSuccessful(rebaseResult)) {
@@ -1230,15 +1232,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Revert a specific commit */
     public void revertCommit(String commitId) throws GitAPIException {
-        try {
-            var resolvedCommit = repository.resolve(commitId);
-            if (resolvedCommit == null) {
-                throw new GitRepoException("Unable to resolve commit: " + commitId, new NoSuchElementException());
-            }
-            git.revert().include(resolvedCommit).call();
-        } catch (IOException e) {
-            throw new GitRepoException("Unable to resolve" + commitId, e);
-        }
+        var resolvedCommit = resolveToCommit(commitId);
+        git.revert().include(resolvedCommit).call();
         invalidateCaches();
     }
 
@@ -1253,7 +1248,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Cherry-picks a commit onto the current HEAD (typically the current branch). */
     public CherryPickResult cherryPickCommit(String commitId) throws GitAPIException {
-        var objectId = resolve(commitId);
+        var objectId = resolveToCommit(commitId);
         var result = git.cherryPick().include(objectId).call();
         invalidateCaches();
         return result;
@@ -1319,7 +1314,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @throws GitAPIException if there's an error accessing Git data.
      */
     public Optional<CommitInfo> getLocalCommitInfo(String commitId) throws GitAPIException {
-        var objectId = resolve(commitId);
+        var objectId = resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var revCommit = revWalk.parseCommit(objectId);
@@ -1334,31 +1329,38 @@ public class GitRepo implements Closeable, IGitRepo {
     public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {}
 
     /** List commits with detailed information for a specific branch */
-    public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
+    public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) throws GitAPIException {
         var commits = new ArrayList<CommitInfo>();
         var logCommand = git.log();
 
         if (!branchName.isEmpty()) {
             try {
-                logCommand.add(resolve(branchName));
+                logCommand.add(resolveToCommit(branchName));
             } catch (MissingObjectException | IncorrectObjectTypeException e) {
                 throw new GitWrappedIOException(e);
             }
         }
 
+        // Respect maxResults when a finite limit is requested.
+        if (maxResults < Integer.MAX_VALUE) {
+            logCommand.setMaxCount(maxResults);
+        }
+
         for (var commit : logCommand.call()) {
-            // Use factory method
             commits.add(this.fromRevCommit(commit));
         }
         return commits;
     }
 
+    public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
+        return listCommitsDetailed(branchName, Integer.MAX_VALUE);
+    }
     /**
      * Lists files changed in a specific commit compared to its primary parent. For an initial commit, lists all files
      * in that commit.
      */
     public List<ProjectFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        var commitObjectId = resolve(commitId);
+        var commitObjectId = resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(commitObjectId);
@@ -1393,8 +1395,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public List<ProjectFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
             throws GitAPIException {
-        var newObjectId = resolve(newCommitId);
-        var oldObjectId = resolve(oldCommitId);
+        var newObjectId = resolveToCommit(newCommitId);
+        var oldObjectId = resolveToCommit(oldCommitId);
 
         if (newObjectId.equals(oldObjectId)) {
             logger.debug(
@@ -1428,8 +1430,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Deprecated
     public List<ProjectFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId)
             throws GitAPIException {
-        var firstCommitObj = resolve(firstCommitId);
-        var lastCommitObj = resolve(lastCommitId + "^"); // Note the parent operator here
+        var firstCommitObj = resolveToCommit(firstCommitId);
+        var lastCommitObj = resolveToCommit(lastCommitId + "^"); // Note the parent operator here
 
         try (var revWalk = new RevWalk(repository)) {
             var firstCommit = revWalk.parseCommit(firstCommitObj); // "new"
@@ -1457,7 +1459,7 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public ObjectId resolve(String revstr) throws GitAPIException {
+    public ObjectId resolveToObject(String revstr) throws GitAPIException {
         try {
             var id = repository.resolve(revstr);
             if (id == null) {
@@ -1465,7 +1467,42 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             return id;
         } catch (IOException e) {
-            throw new GitRepoException("Unable to resolve " + revstr, e);
+            throw new GitWrappedIOException("Unable to resolve " + revstr, e);
+        }
+    }
+
+    @Override
+    public ObjectId resolveToCommit(String revstr) throws GitAPIException {
+        // Prefer JGit rev-spec peeling first
+        try {
+            var commitId = repository.resolve(revstr.endsWith("^{commit}") ? revstr : (revstr + "^{commit}"));
+            if (commitId != null) {
+                return commitId;
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException("Unable to resolve commit-ish " + revstr, e);
+        }
+
+        // Fallback: resolve to any object and try to peel with RevWalk
+        var anyId = resolveToObject(revstr);
+        try (var rw = new RevWalk(repository)) {
+            try {
+                var commit = rw.parseCommit(anyId);
+                return commit.getId();
+            } catch (IncorrectObjectTypeException e) {
+                try {
+                    var any = rw.parseAny(anyId);
+                    var peeled = rw.peel(any);
+                    if (peeled instanceof RevCommit rc) {
+                        return rc.getId();
+                    }
+                    throw new GitStateException("Reference does not resolve to a commit: " + revstr);
+                } catch (IOException ioEx) {
+                    throw new GitWrappedIOException("Unable to peel object to commit for " + revstr, ioEx);
+                }
+            } catch (IOException e) {
+                throw new GitWrappedIOException("Unable to parse commit-ish " + revstr, e);
+            }
         }
     }
 
@@ -1663,7 +1700,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Returns the full (multi-line) commit message for the given commit id. */
     public String getCommitFullMessage(String commitId) throws GitAPIException {
-        var objId = resolve(commitId);
+        var objId = resolveToCommit(commitId);
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(objId);
             return commit.getFullMessage();
@@ -1672,19 +1709,23 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Get the commit history for a specific file */
-    private List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
+    /** Get the commit history for specific files */
+    public List<CommitInfo> getFileHistory(ProjectFile file, int maxResults) throws GitAPIException {
         var commits = new LinkedHashSet<CommitInfo>();
-        var path = toRepoRelativePath(file);
         try {
-            var headId = resolve("HEAD");
+            var headId = resolveToCommit("HEAD");
+            var diffconfig = repository.getConfig().get(DiffConfig.KEY);
+
+            var path = toRepoRelativePath(file);
             try (var revWalk = new RevWalk(repository)) {
-                var diffconfig = repository.getConfig().get(DiffConfig.KEY);
                 revWalk.setTreeFilter(FollowFilter.create(path, diffconfig));
                 revWalk.markStart(revWalk.parseCommit(headId));
 
                 for (var commit : revWalk) {
                     commits.add(this.fromRevCommit(commit));
+                    if (commits.size() >= maxResults) {
+                        return new ArrayList<>(commits);
+                    }
                 }
             }
         } catch (IOException e) {
@@ -1697,14 +1738,14 @@ public class GitRepo implements Closeable, IGitRepo {
     public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
 
     /**
-     * Like {@link #getFileHistory(ProjectFile)} but also returns, for each commit, the path the file had *in that
-     * commit* (following renames backwards).
+     * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that commit* (following
+     * renames backwards).
      *
      * @param file the file (at its current path) whose history we want
      */
     public List<FileHistoryEntry> getFileHistoryWithPaths(ProjectFile file) throws GitAPIException {
         // 1. normal commit list, newest → oldest (already follows renames)
-        var commits = getFileHistory(file);
+        var commits = getFileHistory(file, Integer.MAX_VALUE);
         if (commits.isEmpty()) {
             return new ArrayList<>();
         }
@@ -1769,6 +1810,103 @@ public class GitRepo implements Closeable, IGitRepo {
             }
         }
         return results;
+    }
+
+    /**
+     * Collect commit history for multiple files using a single RevWalk.
+     * Follows renames by diffing each commit to its parent with DiffFormatter (rename detection on).
+     *
+     * Strategy:
+     *  - Start with each file's current repo-relative path.
+     *  - Walk commits from HEAD backwards (commit-time desc).
+     *  - For each commit, diff(parent, commit). If a diff entry touches a tracked path:
+     *      - record the commit for that file
+     *      - if it's a RENAME where newPath == trackedPath, update trackedPath := oldPath
+     *  - Once a file accumulates maxResults, stop tracking it.
+     *  - Early-exit when all files are satisfied.
+     *
+     * Notes:
+     *  - Uses first parent only for speed. If you need true merge-aware attribution, iterate all parents
+     *    (slower) or make it a toggle.
+     *  - Bodies are not retained (RevWalk#setRetainBody(false)).
+     */
+    public List<CommitInfo> getFileHistories(Collection<ProjectFile> files, int maxResults) throws GitAPIException {
+        if (files.isEmpty() || maxResults <= 0) return List.of();
+
+        final Map<ProjectFile, String> trackedPath = new LinkedHashMap<>();
+        for (var f : files) trackedPath.put(f, toRepoRelativePath(f));
+
+        final Map<ProjectFile, List<CommitInfo>> results = new LinkedHashMap<>();
+        final Set<ProjectFile> active = new LinkedHashSet<>(files);
+        for (var f : files) results.put(f, new ArrayList<>(Math.min(maxResults, 32)));
+
+        try (var revWalk = new RevWalk(repository);
+                var df = new org.eclipse.jgit.diff.DiffFormatter(
+                        org.eclipse.jgit.util.io.DisabledOutputStream.INSTANCE)) {
+
+            var headId = resolveToCommit("HEAD");
+            var head = revWalk.parseCommit(headId);
+
+            // Keep headers only for speed; we'll parse bodies lazily on demand.
+            revWalk.setRetainBody(false);
+            revWalk.sort(RevSort.COMMIT_TIME_DESC, true);
+            revWalk.markStart(head);
+
+            df.setRepository(repository);
+            df.setDetectRenames(true);
+
+            for (var commit : revWalk) {
+                if (active.isEmpty()) break;
+
+                RevCommit parent = (commit.getParentCount() > 0) ? revWalk.parseCommit(commit.getParent(0)) : null;
+                final var newTree = commit.getTree();
+                final var oldTree = (parent == null) ? null : parent.getTree();
+
+                final List<DiffEntry> diffs = df.scan(oldTree, newTree);
+                if (diffs.isEmpty()) continue;
+
+                final Set<String> currentPaths = new HashSet<>();
+                for (var f : active) currentPaths.add(trackedPath.get(f));
+
+                boolean anyHit = false;
+                final Map<ProjectFile, String> backRename = new HashMap<>();
+
+                for (var de : diffs) {
+                    final String newPath = de.getNewPath();
+                    if (!currentPaths.contains(newPath)) continue;
+
+                    for (var f : active) {
+                        if (!Objects.equals(trackedPath.get(f), newPath)) continue;
+
+                        // We’re about to read the short message → ensure the body is available.
+                        // This is cheap and only runs for commits we actually keep.
+                        revWalk.parseBody(commit);
+
+                        var commits = requireNonNull(results.get(f));
+                        commits.add(fromRevCommit(commit));
+                        anyHit = true;
+
+                        if (de.getChangeType() == DiffEntry.ChangeType.RENAME) {
+                            backRename.put(f, de.getOldPath());
+                        }
+                    }
+                }
+
+                trackedPath.putAll(backRename);
+                if (anyHit) {
+                    active.removeIf(f -> requireNonNull(results.get(f)).size() >= maxResults);
+                }
+            }
+
+            return results.values().stream()
+                    .flatMap(List::stream)
+                    .distinct()
+                    .sorted((a, b) -> b.date().compareTo(a.date()))
+                    .toList();
+
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
     }
 
     /**
@@ -1903,7 +2041,11 @@ public class GitRepo implements Closeable, IGitRepo {
 
     static class GitWrappedIOException extends GitAPIException {
         public GitWrappedIOException(IOException e) {
-            super(e.getMessage(), e);
+            this(e.getMessage() != null ? e.getMessage() : e.toString(), e);
+        }
+
+        public GitWrappedIOException(String message, IOException e) {
+            super(message, e);
         }
     }
 
@@ -1950,16 +2092,16 @@ public class GitRepo implements Closeable, IGitRepo {
      * branch names, tags, commit IDs, etc.
      */
     public @Nullable String getMergeBase(String revA, String revB) throws GitAPIException {
-        var idA = resolve(revA);
-        var idB = resolve(revB);
+        var idA = resolveToCommit(revA);
+        var idB = resolveToCommit(revB);
         var mb = computeMergeBase(idA, idB);
         return mb == null ? null : mb.getName();
     }
 
     /** Returns true if the given commit is reachable from the specified base ref (e.g., "HEAD" or a branch name). */
     public boolean isCommitReachableFrom(String commitId, String baseRef) throws GitAPIException {
-        var commitObj = resolve(commitId);
-        var baseObj = resolve(baseRef);
+        var commitObj = resolveToCommit(commitId);
+        var baseObj = resolveToCommit(baseRef);
         try (var revWalk = new RevWalk(repository)) {
             RevCommit commit = revWalk.parseCommit(commitObj);
             RevCommit base = revWalk.parseCommit(baseObj);
@@ -2048,8 +2190,8 @@ public class GitRepo implements Closeable, IGitRepo {
             String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget)
             throws GitAPIException {
         List<RevCommit> commits = new ArrayList<>();
-        ObjectId sourceHead = resolve(sourceBranchName);
-        ObjectId targetHead = resolve(targetBranchName);
+        ObjectId sourceHead = resolveToCommit(sourceBranchName);
+        ObjectId targetHead = resolveToCommit(targetBranchName);
 
         // targetHead can be null if the target branch doesn't exist (e.g. creating a PR to a new remote branch)
 
@@ -2102,9 +2244,9 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
             throws GitAPIException {
-        ObjectId sourceHeadId = resolve(sourceBranch);
+        ObjectId sourceHeadId = resolveToCommit(sourceBranch);
 
-        ObjectId targetHeadId = resolve(targetBranch); // Can be null if target branch doesn't exist
+        ObjectId targetHeadId = resolveToCommit(targetBranch); // Can be null if target branch doesn't exist
         logger.debug(
                 "Resolved source branch '{}' to {}, target branch '{}' to {}",
                 sourceBranch,
@@ -2245,8 +2387,8 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new WorktreeDirtyException("Target worktree has uncommitted changes.");
         }
 
-        ObjectId worktreeBranchId = resolve(worktreeBranchName);
-        ObjectId targetBranchId = resolve(targetBranchName);
+        ObjectId worktreeBranchId = resolveToCommit(worktreeBranchName);
+        ObjectId targetBranchId = resolveToCommit(targetBranchName);
 
         // Create a unique temporary directory for the worktree inside .git/worktrees
         // to avoid cross-device issues and for easier cleanup.

@@ -102,6 +102,7 @@ public final class MainProject extends AbstractProject {
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
+    private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -341,6 +342,10 @@ public final class MainProject extends AbstractProject {
             }
             saveProjectProperties();
         }
+        setBuildDetails(details);
+    }
+
+    public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
         }
@@ -1127,6 +1132,17 @@ public final class MainProject extends AbstractProject {
     public static void setCodeBlockWrapMode(boolean wrap) {
         var props = loadGlobalProperties();
         props.setProperty("wordWrap", String.valueOf(wrap));
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getExceptionReportingEnabled() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "false"));
+    }
+
+    public static void setExceptionReportingEnabled(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(EXCEPTION_REPORTING_ENABLED_KEY, String.valueOf(enabled));
         saveGlobalProperties(props);
     }
 

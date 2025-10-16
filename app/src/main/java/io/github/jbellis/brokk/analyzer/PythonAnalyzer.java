@@ -5,7 +5,6 @@ import static io.github.jbellis.brokk.analyzer.python.PythonTreeSitterNodeTypes.
 import io.github.jbellis.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
@@ -39,12 +38,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes
             );
 
-    public PythonAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.PYTHON, excludedFiles);
+    public PythonAnalyzer(IProject project) {
+        super(project, Languages.PYTHON);
     }
 
-    public PythonAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    private PythonAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.PYTHON, state);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new PythonAnalyzer(getProject(), state);
     }
 
     @Override

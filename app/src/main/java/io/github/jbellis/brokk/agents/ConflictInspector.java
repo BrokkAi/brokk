@@ -267,7 +267,7 @@ public final class ConflictInspector {
         var repository = repo.getGit().getRepository();
         var gitDir = repository.getDirectory().toPath();
 
-        var ourCommitId = repo.resolve("HEAD").getName();
+        var ourCommitId = repo.resolveToCommit("HEAD").getName();
 
         MergeAgent.MergeMode state = null;
         Path headFile = null;
@@ -515,7 +515,7 @@ public final class ConflictInspector {
         }
 
         // 3) Final fallback: HEAD (best-effort to avoid crashing the UI)
-        var head = repo.resolve("HEAD").getName();
+        var head = repo.resolveToCommit("HEAD").getName();
         logger.warn("deriveOtherForSquash: could not determine OTHER; falling back to HEAD={}", head);
         return head;
     }

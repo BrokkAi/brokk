@@ -1489,7 +1489,7 @@ public class BlitzForgeDialog extends JDialog {
                 tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
             } else {
                 var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages, Set.of());
+                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
             }
 
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

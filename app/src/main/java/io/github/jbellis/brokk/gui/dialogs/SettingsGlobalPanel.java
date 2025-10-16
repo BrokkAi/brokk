@@ -288,6 +288,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Panel navigation
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
+        adder.add("panel.switchToDependencies", "Switch to Dependencies");
         adder.add("panel.switchToChanges", "Switch to Changes");
         adder.add("panel.switchToWorktrees", "Switch to Worktrees");
         adder.add("panel.switchToLog", "Switch to Log");
@@ -429,6 +430,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.openSettings",
             "global.closeWindow",
             "panel.switchToProjectFiles",
+            "panel.switchToDependencies",
             "panel.switchToChanges",
             "panel.switchToWorktrees",
             "panel.switchToLog",
@@ -469,6 +471,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.openSettings" -> "Open Settings";
             case "global.closeWindow" -> "Close Window";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
+            case "panel.switchToDependencies" -> "Switch to Dependencies";
             case "panel.switchToChanges" -> "Switch to Changes";
             case "panel.switchToWorktrees" -> "Switch to Worktrees";
             case "panel.switchToLog" -> "Switch to Log";
@@ -499,6 +502,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.openSettings",
             "global.closeWindow",
             "panel.switchToProjectFiles",
+            "panel.switchToDependencies",
             "panel.switchToChanges",
             "panel.switchToWorktrees",
             "panel.switchToLog",
@@ -2891,7 +2895,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToChanges() {
+    private static javax.swing.KeyStroke defaultSwitchToDependencies() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -2899,7 +2903,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToWorktrees() {
+    private static javax.swing.KeyStroke defaultSwitchToChanges() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -2907,7 +2911,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToLog() {
+    private static javax.swing.KeyStroke defaultSwitchToWorktrees() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -2915,7 +2919,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToPullRequests() {
+    private static javax.swing.KeyStroke defaultSwitchToLog() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -2923,12 +2927,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToIssues() {
+    private static javax.swing.KeyStroke defaultSwitchToPullRequests() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
                         : java.awt.event.KeyEvent.ALT_DOWN_MASK;
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_6, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToIssues() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, modifier);
     }
 
     // General navigation defaults
@@ -3015,6 +3027,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             // Panel navigation
             case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
+            case "panel.switchToDependencies" -> defaultSwitchToDependencies();
             case "panel.switchToChanges" -> defaultSwitchToChanges();
             case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
             case "panel.switchToLog" -> defaultSwitchToLog();

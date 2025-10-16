@@ -121,45 +121,6 @@ class ContextManagerTest {
     }
 
     @Test
-    public void testPushContextQuietlyDoesNotReloadFiles() throws Exception {
-        var tempDir = Files.createTempDirectory("ctxmgr-quiet-test");
-        var project = new MainProject(tempDir);
-        var cm = new ContextManager(project);
-        cm.createHeadless();
-
-        // 1. Add a file to context
-        var testFile = new ProjectFile(tempDir, "TestFile.java");
-        testFile.create();
-        testFile.write("original content");
-        cm.addFiles(Set.of(testFile));
-
-        // Get the original content from the PathFragment
-        var originalFragment = cm.topContext()
-                .fileFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .findFirst()
-                .orElseThrow();
-        var originalText = originalFragment.text();
-        assertEquals("original content", originalText);
-
-        // 2. Modify the file on disk
-        testFile.write("modified content");
-
-        // 3. Push quietly with a StringFragment
-        var stringFragment = new ContextFragment.StringFragment(cm, "test content", "test", "text/plain");
-        cm.pushContextQuietly(ctx -> ctx.addVirtualFragment(stringFragment));
-
-        // 4. Verify the PathFragment text is unchanged (not reloaded)
-        var fragmentAfterQuietPush = cm.topContext()
-                .fileFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .findFirst()
-                .orElseThrow();
-        var textAfterQuietPush = fragmentAfterQuietPush.text();
-        assertEquals("original content", textAfterQuietPush, "PathFragment should not have reloaded file content");
-    }
-
-    @Test
     public void testAddPathFragmentsEmptyIsNoOp() throws Exception {
         var tempDir = Files.createTempDirectory("ctxmgr-empty-pathfrags");
         var project = new MainProject(tempDir);

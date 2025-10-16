@@ -1,14 +1,10 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.git.GitDistance;
-import io.github.jbellis.brokk.git.GitRepo;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
@@ -45,27 +41,6 @@ public class AnalyzerUtil {
         });
 
         return results;
-    }
-
-    public static List<ProjectFile> combinedRankingFor(IProject project, Map<ProjectFile, Double> weightedSeeds) {
-        logger.trace("Computing relevant code unit ranking for {}", weightedSeeds);
-
-        List<IAnalyzer.FileRelevance> results;
-        try {
-            final GitRepo repo = (GitRepo) project.getRepo();
-            final int k = 3 * Context.MAX_AUTO_CONTEXT_FILES;
-            if (weightedSeeds.isEmpty()) {
-                results = GitDistance.getMostImportantFiles(repo, k);
-            } else {
-                results = GitDistance.getPMI(repo, weightedSeeds, k, false);
-            }
-        } catch (GitAPIException e) {
-            logger.error("Unable to calculate GitDistance PMI Ranking");
-            return List.of();
-        }
-
-        logger.trace("Code Unit Ranking results: {}", results);
-        return results.stream().map(IAnalyzer.FileRelevance::file).toList();
     }
 
     public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes) {

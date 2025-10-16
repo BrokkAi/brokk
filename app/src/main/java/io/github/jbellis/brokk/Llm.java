@@ -259,6 +259,7 @@ public class Llm {
                 logger.error(e);
                 errorRef.set(e);
                 completed.set(true);
+                ExceptionReporter.tryReportException(e);
             } finally {
                 if (firstToken.get()) {
                     firstToken.set(false);
@@ -1597,5 +1598,14 @@ public class Llm {
         public StreamingResult withRetryCount(int retries) {
             return new StreamingResult(chatResponse, error, retries);
         }
+    }
+
+    public StreamingChatModel getModel() {
+        return this.model;
+    }
+
+    @Override
+    public String toString() {
+        return "LLM[" + model.provider().toString() + "]";
     }
 }

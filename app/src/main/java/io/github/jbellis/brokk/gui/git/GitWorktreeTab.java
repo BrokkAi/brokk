@@ -1221,10 +1221,8 @@ public class GitWorktreeTab extends JPanel {
                                 JOptionPane.ERROR_MESSAGE));
                     }
                 }
-                SwingUtilities.invokeLater(() -> {
-                    loadWorktrees(); // Refresh this tab
-                    chrome.updateGitRepo(); // Refresh other Git-related UI in the Chrome
-                });
+                loadWorktrees(); // Refresh this tab
+                chrome.updateGitRepo(); // Refresh other Git-related UI in the Chrome
             }
             return null;
         });

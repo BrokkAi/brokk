@@ -16,13 +16,14 @@ import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -43,6 +44,7 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -166,6 +168,7 @@ public class BuildAgent {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");
+                ExceptionReporter.tryReportException(e);
                 return BuildDetails.EMPTY;
             }
 
@@ -244,6 +247,15 @@ public class BuildAgent {
     private List<ChatMessage> buildPrompt() {
         List<ChatMessage> messages = new ArrayList<>();
 
+        String wrapperScriptInstruction;
+        if (Environment.isWindows()) {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+        } else {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
+        }
+
         // System Prompt
         messages.add(new SystemMessage(
                 """
@@ -271,7 +283,7 @@ public class BuildAgent {
                                        | **pytest**        | `pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
                                        | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
 
-                                       Prefer the repository-local *wrapper script* when it exists in the project root (e.g. `./gradlew`, `./mvnw`).
+                                       %s
                                        Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
 
@@ -282,6 +294,7 @@ public class BuildAgent {
                                        Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                                        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
                                        """
+                        .formatted(wrapperScriptInstruction)
                         .stripIndent()));
 
         // Add existing history
@@ -391,16 +404,10 @@ public class BuildAgent {
         public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
     }
 
-    /**
-     * Asynchronously determines the best verification command based on the user goal, workspace summary, and stored
-     * BuildDetails. Runs on the ContextManager's background task executor. Determines the command by checking for
-     * relevant test files in the workspace and the availability of a specific test command in BuildDetails.
-     *
-     * @param cm The ContextManager instance.
-     * @return A CompletableFuture containing the suggested verification command string (either specific test command or
-     *     build/lint command), or null if BuildDetails are unavailable.
-     */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+    /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
+    public static @Nullable String determineVerificationCommand(Context ctx) {
+        var cm = ctx.getContextManager();
+
         // Retrieve build details from the project associated with the ContextManager
         BuildDetails details = cm.getProject().loadBuildDetails();
 
@@ -413,20 +420,18 @@ public class BuildAgent {
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), details.testAllCommand());
+            return details.testAllCommand();
         }
 
-        // Proceed with workspace-specific test determination
-        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
+        // Proceed with workspace-specific test determination (based on the provided Context)
+        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
 
         // Get ProjectFiles from editable and read-only fragments
-        var topContext = cm.topContext();
         var projectFilesFromEditableOrReadOnly =
-                topContext.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
+                ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = topContext
-                .virtualFragments()
+        var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
@@ -440,16 +445,21 @@ public class BuildAgent {
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.getSummary(cm.topContext().allFragments());
+            var summaries = ContextFragment.getSummary(ctx.allFragments());
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),
                     summaries,
                     getBuildLintAllCommand(details));
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
+            return getBuildLintAllCommand(details);
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+    }
+
+    /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
+    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+        return determineVerificationCommand(cm.topContext());
     }
 
     /**
@@ -460,30 +470,6 @@ public class BuildAgent {
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
         return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
-    }
-
-    private static String prefixWithJavaHomeIfNeeded(IProject project, String command) {
-        if (command.isBlank()) {
-            return command;
-        }
-        // Only prefix for Java projects
-        if (project.getBuildLanguage() != Languages.JAVA) {
-            return command;
-        }
-        var trimmed = command.stripLeading();
-        if (trimmed.startsWith("JAVA_HOME=")) {
-            return command;
-        }
-
-        String jdk = project.getJdk();
-        if (JAVA_HOME_SENTINEL.equals(jdk)) {
-            var env = System.getenv("JAVA_HOME");
-            jdk = (env == null || env.isBlank()) ? null : env;
-        }
-        if (jdk == null || jdk.isBlank()) {
-            return command;
-        }
-        return "JAVA_HOME=" + jdk + " " + command;
     }
 
     public static String getBuildLintSomeCommand(
@@ -500,7 +486,7 @@ public class BuildAgent {
             logger.debug(
                     "Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}",
                     getBuildLintAllCommand(details));
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
+            return getBuildLintAllCommand(details);
         }
 
         List<String> targetItems;
@@ -519,7 +505,7 @@ public class BuildAgent {
 
             if (analyzer.isEmpty()) {
                 logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
-                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
+                return details.buildLintCommand();
             }
 
             var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
@@ -533,7 +519,7 @@ public class BuildAgent {
                 logger.debug(
                         "No classes found in workspace test files for class-based template, using build/lint command: {}",
                         details.buildLintCommand());
-                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
+                return details.buildLintCommand();
             }
             logger.debug("Using classes-based template with {} classes", targetItems.size());
         }
@@ -542,7 +528,7 @@ public class BuildAgent {
         String listKey = isFilesBased ? "files" : (isFqBased ? "fqclasses" : "classes");
         String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, listKey);
         logger.debug("Interpolated test command: '{}'", interpolatedCommand);
-        return prefixWithJavaHomeIfNeeded(cm.getProject(), interpolatedCommand);
+        return interpolatedCommand;
     }
 
     private static String getBuildLintAllCommand(BuildDetails details) {
@@ -556,7 +542,7 @@ public class BuildAgent {
      * Interpolates a Mustache template with the given list of items. Supports {{files}} and {{classes}} variables with
      * {{^-last}} separators.
      */
-    private static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         if (template.isEmpty()) {
             return "";
         }
@@ -585,34 +571,54 @@ public class BuildAgent {
      * text.
      */
     public static String runVerification(IContextManager cm) throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runVerification(ctx);
+            } catch (InterruptedException e) {
+                // Preserve interrupt status and defer propagation until after pushContext returns
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
+    }
+
+    /**
+     * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
+     * are performed here; callers decide when to persist.
+     */
+    public static Context runVerification(Context ctx) throws InterruptedException {
+        var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        var verificationCommand = determineVerificationCommand(cm);
+        var verificationCommand = determineVerificationCommand(ctx);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
-            // Do not update BuildFragment; success/failure unknown and not a failure.
-            return "";
+            return ctx; // unchanged
         }
 
-        // Enforce single-build execution when requested
         boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
         if (noConcurrentBuilds) {
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
-            // The lock is implemented using a FileChannel/FileLock; keep the channel/lock inside the record and close
-            // it after execution.
             try (var ignored = lock) {
                 logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             } catch (Exception e) {
                 logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
         } else {
-            return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
         }
     }
 
@@ -673,9 +679,10 @@ public class BuildAgent {
         throw new IllegalArgumentException("Unable to parse git repo url " + url);
     }
 
-    /** @return the text of the new BuildFragment (may have been preprocessed by quickestModel) */
-    private static String runBuildAndUpdateFragmentInternal(IContextManager cm, String verificationCommand)
+    /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
+    private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
             throws InterruptedException {
+        var cm = ctx.getContextManager();
         var io = cm.getIo();
 
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
@@ -689,16 +696,14 @@ public class BuildAgent {
                     Environment.UNLIMITED_TIMEOUT);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
 
-            cm.updateBuildFragment(true, "Build succeeded.");
             logger.debug("Verification command successful. Output: {}", output);
-            return "";
+            return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
             io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
-            cm.updateBuildFragment(false, "Build output:\n" + processed);
-            return processed;
+            return ctx.withBuildResult(false, "Build output:\n" + processed);
         }
     }
 }

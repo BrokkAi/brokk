@@ -27,7 +27,11 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
+import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
+import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -189,12 +193,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
 
+    private final JTabbedPane rightTabbedPanel; // Instructions and other right-side tabs
+
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
+    private final TestRunnerPanel testRunnerPanel;
     private final DependenciesPanel dependenciesPanel;
 
     // Git
@@ -233,10 +240,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
+    private final TaskListPanel taskListPanel;
+    private final TerminalPanel terminalPanel;
 
-    // Right-hand drawer (tools) - split and content
-    private DrawerSplitPanel instructionsDrawerSplit;
-    private TerminalDrawerPanel terminalDrawer;
+    // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
+    private @Nullable TerminalDrawerPanel terminalDrawer = null;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -309,19 +317,27 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         showNotification(
                 NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
+        // Test runner persistence and panel
+        var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
+        var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
+        this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
+
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager, this.testRunnerPanel);
         dependenciesPanel = new DependenciesPanel(this);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+
         var projectIcon = Icons.FOLDER_CODE;
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
-        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
+        var projectShortcut =
+                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files (" + projectShortcut + ")");
         leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
         projectTabLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -334,7 +350,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var dependenciesIcon = Icons.MANAGE_DEPENDENCIES;
         leftTabbedPanel.addTab(null, dependenciesIcon, dependenciesPanel);
         var dependenciesTabIdx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-        var dependenciesTabLabel = createSquareTabLabel(dependenciesIcon, "Dependencies");
+        var dependenciesShortcut =
+                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        var dependenciesTabLabel =
+                createSquareTabLabel(dependenciesIcon, "Dependencies (" + dependenciesShortcut + ")");
         leftTabbedPanel.setTabComponentAt(dependenciesTabIdx, dependenciesTabLabel);
         dependenciesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -354,7 +373,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
             leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
             var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes");
+            var changesShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
             gitTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -367,7 +388,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var worktreeIcon = Icons.FLOWCHART;
             leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
             var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-            var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees");
+            var worktreesShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+            var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
             worktreeTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -380,7 +403,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var logIcon = Icons.FLOWSHEET;
             leftTabbedPanel.addTab(null, logIcon, gitLogTab);
             var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
-            var logTabLabel = createSquareTabLabel(logIcon, "Log");
+            var logShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+            var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
             leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
             logTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -389,9 +414,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
 
-            // Initial refreshes
-            updateGitRepo();
-            projectFilesPanel.updatePanel();
+            // Initial refreshes are now done in the background
+            contextManager.submitBackgroundTask("Loading project state", () -> {
+                updateGitRepo();
+                projectFilesPanel.updatePanel();
+                return null;
+            });
         } else {
             gitCommitTab = null;
             gitLogTab = null;
@@ -404,7 +432,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var prIcon = Icons.PULL_REQUEST;
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-            var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
+            var prShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+            var prLabel = createSquareTabLabel(prIcon, "Pull Requests (" + prShortcut + ")");
             leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
             prLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -420,7 +450,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var issIcon = Icons.ADJUST;
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
-            var issLabel = createSquareTabLabel(issIcon, "Issues");
+            var issuesShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+            var issLabel = createSquareTabLabel(issIcon, "Issues (" + issuesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
             issLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -445,20 +477,47 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
 
-        // Create terminal drawer panel
-        instructionsDrawerSplit = new DrawerSplitPanel();
-        // Ensure bottom area doesn't get squeezed to near-zero height on first layout after swaps
-        // This is the minimum height for the Instructions+Drawer when the workspace is hidden.
-        instructionsDrawerSplit.setMinimumSize(new Dimension(200, 325));
-        terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
+        // Create right-side tabbed panel with Instructions as first tab (with icons)
+        rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
+        rightTabbedPanel.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
+        rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
 
-        // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setParentComponent(instructionsPanel);
-        instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
+        // Create and add TaskListPanel as second tab (with list icon)
+        taskListPanel = new TaskListPanel(this);
+        rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
+        rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
 
-        // Attach the combined instructions+drawer split as the bottom component
+        var contextAreaContainer = instructionsPanel.getContextAreaContainer();
+        rightTabbedPanel.addChangeListener(e -> {
+            var selected = rightTabbedPanel.getSelectedComponent();
+            if (selected == instructionsPanel) {
+                taskListPanel.restoreControls();
+                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
+                instructionsPanel.revalidate();
+                instructionsPanel.repaint();
+            } else if (selected == taskListPanel) {
+                var parent = contextAreaContainer.getParent();
+                if (parent != null) {
+                    parent.remove(contextAreaContainer);
+                    parent.revalidate();
+                    parent.repaint();
+                }
+                taskListPanel.setSharedContextArea(contextAreaContainer);
+            }
+        });
+
+        // Create and add TerminalPanel as third tab (with terminal icon)
+        this.terminalPanel =
+                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
+        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
+        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
+
+        // No right-side drawer; the rightTabbedPanel occupies full right side
+        rightTabbedPanel.setMinimumSize(new Dimension(200, 325));
+
+        // Attach the combined components as the bottom component
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+        workspaceInstructionsSplit.setBottomComponent(rightTabbedPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
         // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
         workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
@@ -813,7 +872,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
-            terminalDrawer.disablePlay();
+            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
+            taskListPanel.disablePlay();
+            // TerminalDrawerPanel removed from right side; no-op for terminal play control.
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
             }
@@ -826,7 +887,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
-            terminalDrawer.enablePlay();
+            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
+            taskListPanel.enablePlay();
+            // TerminalDrawerPanel removed from right side; no-op for terminal play control.
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();
             }
@@ -844,6 +907,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
+        assert !SwingUtilities.isEventDispatchThread() : "Long running git refresh running on the EDT";
         logger.trace("updateGitRepo invoked");
 
         // Determine current branch (if available) and update InstructionsPanel on EDT
@@ -871,20 +935,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
             }
             final String display = branchToDisplay;
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    // Redundancy guard: only refresh if the displayed branch text actually changed
-                    if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
-                        logger.trace(
-                                "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
-                        return;
-                    }
-                    instructionsPanel.refreshBranchUi(display);
-                    lastDisplayedBranchLabel = display;
-                } catch (Exception ex) {
-                    logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+            try {
+                // Redundancy guard: only refresh if the displayed branch text actually changed
+                if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
+                    logger.trace("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
+                    return;
                 }
-            });
+                instructionsPanel.refreshBranchUi(display);
+                lastDisplayedBranchLabel = display;
+            } catch (Exception ex) {
+                logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+            }
         }
 
         // Update individual Git-related panels and log what is being updated
@@ -914,6 +975,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.trace("updateGitRepo: finished");
     }
 
+    /** Executes a set of test files and streams the output to the test runner panel. */
+    public void runTests(Set<ProjectFile> testFiles) {
+        testRunnerPanel.runTests(testFiles);
+    }
+
     /** Recreate the top-level Issues panel (e.g. after provider change). */
     public void recreateIssuesPanel() {
         SwingUtilities.invokeLater(() -> {
@@ -925,7 +991,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var icon = Icons.ASSIGNMENT;
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
-            var label = createSquareTabLabel(icon, "Issues");
+            var recreateShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+            var label = createSquareTabLabel(icon, "Issues (" + recreateShortcut + ")");
             leftTabbedPanel.setTabComponentAt(tabIdx, label);
             label.addMouseListener(new MouseAdapter() {
                 @Override
@@ -1041,6 +1109,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
         KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
+            closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+        }
         bindKey(rootPane, closeWindowKeyStroke, "closeMainWindow");
         rootPane.getActionMap().put("closeMainWindow", new AbstractAction() {
             @Override
@@ -1050,15 +1121,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Register IntelliJ-style shortcuts for switching sidebar panels
-        // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? KeyEvent.META_DOWN_MASK
-                        : KeyEvent.ALT_DOWN_MASK;
 
         // Alt/Cmd+1 for Project Files
         KeyStroke switchToProjectFiles = GlobalUiSettings.getKeybinding(
-                "panel.switchToProjectFiles", KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
+                "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
         bindKey(rootPane, switchToProjectFiles, "switchToProjectFiles");
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
@@ -1067,10 +1133,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Alt/Cmd+2 for Changes (GitCommitTab)
+        // Alt/Cmd+2 for Dependencies
+        KeyStroke switchToDependencies = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "panel.switchToDependencies", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        bindKey(rootPane, switchToDependencies, "switchToDependencies");
+        rootPane.getActionMap().put("switchToDependencies", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                var idx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
+                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+            }
+        });
+
+        // Alt/Cmd+3 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
             KeyStroke switchToChanges = GlobalUiSettings.getKeybinding(
-                    "panel.switchToChanges", KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
+                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
             bindKey(rootPane, switchToChanges, "switchToChanges");
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
@@ -1081,10 +1159,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+3 for Worktrees
+        // Alt/Cmd+4 for Worktrees
         if (gitWorktreeTab != null) {
             KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
@@ -1095,10 +1173,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+4 for Log
+        // Alt/Cmd+5 for Log
         if (gitLogTab != null) {
             KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
@@ -1109,10 +1187,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+5 for Pull Requests panel (if available)
+        // Alt/Cmd+6 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
             KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier));
+                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
             bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -1123,10 +1201,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+6 for Issues panel (if available)
+        // Alt/Cmd+7 for Issues panel (if available)
         if (issuesPanel != null) {
             KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier));
+                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
             bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
@@ -1148,7 +1226,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTerminal();
+                // Terminal drawer removed; instead, switch to the Terminal tab if present.
+                SwingUtilities.invokeLater(() -> {
+                    int idx = rightTabbedPanel.indexOfTab("Terminal");
+                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+                });
             }
         });
 
@@ -1175,7 +1257,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTerminal();
+                SwingUtilities.invokeLater(() -> {
+                    int idx = rightTabbedPanel.indexOfTab("Terminal");
+                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+                });
             }
         });
 
@@ -1188,7 +1273,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTaskList();
+                SwingUtilities.invokeLater(() -> {
+                    int idx = rightTabbedPanel.indexOfTab("Tasks");
+                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+                });
             }
         });
 
@@ -2189,22 +2277,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Persist Terminal drawer open/proportion globally
-        instructionsDrawerSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (instructionsDrawerSplit.isShowing()) {
-                int total = instructionsDrawerSplit.getWidth();
-                if (total > 0) {
-                    double prop = Math.max(
-                            0.05,
-                            Math.min(0.95, (double) instructionsDrawerSplit.getDividerLocation() / (double) total));
-                    GlobalUiSettings.saveTerminalDrawerProportion(prop);
-                    GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
-                }
-            }
-        });
-        instructionsDrawerSplit.addPropertyChangeListener("dividerSize", e -> {
-            GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
-        });
+        // Terminal drawer removed; no persistence listeners required.
     }
 
     @Override
@@ -2305,6 +2378,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     public GitIssuesTab getIssuesPanel() {
         return issuesPanel;
+    }
+
+    public DependenciesPanel getDependenciesPanel() {
+        return dependenciesPanel;
     }
 
     // --- New helpers for Git tabs moved into Chrome ---
@@ -2455,15 +2532,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return historyOutputPanel;
     }
 
-    public TerminalDrawerPanel getTerminalDrawer() {
+    public @Nullable TerminalDrawerPanel getTerminalDrawer() {
         return terminalDrawer;
     }
+
+    public void updateTerminalFontSize() {}
 
     /**
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
      */
     public void refreshTaskListUI() {
-        SwingUtilities.invokeLater(() -> terminalDrawer.openTaskList());
+        // Terminal drawer removed — bring the Tasks tab to front instead.
+        SwingUtilities.invokeLater(() -> {
+            int idx = rightTabbedPanel.indexOfTab("Tasks");
+            if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+        });
     }
 
     public Action getGlobalUndoAction() {
@@ -2864,11 +2947,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         gitTabBadgedIcon.setCount(modifiedCount, leftTabbedPanel);
 
-        // Update tooltip to show the count
+        // Update tooltip to show the count and keyboard shortcut
         if (gitTabLabel != null) {
-            String tooltip = modifiedCount > 0
-                    ? String.format("Commit (%d modified file%s)", modifiedCount, modifiedCount == 1 ? "" : "s")
-                    : "Commit";
+            var configuredShortcut = GlobalUiSettings.getKeybinding(
+                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+            var shortcut = KeyboardShortcutUtil.formatKeyStroke(configuredShortcut);
+            String tooltip;
+            if (modifiedCount > 0) {
+                tooltip = String.format(
+                        "Changes (%d modified file%s) (%s)", modifiedCount, modifiedCount == 1 ? "" : "s", shortcut);
+            } else {
+                tooltip = "Changes (" + shortcut + ")";
+            }
             gitTabLabel.setToolTipText(tooltip);
         }
 
@@ -2997,8 +3087,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         int tsDivider = topSplitPane.getDividerSize();
                         int maxFromTop = Math.max(0, tsTotal - tsDivider);
                         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                        instructionsHeightPx = Math.min(
-                                Math.max(minBottom, instructionsDrawerSplit.getMinimumSize().height), maxFromTop);
+                        instructionsHeightPx =
+                                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
                     }
                 } catch (Exception ignored) {
                     // Defensive; we'll clamp during restore regardless
@@ -3006,8 +3096,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
 
-                // Swap to Instructions-only in the bottom
-                mainVerticalSplitPane.setBottomComponent(instructionsDrawerSplit);
+                // Swap to Instructions-only in the bottom (now using the rightTabbedPanel directly)
+                mainVerticalSplitPane.setBottomComponent(rightTabbedPanel);
 
                 // Revalidate layout, then set the main divider so bottom == pinned Instructions height
                 mainVerticalSplitPane.revalidate();
@@ -3016,9 +3106,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 this.workspaceCollapsed = true;
             } else {
-                // Ensure the workspace split bottom points to the instructions drawer, then restore it as bottom
+                // Ensure the workspace split bottom points to the instructions area (rightTabbedPanel), then restore it
+                // as bottom
                 try {
-                    topSplitPane.setBottomComponent(instructionsDrawerSplit);
+                    topSplitPane.setBottomComponent(rightTabbedPanel);
                 } catch (Exception ignored) {
                     // If it's already set due to prior operations, ignore
                 }
@@ -3095,11 +3186,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
         mainVerticalSplitPane.setDividerLocation(safeDivider);
-    }
-
-    /** Updates the terminal font size for all active terminals. */
-    public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> terminalDrawer.updateTerminalFontSize());
     }
 
     @Override

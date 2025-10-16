@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -34,7 +35,8 @@ public interface IAnalyzer {
 
     /**
      * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is O(M) in the number of
-     * changed files.
+     * changed files. Assume this update is not in place, and rather use the returned
+     * IAnalyzer.
      */
     default IAnalyzer update(Set<ProjectFile> changedFiles) {
         // should always be supported; UOE here is for convenience in mocking
@@ -42,8 +44,9 @@ public interface IAnalyzer {
     }
 
     /**
-     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) in the total
-     * number of files and relatively heavyweight.
+     * Scan for changes across all files in the project. This involves comparing the last modified time of the file with
+     * respect to this object's "last analyzed" time.  This is O(N) in the number of project files. Assume this update
+     * is not in place, and rather use the returned IAnalyzer.
      */
     default IAnalyzer update() {
         // should always be supported; UOE here is for convenience in mocking
@@ -51,6 +54,11 @@ public interface IAnalyzer {
     }
 
     // Summarization
+
+    /** The project this analyzer targets */
+    default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
         throw new UnsupportedOperationException();
@@ -292,5 +300,28 @@ public interface IAnalyzer {
      */
     default Optional<String> extractClassName(String reference) {
         return Optional.empty();
+    }
+
+    /** @return the import snippets for the given file where other code units may be referred to by. */
+    default List<String> importStatementsOf(ProjectFile file) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
+     *     invalid.
+     */
+    default Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        throw new UnsupportedOperationException();
+    }
+
+    record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
+        public boolean isEmpty() {
+            return startLine == endLine && startByte == endByte;
+        }
+
+        public boolean isContainedWithin(Range other) {
+            return startByte >= other.startByte && endByte <= other.endByte;
+        }
     }
 }
