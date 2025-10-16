@@ -1,17 +1,14 @@
 package io.github.jbellis.brokk.analyzer.imports;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
-import io.github.jbellis.brokk.analyzer.JavascriptAnalyzer;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
-import org.junit.jupiter.api.Test;
-
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
 
 public class JavaScriptImportTest {
 
@@ -21,14 +18,17 @@ public class JavaScriptImportTest {
 
     @Test
     public void testImport() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code("""
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
                 import React, { useState } from 'react';
                 import { Something, AnotherThing as AT } from './another-module';
                 import * as AllThings from './all-the-things';
                 import DefaultThing from './default-thing';
-                
+
                 function foo() {};
-                """, "foo.js").build()) {
+                """,
+                        "foo.js")
+                .build()) {
             var analyzer = createAnalyzer(testProject);
             var file = analyzer.getFileFor("foo").get();
             var imports = analyzer.importStatementsOf(file);
@@ -36,10 +36,8 @@ public class JavaScriptImportTest {
                     "import { Something, AnotherThing as AT } from './another-module';",
                     "import * as AllThings from './all-the-things';",
                     "import React, { useState } from 'react';",
-                    "import DefaultThing from './default-thing';"
-            );
+                    "import DefaultThing from './default-thing';");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
         }
     }
-
 }
