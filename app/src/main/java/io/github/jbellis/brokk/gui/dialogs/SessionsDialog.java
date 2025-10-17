@@ -160,7 +160,7 @@ public class SessionsDialog extends JDialog {
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
         markdownOutputPanel.withContextForLookups(contextManager, chrome);
-        markdownOutputPanel.updateTheme(chrome.getTheme().isDarkTheme());
+        markdownOutputPanel.updateTheme(io.github.jbellis.brokk.MainProject.getTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);

@@ -1943,7 +1943,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (workingFragment.isText()
                     && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
-                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.updateTheme(MainProject.getTheme());
                 markdownPanel.setText(List.of(Messages.customSystem(workingFragment.text())));
 
                 // Use shared utility method to create searchable content panel without scroll pane

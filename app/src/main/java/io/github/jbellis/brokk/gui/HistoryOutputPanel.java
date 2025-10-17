@@ -1765,7 +1765,8 @@ public class HistoryOutputPanel extends JPanel {
         }
         if (mainTask != null) {
             String titleHint = context.getAction();
-            new OutputWindow(this, historyTasks, mainTask, titleHint, chrome.themeManager.isDarkTheme(), false);
+            new OutputWindow(
+                    this, historyTasks, mainTask, titleHint, io.github.jbellis.brokk.MainProject.getTheme(), false);
         }
     }
 
@@ -1776,8 +1777,8 @@ public class HistoryOutputPanel extends JPanel {
         var history = contextManager.topContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
-        OutputWindow newStreamingWindow =
-                new OutputWindow(this, history, mainTask, titleHint, chrome.themeManager.isDarkTheme(), true);
+        OutputWindow newStreamingWindow = new OutputWindow(
+                this, history, mainTask, titleHint, io.github.jbellis.brokk.MainProject.getTheme(), true);
         if (lastSpinnerMessage != null) {
             newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
         }
@@ -1915,7 +1916,7 @@ public class HistoryOutputPanel extends JPanel {
          * @param history The conversation tasks to display in the history section (all but the main task)
          * @param main The main/last task to display in the live area
          * @param titleHint A hint for the window title (e.g., task summary or spinner message)
-         * @param isDark Whether to use dark theme
+         * @param themeName The theme name (dark, light, or high-contrast)
          * @param isBlockingMode Whether the window shows a streaming (in-progress) output
          */
         public OutputWindow(
@@ -1923,7 +1924,7 @@ public class HistoryOutputPanel extends JPanel {
                 List<TaskEntry> history,
                 TaskEntry main,
                 @Nullable String titleHint,
-                boolean isDark,
+                String themeName,
                 boolean isBlockingMode) {
             super(determineWindowTitle(titleHint, isBlockingMode)); // Call superclass constructor first
 
@@ -1944,7 +1945,7 @@ public class HistoryOutputPanel extends JPanel {
             // Create markdown panel with the text
             outputPanel = new MarkdownOutputPanel();
             outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
-            outputPanel.updateTheme(isDark);
+            outputPanel.updateTheme(themeName);
             // Seed main content first, then history
             outputPanel.setMainThenHistoryAsync(main, history).thenRun(() -> outputPanel.setBlocking(isBlockingMode));
 

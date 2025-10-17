@@ -155,10 +155,10 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark, boolean isDevMode, boolean wrapMode, double zoom) {
+    public void setTheme(String themeName, boolean isDevMode, boolean wrapMode, double zoom) {
         double clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
-        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
-                + ", " + wrapMode + ", " + clamped
+        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + toJson(themeName) + ", "
+                + isDevMode + ", " + wrapMode + ", " + clamped
                 + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
