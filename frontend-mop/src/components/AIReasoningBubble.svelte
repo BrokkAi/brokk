@@ -25,7 +25,7 @@
 </script>
 
 <div class="message-wrapper">
-  <header class="header reasoning-header" style="color: var({hlVar});" on:click={toggleCollapse}>
+  <header class="header reasoning-header {bubble.isCollapsed ? 'collapsed' : ''}" style="color: var({hlVar});" on:click={toggleCollapse}>
     {#if bubble.reasoningComplete}
       <Icon icon={bubble.isCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'} style="color: var(--ai-reasoning-header-foreground); margin-right: 0.35em;" />
       <span class="title" style="color: var(--ai-reasoning-header-foreground);">
@@ -89,6 +89,14 @@
   .reasoning-header {
     cursor: pointer;
     user-select: none; /* Prevents text selection on click */
+  }
+
+  /* High contrast mode: add border to collapsed bubble header */
+  :global(.theme-high-contrast) .reasoning-header.collapsed {
+    border: 1px dotted rgba(230, 230, 230, 0.3);
+    border-left: 4px solid var(--message-border-ai-reasoning);
+    padding: 0.5em 0.8em;
+    border-radius: 0.5em;
   }
 
   :global(.spin-icon) {
