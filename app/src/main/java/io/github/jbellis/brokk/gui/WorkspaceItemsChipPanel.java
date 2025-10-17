@@ -234,9 +234,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 rows++;
                 lineWidth = w;
             }
-        }
-
-        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+            }
+            
+            int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
         int height = (rows * rowH) + (rows > 1 ? (rows - 1) * vgap : 0);
         return new Dimension(width, Math.max(height, rowH));
     }
