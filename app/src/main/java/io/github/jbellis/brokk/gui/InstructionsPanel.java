@@ -364,7 +364,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
-        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
+        modelSelector.addSelectionListener(
+                cfg -> SwingUtilities.invokeLater(() -> updateTokenCostIndicator(chrome.getContextManager()
+                        .selectedContext())));
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
 
@@ -413,7 +415,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         disableButtons();
 
         // Initial compute of the token/cost indicator
-        updateTokenCostIndicator();
+        updateTokenCostIndicator(chrome.getContextManager().selectedContext());
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -899,8 +901,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
-    private void updateTokenCostIndicator() {
-        var ctx = chrome.getContextManager().selectedContext();
+    private void updateTokenCostIndicator(Context ctx) {
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
         var model = service.getModel(config);
@@ -1871,7 +1872,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.debug("Context updated: {} fragments", fragments.size());
         workspaceItemsChipPanel.setFragments(fragments);
         // Update compact token/cost indicator on context change
-        updateTokenCostIndicator();
+        updateTokenCostIndicator(newCtx);
     }
 
     void enableButtons() {
