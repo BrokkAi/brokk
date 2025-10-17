@@ -39,6 +39,8 @@ import java.awt.dnd.DropTargetDropEvent;
 import java.awt.dnd.DropTargetEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
@@ -197,6 +199,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
+    private JPopupMenu tokenUsageBarPopupMenu;
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -375,6 +378,40 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
         // Click toggles Workspace collapse/expand
         tokenUsageBar.setOnClick(() -> chrome.toggleWorkspaceCollapsed());
+
+        // Initialize TokenUsageBar popup menu
+        tokenUsageBarPopupMenu = new JPopupMenu();
+
+        JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
+        dropAllMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of()));
+        tokenUsageBarPopupMenu.add(dropAllMenuItem);
+
+        JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
+        copyAllMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of()));
+        tokenUsageBarPopupMenu.add(copyAllMenuItem);
+
+        JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
+        pasteMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
+        tokenUsageBarPopupMenu.add(pasteMenuItem);
+
+        chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu);
+
+        // Add right-click handler to TokenUsageBar
+        tokenUsageBar.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
+                }
+            }
+        });
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
