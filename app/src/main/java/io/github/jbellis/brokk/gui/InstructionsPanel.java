@@ -920,7 +920,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     if (fullText.isEmpty() || model == null || model instanceof Service.UnavailableStreamingModel) {
-                        return null;
+                        return new TokenUsageBarComputation(
+                                buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0);
                     }
 
                     int approxTokens = Messages.getApproximateTokens(fullText.toString());
