@@ -41,6 +41,39 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         setOpaque(false);
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
+
+        // Add right-click listener for blank space
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleBlankSpaceRightClick(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleBlankSpaceRightClick(e);
+                }
+            }
+        });
+    }
+
+    private void handleBlankSpaceRightClick(MouseEvent e) {
+        // Check if click is on blank space (not within any chip component)
+        Component clickTarget = getComponentAt(e.getPoint());
+        if (clickTarget != null && clickTarget != WorkspaceItemsChipPanel.this) {
+            // Click is within a chip component, ignore
+            return;
+        }
+
+        // Use NoSelection scenario to get standard blank-space actions
+        var scenario = new WorkspacePanel.NoSelection();
+        var actions = scenario.getActions(chrome.getContextPanel());
+
+        // Show popup menu using PopupBuilder
+        WorkspacePanel.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
     }
 
     /**
@@ -480,9 +513,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             menu.add(action);
         }
         try {
-            if (chrome != null && chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(menu);
-            }
+            chrome.themeManager.registerPopupMenu(menu);
         } catch (Exception ex) {
             logger.debug("Failed to register chip popup menu with theme manager", ex);
         }
