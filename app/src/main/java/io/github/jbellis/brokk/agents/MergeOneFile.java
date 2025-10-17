@@ -18,7 +18,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -317,10 +316,10 @@ public final class MergeOneFile {
 
         // Compute explanation
         var gw = new GitWorkflow(cm);
-        var model = requireNonNull(cm.getService().getModel(Service.GPT_5_MINI));
-        String explanation = null;
+        var explainModel = cm.getService().getScanModel();
+        String explanation;
         try {
-            explanation = gw.explainCommit(model, shortHash);
+            explanation = gw.explainCommit(explainModel, shortHash);
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }

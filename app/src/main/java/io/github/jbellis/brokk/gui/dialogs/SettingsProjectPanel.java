@@ -4,9 +4,7 @@ import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
-import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -15,32 +13,18 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.FilterOptions;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
-import io.github.jbellis.brokk.util.ExecutorValidator;
 import java.awt.*;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.Future;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
-import javax.swing.UIManager;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
@@ -51,73 +35,34 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsProjectPanel.class);
     public static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
 
-    // Action command constants for build details inference button
-    private static final String ACTION_INFER = "infer";
-    private static final String ACTION_CANCEL = "cancel";
-
     private final Chrome chrome;
     private final SettingsDialog parentDialog;
 
-    // UI Components managed by this panel
-    private JTextField buildCleanCommandField = new JTextField();
-    private JTextField allTestsCommandField = new JTextField();
-    private JTextField someTestsCommandField = new JTextField();
-
-    @Nullable
-    private DataRetentionPanel dataRetentionPanelInner;
-
+    // General UI Components
     private JTextArea styleGuideArea = new JTextArea(5, 40);
     private JTextArea commitFormatArea = new JTextArea(5, 40);
 
     @Nullable
     private JTextArea reviewGuideArea;
 
+    // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
+    // Analyzer-related UI
     private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
     private MaterialButton addExcludedDirButton = new MaterialButton();
     private MaterialButton removeExcludedDirButton = new MaterialButton();
 
-    private JTextField languagesDisplayField = new JTextField(20);
-    private MaterialButton editLanguagesButton = new MaterialButton("Edit");
     private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
-    private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
-    private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
-    private JSpinner buildTimeoutSpinner =
-            new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
-    private JProgressBar buildProgressBar = new JProgressBar();
-    private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
-    private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
-    private JdkSelector jdkSelector = new JdkSelector();
-    private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
 
-    // Executor configuration UI
-    private JTextField executorPathField = new JTextField(20);
-    private JTextField executorArgsField = new JTextField(20);
-    private MaterialButton testExecutorButton = new MaterialButton("Test");
-    private MaterialButton resetExecutorButton = new MaterialButton("Reset");
-    private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
-
-    // System-default executor
-    private static final boolean IS_WINDOWS = Environment.isWindows();
-    private static final String DEFAULT_EXECUTOR_PATH = IS_WINDOWS ? "powershell.exe" : "/bin/sh";
-    private static final String DEFAULT_EXECUTOR_ARGS = IS_WINDOWS ? "-Command" : "-c";
-
-    @Nullable
-    private Future<?> manualInferBuildTaskFuture;
-    // Buttons from parent dialog that might need to be disabled/enabled by build agent
-    private final JButton okButtonParent;
-    private final JButton cancelButtonParent;
-    private final JButton applyButtonParent;
     private JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     // Issue Provider related UI
-    private JComboBox<io.github.jbellis.brokk.issues.IssueProviderType> issueProviderTypeComboBox =
-            new JComboBox<>(io.github.jbellis.brokk.issues.IssueProviderType.values());
+    private JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
     private CardLayout issueProviderCardLayout = new CardLayout();
     private JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
 
-    // GitHub specific fields (will be part of the GitHub card)
+    // GitHub specific fields
     private JTextField githubOwnerField = new JTextField(20);
     private JTextField githubRepoField = new JTextField(20);
     private JTextField githubHostField = new JTextField(20);
@@ -127,15 +72,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final String GITHUB_CARD = "GitHub";
     private static final String JIRA_CARD = "Jira";
 
-    // Jira specific fields (will be part of the Jira card)
+    // Jira specific fields
     private JTextField jiraProjectKeyField = new JTextField();
     private JTextField jiraBaseUrlField = new JTextField();
     private JPasswordField jiraApiTokenField = new JPasswordField();
     private MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
-    private final JPanel bannerPanel;
 
     // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
     private final LinkedHashMap<Language, AnalyzerSettingsPanel> analyzerSettingsCache = new LinkedHashMap<>();
+
+    // Buttons from parent dialog that might need to be disabled/enabled by build agent
+    private final JButton okButtonParent;
+    private final JButton cancelButtonParent;
+    private final JButton applyButtonParent;
+
+    // Build panel instance (extracted)
+    private SettingsProjectBuildPanel buildPanelInstance;
 
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
@@ -144,34 +96,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         this.okButtonParent = okButton;
         this.cancelButtonParent = cancelButton;
         this.applyButtonParent = applyButton;
-        this.bannerPanel = createBanner();
 
         setLayout(new BorderLayout());
         initComponents();
         loadSettings(); // Load settings after components are initialized
-    }
-
-    private JPanel createBanner() {
-        var p = new JPanel(new BorderLayout(5, 0));
-        Color infoBackground = UIManager.getColor("info");
-        p.setBackground(infoBackground != null ? infoBackground : new Color(255, 255, 204)); // Pale yellow fallback
-        p.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-
-        var msg = new JLabel(
-                """
-                            Build Agent has completed inspecting your project, \
-                            please review the build configuration.
-                        """);
-        p.add(msg, BorderLayout.CENTER);
-
-        var close = new MaterialButton("×");
-        close.setMargin(new Insets(0, 4, 0, 4));
-        close.addActionListener(e -> {
-            p.setVisible(false);
-        });
-        p.add(close, BorderLayout.EAST);
-        p.setVisible(false); // Initially hidden
-        return p;
     }
 
     private void initComponents() {
@@ -182,9 +110,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var generalPanel = createGeneralPanel();
         projectSubTabbedPane.addTab("General", null, generalPanel, "General project settings");
 
-        // Build Tab
-        var buildPanel = createBuildPanel(project);
-        projectSubTabbedPane.addTab("Build", null, buildPanel, "Build configuration and Code Intelligence settings");
+        // Build Tab - extracted into its own class
+        buildPanelInstance = new SettingsProjectBuildPanel(
+                chrome, parentDialog, okButtonParent, cancelButtonParent, applyButtonParent);
+        projectSubTabbedPane.addTab(
+                "Build", null, buildPanelInstance, "Build configuration and Code Intelligence settings");
 
         // Issues Tab (New)
         var issuesPanel = createIssuesPanel();
@@ -196,53 +126,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 "Code Intelligence", null, codeIntPanel, "Code intelligence settings and analyzers");
 
         // Data Retention Tab
-        dataRetentionPanelInner = new DataRetentionPanel(project, this);
+        var dataRetentionPanelInner = new DataRetentionPanel(project, this);
         projectSubTabbedPane.addTab(
                 "Data Retention", null, dataRetentionPanelInner, "Data retention policy for this project");
 
-        // Jira Tab is now removed, its contents moved to the "Issues" tab's Jira card.
-
         add(projectSubTabbedPane, BorderLayout.CENTER);
-
-        // Handle initial loading state for Build Details
-        if (!project.hasBuildDetails()) {
-            projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, false);
-            buildProgressBar.setVisible(true);
-            inferBuildDetailsButton.setEnabled(false);
-
-            project.getBuildDetailsFuture()
-                    .whenCompleteAsync(
-                            (@Nullable BuildAgent.BuildDetails detailsResult, @Nullable Throwable ex) -> {
-                                SwingUtilities.invokeLater(() -> {
-                                    projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, true);
-                                    buildProgressBar.setVisible(false);
-                                    inferBuildDetailsButton.setEnabled(true);
-
-                                    if (ex != null) {
-                                        logger.error("Initial build details determination failed", ex);
-                                        chrome.toolError(
-                                                "Failed to determine initial build details: " + ex.getMessage());
-                                    } else {
-                                        if (Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
-                                            logger.warn("Initial Build Agent returned empty details. Using defaults.");
-                                            chrome.showNotification(
-                                                    IConsoleIO.NotificationRole.INFO,
-                                                    "Initial Build Agent completed but found no specific details. Using defaults.");
-                                        } else {
-                                            logger.info("Initial build details determined successfully.");
-                                            chrome.showNotification(
-                                                    IConsoleIO.NotificationRole.INFO,
-                                                    "Initial build details determined. Settings panel updated.");
-                                        }
-                                    }
-                                    loadBuildPanelSettings(); // Load settings for the build panel now
-                                });
-                            },
-                            ForkJoinPool.commonPool());
-        } else { // Project exists and details are already available
-            buildProgressBar.setVisible(false);
-            inferBuildDetailsButton.setEnabled(true);
-        }
     }
 
     public JTabbedPane getProjectSubTabbedPane() {
@@ -388,7 +276,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             public Component getListCellRendererComponent(
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof io.github.jbellis.brokk.issues.IssueProviderType type) {
+                if (value instanceof IssueProviderType type) {
                     setText(type.getDisplayName());
                 }
                 return this;
@@ -594,10 +482,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Action listener for provider selection
         issueProviderTypeComboBox.addActionListener(e -> {
-            io.github.jbellis.brokk.issues.IssueProviderType selectedType =
-                    (io.github.jbellis.brokk.issues.IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
-            if (selectedType == null)
-                selectedType = io.github.jbellis.brokk.issues.IssueProviderType.NONE; // Should not happen with enum
+            IssueProviderType selectedType = (IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
+            if (selectedType == null) selectedType = IssueProviderType.NONE; // Should not happen with enum
             switch (selectedType) {
                 case JIRA:
                     issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
@@ -769,7 +655,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         });
         toolbar.add(refreshBtn);
 
-        // CI Exclusions panel (moved here from Build tab)
+        // CI Exclusions panel (moved to build panel)
         var ciPanel = new JPanel(new GridBagLayout());
         var gbcCi = new GridBagConstraints();
         gbcCi.insets = new Insets(2, 2, 2, 2);
@@ -790,7 +676,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         ciPanel.add(this.excludedScrollPane, gbcCi);
 
         var excludedButtonsPanel2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        // Use icon-only MaterialButtons for a cleaner compact UI
         this.addExcludedDirButton.setIcon(Icons.ADD);
         this.addExcludedDirButton.setToolTipText("Add");
         this.removeExcludedDirButton.setIcon(Icons.REMOVE);
@@ -805,7 +690,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.anchor = GridBagConstraints.WEST;
         ciPanel.add(excludedButtonsPanel2, gbcCi);
 
-        // Wire add/remove actions for the exclusions buttons (moved here)
+        // Wire add/remove actions for the exclusions buttons (kept for compatibility; real store occurs in build panel)
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
                     parentDialog,
@@ -815,7 +700,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (newDir != null && !newDir.trim().isEmpty()) {
                 String trimmedNewDir = newDir.trim();
                 List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
-                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates if user adds same dir again
+                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates
                     currentElements.add(trimmedNewDir);
                 }
                 currentElements.sort(String::compareToIgnoreCase);
@@ -893,7 +778,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         panel.add(centerPanel, BorderLayout.CENTER);
 
         // Preselect the language with the most associated files so details show immediately.
-        // Perform selection on the EDT so we don't inadvertently trigger other side-effects.
         if (tableModel.getRowCount() > 0) {
             int maxModelIdx = 0;
             int maxCount = -1;
@@ -944,7 +828,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
                 var jiraConfig =
                         new IssuesProviderConfig.JiraConfig(currentBaseUrl, currentApiToken, currentProjectKey);
-                var testProvider = new IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, jiraConfig);
+                var testProvider = new IssueProvider(IssueProviderType.JIRA, jiraConfig);
 
                 JiraIssueService testService = new JiraIssueService(testProvider, chrome.getProject());
                 try {
@@ -992,588 +876,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         };
         worker.execute();
-    }
-
-    private JPanel createBuildPanel(IProject project) {
-        var buildPanel = new JPanel(new GridBagLayout());
-        buildPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 0, 5, 0); // Spacing between titled boxes
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        int row = 0;
-
-        // Add banner at the top
-        gbc.gridx = 0;
-        gbc.gridy = row++;
-        gbc.insets = new Insets(2, 2, 2, 2);
-        buildPanel.add(bannerPanel, gbc);
-        gbc.insets = new Insets(5, 0, 5, 0);
-
-        // --- 1. Language Configuration Panel ---
-        var languagePanel = new JPanel(new GridBagLayout());
-        languagePanel.setBorder(BorderFactory.createTitledBorder("Language Configuration"));
-        var langGbc = new GridBagConstraints();
-        langGbc.insets = new Insets(2, 2, 2, 2);
-        langGbc.fill = GridBagConstraints.HORIZONTAL;
-        int langRow = 0;
-
-        // Primary language
-        langGbc.gridx = 0;
-        langGbc.gridy = langRow;
-        langGbc.weightx = 0.0;
-        langGbc.anchor = GridBagConstraints.WEST;
-        langGbc.fill = GridBagConstraints.NONE;
-        languagePanel.add(new JLabel("Primary language:"), langGbc);
-        langGbc.gridx = 1;
-        langGbc.gridy = langRow++;
-        langGbc.weightx = 1.0;
-        langGbc.fill = GridBagConstraints.HORIZONTAL;
-        languagePanel.add(primaryLanguageComboBox, langGbc);
-
-        // JDK selection controls
-        langGbc.gridx = 0;
-        langGbc.gridy = langRow;
-        langGbc.weightx = 0.0;
-        langGbc.fill = GridBagConstraints.NONE;
-        languagePanel.add(setJavaHomeCheckbox, langGbc);
-
-        jdkSelector.setEnabled(false);
-        jdkSelector.setBrowseParent(parentDialog);
-        langGbc.gridx = 1;
-        langGbc.gridy = langRow++;
-        langGbc.weightx = 1.0;
-        langGbc.fill = GridBagConstraints.HORIZONTAL;
-        languagePanel.add(jdkSelector, langGbc);
-
-        primaryLanguageComboBox.addActionListener(e -> {
-            var sel = (Language) primaryLanguageComboBox.getSelectedItem();
-            updateJdkControlsVisibility(sel);
-            if (sel == Languages.JAVA) {
-                populateJdkControlsFromProject();
-            }
-        });
-        updateJdkControlsVisibility(project.getBuildLanguage());
-        setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
-
-        gbc.gridy = row++;
-        buildPanel.add(languagePanel, gbc);
-
-        // --- 2. Build Configuration Panel ---
-        var buildConfigPanel = new JPanel(new GridBagLayout());
-        buildConfigPanel.setBorder(BorderFactory.createTitledBorder("Build Configuration"));
-        var buildGbc = new GridBagConstraints();
-        buildGbc.insets = new Insets(2, 2, 2, 2);
-        buildGbc.fill = GridBagConstraints.HORIZONTAL;
-        int buildRow = 0;
-
-        // Build/Lint Command
-        buildGbc.gridx = 0;
-        buildGbc.gridy = buildRow;
-        buildGbc.weightx = 0.0;
-        buildGbc.anchor = GridBagConstraints.WEST;
-        buildConfigPanel.add(new JLabel("Build/Lint Command:"), buildGbc);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 1.0;
-        buildConfigPanel.add(buildCleanCommandField, buildGbc);
-
-        // Test All Command
-        buildGbc.gridx = 0;
-        buildGbc.gridy = buildRow;
-        buildGbc.weightx = 0.0;
-        buildConfigPanel.add(new JLabel("Test All Command:"), buildGbc);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 1.0;
-        buildConfigPanel.add(allTestsCommandField, buildGbc);
-
-        // Test Some Command
-        buildGbc.gridx = 0;
-        buildGbc.gridy = buildRow;
-        buildGbc.weightx = 0.0;
-        buildConfigPanel.add(new JLabel("Test Some Command:"), buildGbc);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 1.0;
-        buildConfigPanel.add(someTestsCommandField, buildGbc);
-        var testSomeInfo = new JLabel(
-                "<html>Mustache variables {{#files}}, {{#classes}}, or {{#fqclasses}} will be interpolated with filenames, class names, or fully-qualified class names, respectively</html>");
-        testSomeInfo.setFont(testSomeInfo
-                .getFont()
-                .deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.insets = new Insets(0, 2, 8, 2);
-        buildConfigPanel.add(testSomeInfo, buildGbc);
-        buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
-
-        // Code Agent Tests
-        buildGbc.gridx = 0;
-        buildGbc.gridy = buildRow;
-        buildGbc.weightx = 0.0;
-        buildGbc.anchor = GridBagConstraints.WEST;
-        buildGbc.fill = GridBagConstraints.NONE;
-        buildConfigPanel.add(new JLabel("Code Agent Tests:"), buildGbc);
-        var testScopeGroup = new ButtonGroup();
-        testScopeGroup.add(runAllTestsRadio);
-        testScopeGroup.add(runTestsInWorkspaceRadio);
-        var radioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        radioPanel.setOpaque(false);
-        radioPanel.add(runAllTestsRadio);
-        radioPanel.add(runTestsInWorkspaceRadio);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 1.0;
-        buildGbc.fill = GridBagConstraints.HORIZONTAL;
-        buildConfigPanel.add(radioPanel, buildGbc);
-
-        // Run Command Timeout
-        buildGbc.gridx = 0;
-        buildGbc.gridy = buildRow;
-        buildGbc.weightx = 0.0;
-        buildGbc.anchor = GridBagConstraints.WEST;
-        buildGbc.fill = GridBagConstraints.NONE;
-        buildConfigPanel.add(new JLabel("Run Command Timeout (sec):"), buildGbc);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 1.0;
-        buildGbc.fill = GridBagConstraints.HORIZONTAL;
-        buildConfigPanel.add(buildTimeoutSpinner, buildGbc);
-
-        // Infer/Verify buttons
-        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        inferBuildDetailsButton.setActionCommand(ACTION_INFER);
-        buttonsPanel.add(inferBuildDetailsButton);
-        var verifyBuildButton = new MaterialButton("Verify Configuration");
-        verifyBuildButton.addActionListener(e -> verifyBuildConfiguration());
-        buttonsPanel.add(verifyBuildButton);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 0.0;
-        buildGbc.weighty = 0.0;
-        buildGbc.fill = GridBagConstraints.NONE;
-        buildGbc.anchor = GridBagConstraints.WEST;
-        buildConfigPanel.add(buttonsPanel, buildGbc);
-
-        // Progress bar for Build Agent
-        JPanel progressWrapper = new JPanel(new BorderLayout());
-        progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
-        progressWrapper.add(buildProgressBar, BorderLayout.CENTER);
-        buildProgressBar.setIndeterminate(true);
-        buildGbc.gridx = 1;
-        buildGbc.gridy = buildRow++;
-        buildGbc.fill = GridBagConstraints.HORIZONTAL;
-        buildGbc.anchor = GridBagConstraints.EAST;
-        buildConfigPanel.add(progressWrapper, buildGbc);
-
-        gbc.gridy = row++;
-        buildPanel.add(buildConfigPanel, gbc);
-
-        // --- 3. Shell Configuration Panel ---
-        var shellConfigPanel = new JPanel(new GridBagLayout());
-        shellConfigPanel.setBorder(BorderFactory.createTitledBorder("Shell Configuration"));
-        var shellGbc = new GridBagConstraints();
-        shellGbc.insets = new Insets(2, 2, 2, 2);
-        shellGbc.fill = GridBagConstraints.HORIZONTAL;
-        int shellRow = 0;
-
-        // Execute with
-        shellGbc.gridx = 0;
-        shellGbc.gridy = shellRow;
-        shellGbc.weightx = 0.0;
-        shellGbc.anchor = GridBagConstraints.WEST;
-        shellGbc.fill = GridBagConstraints.NONE;
-        shellConfigPanel.add(new JLabel("Execute with:"), shellGbc);
-        var executorSelectPanel = new JPanel(new GridBagLayout());
-        var gbcInner = new GridBagConstraints();
-        gbcInner.fill = GridBagConstraints.HORIZONTAL;
-        gbcInner.weightx = 1.0;
-        executorSelectPanel.add(executorPathField, gbcInner);
-        gbcInner.weightx = 0;
-        gbcInner.fill = GridBagConstraints.NONE;
-        gbcInner.anchor = GridBagConstraints.WEST;
-        gbcInner.insets = new Insets(0, 5, 0, 0);
-        executorSelectPanel.add(commonExecutorsComboBox, gbcInner);
-        shellGbc.gridx = 1;
-        shellGbc.gridy = shellRow++;
-        shellGbc.weightx = 1.0;
-        shellGbc.fill = GridBagConstraints.HORIZONTAL;
-        shellConfigPanel.add(executorSelectPanel, shellGbc);
-
-        // Default parameters
-        shellGbc.gridx = 0;
-        shellGbc.gridy = shellRow;
-        shellGbc.weightx = 0.0;
-        shellGbc.fill = GridBagConstraints.NONE;
-        shellConfigPanel.add(new JLabel("Default parameters:"), shellGbc);
-        shellGbc.gridx = 1;
-        shellGbc.gridy = shellRow++;
-        shellGbc.weightx = 1.0;
-        shellGbc.fill = GridBagConstraints.HORIZONTAL;
-        shellConfigPanel.add(executorArgsField, shellGbc);
-
-        // Test / Reset buttons
-        var executorInfoLabel = new JLabel(
-                "<html>Custom executors work in all modes. Approved executors work in sandbox mode. Default args: \""
-                        + DEFAULT_EXECUTOR_ARGS + "\"</html>");
-        executorInfoLabel.setFont(executorInfoLabel
-                .getFont()
-                .deriveFont(Font.ITALIC, executorInfoLabel.getFont().getSize() * 0.9f));
-        var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        executorTestPanel.add(testExecutorButton);
-        executorTestPanel.add(Box.createHorizontalStrut(5));
-        executorTestPanel.add(resetExecutorButton);
-        executorTestPanel.add(Box.createHorizontalStrut(10));
-        executorTestPanel.add(executorInfoLabel);
-        shellGbc.gridx = 1;
-        shellGbc.gridy = shellRow++;
-        shellGbc.weightx = 1.0;
-        shellGbc.fill = GridBagConstraints.HORIZONTAL;
-        shellGbc.anchor = GridBagConstraints.WEST;
-        shellConfigPanel.add(executorTestPanel, shellGbc);
-
-        gbc.gridy = row++;
-        buildPanel.add(shellConfigPanel, gbc);
-
-        // Agent running check, listeners, and glue
-        CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
-        boolean initialAgentRunning = !detailsFuture.isDone();
-
-        buildProgressBar.setVisible(initialAgentRunning);
-        if (initialAgentRunning) {
-            setButtonToInferenceInProgress(false);
-
-            detailsFuture.whenCompleteAsync((result, ex) -> {
-                SwingUtilities.invokeLater(() -> {
-                    if (manualInferBuildTaskFuture == null) {
-                        setButtonToReadyState();
-                    }
-                });
-            });
-        }
-
-        inferBuildDetailsButton.addActionListener(e -> runBuildAgent());
-        initializeExecutorUI();
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weighty = 1.0;
-        gbc.fill = GridBagConstraints.VERTICAL;
-        buildPanel.add(Box.createVerticalGlue(), gbc);
-
-        return buildPanel;
-    }
-
-    private void setButtonToInferenceInProgress(boolean showCancelButton) {
-        inferBuildDetailsButton.setToolTipText("build inference in progress");
-        buildProgressBar.setVisible(true);
-
-        if (showCancelButton) {
-            inferBuildDetailsButton.setText("Cancel");
-            inferBuildDetailsButton.setActionCommand(ACTION_CANCEL);
-            inferBuildDetailsButton.setEnabled(true);
-        } else {
-            // Initial agent running - disable the button
-            inferBuildDetailsButton.setEnabled(false);
-        }
-    }
-
-    private void setButtonToReadyState() {
-        inferBuildDetailsButton.setText("Infer Build Details");
-        inferBuildDetailsButton.setActionCommand(ACTION_INFER);
-        inferBuildDetailsButton.setEnabled(true);
-        inferBuildDetailsButton.setToolTipText(null);
-        buildProgressBar.setVisible(false);
-    }
-
-    private void verifyBuildConfiguration() {
-        var verifyDialog = new JDialog(parentDialog, "Verifying Build Configuration", true);
-        verifyDialog.setSize(600, 400);
-        verifyDialog.setLocationRelativeTo(parentDialog);
-
-        var outputArea = new JTextArea();
-        outputArea.setEditable(false);
-        outputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        var scrollPane = new JScrollPane(outputArea);
-
-        var progressBar = new JProgressBar();
-        progressBar.setIndeterminate(true);
-
-        var closeButton = new MaterialButton("Close");
-        closeButton.setEnabled(false);
-        closeButton.addActionListener(e -> verifyDialog.dispose());
-
-        var bottomPanel = new JPanel(new BorderLayout(5, 5));
-        bottomPanel.add(progressBar, BorderLayout.CENTER);
-        bottomPanel.add(closeButton, BorderLayout.EAST);
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        verifyDialog.setLayout(new BorderLayout(5, 5));
-        verifyDialog.add(scrollPane, BorderLayout.CENTER);
-        verifyDialog.add(bottomPanel, BorderLayout.SOUTH);
-
-        SwingWorker<String, String> worker = new SwingWorker<>() {
-            @Override
-            protected String doInBackground() throws InterruptedException {
-                var project = chrome.getProject();
-                var root = project.getRoot();
-
-                // Step 1: Build/Lint command
-                String buildCmd = buildCleanCommandField.getText().trim();
-                if (!buildCmd.isEmpty()) {
-                    publish("--- Verifying Build/Lint Command ---\n");
-                    publish("$ " + buildCmd + "\n");
-                    try {
-                        Environment.instance.runShellCommand(
-                                buildCmd, root, line -> publish(line + "\n"), Environment.DEFAULT_TIMEOUT, project);
-                        publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
-                        publish("\nERROR: Build/Lint command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
-                        return "Build/Lint command failed.";
-                    }
-                } else {
-                    publish("--- Skipping empty Build/Lint Command ---\n\n");
-                }
-
-                // Step 2: Test All command
-                String testAllCmd = allTestsCommandField.getText().trim();
-                if (!testAllCmd.isEmpty()) {
-                    publish("--- Verifying Test All Command ---\n");
-                    publish("$ " + testAllCmd + "\n");
-                    try {
-                        Environment.instance.runShellCommand(
-                                testAllCmd, root, line -> publish(line + "\n"), Environment.DEFAULT_TIMEOUT, project);
-                        publish("\nSUCCESS: Test All command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
-                        publish("\nERROR: Test All command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
-                        return "Test All command failed.";
-                    }
-                } else {
-                    publish("--- Skipping empty Test All Command ---\n\n");
-                }
-
-                // Step 3: Test Some command
-                String testSomeTemplate = someTestsCommandField.getText().trim();
-                if (!testSomeTemplate.isEmpty()) {
-                    publish("--- Verifying Test Some Command Template ---\n");
-                    publish("Template: " + testSomeTemplate + "\n");
-                    String listKey;
-                    List<String> items = List.of("placeholder");
-                    if (testSomeTemplate.contains("{{#files}}")) {
-                        listKey = "files";
-                        items = List.of("src/test/java/com/example/Placeholder.java");
-                    } else if (testSomeTemplate.contains("{{#fqclasses}}")) {
-                        listKey = "fqclasses";
-                        items = List.of("com.example.Placeholder");
-                    } else if (testSomeTemplate.contains("{{#classes}}")) {
-                        listKey = "classes";
-                        items = List.of("Placeholder");
-                    } else {
-                        publish(
-                                "\nWARNING: 'Test Some' command does not contain {{#files}}, {{#classes}}, or {{#fqclasses}}.\n");
-                        publish("Cannot perform mock interpolation. Will run the command as-is.\n");
-                        listKey = null;
-                    }
-
-                    String interpolatedCmd;
-                    if (listKey != null) {
-                        interpolatedCmd = BuildAgent.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
-                        publish("Interpolated command with placeholder: " + interpolatedCmd + "\n");
-                    } else {
-                        interpolatedCmd = testSomeTemplate;
-                    }
-
-                    publish("$ " + interpolatedCmd + "\n");
-                    try {
-                        Environment.instance.runShellCommand(
-                                interpolatedCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                project);
-                        publish(
-                                "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
-                    } catch (Environment.FailureException e) {
-                        publish(
-                                "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
-                        publish("This confirms the command and template syntax are valid.\n\n");
-                        // This is the expected success path.
-                    } catch (Environment.SubprocessException e) {
-                        publish("\nERROR: 'Test Some' command failed to execute.\n");
-                        publish("This may indicate an invalid executable or a syntax error in the command.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
-                        return "'Test Some' command is invalid.";
-                    }
-                } else {
-                    publish("--- Skipping empty Test Some Command ---\n\n");
-                }
-
-                return "Verification successful!";
-            }
-
-            @Override
-            protected void process(List<String> chunks) {
-                for (String chunk : chunks) {
-                    outputArea.append(chunk);
-                }
-            }
-
-            @Override
-            protected void done() {
-                progressBar.setVisible(false);
-                closeButton.setEnabled(true);
-                try {
-                    String result = get();
-                    outputArea.append("\n--- VERIFICATION COMPLETE ---\n");
-                    outputArea.append(result);
-                } catch (Exception e) {
-                    logger.error("Error during build verification", e);
-                    if (e instanceof InterruptedException) {
-                        Thread.currentThread().interrupt();
-                        outputArea.append("\n--- VERIFICATION CANCELLED ---\n");
-                    } else {
-                        outputArea.append("\n--- An unexpected error occurred during verification ---\n");
-                        outputArea.append(e.toString());
-                    }
-                }
-                outputArea.setCaretPosition(outputArea.getDocument().getLength());
-            }
-        };
-        worker.execute();
-        verifyDialog.setVisible(true); // This blocks until dialog is closed
-    }
-
-    private void runBuildAgent() {
-        String action = inferBuildDetailsButton.getActionCommand();
-
-        if (ACTION_CANCEL.equals(action)) {
-            // We're in cancel mode - cancel the running task
-            if (manualInferBuildTaskFuture != null && !manualInferBuildTaskFuture.isDone()) {
-                boolean cancelled = manualInferBuildTaskFuture.cancel(true);
-                logger.debug("Build agent cancellation requested, result: {}", cancelled);
-                // Button state will be reset in the finally block of the task
-            }
-            return;
-        }
-
-        var cm = chrome.getContextManager();
-        var proj = chrome.getProject();
-
-        setBuildControlsEnabled(false); // Disable controls in this panel
-        setButtonToInferenceInProgress(true); // true = set Cancel text (manual agent)
-
-        manualInferBuildTaskFuture = cm.submitExclusiveAction(() -> {
-            try {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting Build Agent...");
-                var agent = new BuildAgent(
-                        proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
-                var newBuildDetails = agent.execute();
-
-                if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
-                    logger.warn("Build Agent returned null or empty details, considering it an error.");
-                    // When cancel button is pressed, we need to show a different kind of message
-                    boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
-
-                    SwingUtilities.invokeLater(() -> {
-                        if (isCancellation) {
-                            logger.info("Build Agent execution cancelled by user");
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Build Inference Agent cancelled.");
-                            JOptionPane.showMessageDialog(
-                                    SettingsProjectPanel.this,
-                                    "Build Inference Agent cancelled.",
-                                    "Build Cancelled",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                        } else {
-                            SwingUtilities.invokeLater(() -> {
-                                String errorMessage =
-                                        "Build Agent failed to determine build details. Please check agent logs.";
-                                chrome.toolError(errorMessage);
-                                JOptionPane.showMessageDialog(
-                                        SettingsProjectPanel.this,
-                                        errorMessage,
-                                        "Build Agent Error",
-                                        JOptionPane.ERROR_MESSAGE);
-                                // Do not save or update UI with empty details
-                            });
-                        }
-                    });
-                } else {
-                    // Do not save here, only update UI fields. applySettings will save.
-                    SwingUtilities.invokeLater(() -> {
-                        updateBuildDetailsFieldsFromAgent(newBuildDetails);
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO, "Build Agent finished. Review and apply settings.");
-                    });
-                }
-            } catch (Exception ex) {
-                logger.error("Error running Build Agent", ex);
-                SwingUtilities.invokeLater(() -> {
-                    String errorMessage = "Build Agent failed: " + ex.getMessage();
-                    chrome.toolError(errorMessage);
-                    JOptionPane.showMessageDialog(
-                            parentDialog, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
-                });
-            } finally {
-                SwingUtilities.invokeLater(() -> {
-                    setBuildControlsEnabled(true);
-                    setButtonToReadyState();
-                    manualInferBuildTaskFuture = null;
-                });
-            }
-        });
-    }
-
-    private void setBuildControlsEnabled(boolean enabled) {
-        // The 'enabled' state is determined by the caller;
-        // this panel's overall enabled state (due to project presence) is handled in initComponents.
-        buildProgressBar.setVisible(!enabled);
-
-        Stream.of(
-                        buildCleanCommandField,
-                        allTestsCommandField,
-                        someTestsCommandField,
-                        runAllTestsRadio,
-                        runTestsInWorkspaceRadio,
-                        editLanguagesButton,
-                        excludedScrollPane,
-                        excludedDirectoriesList,
-                        addExcludedDirButton,
-                        removeExcludedDirButton,
-                        // Parent dialog buttons
-                        okButtonParent,
-                        cancelButtonParent,
-                        applyButtonParent)
-                .filter(Objects::nonNull) // Filter out null components (e.g., optional parent buttons)
-                .forEach(control -> control.setEnabled(enabled));
-    }
-
-    private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
-        SwingUtilities.invokeLater(() -> {
-            buildCleanCommandField.setText(details.buildLintCommand());
-            allTestsCommandField.setText(details.testAllCommand());
-            someTestsCommandField.setText(details.testSomeCommand());
-            excludedDirectoriesListModel.clear();
-            var sortedExcludedDirs =
-                    details.excludedDirectories().stream().sorted().toList();
-            for (String dir : sortedExcludedDirs) excludedDirectoriesListModel.addElement(dir);
-            logger.trace("UI fields updated with new BuildDetails from agent: {}", details);
-        });
-    }
-
-    private void updateLanguagesDisplayField() {
-        // languagesDisplayField and currentAnalyzerLanguagesForDialog are initialized at declaration and non-null.
-        String cdl = currentAnalyzerLanguagesForDialog.stream()
-                .map(lang -> lang.name())
-                .sorted()
-                .collect(Collectors.joining(", "));
-        languagesDisplayField.setText(cdl.isEmpty() ? "None" : cdl);
     }
 
     public void loadSettings() {
@@ -1629,68 +931,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
 
-        // Build Tab - Load settings only if details are available
-        // If not available, the whenCompleteAsync callback from initComponents will call loadBuildPanelSettings
-        if (project.hasBuildDetails()) {
-            loadBuildPanelSettings();
-        }
-
-        // Data Retention Tab
-        if (dataRetentionPanelInner != null) dataRetentionPanelInner.loadPolicy();
-    }
-
-    private void loadBuildPanelSettings() {
-        var project = chrome.getProject();
-
-        BuildAgent.BuildDetails details;
-        try {
-            // This call is now safe as it's guarded by hasBuildDetails() or called after awaitBuildDetails()
-            details = project.loadBuildDetails();
-        } catch (Exception e) {
-            logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
-            details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
-            chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
-        }
-
-        buildCleanCommandField.setText(details.buildLintCommand());
-        allTestsCommandField.setText(details.testAllCommand());
-        someTestsCommandField.setText(details.testSomeCommand());
-
-        if (project.getCodeAgentTestScope() == IProject.CodeAgentTestScope.ALL) {
-            runAllTestsRadio.setSelected(true);
-        } else {
-            runTestsInWorkspaceRadio.setSelected(true);
-        }
-
-        buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
-        populateJdkControlsFromProject();
-
-        // Primary language
-        populatePrimaryLanguageComboBox();
-        var selectedLang = project.getBuildLanguage();
-        primaryLanguageComboBox.setSelectedItem(selectedLang);
-        updateJdkControlsVisibility(selectedLang);
-        if (selectedLang == Languages.JAVA) {
-            populateJdkControlsFromProject();
-        }
-
-        currentAnalyzerLanguagesForDialog = new HashSet<>(project.getAnalyzerLanguages());
-        updateLanguagesDisplayField();
-
-        excludedDirectoriesListModel.clear();
-        var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
-        for (String dir : sortedExcludedDirs) {
-            excludedDirectoriesListModel.addElement(dir);
-        }
-
-        // Load executor configuration
-        String executorPath = project.getCommandExecutor();
-        String executorArgs = project.getExecutorArgs();
-
-        executorPathField.setText(executorPath != null ? executorPath : DEFAULT_EXECUTOR_PATH);
-        executorArgsField.setText(executorArgs != null ? executorArgs : DEFAULT_EXECUTOR_ARGS);
-
-        logger.trace("Build panel settings loaded/reloaded with details: {}", details);
+        // Build Tab - delegate to buildPanelInstance
+        buildPanelInstance.loadBuildPanelSettings();
     }
 
     public boolean applySettings() {
@@ -1704,8 +946,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         // Issues Tab
-        io.github.jbellis.brokk.issues.IssueProviderType selectedType =
-                (io.github.jbellis.brokk.issues.IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
+        IssueProviderType selectedType = (IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
         IssueProvider newProviderToSet;
 
         switch (selectedType) {
@@ -1732,86 +973,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
         project.setIssuesProvider(newProviderToSet);
 
-        // Build Tab
-        var currentDetails = project.loadBuildDetails();
-        var newBuildLint = buildCleanCommandField.getText();
-        var newTestAll = allTestsCommandField.getText();
-        var newTestSome = someTestsCommandField.getText();
-        // buildInstructionsArea removed
-
-        var newExcludedDirs = new HashSet<String>();
-        for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++)
-            newExcludedDirs.add(excludedDirectoriesListModel.getElementAt(i));
-
-        var newDetails = new BuildAgent.BuildDetails(newBuildLint, newTestAll, newTestSome, newExcludedDirs);
-        if (!newDetails.equals(currentDetails)) {
-            project.saveBuildDetails(newDetails);
-            logger.debug("Applied Build Details changes.");
+        // Delegate build-related persistence to extracted build panel
+        try {
+            buildPanelInstance.applySettings();
+        } catch (Exception e) {
+            logger.error("Error applying build settings", e);
         }
 
-        MainProject.CodeAgentTestScope selectedScope =
-                runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
-        if (selectedScope != project.getCodeAgentTestScope()) {
-            project.setCodeAgentTestScope(selectedScope);
-            logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
-        }
-
-        var mainProject = project.getMainProject();
-        long timeout = ((Number) buildTimeoutSpinner.getValue()).longValue();
-        if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
-            mainProject.setRunCommandTimeoutSeconds(timeout);
-            logger.debug("Applied Run Command Timeout: {} seconds", timeout);
-        }
-
-        if (!currentAnalyzerLanguagesForDialog.equals(project.getAnalyzerLanguages())) {
-            project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
-            logger.debug("Applied Code Intelligence Languages: {}", currentAnalyzerLanguagesForDialog);
-            chrome.getContextManager().requestRebuild();
-        }
-
-        // Primary language
-        var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
-            project.setBuildLanguage(selectedPrimaryLang);
-            logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
-        }
-
-        // JDK Controls (only for Java)
-        if (selectedPrimaryLang == Languages.JAVA) {
-            if (setJavaHomeCheckbox.isSelected()) {
-                var selPath = jdkSelector.getSelectedJdkPath();
-                if (selPath != null && !selPath.isBlank()) {
-                    project.setJdk(selPath);
-                }
-            } else {
-                project.setJdk(BuildAgent.JAVA_HOME_SENTINEL);
-            }
-        }
-
-        // Apply executor configuration
-        String currentExecutorPath = project.getCommandExecutor();
-        String currentExecutorArgs = project.getExecutorArgs();
-        String newExecutorPath = executorPathField.getText().trim();
-        String newExecutorArgs = executorArgsField.getText().trim();
-
-        // Set to null if empty to clear the configuration
-        String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
-        String argsToSet = newExecutorArgs.isEmpty() ? null : newExecutorArgs;
-
-        if (!Objects.equals(currentExecutorPath, pathToSet)) {
-            project.setCommandExecutor(pathToSet);
-            logger.debug("Applied Custom Executor Path: {}", pathToSet);
-        }
-
-        if (!Objects.equals(currentExecutorArgs, argsToSet)) {
-            project.setExecutorArgs(argsToSet);
-            logger.debug("Applied Custom Executor Args: {}", argsToSet);
-        }
-
-        // Data Retention Tab
-        if (dataRetentionPanelInner != null) dataRetentionPanelInner.applyPolicy();
-
-        /* Persist any analyzer-specific settings for languages that provide them. */
+        // Data Retention Tab and Analyzer-specific settings are handled elsewhere (if present)
         for (AnalyzerSettingsPanel panel : analyzerSettingsCache.values()) {
             panel.saveSettings();
         }
@@ -1820,13 +989,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     public void showBuildBanner() {
-        bannerPanel.setVisible(true);
+        buildPanelInstance.showBuildBanner();
     }
 
     public void refreshDataRetentionPanel() {
-        if (dataRetentionPanelInner != null) {
-            dataRetentionPanelInner.refreshStateAndUI();
-        }
+        // No-op here; DataRetentionPanel is managed when created
     }
 
     @Override
@@ -1838,36 +1005,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
         // Word wrap not applicable to settings project panel
         SwingUtilities.updateComponentTreeUI(this);
-    }
-
-    private void populateJdkControlsFromProject() {
-        var project = chrome.getProject();
-        var desired = project.getJdk();
-
-        boolean useCustomJdk = desired != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(desired);
-        setJavaHomeCheckbox.setSelected(useCustomJdk);
-        jdkSelector.setEnabled(useCustomJdk);
-
-        // Always populate the selector; it will select 'desired' if provided
-        jdkSelector.loadJdksAsync(desired);
-    }
-
-    private void updateJdkControlsVisibility(@Nullable Language selected) {
-        boolean isJava = selected == Languages.JAVA;
-        setJavaHomeCheckbox.setVisible(isJava);
-        jdkSelector.setVisible(isJava);
-    }
-
-    private void populatePrimaryLanguageComboBox() {
-        var project = chrome.getProject();
-        var detected = findLanguagesInProject(project);
-        var configured = project.getBuildLanguage();
-        if (!detected.contains(configured)) {
-            detected.add(configured);
-        }
-        // Sort by display name
-        detected.sort(Comparator.comparing(Language::name));
-        primaryLanguageComboBox.setModel(new DefaultComboBoxModel<>(detected.toArray(Language[]::new)));
     }
 
     private List<Language> findLanguagesInProject(IProject project) {
@@ -1885,124 +1022,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         }
         return new ArrayList<>(langs);
-    }
-
-    private void initializeExecutorUI() {
-        // Set up tooltips
-        executorPathField.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
-        executorArgsField.setToolTipText("Arguments to pass to executor (default: " + DEFAULT_EXECUTOR_ARGS + ")");
-        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS); // Set default value
-
-        // Populate common executors dropdown
-        var commonExecutors = ExecutorValidator.getCommonExecutors();
-        commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
-        // pre-select the system default if present
-        for (int i = 0; i < commonExecutors.length; i++) {
-            if (commonExecutors[i].equalsIgnoreCase(DEFAULT_EXECUTOR_PATH)) {
-                commonExecutorsComboBox.setSelectedIndex(i);
-                break;
-            }
-        }
-
-        // Reset button action
-        resetExecutorButton.addActionListener(e -> resetExecutor());
-
-        // Common executors selection action
-        commonExecutorsComboBox.addActionListener(e -> {
-            String selected = (String) commonExecutorsComboBox.getSelectedItem();
-            if (selected != null && !selected.isEmpty()) {
-                executorPathField.setText(selected);
-            }
-        });
-
-        // Test executor button action
-        testExecutorButton.addActionListener(e -> testExecutor());
-    }
-
-    private void resetExecutor() {
-        // Restore defaults
-        executorPathField.setText(DEFAULT_EXECUTOR_PATH);
-        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS);
-
-        // Clear the project configuration immediately
-        var project = chrome.getProject();
-        project.setCommandExecutor(null);
-        project.setExecutorArgs(null);
-
-        // Reset combo-box to default option if available
-        for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
-            if (DEFAULT_EXECUTOR_PATH.equalsIgnoreCase(commonExecutorsComboBox.getItemAt(i))) {
-                commonExecutorsComboBox.setSelectedIndex(i);
-                break;
-            }
-        }
-    }
-
-    private void testExecutor() {
-        String executorPath = executorPathField.getText().trim();
-        String executorArgs = executorArgsField.getText().trim();
-
-        if (executorPath.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Please specify an executor path first.",
-                    "No Executor Specified",
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        // Default args if empty
-        if (executorArgs.isEmpty()) {
-            executorArgs = DEFAULT_EXECUTOR_ARGS;
-        }
-
-        testExecutorButton.setEnabled(false);
-        testExecutorButton.setText("Testing...");
-
-        // Make variables effectively final for use in inner class
-        final String finalExecutorPath = executorPath;
-        final String finalExecutorArgs = executorArgs;
-
-        SwingWorker<ExecutorValidator.ValidationResult, Void> worker = new SwingWorker<>() {
-            @Override
-            protected ExecutorValidator.ValidationResult doInBackground() {
-                String[] argsArray = finalExecutorArgs.split("\\s+");
-                var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
-                return ExecutorValidator.validateExecutor(config);
-            }
-
-            @Override
-            protected void done() {
-                testExecutorButton.setEnabled(true);
-                testExecutorButton.setText("Test");
-
-                try {
-                    var result = get();
-                    if (result.success()) {
-                        String[] argsArray = finalExecutorArgs.split("\\s+");
-                        var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
-                        String sandboxInfo = ExecutorValidator.getSandboxLimitation(config);
-
-                        JOptionPane.showMessageDialog(
-                                SettingsProjectPanel.this,
-                                result.message() + "\n\n" + sandboxInfo,
-                                "Executor Test Successful",
-                                JOptionPane.INFORMATION_MESSAGE);
-                    } else {
-                        JOptionPane.showMessageDialog(
-                                SettingsProjectPanel.this, result.message(), "Test Failed", JOptionPane.ERROR_MESSAGE);
-                    }
-                } catch (Exception ex) {
-                    logger.error("Error during executor test", ex);
-                    JOptionPane.showMessageDialog(
-                            SettingsProjectPanel.this,
-                            "Test failed with error: " + ex.getMessage(),
-                            "Executor Test Error",
-                            JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        };
-        worker.execute();
     }
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)

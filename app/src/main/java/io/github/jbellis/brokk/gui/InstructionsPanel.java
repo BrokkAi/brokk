@@ -26,7 +26,6 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
-import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -103,7 +102,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
-    private @Nullable SplitButton branchSplitButton;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -367,7 +365,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
-        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
+        modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
 
@@ -470,7 +468,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             break;
                         }
                     } catch (Exception ex) {
-                        // Ignore and fall back to default paste handling
+                        // Log at trace to avoid noise; proceed with default paste handling
+                        logger.trace("Clipboard flavor probe failed during smartPaste; falling back to default", ex);
                     }
                 }
 
@@ -521,226 +520,45 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        var modelComp = modelSelector.getComponent();
 
-        // Lock control heights to the larger of mic and model selector so one growing won't shrink the other
+        // Set mic button size
         var micPref = micButton.getPreferredSize();
-        var modelPref = modelComp.getPreferredSize();
-        int controlHeight = Math.max(micPref.height, modelPref.height);
-
-        var micDim = new Dimension(controlHeight, controlHeight);
+        int micHeight = micPref.height;
+        var micDim = new Dimension(micHeight, micHeight);
         micButton.setPreferredSize(micDim);
         micButton.setMinimumSize(micDim);
         micButton.setMaximumSize(micDim);
 
-        var modelDim = new Dimension(modelPref.width, controlHeight);
-        modelComp.setPreferredSize(modelDim);
-        modelComp.setMinimumSize(new Dimension(50, controlHeight));
-        modelComp.setMaximumSize(new Dimension(Integer.MAX_VALUE, controlHeight));
-
         leftPanel.add(micButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-        leftPanel.add(modelComp);
-
-        // Place mic, model, branch dropdown, and history dropdown left-to-right in the top bar
-        // Insert small gap, branch split button, then history dropdown so ordering is: mic, model, branch, history.
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        var cm = chrome.getContextManager();
-        var project = chrome.getProject();
-        this.branchSplitButton = new SplitButton("No Git");
-        branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
-        branchSplitButton.setFocusable(true);
-
-        int branchWidth = 210;
-        var branchDim = new Dimension(branchWidth, controlHeight);
-        branchSplitButton.setPreferredSize(branchDim);
-        branchSplitButton.setMinimumSize(branchDim);
-        branchSplitButton.setMaximumSize(branchDim);
-        branchSplitButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Build a fresh popup menu on demand so the branch list is always up-to-date
-        Supplier<JPopupMenu> branchMenuSupplier = () -> {
-            var menu = new JPopupMenu();
-            try {
-                if (project.hasGit()) {
-                    IGitRepo repo = project.getRepo();
-                    List<String> localBranches;
-                    if (repo instanceof GitRepo gitRepo) {
-                        localBranches = gitRepo.listLocalBranches();
-                    } else {
-                        localBranches = List.of();
-                    }
-                    String current = repo.getCurrentBranch();
-
-                    if (!current.isBlank()) {
-                        JMenuItem header = new JMenuItem("Current: " + current);
-                        header.setEnabled(false);
-                        menu.add(header);
-                        menu.add(new JSeparator());
-                    }
-
-                    // Local branches
-                    for (var b : localBranches) {
-                        JMenuItem item = new JMenuItem(b);
-                        item.addActionListener(ev -> {
-                            // Checkout in background via ContextManager to get spinner/cancel behavior
-                            cm.submitExclusiveAction(() -> {
-                                try {
-                                    IGitRepo r = project.getRepo();
-                                    r.checkout(b);
-                                    SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            var currentBranch = r.getCurrentBranch();
-                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                            refreshBranchUi(displayBranch);
-                                        } catch (Exception ex) {
-                                            logger.debug("Error updating branch UI after checkout", ex);
-                                            refreshBranchUi(b);
-                                        }
-                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                    });
-                                } catch (Exception ex) {
-                                    logger.error("Error checking out branch {}", b, ex);
-                                    SwingUtilities.invokeLater(
-                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                                }
-                            });
-                        });
-                        menu.add(item);
-                    }
-
-                } else {
-                    JMenuItem noRepo = new JMenuItem("No Git repository");
-                    noRepo.setEnabled(false);
-                    menu.add(noRepo);
-                }
-            } catch (Exception ex) {
-                logger.error("Error building branch menu", ex);
-                JMenuItem err = new JMenuItem("Error loading branches");
-                err.setEnabled(false);
-                menu.add(err);
-            }
-
-            // If project has git, add actions
-            if (project.hasGit()) {
-                menu.addSeparator();
-
-                JMenuItem create = new JMenuItem("Create New Branch...");
-                create.addActionListener(ev -> {
-                    // Prompt on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        String name = JOptionPane.showInputDialog(chrome.getFrame(), "New branch name:");
-                        if (name == null || name.isBlank()) return;
-                        final String proposed = name.strip();
-                        cm.submitExclusiveAction(() -> {
-                            try {
-                                IGitRepo r = project.getRepo();
-                                String sanitized = r.sanitizeBranchName(proposed);
-                                String source = r.getCurrentBranch();
-                                try {
-                                    if (r instanceof GitRepo gitRepo) {
-                                        // Prefer atomic create+checkout if available on concrete GitRepo
-                                        try {
-                                            gitRepo.createAndCheckoutBranch(sanitized, source);
-                                        } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
-                                            // Fallback to create + checkout on GitRepo
-                                            gitRepo.createBranch(sanitized, source);
-                                            gitRepo.checkout(sanitized);
-                                        }
-                                    } else {
-                                        // Repo implementation doesn't support branch creation via IGitRepo
-                                        throw new UnsupportedOperationException(
-                                                "Repository implementation does not support branch creation");
-                                    }
-                                } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
-                                    // Re-throw so outer catch displays the error to the user as before
-                                    throw nsme;
-                                }
-                                SwingUtilities.invokeLater(() -> {
-                                    try {
-                                        refreshBranchUi(sanitized);
-                                    } catch (Exception ex) {
-                                        logger.debug("Error updating branch UI after branch creation", ex);
-                                    }
-                                    chrome.showNotification(
-                                            IConsoleIO.NotificationRole.INFO, "Created and checked out: " + sanitized);
-                                });
-                            } catch (Exception ex) {
-                                logger.error("Error creating branch", ex);
-                                SwingUtilities.invokeLater(
-                                        () -> chrome.toolError("Error creating branch: " + ex.getMessage()));
-                            }
-                        });
-                    });
-                });
-                menu.add(create);
-
-                JMenuItem refresh = new JMenuItem("Refresh Branches");
-                refresh.addActionListener(ev -> {
-                    // Menu is rebuilt when shown; simply notify user
-                    SwingUtilities.invokeLater(
-                            () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
-                });
-                menu.add(refresh);
-            }
-
-            return menu;
-        };
-        branchSplitButton.setMenuSupplier(branchMenuSupplier);
-
-        // Show the popup when the main button area is clicked (treat as a dropdown)
-        branchSplitButton.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
-            try {
-                var menu = branchMenuSupplier.get();
-                // Allow theme manager to style/popups as other popups do
-                try {
-                    chrome.themeManager.registerPopupMenu(menu);
-                } catch (Exception e) {
-                    logger.debug("Error registering popup menu", e);
-                }
-                var bsb = requireNonNull(branchSplitButton);
-                menu.show(bsb, 0, bsb.getHeight());
-            } catch (Exception ex) {
-                logger.error("Error showing branch dropdown", ex);
-            }
-        }));
-
-        // Initialize current branch label and enabled state
-        try {
-            if (project.hasGit()) {
-                IGitRepo repo = project.getRepo();
-                String cur = repo.getCurrentBranch();
-                if (!cur.isBlank()) {
-                    branchSplitButton.setText("branch: " + cur);
-                    branchSplitButton.setEnabled(true);
-                } else {
-                    branchSplitButton.setText("branch: Unknown");
-                    branchSplitButton.setEnabled(true);
-                }
-            } else {
-                branchSplitButton.setText("No Git");
-                branchSplitButton.setEnabled(false);
-            }
-        } catch (Exception ex) {
-            logger.error("Error initializing branch button", ex);
-            branchSplitButton.setText("No Git");
-            branchSplitButton.setEnabled(false);
-        }
-
-        var historyDropdown = createHistoryDropdown();
-        // Make the control itself compact; popup will expand on open
-        historyDropdown.setPreferredSize(new Dimension(120, controlHeight));
-        historyDropdown.setMinimumSize(new Dimension(120, controlHeight));
-        historyDropdown.setMaximumSize(new Dimension(400, controlHeight));
-        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        leftPanel.add(historyDropdown);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Add branchSplitButton after the History dropdown
-        leftPanel.add(branchSplitButton);
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
+
+        // Center placeholder — header with branch selector has been moved to the main window (Chrome).
+        JPanel centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.LINE_AXIS));
+        centerPanel.add(Box.createHorizontalGlue());
+        topBarPanel.add(centerPanel, BorderLayout.CENTER);
+
+        // Right panel with history and wand button
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+
+        var historyDropdown = createHistoryDropdown();
+        historyDropdown.setPreferredSize(new Dimension(120, micHeight));
+        historyDropdown.setMinimumSize(new Dimension(120, micHeight));
+        historyDropdown.setMaximumSize(new Dimension(400, micHeight));
+        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        var wandDim = new Dimension(micHeight, micHeight);
+        wandButton.setPreferredSize(wandDim);
+        wandButton.setMinimumSize(wandDim);
+        wandButton.setMaximumSize(wandDim);
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        rightPanel.add(historyDropdown);
+        rightPanel.add(Box.createHorizontalStrut(H_GAP));
+        rightPanel.add(wandButton);
+
+        topBarPanel.add(rightPanel, BorderLayout.EAST);
 
         return topBarPanel;
     }
@@ -1049,8 +867,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 badgeFg = ThemeColors.getColor(isDark, "mode_code_fg");
                 accent = ThemeColors.getColor(isDark, "mode_code_accent");
             }
-        } catch (Exception ignored) {
-            // fallbacks below
+        } catch (Exception ex) {
+            // Log at debug and fall back to defaults below
+            logger.debug("Theme color lookup failed; using fallback colors", ex);
         }
         if (badgeBg == null) {
             badgeBg = askMode ? new Color(0x1F6FEB) : new Color(0x2EA043);
@@ -1080,16 +899,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionGroupPanel.setAccentColor(accent);
     }
 
-    /** Updates the Project Files drawer title to reflect the current Git branch. Ensures EDT execution. */
-    private void updateProjectFilesDrawerTitle(String branchName) {
-        var panel = chrome.getProjectFilesPanel();
-        if (SwingUtilities.isEventDispatchThread()) {
-            GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName);
-        } else {
-            SwingUtilities.invokeLater(() -> GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName));
-        }
-    }
-
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
@@ -1097,66 +906,45 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var service = chrome.getContextManager().getService();
         var model = service.getModel(config);
 
-        // Handle empty context case
-        if (ctx == null || ctx.isEmpty()) {
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
-                        tokenUsageBar.setVisible(false);
-                        return;
-                    }
-
-                    int maxTokens = service.getMaxInputTokens(model);
-                    if (maxTokens <= 0) {
-                        maxTokens = 128_000;
-                    }
-
-                    tokenUsageBar.setTokens(0, maxTokens);
-                    String modelName = config.name();
-                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, "$0.00");
-                    tokenUsageBar.setTooltip(tooltipHtml);
-                    tokenUsageBar.setVisible(true);
-                } catch (Exception ex) {
-                    logger.debug("Failed to update token usage bar for empty context", ex);
-                    tokenUsageBar.setVisible(false);
-                }
-            });
-            return;
-        }
-
-        // Build full text of current context, similar to WorkspacePanel
-        var allFragments = ctx.getAllFragmentsInDisplayOrder();
-        var fullText = new StringBuilder();
-        for (var frag : allFragments) {
-            if (frag.isText() || frag.getType().isOutput()) {
-                fullText.append(frag.text()).append("\n");
-            }
-        }
-
         // Compute tokens off-EDT
         chrome.getContextManager()
-                .submitBackgroundTask(
-                        "Compute token estimate (Instructions)",
-                        () -> Messages.getApproximateTokens(fullText.toString()))
-                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
+                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        return new TokenUsageBarComputation(
+                                buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0);
+                    }
+
+                    var fullText = new StringBuilder();
+                    if (ctx != null && !ctx.isEmpty()) {
+                        // Build full text of current context, similar to WorkspacePanel
+                        var allFragments = ctx.getAllFragmentsInDisplayOrder();
+                        for (var frag : allFragments) {
+                            if (frag.isText() || frag.getType().isOutput()) {
+                                fullText.append(frag.text()).append("\n");
+                            }
+                        }
+                    }
+
+                    int approxTokens = Messages.getApproximateTokens(fullText.toString());
+                    int maxTokens = service.getMaxInputTokens(model);
+                    if (maxTokens <= 0) {
+                        // Fallback to a generous default when service does not provide a limit
+                        maxTokens = 128_000;
+                    }
+                    String modelName = config.name();
+                    String costStr = calculateCostEstimate(config, approxTokens, service);
+                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
+                    return new TokenUsageBarComputation(tooltipHtml, maxTokens, approxTokens);
+                })
+                .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
-                        if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        if (stat == null) {
                             tokenUsageBar.setVisible(false);
                             return;
                         }
-
-                        int maxTokens = service.getMaxInputTokens(model);
-                        if (maxTokens <= 0) {
-                            // Fallback to a generous default when service does not provide a limit
-                            maxTokens = 128_000;
-                        }
-
                         // Update bar and tooltip
-                        tokenUsageBar.setTokens(approxTokens, maxTokens);
-                        String modelName = config.name();
-                        String costStr = calculateCostEstimate(config, approxTokens, service);
-                        String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
-                        tokenUsageBar.setTooltip(tooltipHtml);
+                        tokenUsageBar.setTokens(stat.approxTokens, stat.maxTokens);
+                        tokenUsageBar.setTooltip(stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -1165,6 +953,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
     }
 
+    private static record TokenUsageBarComputation(String toolTipHtml, int maxTokens, int approxTokens) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1209,31 +998,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    /**
-     * Public hook to refresh branch UI (branch selector label and Project Files drawer title). Ensures EDT compliance
-     * and no-ops if not a git project or selector not initialized.
-     */
     public void refreshBranchUi(String branchName) {
-        Runnable task = () -> {
-            if (!chrome.getProject().hasGit()) {
-                return;
-            }
-            if (branchSplitButton == null) {
-                // Selector not initialized (e.g., no Git or UI not yet built) -> no-op
-                return;
-            }
-            branchSplitButton.setText("branch: " + branchName);
-            updateProjectFilesDrawerTitle(branchName);
-
-            // Also notify the Git Log tab to refresh and select the current branch
-            chrome.updateLogTab();
-            chrome.selectCurrentBranchInLogTab();
-        };
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
-        }
+        // Delegate to Chrome which now owns the BranchSelectorButton
+        chrome.refreshBranchUi(branchName);
     }
 
     /**
@@ -1326,11 +1093,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Wand button (Magic Ask) on the right
-        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Size set after fixedHeight is computed below
-        bottomPanel.add(wandButton);
-        bottomPanel.add(Box.createHorizontalStrut(4));
+        // Model selector on the right
+        var modelComp = modelSelector.getComponent();
+        modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
+        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP + 120));
+        bottomPanel.add(modelComp);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Action button (Go/Stop toggle) on the right
         actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -1354,12 +1122,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.repaint();
             }
         });
-
-        // Size the wand button to match height of action button
-        var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
-        wandButton.setPreferredSize(iconButtonSize);
-        wandButton.setMinimumSize(iconButtonSize);
-        wandButton.setMaximumSize(iconButtonSize);
 
         bottomPanel.add(actionButton);
 
@@ -1401,6 +1163,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var project = chrome.getProject();
 
         var dropdown = new SplitButton(placeholder);
+        dropdown.setUnifiedHover(true);
         dropdown.setToolTipText("Select a previous instruction from history");
         dropdown.setFocusable(true);
 
@@ -1805,28 +1568,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    public void runCodeCommand() {
-        var contextManager = chrome.getContextManager();
-
-        // fetch and save model config
-        Service.ModelConfig config;
-        try {
-            config = modelSelector.getModel();
-            chrome.getProject().setCodeModelConfig(config);
-        } catch (IllegalStateException e) {
-            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-            return;
-        }
-        var model = contextManager.getService().getModel(config);
-        if (model == null) {
-            chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
-                    + config.reasoning());
-            model = castNonNull(contextManager.getService().getModel(Service.GPT_5_MINI));
-        }
-
-        prepareAndRunCodeCommand(model);
-    }
-
     // Core method to prepare and submit the Code action
     private void prepareAndRunCodeCommand(StreamingChatModel modelToUse) {
         var input = getInstructions();
@@ -2135,7 +1876,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Go action
             switch (storedAction) {
                 case ACTION_ARCHITECT -> runArchitectCommand();
-                case ACTION_CODE -> runCodeCommand();
+                case ACTION_CODE -> prepareAndRunCodeCommand(getSelectedModel());
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
                 default -> runArchitectCommand();
@@ -2198,6 +1939,92 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public JPanel getCenterPanel() {
         return centerPanel;
+    }
+
+    /**
+     * Returns the Swing component used by the ModelSelector so it can be moved
+     * between panels (Instructions <-> Tasks) as a single shared component.
+     */
+    public JComponent getModelSelectorComponent() {
+        return modelSelector.getComponent();
+    }
+
+    /**
+     * Ensures the ModelSelector component is attached to the Instructions bottom bar,
+     * immediately before the actionButton with proper spacing, and revalidates the layout.
+     * Safe to call from any thread.
+     */
+    public void restoreModelSelectorToBottom() {
+        Runnable r = () -> {
+            try {
+                JComponent comp = modelSelector.getComponent();
+                var currentParent = comp.getParent();
+                var bottom = actionButton.getParent();
+                if (bottom == null) return;
+
+                if (currentParent != bottom) {
+                    if (currentParent != null) {
+                        currentParent.remove(comp);
+                        currentParent.revalidate();
+                        currentParent.repaint();
+                    }
+                    // Insert right before the action button with spacing strut
+                    int actionIndex = indexOfChild(bottom, actionButton);
+                    if (actionIndex >= 0) {
+                        bottom.add(comp, actionIndex);
+                        bottom.add(Box.createHorizontalStrut(H_GAP), actionIndex + 1);
+                        bottom.revalidate();
+                        bottom.repaint();
+                    }
+                } else {
+                    // Already in the right parent; ensure correct ordering with strut
+                    int compIndex = indexOfChild(bottom, comp);
+                    int actionIndex = indexOfChild(bottom, actionButton);
+
+                    // Check if strut exists right after model selector
+                    boolean strutExists = false;
+                    if (actionIndex >= 1) {
+                        Component potentialStrut = bottom.getComponent(actionIndex - 1);
+                        strutExists = potentialStrut instanceof Box.Filler;
+                    }
+
+                    if (compIndex != actionIndex - 2 || !strutExists) {
+                        // Reposition: remove model selector and any old strut, then re-add both
+                        bottom.remove(comp);
+
+                        // Also remove the old strut if it exists
+                        int newActionIndex = indexOfChild(bottom, actionButton);
+                        if (newActionIndex >= 1) {
+                            Component potentialStrut = bottom.getComponent(newActionIndex - 1);
+                            if (potentialStrut instanceof Box.Filler) {
+                                bottom.remove(potentialStrut);
+                                newActionIndex = indexOfChild(bottom, actionButton);
+                            }
+                        }
+
+                        // Add model selector and new strut before action button
+                        if (newActionIndex >= 0) {
+                            bottom.add(comp, newActionIndex);
+                            bottom.add(Box.createHorizontalStrut(H_GAP), newActionIndex + 1);
+                        }
+                        bottom.revalidate();
+                        bottom.repaint();
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("restoreModelSelectorToBottom: non-fatal error repositioning model selector", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    private static int indexOfChild(Container parent, Component child) {
+        int n = parent.getComponentCount();
+        for (int i = 0; i < n; i++) {
+            if (parent.getComponent(i) == child) return i;
+        }
+        return -1;
     }
 
     /**

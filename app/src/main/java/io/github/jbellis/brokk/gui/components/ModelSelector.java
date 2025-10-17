@@ -5,23 +5,23 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
-import java.awt.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.JComboBox;
+import java.util.function.Supplier;
 import javax.swing.JComponent;
-import javax.swing.JList;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
+import javax.swing.JPopupMenu;
+import javax.swing.JSeparator;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class ModelSelector {
 
     private final Chrome chrome;
-    private final JComboBox<Object> combo;
+    private final SplitButton splitButton;
     private final AtomicBoolean updating = new AtomicBoolean(false);
     private volatile boolean dialogOpen = false;
     private @Nullable Service.FavoriteModel lastSelected;
@@ -29,39 +29,54 @@ public class ModelSelector {
 
     public ModelSelector(Chrome chrome) {
         this.chrome = chrome;
-        this.combo = new JComboBox<>();
-        this.combo.setToolTipText("Select a quick model or configure custom models");
-        this.combo.setEditable(false);
-        this.combo.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                Object display = (value instanceof Service.FavoriteModel fm) ? fm.alias() : value;
-                return super.getListCellRendererComponent(list, display, index, isSelected, cellHasFocus);
-            }
-        });
-        this.combo.addActionListener(e -> {
-            if (updating.get()) {
-                return;
-            }
-            Object sel = combo.getSelectedItem();
-            if (sel instanceof Service.FavoriteModel fm) {
-                lastSelected = fm;
-                // notify listeners of selection changes
-                for (var listener : selectionListeners) {
-                    listener.accept(fm.config());
+        this.splitButton = new SplitButton("No Model", true);
+        this.splitButton.setToolTipText("Select a quick model or configure custom models");
+
+        Supplier<JPopupMenu> menuSupplier = () -> {
+            var menu = new JPopupMenu();
+            var favorites = MainProject.loadFavoriteModels();
+
+            if (favorites.isEmpty()) {
+                JMenuItem noFavorites = new JMenuItem("(No favorite models)");
+                noFavorites.setEnabled(false);
+                menu.add(noFavorites);
+            } else {
+                for (var fm : favorites) {
+                    JMenuItem item = new JMenuItem(fm.alias());
+                    item.addActionListener(e -> {
+                        if (!updating.get()) {
+                            selectFavorite(fm);
+                        }
+                    });
+                    menu.add(item);
                 }
-                chrome.getProject().setCodeModelConfig(lastSelected.config());
-            } else if (sel instanceof String s && "Manage...".equals(s)) {
-                openCustomDialog();
             }
-        });
+
+            menu.add(new JSeparator());
+            JMenuItem manage = new JMenuItem("Manage...");
+            manage.addActionListener(e -> openCustomDialog());
+            menu.add(manage);
+
+            return menu;
+        };
+
+        splitButton.setMenuSupplier(menuSupplier);
+        splitButton.addActionListener(e -> splitButton.showPopupMenuInternal());
 
         refresh();
     }
 
+    private void selectFavorite(Service.FavoriteModel fm) {
+        lastSelected = fm;
+        splitButton.setText(fm.alias());
+        for (var listener : selectionListeners) {
+            listener.accept(fm.config());
+        }
+        chrome.getProject().setCodeModelConfig(lastSelected.config());
+    }
+
     public JComponent getComponent() {
-        return combo;
+        return splitButton;
     }
 
     public void addSelectionListener(Consumer<Service.ModelConfig> listener) {
@@ -79,15 +94,15 @@ public class ModelSelector {
             return false; // don't interfere with an open dialog
         }
 
-        refresh(); // make sure the combo is up to date
+        refresh(); // make sure the button is up to date
 
-        for (int i = 0; i < combo.getItemCount(); i++) {
-            Object item = combo.getItemAt(i);
-            if (item instanceof Service.FavoriteModel fm && fm.config().equals(desired)) {
+        var favorites = MainProject.loadFavoriteModels();
+        for (var fm : favorites) {
+            if (fm.config().equals(desired)) {
                 updating.set(true);
                 try {
-                    combo.setSelectedIndex(i);
                     lastSelected = fm;
+                    splitButton.setText(fm.alias());
                 } finally {
                     updating.set(false);
                 }
@@ -102,37 +117,34 @@ public class ModelSelector {
         if (dialogOpen) {
             throw new IllegalStateException("Model configuration in progress");
         }
-        Object sel = combo.getSelectedItem();
-        if (sel instanceof Service.FavoriteModel fm) {
-            return fm.config();
+        if (lastSelected == null) {
+            throw new IllegalStateException("No model selected");
         }
-        throw new IllegalStateException("No model selected");
+        return lastSelected.config();
     }
 
     private void refresh() {
         Runnable task = () -> {
             updating.set(true);
             try {
-                combo.removeAllItems();
                 var favorites = MainProject.loadFavoriteModels();
-                if (favorites.isEmpty()) {
-                    combo.addItem("(No favorite models)");
-                } else {
-                    favorites.forEach(combo::addItem);
-                }
-                combo.addItem("Manage...");
                 if (lastSelected != null) {
                     // Try to re-select the last favorite if present
-                    for (int i = 0; i < combo.getItemCount(); i++) {
-                        Object it = combo.getItemAt(i);
-                        if (it instanceof Service.FavoriteModel fm && fm.equals(lastSelected)) {
-                            combo.setSelectedIndex(i);
+                    for (var fm : favorites) {
+                        if (fm.equals(lastSelected)) {
+                            splitButton.setText(fm.alias());
                             return;
                         }
                     }
                 }
-                if (combo.getItemCount() > 0) {
-                    combo.setSelectedIndex(0);
+                // No last selected or it's gone; select first available or show placeholder
+                if (!favorites.isEmpty()) {
+                    var first = favorites.getFirst();
+                    lastSelected = first;
+                    splitButton.setText(first.alias());
+                } else {
+                    lastSelected = null;
+                    splitButton.setText("(No favorite models)");
                 }
             } finally {
                 updating.set(false);
@@ -178,17 +190,12 @@ public class ModelSelector {
 
             if (maybeNew.isPresent()) {
                 lastSelected = maybeNew.get();
-                refresh();
-                // Ensure combo box selection happens on EDT after refresh populates it
-                SwingUtilities.invokeLater(() -> {
-                    for (int i = 0; i < combo.getItemCount(); i++) {
-                        Object item = combo.getItemAt(i);
-                        if (item instanceof Service.FavoriteModel fm && fm.equals(lastSelected)) {
-                            combo.setSelectedIndex(i);
-                            return;
-                        }
-                    }
-                });
+                splitButton.setText(lastSelected.alias());
+                // Notify listeners of the new selection
+                for (var listener : selectionListeners) {
+                    listener.accept(lastSelected.config());
+                }
+                chrome.getProject().setCodeModelConfig(lastSelected.config());
             } else {
                 // No new favorite created: restore prior selection (or default)
                 revertSelection(priorSelection);
@@ -200,18 +207,11 @@ public class ModelSelector {
 
     private void revertSelection(@Nullable Service.FavoriteModel priorSelection) {
         // Reset back to last valid selection on cancel
-        refresh();
         if (priorSelection != null) {
-            for (int i = 0; i < combo.getItemCount(); i++) {
-                Object it = combo.getItemAt(i);
-                if (it instanceof Service.FavoriteModel fm && fm.equals(priorSelection)) {
-                    combo.setSelectedIndex(i);
-                    return;
-                }
-            }
-        }
-        if (combo.getItemCount() > 0) {
-            combo.setSelectedIndex(0);
+            lastSelected = priorSelection;
+            splitButton.setText(priorSelection.alias());
+        } else {
+            refresh();
         }
     }
 }

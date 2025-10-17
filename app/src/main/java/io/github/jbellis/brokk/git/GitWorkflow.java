@@ -10,7 +10,6 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.exception.LlmException;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
@@ -186,8 +185,7 @@ public final class GitWorkflow {
         String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
 
         var service = cm.getService();
-        var preferredModel = service.getModel(Service.GPT_5_MINI);
-        var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
+        var modelToUse = service.getScanModel();
 
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {

@@ -5,6 +5,8 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.function.Supplier;
 import javax.swing.BoxLayout;
 import javax.swing.Icon;
@@ -28,7 +30,15 @@ public class SplitButton extends JComponent {
     private @Nullable Supplier<JPopupMenu> menuSupplier;
     private @Nullable JPopupMenu popupMenu; // optional cache
 
+    private boolean unifiedHover;
+    private @Nullable MouseAdapter hoverListener;
+
     public SplitButton(String text) {
+        this(text, false);
+    }
+
+    public SplitButton(String text, boolean unifiedHover) {
+        this.unifiedHover = unifiedHover;
         setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
         setOpaque(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -47,8 +57,66 @@ public class SplitButton extends JComponent {
         // Right side click shows dropdown
         arrowButton.addActionListener(e -> showPopupMenuInternal());
 
+        // Optionally set up unified hover behavior
+        if (unifiedHover) {
+            setupUnifiedHoverBehavior();
+        }
+
         add(actionButton);
         add(arrowButton);
+    }
+
+    public void setUnifiedHover(boolean unified) {
+        if (this.unifiedHover == unified) {
+            return;
+        }
+
+        this.unifiedHover = unified;
+
+        if (unified) {
+            setupUnifiedHoverBehavior();
+        } else {
+            removeUnifiedHoverBehavior();
+        }
+    }
+
+    public boolean isUnifiedHover() {
+        return unifiedHover;
+    }
+
+    private void setupUnifiedHoverBehavior() {
+        // Remove any existing listener first
+        removeUnifiedHoverBehavior();
+
+        hoverListener = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (isEnabled()) {
+                    actionButton.getModel().setRollover(true);
+                    arrowButton.getModel().setRollover(true);
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                actionButton.getModel().setRollover(false);
+                arrowButton.getModel().setRollover(false);
+            }
+        };
+
+        actionButton.addMouseListener(hoverListener);
+        arrowButton.addMouseListener(hoverListener);
+    }
+
+    private void removeUnifiedHoverBehavior() {
+        if (hoverListener != null) {
+            actionButton.removeMouseListener(hoverListener);
+            arrowButton.removeMouseListener(hoverListener);
+            // Clear rollover states when disabling unified behavior
+            actionButton.getModel().setRollover(false);
+            arrowButton.getModel().setRollover(false);
+            hoverListener = null;
+        }
     }
 
     private static void applyCompactStyling(MaterialButton b) {

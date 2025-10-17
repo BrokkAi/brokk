@@ -18,7 +18,7 @@ public interface IAnalyzer {
 
     // Basics
     default boolean isEmpty() {
-        throw new UnsupportedOperationException();
+        return getAllDeclarations().isEmpty();
     }
 
     default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
@@ -61,7 +61,10 @@ public interface IAnalyzer {
     }
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
-        throw new UnsupportedOperationException();
+        return getDefinition(fqClass)
+                .filter(CodeUnit::isClass)
+                .map(this::directChildren)
+                .orElse(List.of());
     }
 
     /** All top-level declarations in the project. */
@@ -82,7 +85,7 @@ public interface IAnalyzer {
     }
 
     default Optional<ProjectFile> getFileFor(String fqName) {
-        throw new UnsupportedOperationException();
+        return getDefinition(fqName).map(CodeUnit::source);
     }
 
     /**

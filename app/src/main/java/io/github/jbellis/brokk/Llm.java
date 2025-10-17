@@ -193,7 +193,7 @@ public class Llm {
     }
 
     /** Write the request JSON before sending to the model, to a file named "<base>-request.json". */
-    private void logRequest(ChatRequest request) {
+    private synchronized void logRequest(ChatRequest request) {
         try {
             var filename = "%s %03d-request.json".formatted(logFileTimestamp(), requestSequence);
             var requestPath = taskHistoryDir.resolve(filename);

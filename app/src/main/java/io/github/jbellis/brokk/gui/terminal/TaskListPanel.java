@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import static io.github.jbellis.brokk.gui.Constants.H_GAP;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
@@ -23,8 +24,6 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
@@ -42,6 +41,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
@@ -90,6 +90,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Timer runningFadeTimer;
     private final JComponent controls;
     private final JPanel southPanel;
+    private @Nullable JComponent sharedModelSelectorComp = null;
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
@@ -245,15 +246,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // South: controls
-        controls = new JPanel(new GridBagLayout());
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 2, 2, 2);
-        gbc.gridy = 0;
-
-        gbc.gridx = 0;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        // South: controls - use BoxLayout(LINE_AXIS) to match InstructionsPanel for consistent model selector
+        // positioning
+        controls = new JPanel();
+        controls.setLayout(new BoxLayout(controls, BoxLayout.LINE_AXIS));
+        controls.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Single-line input (no wrap). Shortcuts: Enter adds, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps,
         // Escape clears
@@ -297,7 +294,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        controls.add(input, gbc);
+        controls.add(input);
+        controls.add(Box.createHorizontalGlue());
 
         goStopButton = new MaterialButton() {
             @Override
@@ -355,16 +353,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setContentAreaFilled(false);
         goStopButton.addActionListener(e -> onGoStopButtonPressed());
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.insets = new Insets(2, 2, 2, 4);
         int fixedHeight = Math.max(input.getPreferredSize().height, 32);
         var prefSize = new Dimension(64, fixedHeight);
         goStopButton.setPreferredSize(prefSize);
         goStopButton.setMinimumSize(prefSize);
         goStopButton.setMaximumSize(prefSize);
-        controls.add(goStopButton, gbc);
+        goStopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        controls.add(Box.createHorizontalStrut(H_GAP));
+        controls.add(goStopButton);
 
         removeBtn.setIcon(Icons.REMOVE);
         // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
@@ -1038,8 +1035,70 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 southPanel.remove(comp);
             }
         }
+        // Also remove the shared model selector from controls if present
+        if (sharedModelSelectorComp != null && sharedModelSelectorComp.getParent() == controls) {
+            controls.remove(sharedModelSelectorComp);
+            sharedModelSelectorComp = null;
+            controls.revalidate();
+        }
         revalidate();
         repaint();
+    }
+
+    /**
+     * Hosts the shared ModelSelector component next to the Play/Stop button in the controls row.
+     * The same Swing component instance is physically moved here from InstructionsPanel.
+     */
+    public void setSharedModelSelector(JComponent comp) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Detach from any previous parent first
+                var parent = comp.getParent();
+                if (parent != null) {
+                    parent.remove(comp);
+                    parent.revalidate();
+                    parent.repaint();
+                }
+                sharedModelSelectorComp = comp;
+
+                // With BoxLayout, insert modelSelector before the horizontal glue and goStopButton
+                // Position: input | glue | modelSelector | strut | goStopButton
+                // We need to remove and rebuild the right side of the controls
+
+                // Find indices of components we need to work with
+                int glueIndex = -1;
+                int strutIndex = -1;
+                int buttonIndex = -1;
+
+                for (int i = 0; i < controls.getComponentCount(); i++) {
+                    Component c = controls.getComponent(i);
+                    if (c == goStopButton) {
+                        buttonIndex = i;
+                    } else if (c instanceof Box.Filler && i == controls.getComponentCount() - 3) {
+                        glueIndex = i;
+                    } else if (c instanceof Box.Filler && i == controls.getComponentCount() - 2) {
+                        strutIndex = i;
+                    }
+                }
+
+                // Remove glue, strut, and button
+                if (buttonIndex >= 0) controls.remove(buttonIndex);
+                if (strutIndex >= 0) controls.remove(strutIndex);
+                if (glueIndex >= 0) controls.remove(glueIndex);
+
+                // Re-add in correct order: glue | modelSelector | strut | button
+                controls.add(Box.createHorizontalGlue());
+                comp.setAlignmentY(Component.CENTER_ALIGNMENT);
+                controls.add(comp);
+                controls.add(Box.createHorizontalStrut(H_GAP));
+                controls.add(goStopButton);
+
+                controls.revalidate();
+                controls.repaint();
+            } catch (Exception e) {
+                logger.debug("Error setting shared ModelSelector in TaskListPanel", e);
+            }
+        });
     }
 
     /**
