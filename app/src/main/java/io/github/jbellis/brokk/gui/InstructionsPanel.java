@@ -936,52 +936,58 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Capture a snapshot of fragment texts in the background thread to avoid:
         // 1. Blocking the EDT with heavy string concatenation
         // 2. Holding fragment/context references across threads (reduces race surface if context changes)
+        // Snapshot fragment texts on the EDT to avoid any potential thread-affinity issue with ContextFragment APIs.
+        final java.util.List<String> fragmentTexts = SwingUtil.runOnEdt(() -> {
+        var allFragments = ctx.getAllFragmentsInDisplayOrder();
+        var list = new ArrayList<String>();
+        for (var frag : allFragments) {
+        if (frag.isText() || frag.getType().isOutput()) {
+        // Capture the text on the EDT
+        list.add(frag.text());
+        }
+        }
+        return java.util.List.copyOf(list);
+        }, java.util.List.of());
+        
         chrome.getContextManager()
-                .submitBackgroundTask(
-                        "Compute token estimate (Instructions)",
-                        () -> {
-                            try {
-                                // Build the full text snapshot on the background thread only
-                                var allFragments = ctx.getAllFragmentsInDisplayOrder();
-                                var sb = new StringBuilder();
-                                for (var frag : allFragments) {
-                                    if (frag.isText() || frag.getType().isOutput()) {
-                                        // Snapshot fragment text on the background thread to avoid any EDT work
-                                        sb.append(frag.text()).append("\n");
-                                    }
-                                }
-                                return Messages.getApproximateTokens(sb.toString());
-                            } catch (Exception ex) {
-                                // Defensive: log and return 0 so UI update continues with a safe default
-                                logger.debug("Token estimate background task failed", ex);
-                                return 0;
-                            }
-                        })
-                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        if (model == null || model instanceof Service.UnavailableStreamingModel) {
-                            tokenUsageBar.setVisible(false);
-                            return;
-                        }
-
-                        int maxTokens = service.getMaxInputTokens(model);
-                        if (maxTokens <= 0) {
-                            // Fallback to a generous default when service does not provide a limit
-                            maxTokens = 128_000;
-                        }
-
-                        // Update bar and tooltip
-                        tokenUsageBar.setTokens(approxTokens, maxTokens);
-                        String modelName = config.name();
-                        String costStr = calculateCostEstimate(config, approxTokens, service);
-                        String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
-                        tokenUsageBar.setTooltip(tooltipHtml);
-                        tokenUsageBar.setVisible(true);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to update token usage bar", ex);
-                        tokenUsageBar.setVisible(false);
-                    }
-                }));
+        .submitBackgroundTask(
+        "Compute token estimate (Instructions)",
+        () -> {
+        try {
+        // Concatenate the snapshot on the background thread and count tokens
+        String joined = String.join("\n", fragmentTexts);
+        return Messages.getApproximateTokens(joined);
+        } catch (Exception ex) {
+        // Defensive: log and return 0 so UI update continues with a safe default
+        logger.debug("Token estimate background task failed", ex);
+        return 0;
+        }
+        })
+        .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+        try {
+        if (model == null || model instanceof Service.UnavailableStreamingModel) {
+        tokenUsageBar.setVisible(false);
+        return;
+        }
+        
+        int maxTokens = service.getMaxInputTokens(model);
+        if (maxTokens <= 0) {
+        // Fallback to a generous default when service does not provide a limit
+        maxTokens = 128_000;
+        }
+        
+        // Update bar and tooltip
+        tokenUsageBar.setTokens(approxTokens, maxTokens);
+        String modelName = config.name();
+        String costStr = calculateCostEstimate(config, approxTokens, service);
+        String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
+        tokenUsageBar.setTooltip(tooltipHtml);
+        tokenUsageBar.setVisible(true);
+        } catch (Exception ex) {
+        logger.debug("Failed to update token usage bar", ex);
+        tokenUsageBar.setVisible(false);
+        }
+        }));
     }
 
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
