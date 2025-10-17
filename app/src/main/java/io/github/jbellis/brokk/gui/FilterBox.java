@@ -383,8 +383,8 @@ public final class FilterBox extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme) {
         boolean isDark = guiTheme.isDarkTheme();
 
-        unselectedFgColor = ThemeColors.getColor(isDark, "filter_unselected_foreground");
-        selectedFgColor = ThemeColors.getColor(isDark, "filter_selected_foreground");
+        unselectedFgColor = ThemeColors.getColor(isDark, ThemeColors.FILTER_UNSELECTED_FOREGROUND);
+        selectedFgColor = ThemeColors.getColor(isDark, ThemeColors.FILTER_SELECTED_FOREGROUND);
 
         // Apply current state colors
         if (selected == null) {

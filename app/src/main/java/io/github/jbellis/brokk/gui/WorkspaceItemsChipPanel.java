@@ -371,7 +371,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 }
                 if (bg == null) {
                     // Robust fallback if theme key is missing
-                    bg = ThemeColors.getColor(isDark, "git_badge_background");
+                    bg = ThemeColors.getColor(isDark, ThemeColors.GIT_BADGE_BACKGROUND);
                 }
                 // In light mode, make the accent background lighter for a softer look
                 if (!isDark) {

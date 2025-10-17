@@ -2026,7 +2026,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.setEnabled(true);
                 actionButton.setToolTipText("Cancel the current operation");
                 // always use the off red of the light theme
-                Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+                Color badgeBackgroundColor = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
                 actionButton.setBackground(badgeBackgroundColor);
             } else {
                 // If there is no running action, keep the action button enabled so the user can start an action.

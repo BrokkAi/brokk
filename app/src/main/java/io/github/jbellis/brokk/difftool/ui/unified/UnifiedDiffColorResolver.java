@@ -23,10 +23,10 @@ public final class UnifiedDiffColorResolver {
     @Nullable
     public static Color getBackgroundColor(UnifiedDiffDocument.LineType lineType, boolean isDarkTheme) {
         return switch (lineType) {
-            case ADDITION -> ThemeColors.getColor(isDarkTheme, "diff_added");
-            case DELETION -> ThemeColors.getColor(isDarkTheme, "diff_deleted");
+            case ADDITION -> ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_ADDED);
+            case DELETION -> ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_DELETED);
             case CONTEXT -> null; // Use default background for context lines
-            case HEADER, OMITTED_LINES -> ThemeColors.getColor(isDarkTheme, "diff_changed");
+            case HEADER, OMITTED_LINES -> ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_CHANGED);
         };
     }
 

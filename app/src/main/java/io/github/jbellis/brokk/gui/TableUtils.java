@@ -221,7 +221,7 @@ public final class TableUtils {
         try {
             // Use panel or table colors as alternatives, since popup colors don't exist
             bgColor = ThemeColors.getColor(isDarkTheme, "table_background");
-            fgColor = ThemeColors.getColor(isDarkTheme, "badge_foreground");
+            fgColor = ThemeColors.getColor(isDarkTheme, ThemeColors.BADGE_FOREGROUND);
         } catch (IllegalArgumentException e) {
             // Fallback to standard UI colors if theme colors aren't found
             bgColor = UIManager.getColor("Panel.background");
@@ -532,8 +532,8 @@ public final class TableUtils {
 
             // Get theme-appropriate colors
             boolean isDarkTheme = UIManager.getBoolean("laf.dark");
-            Color badgeForeground = ThemeColors.getColor(isDarkTheme, "badge_foreground");
-            Color selectedBadgeForeground = ThemeColors.getColor(isDarkTheme, "selected_badge_foreground");
+            Color badgeForeground = ThemeColors.getColor(isDarkTheme, ThemeColors.BADGE_FOREGROUND);
+            Color selectedBadgeForeground = ThemeColors.getColor(isDarkTheme, ThemeColors.SELECTED_BADGE_FOREGROUND);
 
             // Update colors of all children without rebuilding the component hierarchy
             for (Component c : getComponents()) {
@@ -564,9 +564,9 @@ public final class TableUtils {
                     boolean isDarkTheme = UIManager.getBoolean("laf.dark");
 
                     // Get colors from ThemeColors
-                    Color badgeBorder = ThemeColors.getColor(isDarkTheme, "badge_border");
-                    Color badgeHoverBorder = ThemeColors.getColor(isDarkTheme, "badge_hover_border");
-                    Color selectedBadgeBorder = ThemeColors.getColor(isDarkTheme, "selected_badge_border");
+                    Color badgeBorder = ThemeColors.getColor(isDarkTheme, ThemeColors.BADGE_BORDER);
+                    Color badgeHoverBorder = ThemeColors.getColor(isDarkTheme, ThemeColors.BADGE_HOVER_BORDER);
+                    Color selectedBadgeBorder = ThemeColors.getColor(isDarkTheme, ThemeColors.SELECTED_BADGE_BORDER);
 
                     // Set border color based on selection state and hover state
                     Color borderColor;
@@ -601,8 +601,8 @@ public final class TableUtils {
             label.setFont(label.getFont().deriveFont(Font.PLAIN, fontSize));
 
             boolean isDarkTheme = UIManager.getBoolean("laf.dark");
-            Color badgeForeground = ThemeColors.getColor(isDarkTheme, "badge_foreground");
-            Color selectedBadgeForeground = ThemeColors.getColor(isDarkTheme, "selected_badge_foreground");
+            Color badgeForeground = ThemeColors.getColor(isDarkTheme, ThemeColors.BADGE_FOREGROUND);
+            Color selectedBadgeForeground = ThemeColors.getColor(isDarkTheme, ThemeColors.SELECTED_BADGE_FOREGROUND);
 
             // Set foreground color based on selection state
             label.setForeground(selected ? selectedBadgeForeground : badgeForeground);

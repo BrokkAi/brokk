@@ -103,7 +103,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         this.chrome = chrome;
         this.defaultGoButtonBg = UIManager.getColor("Button.default.background");
-        this.stopButtonBg = ThemeColors.getColor(false, "git_badge_background");
+        this.stopButtonBg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());

@@ -102,7 +102,7 @@ public class ActionGroupPanel extends JPanel {
             boolean isDark = UIManager.getBoolean("laf.dark");
             Color hoverBg = null;
             try {
-                hoverBg = ThemeColors.getColor(isDark, "filter_icon_hover_background");
+                hoverBg = ThemeColors.getColor(isDark, ThemeColors.FILTER_ICON_HOVER_BACKGROUND);
             } catch (Exception e) {
                 logger.warn("Could not get theme color for hover background", e);
             }

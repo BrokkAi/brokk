@@ -54,9 +54,9 @@ public final class FileStatusTable extends JScrollPane {
                         .toLowerCase(Locale.ROOT)
                         .contains("dark");
 
-                var newC = ThemeColors.getColor(dk, "git_status_new");
-                var modC = ThemeColors.getColor(dk, "git_status_modified");
-                var delC = ThemeColors.getColor(dk, "git_status_deleted");
+                var newC = ThemeColors.getColor(dk, ThemeColors.GIT_STATUS_NEW);
+                var modC = ThemeColors.getColor(dk, ThemeColors.GIT_STATUS_MODIFIED);
+                var delC = ThemeColors.getColor(dk, ThemeColors.GIT_STATUS_DELETED);
 
                 if (column == 0) {
                     // Conflict column - center align and use warning color
@@ -64,7 +64,7 @@ public final class FileStatusTable extends JScrollPane {
                     if (isSelected) {
                         cell.setForeground(tbl.getSelectionForeground());
                     } else if ("!".equals(value)) {
-                        cell.setForeground(ThemeColors.getColor(dk, "git_status_deleted"));
+                        cell.setForeground(ThemeColors.getColor(dk, ThemeColors.GIT_STATUS_DELETED));
                     } else {
                         cell.setForeground(tbl.getForeground());
                     }

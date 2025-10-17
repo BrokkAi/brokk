@@ -708,7 +708,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runOnEdt(() -> {
             stopButton.setVisible(true);
             stopButton.setEnabled(true);
-            Color stopColor = ThemeColors.getColor(false, "git_badge_background");
+            Color stopColor = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
             stopButton.setBackground(stopColor);
         });
 

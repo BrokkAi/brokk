@@ -77,20 +77,20 @@ public final class UnifiedDiffHighlighter {
         switch (prefix) {
             case '+' -> {
                 // Addition line - highlight in green with full line width
-                var addedColor = ThemeColors.getColor(isDarkTheme, "diff_added");
+                var addedColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_ADDED);
                 painter = new JMHighlightPainter.JMHighlightFullLinePainter(addedColor);
                 logger.trace("Highlighting addition line: {}", line.substring(0, Math.min(50, line.length())));
             }
             case '-' -> {
                 // Deletion line - highlight in red with full line width
-                var deletedColor = ThemeColors.getColor(isDarkTheme, "diff_deleted");
+                var deletedColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_DELETED);
                 painter = new JMHighlightPainter.JMHighlightFullLinePainter(deletedColor);
                 logger.trace("Highlighting deletion line: {}", line.substring(0, Math.min(50, line.length())));
             }
             case '@' -> {
                 // Hunk header - highlight with different color/style with full line width
                 if (line.startsWith("@@")) {
-                    var headerColor = ThemeColors.getColor(isDarkTheme, "diff_changed");
+                    var headerColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_CHANGED);
                     painter = new JMHighlightPainter.JMHighlightFullLinePainter(headerColor);
                     logger.trace("Highlighting hunk header: {}", line);
                 }
