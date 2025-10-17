@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
@@ -23,6 +24,7 @@ public class GuiTheme {
 
     public static final String THEME_DARK = "dark";
     public static final String THEME_LIGHT = "light";
+    public static final String THEME_HIGH_CONTRAST = "high-contrast";
 
     private final JFrame frame;
 
@@ -60,22 +62,42 @@ public class GuiTheme {
 
     public void applyTheme(boolean isDark, boolean wordWrap) {
         String themeName = getThemeName(isDark);
+        applyTheme(themeName, wordWrap);
+    }
 
+    public void applyTheme(String themeName, boolean wordWrap) {
         try {
             // Save preference first so we know the value is stored
             MainProject.setTheme(themeName);
 
             // Apply the theme to the Look and Feel
-            if (isDark) {
-                com.formdev.flatlaf.FlatDarculaLaf.setup();
-            } else {
-                com.formdev.flatlaf.FlatIntelliJLaf.setup();
+            switch (themeName) {
+                case THEME_LIGHT -> com.formdev.flatlaf.FlatIntelliJLaf.setup();
+                case THEME_DARK -> com.formdev.flatlaf.FlatDarculaLaf.setup();
+                case THEME_HIGH_CONTRAST -> {
+                    try (var stream = getClass().getResourceAsStream("/themes/HighContrast.theme.json")) {
+                        if (stream == null) {
+                            logger.error("High Contrast theme file not found, falling back to Darcula");
+                            com.formdev.flatlaf.FlatDarculaLaf.setup();
+                        } else {
+                            IntelliJTheme.setup(stream);
+                        }
+                    } catch (IOException e) {
+                        logger.error("Failed to load High Contrast theme: {}", e.getMessage());
+                        com.formdev.flatlaf.FlatDarculaLaf.setup();
+                    }
+                }
+                default -> {
+                    logger.warn("Unknown theme '{}', defaulting to dark", themeName);
+                    com.formdev.flatlaf.FlatDarculaLaf.setup();
+                }
             }
 
             // Reload ThemeColors to pick up new UIManager values
             io.github.jbellis.brokk.gui.mop.ThemeColors.reloadColors();
 
             // Register custom icons for this theme
+            boolean isDark = !THEME_LIGHT.equals(themeName);
             registerCustomIcons(isDark);
 
             // Apply theme to RSyntaxTextArea components
@@ -240,10 +262,11 @@ public class GuiTheme {
     /**
      * Checks if dark theme is currently active
      *
-     * @return true if dark theme is active
+     * @return true if dark theme or high contrast theme is active
      */
     public boolean isDarkTheme() {
-        return THEME_DARK.equalsIgnoreCase(MainProject.getTheme());
+        String theme = MainProject.getTheme();
+        return THEME_DARK.equalsIgnoreCase(theme) || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
     }
 
     /**

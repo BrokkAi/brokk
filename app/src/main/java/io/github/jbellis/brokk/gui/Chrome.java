@@ -828,8 +828,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager.applyTheme(isDark);
     }
 
+    public void switchTheme(String themeName) {
+        boolean wordWrap = MainProject.getCodeBlockWrapMode();
+        themeManager.applyTheme(themeName, wordWrap);
+    }
+
     public void switchThemeAndWrapMode(boolean isDark, boolean wordWrap) {
         themeManager.applyTheme(isDark, wordWrap);
+    }
+
+    public void switchThemeAndWrapMode(String themeName, boolean wordWrap) {
+        themeManager.applyTheme(themeName, wordWrap);
     }
 
     public GuiTheme getTheme() {
