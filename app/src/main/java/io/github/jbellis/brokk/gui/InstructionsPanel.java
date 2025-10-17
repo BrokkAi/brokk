@@ -934,19 +934,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // For non-empty context: move text concatenation and token counting off EDT
+        // Capture a snapshot of fragment texts in the background thread to avoid:
+        // 1. Blocking the EDT with heavy string concatenation
+        // 2. Holding fragment/context references across threads (reduces race surface if context changes)
         chrome.getContextManager()
                 .submitBackgroundTask(
                         "Compute token estimate (Instructions)",
                         () -> {
-                            // Build the full text from the provided Context inside the background thread
-                            var allFragments = ctx.getAllFragmentsInDisplayOrder();
-                            var sb = new StringBuilder();
-                            for (var frag : allFragments) {
-                                if (frag.isText() || frag.getType().isOutput()) {
-                                    sb.append(frag.text()).append("\n");
+                            try {
+                                // Build the full text snapshot on the background thread only
+                                var allFragments = ctx.getAllFragmentsInDisplayOrder();
+                                var sb = new StringBuilder();
+                                for (var frag : allFragments) {
+                                    if (frag.isText() || frag.getType().isOutput()) {
+                                        // Snapshot fragment text on the background thread to avoid any EDT work
+                                        sb.append(frag.text()).append("\n");
+                                    }
                                 }
+                                return Messages.getApproximateTokens(sb.toString());
+                            } catch (Exception ex) {
+                                // Defensive: log and return 0 so UI update continues with a safe default
+                                logger.debug("Token estimate background task failed", ex);
+                                return 0;
                             }
-                            return Messages.getApproximateTokens(sb.toString());
                         })
                 .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                     try {
