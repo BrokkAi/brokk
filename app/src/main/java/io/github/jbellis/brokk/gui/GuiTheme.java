@@ -50,6 +50,44 @@ public class GuiTheme {
     }
 
     /**
+     * Loads and applies a theme to the Look and Feel.
+     * This static method can be called before any Chrome instances exist,
+     * making it suitable for application startup initialization.
+     *
+     * @param themeName The theme name (dark/light/high-contrast)
+     */
+    public static void setupLookAndFeel(String themeName) {
+        String effectiveTheme = themeName;
+        if (effectiveTheme == null || effectiveTheme.isEmpty()) {
+            logger.warn("Null or empty theme name, defaulting to dark");
+            effectiveTheme = THEME_DARK;
+        }
+
+        String themeFile =
+                switch (effectiveTheme) {
+                    case THEME_LIGHT -> "/themes/BrokkLight.theme.json";
+                    case THEME_DARK -> "/themes/BrokkDark.theme.json";
+                    case THEME_HIGH_CONTRAST -> "/themes/HighContrast.theme.json";
+                    default -> {
+                        logger.warn("Unknown theme '{}', defaulting to dark", effectiveTheme);
+                        yield "/themes/BrokkDark.theme.json";
+                    }
+                };
+
+        try (var stream = GuiTheme.class.getResourceAsStream(themeFile)) {
+            if (stream == null) {
+                logger.error("Theme file '{}' not found, falling back to Darcula", themeFile);
+                com.formdev.flatlaf.FlatDarculaLaf.setup();
+            } else {
+                IntelliJTheme.setup(stream);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to load theme from '{}': {}", themeFile, e.getMessage());
+            com.formdev.flatlaf.FlatDarculaLaf.setup();
+        }
+    }
+
+    /**
      * Applies the current theme to the application
      *
      * @param isDark true for dark theme, false for light theme
@@ -70,28 +108,8 @@ public class GuiTheme {
             // Save preference first so we know the value is stored
             MainProject.setTheme(themeName);
 
-            // Apply the theme to the Look and Feel
-            switch (themeName) {
-                case THEME_LIGHT -> com.formdev.flatlaf.FlatIntelliJLaf.setup();
-                case THEME_DARK -> com.formdev.flatlaf.FlatDarculaLaf.setup();
-                case THEME_HIGH_CONTRAST -> {
-                    try (var stream = getClass().getResourceAsStream("/themes/HighContrast.theme.json")) {
-                        if (stream == null) {
-                            logger.error("High Contrast theme file not found, falling back to Darcula");
-                            com.formdev.flatlaf.FlatDarculaLaf.setup();
-                        } else {
-                            IntelliJTheme.setup(stream);
-                        }
-                    } catch (IOException e) {
-                        logger.error("Failed to load High Contrast theme: {}", e.getMessage());
-                        com.formdev.flatlaf.FlatDarculaLaf.setup();
-                    }
-                }
-                default -> {
-                    logger.warn("Unknown theme '{}', defaulting to dark", themeName);
-                    com.formdev.flatlaf.FlatDarculaLaf.setup();
-                }
-            }
+            // Use the static utility method to load theme JSON and apply to UIManager
+            setupLookAndFeel(themeName);
 
             // Reload ThemeColors to pick up new UIManager values
             io.github.jbellis.brokk.gui.mop.ThemeColors.reloadColors();

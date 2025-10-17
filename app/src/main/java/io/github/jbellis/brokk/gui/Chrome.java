@@ -779,9 +779,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
-        boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         boolean wrapMode = MainProject.getCodeBlockWrapMode();
-        switchThemeAndWrapMode(isDark, wrapMode);
+        switchThemeAndWrapMode(currentTheme, wrapMode);
     }
 
     /**

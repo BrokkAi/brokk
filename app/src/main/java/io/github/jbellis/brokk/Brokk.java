@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
@@ -181,15 +182,11 @@ public class Brokk {
         }
     }
 
-    private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
+    private static void initializeLookAndFeelAndSplashScreen(String themeName) {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    if (isDark) {
-                        com.formdev.flatlaf.FlatDarculaLaf.setup();
-                    } else {
-                        com.formdev.flatlaf.FlatIntelliJLaf.setup();
-                    }
+                    GuiTheme.setupLookAndFeel(themeName);
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
                 }
@@ -381,8 +378,8 @@ public class Brokk {
         MainProject.loadRecentProjects(); // Load and potentially clean recent projects list
         ParsedArgs parsedArgs = parseArguments(args);
 
-        boolean isDark = MainProject.getTheme().equals("dark");
-        initializeLookAndFeelAndSplashScreen(isDark);
+        String themeName = MainProject.getTheme();
+        initializeLookAndFeelAndSplashScreen(themeName);
 
         // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {
