@@ -800,6 +800,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         titledContainer.add(container, BorderLayout.CENTER);
 
+        // Add mouse listener for right-click context menu in empty space
+        titledContainer.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showMenuIfNotOnChip(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showMenuIfNotOnChip(e);
+                }
+            }
+
+            private void showMenuIfNotOnChip(MouseEvent e) {
+                Component clickedComponent = e.getComponent();
+                if (SwingUtilities.isDescendingFrom(clickedComponent, workspaceItemsChipPanel)) {
+                    return;
+                }
+                tokenUsageBarPopupMenu.show(titledContainer, e.getX(), e.getY());
+            }
+        });
+
         // Insert beneath the command-input area (index 2)
         return titledContainer;
     }
