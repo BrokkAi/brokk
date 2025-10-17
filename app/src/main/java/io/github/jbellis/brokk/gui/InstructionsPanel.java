@@ -1653,28 +1653,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    public void runCodeCommand() {
-        var contextManager = chrome.getContextManager();
-
-        // fetch and save model config
-        Service.ModelConfig config;
-        try {
-            config = modelSelector.getModel();
-            chrome.getProject().setCodeModelConfig(config);
-        } catch (IllegalStateException e) {
-            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-            return;
-        }
-        var model = contextManager.getService().getModel(config);
-        if (model == null) {
-            chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
-                    + config.reasoning());
-            model = castNonNull(contextManager.getService().getModel(Service.GPT_5_MINI));
-        }
-
-        prepareAndRunCodeCommand(model);
-    }
-
     // Core method to prepare and submit the Code action
     private void prepareAndRunCodeCommand(StreamingChatModel modelToUse) {
         var input = getInstructions();
@@ -1983,7 +1961,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Go action
             switch (storedAction) {
                 case ACTION_ARCHITECT -> runArchitectCommand();
-                case ACTION_CODE -> runCodeCommand();
+                case ACTION_CODE -> prepareAndRunCodeCommand(getSelectedModel());
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
                 default -> runArchitectCommand();

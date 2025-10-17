@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.EnvironmentJava;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.ExecutorValidator;
 import java.awt.*;
@@ -1784,7 +1785,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     project.setJdk(selPath);
                 }
             } else {
-                project.setJdk(BuildAgent.JAVA_HOME_SENTINEL);
+                project.setJdk(EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
 
@@ -1844,7 +1845,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         var desired = project.getJdk();
 
-        boolean useCustomJdk = desired != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(desired);
+        boolean useCustomJdk = desired != null && !EnvironmentJava.JAVA_HOME_SENTINEL.equals(desired);
         setJavaHomeCheckbox.setSelected(useCustomJdk);
         jdkSelector.setEnabled(useCustomJdk);
 

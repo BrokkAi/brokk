@@ -225,7 +225,6 @@ public class Service implements IExceptionReportingService {
 
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
-    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_MINI = "gpt-5-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -1041,22 +1040,10 @@ public class Service implements IExceptionReportingService {
 
     /** Returns a model optimized for scanning tasks. */
     public StreamingChatModel getScanModel() {
-        // fall back to 2.0 if 2.5 is not available (user is on free tier)
-        var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GEMINI_2_0_FLASH;
-        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
-        if (model == null) {
-            logger.error("Failed to get scan model '{}'", modelName);
-            return new UnavailableStreamingModel();
-        }
-        return model;
-    }
-
-    /** Returns a model for the Wand button: prefer GPT-5 Mini; fall back to Gemini 2.0 Flash. */
-    public StreamingChatModel getWandModel() {
         var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
         var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {
-            logger.error("Failed to get wand model '{}'", modelName);
+            logger.error("Failed to get scan model '{}'", modelName);
             return new UnavailableStreamingModel();
         }
         return model;

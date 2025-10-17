@@ -316,7 +316,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         initializeThemeManager();
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
-        frame.setTitle("Brokk: " + getProject().getRoot());
+        var rootPath = getProject().getRoot();
+        var title = "%s (%s)".formatted(rootPath.getFileName(), rootPath.getParent());
+        frame.setTitle(title);
 
         // Show initial system message
         showNotification(

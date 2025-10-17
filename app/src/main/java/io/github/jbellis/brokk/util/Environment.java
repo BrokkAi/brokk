@@ -4,7 +4,6 @@ import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
 import java.io.BufferedReader;
@@ -48,6 +47,11 @@ public class Environment {
 
     /** Unlimited timeout constant (no timeout guard). */
     public static final Duration UNLIMITED_TIMEOUT = Duration.ofNanos(Long.MAX_VALUE);
+
+    public static String exeName(String base) {
+        var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        return os.contains("win") ? base + ".exe" : base;
+    }
 
     @FunctionalInterface
     public interface ShellCommandRunner {
@@ -233,7 +237,7 @@ public class Environment {
 
         if (project != null) {
             String jdkPath = project.getJdk();
-            if (jdkPath != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(jdkPath)) {
+            if (jdkPath != null && !EnvironmentJava.JAVA_HOME_SENTINEL.equals(jdkPath)) {
                 pb.environment().put("JAVA_HOME", jdkPath);
                 logger.debug("Set JAVA_HOME={} for subprocess.", jdkPath);
             }

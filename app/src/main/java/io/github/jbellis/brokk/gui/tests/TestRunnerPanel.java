@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.EnvironmentJava;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -756,7 +757,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return command;
         }
         String jdk = project.getJdk();
-        if (BuildAgent.JAVA_HOME_SENTINEL.equals(jdk)) {
+        if (EnvironmentJava.JAVA_HOME_SENTINEL.equals(jdk)) {
             var env = System.getenv("JAVA_HOME");
             jdk = (env == null || env.isBlank()) ? null : env;
         }

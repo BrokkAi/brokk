@@ -88,6 +88,10 @@ done
 # Build the final JVM argument list, adding a default -Xmx1G unless the caller
 # already supplied an explicit -Xmx option.
 declare -a EFFECTIVE_JVM_ARGS=("-ea" "-XX:+UseParallelGC")
+
+# Always use test logging configuration
+EFFECTIVE_JVM_ARGS+=("-Dlog4j.configurationFile=$SCRIPT_DIR/app/src/test/resources/log4j2-test.xml")
+
 xmx_specified=false
 for arg in "${JVM_ARGS[@]-}"; do
   if [[ $arg == -Xmx* ]]; then

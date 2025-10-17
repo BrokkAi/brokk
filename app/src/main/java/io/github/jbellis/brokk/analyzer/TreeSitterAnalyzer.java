@@ -527,26 +527,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public boolean isEmpty() {
-        var current = this.state;
-        return current == null || current.codeUnitState().isEmpty();
-    }
-
-    @Override
     public Optional<String> getSkeletonHeader(String fqName) {
         return getSkeletonImpl(fqName, true);
-    }
-
-    @Override
-    public List<CodeUnit> getMembersInClass(String fqClass) {
-        Optional<CodeUnit> parent =
-                getDefinition(fqClass).stream().filter(CodeUnit::isClass).findFirst();
-        return parent.map(this::childrenOf).orElse(List.of());
-    }
-
-    @Override
-    public Optional<ProjectFile> getFileFor(String fqName) {
-        return getDefinition(fqName).stream().map(CodeUnit::source).findFirst();
     }
 
     @Override
