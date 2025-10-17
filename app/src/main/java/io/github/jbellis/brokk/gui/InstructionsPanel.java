@@ -628,10 +628,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        if (rows >= 5) break; // cap at 5
+                        if (rows >= 2) break;
                     }
                 }
-                return Math.max(1, Math.min(5, rows));
+                return Math.max(1, Math.min(2, rows));
             }
 
             @Override
