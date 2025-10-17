@@ -4,6 +4,9 @@
   "author": "Brokk Team",
   "parentTheme": "Darcula",
   "ui": {
+    "Button": {
+      "close.foreground": "#C8C8C8"
+    },
     "Brokk": {
       "chat_background": "#252525",
       "message_background": "#404040",

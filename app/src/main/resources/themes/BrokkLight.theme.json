@@ -4,6 +4,9 @@
   "author": "Brokk Team",
   "parentTheme": "IntelliJ",
   "ui": {
+    "Button": {
+      "close.foreground": "#505050"
+    },
     "Brokk": {
       "chat_background": "#F0F0F0",
       "message_background": "#FAFAFA",

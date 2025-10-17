@@ -199,6 +199,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         closeButton.setBorderPainted(false);
         closeButton.setFocusPainted(false);
         closeButton.setToolTipText("Close terminal");
+        var closeFg = UIManager.getColor("Button.close.foreground");
+        closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
         closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseEntered(java.awt.event.MouseEvent e) {
@@ -208,7 +210,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
 
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
-                closeButton.setForeground(null);
+                var closeFg = UIManager.getColor("Button.close.foreground");
+                closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
             }
         });

@@ -51,4 +51,28 @@ public class ColorUtil {
             case EQUAL -> throw new IllegalStateException();
         };
     }
+
+    /**
+     * Determines if a color is dark based on its relative luminance per ITU-R BT.709.
+     *
+     * @param c the color to check
+     * @return true if the color is dark (luminance < 0.5), false otherwise
+     */
+    public static boolean isDarkColor(Color c) {
+        double r = c.getRed() / 255.0;
+        double g = c.getGreen() / 255.0;
+        double b = c.getBlue() / 255.0;
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return lum < 0.5;
+    }
+
+    /**
+     * Returns a contrasting text color (white or black) for the given background color.
+     *
+     * @param bg the background color
+     * @return Color.WHITE for dark backgrounds, Color.BLACK for light backgrounds
+     */
+    public static Color contrastingText(Color bg) {
+        return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
+    }
 }

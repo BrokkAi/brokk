@@ -2467,6 +2467,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         closeButton.setBorderPainted(false);
         closeButton.setFocusPainted(false);
         closeButton.setToolTipText("Close");
+        var closeFg = UIManager.getColor("Button.close.foreground");
+        closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
 
         closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -2477,7 +2479,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
-                closeButton.setForeground(null);
+                var closeFg = UIManager.getColor("Button.close.foreground");
+                closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
             }
         });

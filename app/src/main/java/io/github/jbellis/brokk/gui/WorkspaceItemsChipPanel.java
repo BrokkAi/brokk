@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -355,17 +357,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return sb.toString();
     }
 
-    private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
-        ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
-
-        Color bg;
-        Color fg;
-        Color border;
-
-        switch (kind) {
+    /**
+     * Helper to get the background color for a given chip kind.
+     */
+    private Color getChipBackgroundColor(ChipKind kind, boolean isDark) {
+        return switch (kind) {
             case EDIT -> {
                 // Use accent color for EDIT chips; fall back to linkColor, then to a reasonable theme color
-                bg = UIManager.getColor("Component.accentColor");
+                Color bg = UIManager.getColor("Component.accentColor");
                 if (bg == null) {
                     bg = UIManager.getColor("Component.linkColor");
                 }
@@ -377,6 +376,23 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 if (!isDark) {
                     bg = lighten(bg, 0.7f); // blend 70% towards white
                 }
+                yield bg;
+            }
+            case SUMMARY -> ThemeColors.getColor(isDark, "notif_cost_bg");
+            case OTHER -> ThemeColors.getColor(isDark, "notif_info_bg");
+        };
+    }
+
+    private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
+        ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
+
+        Color bg;
+        Color fg;
+        Color border;
+
+        switch (kind) {
+            case EDIT -> {
+                bg = getChipBackgroundColor(kind, isDark);
                 fg = contrastingText(bg);
                 border = UIManager.getColor("Component.borderColor");
                 if (border == null) {
@@ -421,16 +437,42 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 p.repaint();
             }
         }
+
+        // Update close button icon with the chip's background color for proper contrast in high-contrast mode
+        var closeObj = chip.getClientProperty("brokk.chip.closeButton");
+        if (closeObj instanceof MaterialButton closeButton) {
+            closeButton.setIcon(buildCloseIcon(bg));
+        }
     }
 
-    private Icon buildCloseIcon() {
-        // Always fetch the current UI icon to respect the active theme
+    private Icon buildCloseIcon(Color chipBackground) {
+        int targetW = 10;
+        int targetH = 10;
+
+        // In high-contrast mode, draw a theme-aware × with proper contrast against the chip background
+        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+        if (isHighContrast) {
+            BufferedImage icon = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = icon.createGraphics();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                // Use contrasting color based on the chip's background
+                Color iconColor = ColorUtil.contrastingText(chipBackground);
+                g2.setColor(iconColor);
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawLine(2, 2, targetW - 3, targetH - 3);
+                g2.drawLine(2, targetH - 3, targetW - 3, 2);
+            } finally {
+                g2.dispose();
+            }
+            return new ImageIcon(icon);
+        }
+
+        // For non-high-contrast themes, use the standard icon approach
         var uiIcon = UIManager.getIcon("Brokk.close");
         if (uiIcon == null) {
             uiIcon = Icons.CLOSE;
         }
-        int targetW = 10;
-        int targetH = 10;
 
         Icon source = uiIcon;
         Image scaled;
@@ -532,9 +574,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
-        // Construct with an empty label and set the icon explicitly.
+        // Construct with an empty label. Icon will be set by styleChip() after background color is determined.
         var close = new MaterialButton("");
-        close.setIcon(buildCloseIcon());
         close.setFocusable(false);
         // keep the icon-only styling but keep hit area reasonable
         close.setOpaque(false);
@@ -622,13 +663,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 if (label != null) {
                     var fragObj = chip.getClientProperty("brokk.fragment");
                     ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                    // styleChip() now updates the close button icon with proper background color
                     styleChip(chip, label, isDark, fragment);
-                }
-                var closeObj = chip.getClientProperty("brokk.chip.closeButton");
-                if (closeObj instanceof MaterialButton b) {
-                    b.setIcon(buildCloseIcon());
-                    b.revalidate();
-                    b.repaint();
                 }
             }
         }

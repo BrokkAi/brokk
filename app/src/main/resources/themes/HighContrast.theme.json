@@ -56,6 +56,7 @@
       "endBackground": "#000000",
       "startBorderColor": "#FFFFFF",
       "endBorderColor": "#FFFFFF",
+      "close.foreground": "#FFFFFF",
 
       "default": {
         "foreground": "#000000",
