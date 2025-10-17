@@ -37,6 +37,24 @@
   --message-border-ai-reasoning: #8c52c9;
 }
 
+/* Shiki CSS variables for high-contrast theme */
+.theme-high-contrast {
+  --shiki-foreground: #ffffff;
+  --shiki-background: #000000;
+  --shiki-token-constant: #00eaff;
+  --shiki-token-string: #ffd333;
+  --shiki-token-comment: #808080;
+  --shiki-token-keyword: #00e61f;
+  --shiki-token-parameter: #ffffff;
+  --shiki-token-function: #00eaff;
+  --shiki-token-string-expression: #ffd333;
+  --shiki-token-punctuation: #ffffff;
+  --shiki-token-link: #1aebff;
+  --code-block-font-weight: initial;
+  --ai-reasoning-header-foreground: #ffffff;
+  --message-border-ai-reasoning: #8c52c9;
+}
+
 h1, h2, h3, h4, h5, h6 {
   margin-top: 18px;
   margin-bottom: 12px;

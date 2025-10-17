@@ -144,7 +144,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         scrollPane.setRowHeaderView(customLineNumberList);
 
         // Apply initial theme (same approach as FilePanel:177)
-        GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
+        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(textArea));
     }
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
@@ -575,7 +576,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         // Apply theme to syntax highlighting
-        GuiTheme.loadRSyntaxTheme(guiTheme.isDarkTheme()).ifPresent(theme -> {
+        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {
             // Update syntax style first
             updateSyntaxStyle();
 

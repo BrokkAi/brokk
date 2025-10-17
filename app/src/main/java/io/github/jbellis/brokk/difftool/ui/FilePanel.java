@@ -180,7 +180,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         });
         typingStateTimer.setRepeats(false);
         // Apply syntax theme but don't trigger reDisplay yet (no diff data available)
-        GuiTheme.loadRSyntaxTheme(diffPanel.isDarkTheme()).ifPresent(theme -> theme.apply(editor));
+        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(editor));
     }
 
     public JComponent getVisualComponent() {
@@ -746,7 +747,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         // Apply current theme
-        GuiTheme.loadRSyntaxTheme(guiTheme.isDarkTheme()).ifPresent(theme -> {
+        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {
             // Ensure syntax style is set before applying theme
             if (bufferDocument != null) {
                 updateSyntaxStyle();

@@ -167,9 +167,14 @@ public class SwingUtil {
             bg = UIManager.getColor("Component.linkColor");
         }
 
+        java.awt.Color fg = UIManager.getColor("Button.default.foreground");
+        if (fg == null) {
+            fg = Color.BLACK;
+        }
+
         b.setOpaque(true);
         b.setBackground(bg);
-        b.setForeground(Color.WHITE);
+        b.setForeground(fg);
         b.setBorderPainted(false);
         b.setFocusPainted(false);
 

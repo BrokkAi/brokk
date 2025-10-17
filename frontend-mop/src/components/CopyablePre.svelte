@@ -154,11 +154,18 @@
     padding: 0.3em 0.6em;
     font-size: 0.8em;
     font-weight: 600;
-    background: var(--border-color-hex);
+    background: var(--code-block-background);
+    border-bottom: 1px solid var(--border-color-hex);
+    color: var(--chat-text);
   }
 
   .language-name {
     text-transform: uppercase;
+  }
+
+  /* Only apply reduced opacity in non-high-contrast themes for subtlety */
+  :global(.theme-dark) .language-name,
+  :global(.theme-light) .language-name {
     opacity: 0.7;
   }
 

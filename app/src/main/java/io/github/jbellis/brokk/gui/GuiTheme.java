@@ -186,11 +186,11 @@ public class GuiTheme {
     /**
      * Applies the appropriate theme to all RSyntaxTextArea components
      *
-     * @param themeName "dark" or "light"
+     * @param themeName "dark", "light", or "high-contrast"
      * @param wordWrap whether word wrap mode is enabled
      */
     private void applyThemeAsync(String themeName, boolean wordWrap) {
-        loadRSyntaxTheme(THEME_DARK.equals(themeName))
+        loadRSyntaxTheme(themeName)
                 .ifPresent(theme ->
                         // Apply to all RSyntaxTextArea components in open windows
                         SwingUtilities.invokeLater(() -> {
@@ -215,12 +215,21 @@ public class GuiTheme {
     /**
      * Loads an RSyntaxTextArea theme.
      *
-     * @param isDark true for dark theme, false for light theme
+     * @param themeName The theme name (dark, light, or high-contrast)
      * @return The loaded Theme object, or null if loading fails.
      */
-    public static Optional<Theme> loadRSyntaxTheme(boolean isDark) {
-        String themeChoice = getThemeName(isDark);
-        String themeResource = "/org/fife/ui/rsyntaxtextarea/themes/%s".formatted(isDark ? "dark.xml" : "default.xml");
+    public static Optional<Theme> loadRSyntaxTheme(String themeName) {
+        String themeResource =
+                switch (themeName) {
+                    case THEME_LIGHT -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+                    case THEME_DARK -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    case THEME_HIGH_CONTRAST -> "/org/fife/ui/rsyntaxtextarea/themes/high-contrast.xml";
+                    default -> {
+                        logger.warn("Unknown theme '{}' for RSyntaxTextArea, defaulting to dark", themeName);
+                        yield "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    }
+                };
+
         var inputStream = GuiTheme.class.getResourceAsStream(themeResource);
 
         if (inputStream == null) {
@@ -232,7 +241,7 @@ public class GuiTheme {
             return Optional.of(Theme.load(inputStream));
         } catch (IOException e) {
             logger.error(
-                    "Could not load {} RSyntaxTextArea theme from {}: {}", themeChoice, themeResource, e.getMessage());
+                    "Could not load {} RSyntaxTextArea theme from {}: {}", themeName, themeResource, e.getMessage());
             return Optional.empty();
         }
     }
@@ -307,7 +316,8 @@ public class GuiTheme {
      * @param textArea The text area to apply theme to
      */
     public void applyCurrentThemeToComponent(RSyntaxTextArea textArea) {
-        loadRSyntaxTheme(isDarkTheme()).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
+        String themeName = MainProject.getTheme();
+        loadRSyntaxTheme(themeName).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
     }
 
     /**
