@@ -472,133 +472,24 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
         }
         
-        private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
-        JPopupMenu menu = new JPopupMenu();
-        
-        // "Show in Project" - only for PROJECT_PATH fragments
-        JMenuItem showInProjectItem = new JMenuItem("Show in Project");
-        boolean isProjectPath = fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH;
-        showInProjectItem.setEnabled(isProjectPath && !fragment.files().isEmpty());
-        showInProjectItem.addActionListener(ev -> {
-        fragment.files().stream().findFirst().ifPresent(pf -> {
-        // pf is a ProjectFile when isProjectPath==true
-        try {
-        chrome.showFileInProjectTree((ProjectFile) pf);
-        } catch (Exception ex) {
-        logger.debug("Show in Project action failed", ex);
-        }
-        });
-        });
-        menu.add(showInProjectItem);
-        
-        // "View File" (or Show Contents) - preview the fragment
-        JMenuItem viewFileItem = new JMenuItem("View File");
-        viewFileItem.addActionListener(ev -> {
-        try {
-        chrome.openFragmentPreview(fragment);
-        } catch (Exception ex) {
-        logger.debug("Open fragment preview failed", ex);
-        }
-        });
-        menu.add(viewFileItem);
-        
-        // "View History" - only for project files when Git is available
-        JMenuItem viewHistoryItem = new JMenuItem("View History");
-        boolean viewHistoryEnabled =
-        isProjectPath && chrome.getProject() != null && chrome.getProject().hasGit() && !fragment.files().isEmpty();
-        viewHistoryItem.setEnabled(viewHistoryEnabled);
-        viewHistoryItem.addActionListener(ev -> fragment.files().stream().findFirst().ifPresent(pf -> {
-        try {
-        chrome.addFileHistoryTab((ProjectFile) pf);
-        } catch (Exception ex) {
-        logger.debug("Add file history tab failed", ex);
-        }
-        }));
-        menu.add(viewHistoryItem);
-        
-        // "Run Tests" - enabled if any associated file is a test file
-        JMenuItem runTestsItem = new JMenuItem("Run Tests");
-        boolean hasTestFile = fragment.files().stream().anyMatch(ContextManager::isTestFile);
-        runTestsItem.setEnabled(hasTestFile);
-        runTestsItem.addActionListener(ev -> {
-        var testFiles = fragment.files().stream().filter(ContextManager::isTestFile).collect(java.util.stream.Collectors.toSet());
-        if (!testFiles.isEmpty()) {
-        try {
-        chrome.runTests(testFiles);
-        } catch (Exception ex) {
-        logger.debug("Run tests failed", ex);
-        }
-        }
-        });
-        menu.add(runTestsItem);
-        
-        menu.addSeparator();
-        
-        // "Edit" - enabled for fragments that are considered editable
-        JMenuItem editItem = new JMenuItem("Edit");
-        boolean editable = fragment.getType().isEditable();
-        editItem.setEnabled(editable);
-        editItem.addActionListener(ev -> {
-        try {
-        chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.EDIT, List.of(fragment));
-        } catch (Exception ex) {
-        logger.debug("Edit context action failed", ex);
-        }
-        });
-        menu.add(editItem);
-        
-        // "Summarize" - enabled if fragment has associated files
-        JMenuItem summarizeItem = new JMenuItem("Summarize");
-        boolean hasFiles = !fragment.files().isEmpty();
-        summarizeItem.setEnabled(hasFiles);
-        summarizeItem.addActionListener(ev -> {
-        try {
-        chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.SUMMARIZE, List.of(fragment));
-        } catch (Exception ex) {
-        logger.debug("Summarize context action failed", ex);
-        }
-        });
-        menu.add(summarizeItem);
-        
-        menu.addSeparator();
-        
-        // "Copy"
-        JMenuItem copyItem = new JMenuItem("Copy");
-        copyItem.addActionListener(ev -> {
-        try {
-        chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of(fragment));
-        } catch (Exception ex) {
-        logger.debug("Copy context action failed", ex);
-        }
-        });
-        menu.add(copyItem);
-        
-        // "Drop" - disabled when viewing historical (not on latest context)
-        JMenuItem dropItem = new JMenuItem("Drop");
-        boolean onLatest = java.util.Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-        dropItem.setEnabled(onLatest);
-        if (!onLatest) {
-        dropItem.setToolTipText("Select latest activity to enable");
-        }
-        dropItem.addActionListener(ev -> {
-        try {
-        chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of(fragment));
-        } catch (Exception ex) {
-        logger.debug("Drop context action failed", ex);
-        }
-        });
-        menu.add(dropItem);
-        
-        // Register with theme manager if possible (defensive)
-        try {
-        if (chrome != null && chrome.themeManager != null) {
-        chrome.themeManager.registerPopupMenu(menu);
-        }
-        } catch (Exception ex) {
-        logger.debug("Failed to register chip popup menu with theme manager (startup ordering?)", ex);
-        }
-        
-        return menu;
+        private JPopupMenu buildChipContextMenu() {
+            JPopupMenu menu = new JPopupMenu();
+            // TODO: populate with fragment-specific actions (e.g., WorkspacePanel.WorkspaceAction or direct
+            // calls to chrome.getContextPanel().performContextActionAsync(...)).
+            // Example items can be added in a follow-up change:
+            // JMenuItem copyItem = new JMenuItem("Copy");
+            // copyItem.addActionListener(ev -> chrome.getContextPanel().performContextActionAsync(
+            //     WorkspacePanel.ContextAction.COPY, List.of(fragment)));
+            // menu.add(copyItem);
+            try {
+                if (chrome != null && chrome.themeManager != null) {
+                    chrome.themeManager.registerPopupMenu(menu);
+                }
+            } catch (Exception ex) {
+                // Defensive logging instead of ignoring to satisfy static analysis rules.
+                logger.debug("Failed to register chip popup menu with theme manager (startup ordering?)", ex);
+            }
+            return menu;
         }
         
         private void executeCloseChip(ContextFragment fragment) {
@@ -712,35 +603,35 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-            // Show popup menu on platform-specific popup trigger (some platforms trigger on press)
-            if (e.isPopupTrigger()) {
-            JPopupMenu menu = buildChipContextMenu(fragment);
-            try {
-            if (chrome != null && chrome.themeManager != null) chrome.themeManager.registerPopupMenu(menu);
-            } catch (Exception ex) {
-            logger.debug("Failed to register chip popup menu with theme manager on press", ex);
+                // Show popup menu on platform-specific popup trigger (some platforms trigger on press)
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu();
+                    try {
+                        if (chrome != null && chrome.themeManager != null) chrome.themeManager.registerPopupMenu(menu);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to register chip popup menu with theme manager on press", ex);
+                    }
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+                // Otherwise allow normal click handling to proceed (mouseClicked will handle left-click preview)
             }
-            menu.show(chip, e.getX(), e.getY());
-            e.consume();
-            return;
-            }
-            // Otherwise allow normal click handling to proceed (mouseClicked will handle left-click preview)
-            }
-            
+
             @Override
             public void mouseReleased(MouseEvent e) {
-            // Show popup menu on release-triggered platforms
-            if (e.isPopupTrigger()) {
-            JPopupMenu menu = buildChipContextMenu(fragment);
-            try {
-            if (chrome != null && chrome.themeManager != null) chrome.themeManager.registerPopupMenu(menu);
-            } catch (Exception ex) {
-            logger.debug("Failed to register chip popup menu with theme manager on release", ex);
-            }
-            menu.show(chip, e.getX(), e.getY());
-            e.consume();
-            return;
-            }
+                // Show popup menu on release-triggered platforms
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu();
+                    try {
+                        if (chrome != null && chrome.themeManager != null) chrome.themeManager.registerPopupMenu(menu);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to register chip popup menu with theme manager on release", ex);
+                    }
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
             }
 
             @Override
