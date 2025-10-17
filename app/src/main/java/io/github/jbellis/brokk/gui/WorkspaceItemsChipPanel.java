@@ -472,24 +472,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
         }
         
-        private JPopupMenu buildChipContextMenu() {
-            JPopupMenu menu = new JPopupMenu();
-            // TODO: populate with fragment-specific actions (e.g., WorkspacePanel.WorkspaceAction or direct
-            // calls to chrome.getContextPanel().performContextActionAsync(...)).
-            // Example items can be added in a follow-up change:
-            // JMenuItem copyItem = new JMenuItem("Copy");
-            // copyItem.addActionListener(ev -> chrome.getContextPanel().performContextActionAsync(
-            //     WorkspacePanel.ContextAction.COPY, List.of(fragment)));
-            // menu.add(copyItem);
-            try {
-                if (chrome != null && chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(menu);
-                }
-            } catch (Exception ex) {
-                // Defensive logging instead of ignoring to satisfy static analysis rules.
-                logger.debug("Failed to register chip popup menu with theme manager (startup ordering?)", ex);
-            }
-            return menu;
+        private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
+        JPopupMenu menu = new JPopupMenu();
+        var scenario = new WorkspacePanel.SingleFragment(fragment);
+        var actions = scenario.getActions(chrome.getContextPanel());
+        for (var action : actions) {
+        menu.add(action);
+        }
+        try {
+        if (chrome != null && chrome.themeManager != null) {
+        chrome.themeManager.registerPopupMenu(menu);
+        }
+        } catch (Exception ex) {
+        logger.debug("Failed to register chip popup menu with theme manager", ex);
+        }
+        return menu;
         }
         
         private void executeCloseChip(ContextFragment fragment) {
@@ -547,8 +544,25 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         label.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
 
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
                 }
@@ -577,6 +591,24 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         close.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
                 executeCloseChip(fragment);
             }
@@ -603,31 +635,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                // Show popup menu on platform-specific popup trigger (some platforms trigger on press)
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu();
-                    try {
-                        if (chrome != null && chrome.themeManager != null) chrome.themeManager.registerPopupMenu(menu);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to register chip popup menu with theme manager on press", ex);
-                    }
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
                 }
-                // Otherwise allow normal click handling to proceed (mouseClicked will handle left-click preview)
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                // Show popup menu on release-triggered platforms
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu();
-                    try {
-                        if (chrome != null && chrome.themeManager != null) chrome.themeManager.registerPopupMenu(menu);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to register chip popup menu with theme manager on release", ex);
-                    }
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
