@@ -908,6 +908,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Compute tokens off-EDT
         chrome.getContextManager()
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
+                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        return new TokenUsageBarComputation(
+                                buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0);
+                    }
+
                     var fullText = new StringBuilder();
                     if (ctx != null && !ctx.isEmpty()) {
                         // Build full text of current context, similar to WorkspacePanel
@@ -918,12 +923,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             }
                         }
                     }
-
-                    if (fullText.isEmpty() || model == null || model instanceof Service.UnavailableStreamingModel) {
-                        return new TokenUsageBarComputation(
-                                buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0);
-                    }
-
+                    
                     int approxTokens = Messages.getApproximateTokens(fullText.toString());
                     int maxTokens = service.getMaxInputTokens(model);
                     if (maxTokens <= 0) {
