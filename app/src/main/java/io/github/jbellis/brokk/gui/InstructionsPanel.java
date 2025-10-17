@@ -940,31 +940,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 fullText.append(frag.text()).append("\n");
             }
         }
-
         // Compute tokens off-EDT
         chrome.getContextManager()
-                .submitBackgroundTask(
-                        "Compute token estimate (Instructions)",
-                        () -> Messages.getApproximateTokens(fullText.toString()))
-                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
+                    int approxTokens = Messages.getApproximateTokens(fullText.toString());
+                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        return null;
+                    }
+                    int maxTokens = service.getMaxInputTokens(model);
+                    if (maxTokens <= 0) {
+                        // Fallback to a generous default when service does not provide a limit
+                        maxTokens = 128_000;
+                    }
+                    String modelName = config.name();
+                    String costStr = calculateCostEstimate(config, approxTokens, service);
+                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
+                    return new TokenUsageBarComputation(tooltipHtml, maxTokens, approxTokens);
+                })
+                .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
-                        if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        if (stat == null) {
                             tokenUsageBar.setVisible(false);
                             return;
                         }
 
-                        int maxTokens = service.getMaxInputTokens(model);
-                        if (maxTokens <= 0) {
-                            // Fallback to a generous default when service does not provide a limit
-                            maxTokens = 128_000;
-                        }
-
                         // Update bar and tooltip
-                        tokenUsageBar.setTokens(approxTokens, maxTokens);
-                        String modelName = config.name();
-                        String costStr = calculateCostEstimate(config, approxTokens, service);
-                        String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
-                        tokenUsageBar.setTooltip(tooltipHtml);
+                        tokenUsageBar.setTokens(stat.approxTokens, stat.maxTokens);
+
+                        tokenUsageBar.setTooltip(stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -973,6 +976,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
     }
 
+    private static record TokenUsageBarComputation(String toolTipHtml, int maxTokens, int approxTokens) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
