@@ -900,57 +900,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
-        assert !SwingUtilities.isEventDispatchThread() : "updateTokenCostIndicator must not be called on the EDT";
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
         var model = service.getModel(config);
 
-        // Handle empty context case
-        if (ctx == null || ctx.isEmpty()) {
-            if (model == null || model instanceof Service.UnavailableStreamingModel) {
-                SwingUtilities.invokeLater(() -> tokenUsageBar.setVisible(false));
-                return;
-            }
-
-            int tempTokens = service.getMaxInputTokens(model);
-            final int maxTokens;
-            if (tempTokens <= 0) {
-                maxTokens = 128_000;
-            } else {
-                maxTokens = tempTokens;
-            }
-
-            String modelName = config.name();
-            String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, "$0.00");
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    tokenUsageBar.setTokens(0, maxTokens);
-                    tokenUsageBar.setTooltip(tooltipHtml);
-                    tokenUsageBar.setVisible(true);
-                } catch (Exception ex) {
-                    logger.debug("Failed to update token usage bar for empty context", ex);
-                    tokenUsageBar.setVisible(false);
-                }
-            });
-            return;
-        }
-
-        // Build full text of current context, similar to WorkspacePanel
-        var allFragments = ctx.getAllFragmentsInDisplayOrder();
-        var fullText = new StringBuilder();
-        for (var frag : allFragments) {
-            if (frag.isText() || frag.getType().isOutput()) {
-                fullText.append(frag.text()).append("\n");
-            }
-        }
         // Compute tokens off-EDT
         chrome.getContextManager()
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
-                    int approxTokens = Messages.getApproximateTokens(fullText.toString());
-                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                    var fullText = new StringBuilder();
+                    if (ctx != null && !ctx.isEmpty()) {
+                        // Build full text of current context, similar to WorkspacePanel
+                        var allFragments = ctx.getAllFragmentsInDisplayOrder();
+                        for (var frag : allFragments) {
+                            if (frag.isText() || frag.getType().isOutput()) {
+                                fullText.append(frag.text()).append("\n");
+                            }
+                        }
+                    }
+
+                    if (fullText.isEmpty() || model == null || model instanceof Service.UnavailableStreamingModel) {
                         return null;
                     }
+
+                    int approxTokens = Messages.getApproximateTokens(fullText.toString());
                     int maxTokens = service.getMaxInputTokens(model);
                     if (maxTokens <= 0) {
                         // Fallback to a generous default when service does not provide a limit
@@ -969,7 +942,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         }
                         // Update bar and tooltip
                         tokenUsageBar.setTokens(stat.approxTokens, stat.maxTokens);
-
                         tokenUsageBar.setTooltip(stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
