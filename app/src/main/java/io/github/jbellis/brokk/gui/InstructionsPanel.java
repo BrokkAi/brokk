@@ -383,15 +383,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBarPopupMenu = new JPopupMenu();
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
-        dropAllMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of()));
+        dropAllMenuItem.addActionListener(
+                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of()));
         tokenUsageBarPopupMenu.add(dropAllMenuItem);
 
         JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
-        copyAllMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of()));
+        copyAllMenuItem.addActionListener(
+                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of()));
         tokenUsageBarPopupMenu.add(copyAllMenuItem);
 
         JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
-        pasteMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
+        pasteMenuItem.addActionListener(
+                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
         SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
@@ -710,7 +713,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
-        
+
         // Add right-click handler to TokenUsageBar
         tokenUsageBar.addMouseListener(new MouseAdapter() {
             @Override
@@ -727,7 +730,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
         });
-        
+
         bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
 
         var contextRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
