@@ -907,21 +907,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Handle empty context case
         if (ctx == null || ctx.isEmpty()) {
+            if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                SwingUtilities.invokeLater(() -> tokenUsageBar.setVisible(false));
+                return;
+            }
+
+            int tempTokens = service.getMaxInputTokens(model);
+            final int maxTokens;
+            if (tempTokens <= 0) {
+                maxTokens = 128_000;
+            } else {
+                maxTokens = tempTokens;
+            }
+
+            String modelName = config.name();
+            String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, "$0.00");
             SwingUtilities.invokeLater(() -> {
                 try {
-                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
-                        tokenUsageBar.setVisible(false);
-                        return;
-                    }
-
-                    int maxTokens = service.getMaxInputTokens(model);
-                    if (maxTokens <= 0) {
-                        maxTokens = 128_000;
-                    }
-
                     tokenUsageBar.setTokens(0, maxTokens);
-                    String modelName = config.name();
-                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, "$0.00");
                     tokenUsageBar.setTooltip(tooltipHtml);
                     tokenUsageBar.setVisible(true);
                 } catch (Exception ex) {
@@ -963,7 +966,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             tokenUsageBar.setVisible(false);
                             return;
                         }
-
                         // Update bar and tooltip
                         tokenUsageBar.setTokens(stat.approxTokens, stat.maxTokens);
 
