@@ -145,6 +145,22 @@ public class ThemeColors {
         LIGHT_COLORS.put("notif_info_bg", new Color(0xFFF3E0));
         LIGHT_COLORS.put("notif_info_fg", Color.decode("#E65100"));
         LIGHT_COLORS.put("notif_info_border", new Color(0xFFCC80));
+
+        // ask mode instruction box highlighting
+        DARK_COLORS.put("mode_answer_bg", new Color(0x1F6FEB));
+        DARK_COLORS.put("mode_answer_fg", Color.WHITE);
+        DARK_COLORS.put("mode_answer_accent", new Color(0x1F6FEB));
+        LIGHT_COLORS.put("mode_answer_bg", new Color(0x1F6FEB));
+        LIGHT_COLORS.put("mode_answer_fg", new Color(0x0A0A0A));
+        LIGHT_COLORS.put("mode_answer_accent", new Color(0x1F6FEB));
+
+        // code mode instruction box highlighting
+        DARK_COLORS.put("mode_code_bg", new Color(0x2EA043));
+        DARK_COLORS.put("mode_code_fg", Color.WHITE);
+        DARK_COLORS.put("mode_code_accent", new Color(0x2EA043));
+        LIGHT_COLORS.put("mode_code_bg", new Color(0x2EA043));
+        LIGHT_COLORS.put("mode_code_fg", new Color(0x0A0A0A));
+        LIGHT_COLORS.put("mode_code_accent", new Color(0x2EA043));
     }
 
     /**
