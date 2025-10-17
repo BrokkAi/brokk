@@ -901,14 +901,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
+        Service.ModelConfig config = getSelectedConfig();
+        var service = chrome.getContextManager().getService();
+        var model = service.getModel(config);
 
         // Handle empty context case
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
                 try {
-                    var service = chrome.getContextManager().getService();
-                    Service.ModelConfig config = getSelectedModel();
-                    var model = service.getModel(config);
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         tokenUsageBar.setVisible(false);
                         return;
@@ -948,11 +948,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         () -> Messages.getApproximateTokens(fullText.toString()))
                 .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                     try {
-                        var service = chrome.getContextManager().getService();
-
-                        // Resolve selected model and max input tokens
-                        Service.ModelConfig config = getSelectedModel();
-                        var model = service.getModel(config);
                         if (model == null || model instanceof Service.UnavailableStreamingModel) {
                             tokenUsageBar.setVisible(false);
                             return;
@@ -967,7 +962,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         // Update bar and tooltip
                         tokenUsageBar.setTokens(approxTokens, maxTokens);
                         String modelName = config.name();
-                        String costStr = calculateCostEstimate(approxTokens, service);
+                        String costStr = calculateCostEstimate(config, approxTokens, service);
                         String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
                         tokenUsageBar.setTooltip(tooltipHtml);
                         tokenUsageBar.setVisible(true);
@@ -979,18 +974,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
-    private String calculateCostEstimate(int inputTokens, Service service) {
-        Service.ModelConfig config = getSelectedModel();
-
-        if (config.name().isBlank()) {
-            return "";
-        }
-
-        var model = service.getModel(config);
-        if (model instanceof Service.UnavailableStreamingModel) {
-            return "";
-        }
-
+    private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
         if (pricing.bands().isEmpty()) {
             return "";
@@ -1981,13 +1965,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Returns the currently selected Code model configuration from the model selector. Falls back to a reasonable
      * default if none is available.
      */
-    public Service.ModelConfig getSelectedModel() {
-        try {
-            return modelSelector.getModel();
-        } catch (IllegalStateException e) {
-            // Fallback to a basic default; Reasoning & Tier defaulted inside ModelConfig
-            return new Service.ModelConfig(Service.GPT_5_MINI);
-        }
+    public StreamingChatModel getSelectedModel() {
+        return contextManager.getModelOrDefault(modelSelector.getModel(), "Selected");
+    }
+
+    // TODO this is unnecessary if we can push config into StreamingChatModel
+    public Service.ModelConfig getSelectedConfig() {
+        return modelSelector.getModel();
     }
 
     public ContextAreaContainer getContextAreaContainer() {

@@ -6,8 +6,8 @@
   ] @package.name
 ) @package.declaration
 
-; Import declarations (optional capture, might be noisy)
-; (import_declaration) @import.definition
+; Import declarations
+(import_declaration) @import.declaration
 
 ; Annotation declarations
 (annotation_type_declaration

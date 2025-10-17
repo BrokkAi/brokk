@@ -117,15 +117,7 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default Service.ModelConfig getArchitectModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
     default Service.ModelConfig getCodeModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
-    default Service.ModelConfig getSearchModelConfig() {
         throw new UnsupportedOperationException();
     }
 
@@ -264,19 +256,7 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default void setArchitectModelConfig(Service.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
     default void setCodeModelConfig(Service.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setAskModelConfig(Service.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setSearchModelConfig(Service.ModelConfig modelConfig) {
         throw new UnsupportedOperationException();
     }
 

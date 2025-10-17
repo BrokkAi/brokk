@@ -1239,7 +1239,7 @@ public interface ContextFragment {
         private final boolean includeTestFiles;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, false);
+            this(contextManager, targetIdentifier, true);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
@@ -1251,7 +1251,7 @@ public interface ContextFragment {
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
-            this(existingId, contextManager, targetIdentifier, false);
+            this(existingId, contextManager, targetIdentifier, true);
         }
 
         public UsageFragment(

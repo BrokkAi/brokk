@@ -83,8 +83,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton goStopButton;
-    private final MaterialButton combineBtn = new MaterialButton();
-    private final MaterialButton splitBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
     private final Color defaultGoButtonBg;
@@ -194,6 +192,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var splitItem = new JMenuItem("Split...");
         splitItem.addActionListener(e -> splitSelectedTask());
         popup.add(splitItem);
+        var combineItem = new JMenuItem("Combine");
+        combineItem.addActionListener(e -> combineSelectedTasks());
+        popup.add(combineItem);
         var copyItem = new JMenuItem("Copy");
         copyItem.addActionListener(e -> copySelectedTasks());
         popup.add(copyItem);
@@ -202,64 +203,46 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         popup.add(deleteItem);
 
         list.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    boolean includesRunning = false;
-                    boolean includesPending = false;
-                    int[] sel = list.getSelectedIndices();
-                    if (runningIndex != null) {
-                        for (int si : sel) {
-                            if (si == runningIndex.intValue()) {
-                                includesRunning = true;
-                                break;
-                            }
-                        }
-                    }
+            private void showContextMenu(java.awt.event.MouseEvent e) {
+                if (!e.isPopupTrigger()) {
+                    return;
+                }
+
+                boolean includesRunning = false;
+                boolean includesPending = false;
+                int[] sel = list.getSelectedIndices();
+                if (runningIndex != null) {
                     for (int si : sel) {
-                        if (pendingQueue.contains(si)) {
-                            includesPending = true;
+                        if (si == runningIndex.intValue()) {
+                            includesRunning = true;
                             break;
                         }
                     }
-                    boolean block = includesRunning || includesPending;
-                    toggleItem.setEnabled(!block);
-                    editItem.setEnabled(!block);
-                    boolean exactlyOne = sel.length == 1;
-                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
-                    deleteItem.setEnabled(!block);
-                    popup.show(list, e.getX(), e.getY());
                 }
+                for (int si : sel) {
+                    if (pendingQueue.contains(si)) {
+                        includesPending = true;
+                        break;
+                    }
+                }
+                boolean block = includesRunning || includesPending;
+                toggleItem.setEnabled(!block);
+                editItem.setEnabled(!block);
+                boolean exactlyOne = sel.length == 1;
+                splitItem.setEnabled(!block && exactlyOne && !queueActive);
+                combineItem.setEnabled(!block && sel.length >= 2);
+                deleteItem.setEnabled(!block);
+                popup.show(list, e.getX(), e.getY());
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                showContextMenu(e);
             }
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    boolean includesRunning = false;
-                    boolean includesPending = false;
-                    int[] sel = list.getSelectedIndices();
-                    if (runningIndex != null) {
-                        for (int si : sel) {
-                            if (si == runningIndex.intValue()) {
-                                includesRunning = true;
-                                break;
-                            }
-                        }
-                    }
-                    for (int si : sel) {
-                        if (pendingQueue.contains(si)) {
-                            includesPending = true;
-                            break;
-                        }
-                    }
-                    boolean block = includesRunning || includesPending;
-                    toggleItem.setEnabled(!block);
-                    editItem.setEnabled(!block);
-                    boolean exactlyOne = sel.length == 1;
-                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
-                    deleteItem.setEnabled(!block);
-                    popup.show(list, e.getX(), e.getY());
-                }
+                showContextMenu(e);
             }
         });
 
@@ -396,16 +379,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
 
-        combineBtn.setIcon(Icons.CELL_MERGE);
-        combineBtn.setToolTipText(
-                "<html><body style='width:300px'>Combine selected tasks into one new task.<br>The text from all tasks will be merged and the originals deleted.<br>Enabled when 2 or more tasks are selected.</body></html>");
-        combineBtn.addActionListener(e -> combineSelectedTasks());
-
-        splitBtn.setIcon(Icons.FORK_RIGHT);
-        splitBtn.setToolTipText(
-                "<html><body style='width:300px'>Split the selected task into multiple tasks.<br>Enter one task per line in the dialog.</body></html>");
-        splitBtn.addActionListener(e -> splitSelectedTask());
-
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
         clearCompletedBtn.setToolTipText(
                 "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
@@ -415,8 +388,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Make the buttons visually tighter and grouped
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
-            combineBtn.setMargin(new Insets(0, 0, 0, 0));
-            splitBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             // Top toolbar (below title, above list): left group + separator + play all/clear completed
@@ -427,8 +398,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Left group: remaining buttons
             topToolbar.add(removeBtn);
             topToolbar.add(toggleDoneBtn);
-            topToolbar.add(combineBtn);
-            topToolbar.add(splitBtn);
 
             // Vertical separator between groups
             JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
@@ -751,11 +720,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
 
-        // Combine enabled only if 2 or more tasks selected and no running/pending in selection
-        combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
-        // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
-        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
-
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
         for (int i = 0; i < model.getSize(); i++) {
@@ -840,7 +804,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 dtos.add(new TaskList.TaskItem(it.text(), it.done()));
             }
         }
-        var data = new TaskList.TaskListData(java.util.List.copyOf(dtos));
+        var data = new TaskList.TaskListData(List.copyOf(dtos));
 
         // Persist via ContextManager
         chrome.getContextManager().setTaskList(data);
@@ -901,7 +865,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setToolTipText("Preparing to run tasks...");
 
         // Record the full ordered run for context awareness
-        currentRunOrder = java.util.List.copyOf(toRun);
+        currentRunOrder = List.copyOf(toRun);
 
         // Set up queue: first runs now, the rest are pending
         int first = toRun.get(0);

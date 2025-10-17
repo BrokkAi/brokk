@@ -482,10 +482,8 @@ public class BlitzForgeDialog extends JDialog {
         var tempLabel = new JLabel();
         var fm = tempLabel.getFontMetrics(tempLabel.getFont());
         var cm = chrome.getContextManager();
-        String architectModelName = service.nameOf(cm.getArchitectModel());
-        String askModelName = service.nameOf(cm.getSearchModel());
-        int maxWidth = fm.stringWidth("Model: " + architectModelName);
-        maxWidth = Math.max(maxWidth, fm.stringWidth("Model: " + askModelName));
+        String selectedModelName = service.nameOf(chrome.getInstructionsPanel().getSelectedModel());
+        int maxWidth = fm.stringWidth("Model: " + selectedModelName);
 
         // Use a GridBagLayout for the combo and label to allow the label to shrink
         // but set a minimum size based on calculated max width.
@@ -668,19 +666,12 @@ public class BlitzForgeDialog extends JDialog {
             }
 
             // Model label
-            if (agent) {
-                String modelName = cm.getService().nameOf(cm.getArchitectModel());
-                postProcessingModelLabel.setText("Model: " + modelName);
-            } else if (ask) {
-                String modelName = cm.getService().nameOf(cm.getSearchModel());
-                postProcessingModelLabel.setText("Model: " + modelName);
-            } else {
-                postProcessingModelLabel.setText(" ");
-            }
+            String modelName =
+                    cm.getService().nameOf(chrome.getInstructionsPanel().getSelectedModel());
+            postProcessingModelLabel.setText("Model: " + modelName);
         };
         runPostProcessCombo.addActionListener(postProcessListener);
-        postProcessListener.actionPerformed(
-                new java.awt.event.ActionEvent(runPostProcessCombo, java.awt.event.ActionEvent.ACTION_PERFORMED, ""));
+        postProcessListener.actionPerformed(new ActionEvent(runPostProcessCombo, ActionEvent.ACTION_PERFORMED, ""));
 
         // Add both panels
         combined.add(parallelProcessingPanel);
@@ -782,7 +773,7 @@ public class BlitzForgeDialog extends JDialog {
         selectedFilesTable.getInputMap(JComponent.WHEN_FOCUSED).put(pasteStroke, "paste-files");
         selectedFilesTable.getActionMap().put("paste-files", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 try {
                     var content = (String)
                             Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
@@ -1096,7 +1087,7 @@ public class BlitzForgeDialog extends JDialog {
             return;
         }
 
-        var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
+        var perFileModelSelection = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
 
         // Refresh cost estimate and warn if it is more than half the balance
         updateCostEstimate();
@@ -1194,7 +1185,7 @@ public class BlitzForgeDialog extends JDialog {
         // Build the execution config for the engine
         var cm = chrome.getContextManager();
         var service = cm.getService();
-        StreamingChatModel model = requireNonNull(service.getModel(selectedFavorite.config()));
+        StreamingChatModel perFileModel = requireNonNull(service.getModel(perFileModelSelection.config()));
         var engineOutputMode =
                 switch (parallelOutputMode) {
                     case NONE -> BlitzForge.ParallelOutputMode.NONE;
@@ -1220,7 +1211,7 @@ public class BlitzForgeDialog extends JDialog {
 
         BlitzForge.RunConfig runCfg = new BlitzForge.RunConfig(
                 instructions,
-                model,
+                perFileModel,
                 () -> {
                     if (fRelatedKSupplier != null) {
                         ContextFragment.SkeletonFragment acFragment;
@@ -1360,13 +1351,18 @@ public class BlitzForgeDialog extends JDialog {
                             "Ask command has been invoked.",
                             "Post-processing",
                             javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                    postProcessResult = InstructionsPanel.executeAskCommand(cm, model, agentInstructions);
+                    postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
                 } else {
                     mainIo.systemNotify(
                             "Architect has been invoked.",
                             "Post-processing",
                             javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                    var agent = new ArchitectAgent(cm, cm.getArchitectModel(), model, agentInstructions, scope);
+                    var agent = new ArchitectAgent(
+                            cm,
+                            chrome.getInstructionsPanel().getSelectedModel(),
+                            perFileModel,
+                            agentInstructions,
+                            scope);
                     postProcessResult = agent.executeWithSearch(scope);
                 }
                 scope.append(postProcessResult);

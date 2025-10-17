@@ -3,12 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -25,6 +20,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
             Set.of(VARIABLE_DECLARATOR),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
+            IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName
@@ -223,11 +219,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
             String jsxReturnQueryStr =
                     """
-                (return_statement (jsx_element) @jsx_return)
-                (return_statement (jsx_self_closing_element) @jsx_return)
-                (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
-                (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
-                """
+                            (return_statement (jsx_element) @jsx_return)
+                            (return_statement (jsx_self_closing_element) @jsx_return)
+                            (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
+                            (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
+                            """
                             .stripIndent();
             // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
             // Ensure cursor is handled if it were AutoCloseable.
@@ -260,12 +256,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         Set<String> mutatedIdentifiers = new HashSet<>();
         String mutationQueryStr =
                 """
-            (assignment_expression left: (identifier) @mutated.id)
-            (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
-            (assignment_expression left: (subscript_expression index: _ @mutated.id))
-            (update_expression argument: (identifier) @mutated.id)
-            (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
-            """
+                        (assignment_expression left: (identifier) @mutated.id)
+                        (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
+                        (assignment_expression left: (subscript_expression index: _ @mutated.id))
+                        (update_expression argument: (identifier) @mutated.id)
+                        (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
+                        """
                         .stripIndent();
 
         // TSLanguage and TSQuery are not AutoCloseable.
@@ -422,5 +418,74 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return JS_SYNTAX_PROFILE;
+    }
+
+    public static void createModulesFromJavaScriptLikeImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        if (!localImportStatements.isEmpty()) {
+            // Use a consistent, unique short name for the module CU, based on filename.
+            // This ensures module CUs from different files have distinct fqNames.
+            String moduleShortName = file.getFileName();
+            CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
+
+            // Check if a module CU with this FQ name already exists
+            // or if this logic somehow runs twice for the same file.
+            if (!localCuByFqName.containsKey(moduleCU.fqName())) {
+                localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
+                localCuByFqName.put(moduleCU.fqName(), moduleCU);
+                // Join imports into a single multi-line signature string for the module CU
+                String importBlockSignature = String.join("\n", localImportStatements);
+                localSignatures
+                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
+                        .add(importBlockSignature);
+                // Add a general range for the module CU (e.g. entire file or first import to last)
+                // For simplicity, can use the range of the root node or skip detailed range for module CU.
+                // Here, we'll use the root node's range as a placeholder.
+                var moduleRange = new Range(
+                        rootNode.getStartByte(),
+                        rootNode.getEndByte(),
+                        rootNode.getStartPoint().getRow(),
+                        rootNode.getEndPoint().getRow(),
+                        rootNode.getStartByte()); // commentStartByte same as startByte for module
+                // Module CUs typically don't need comment expansion as they represent the whole file
+                localSourceRanges
+                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
+                        .add(moduleRange);
+                log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
+            } else {
+                log.warn(
+                        "Module CU for {} with fqName {} already exists. Skipping duplicate module CU creation.",
+                        file,
+                        moduleCU.fqName());
+            }
+        }
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        createModulesFromJavaScriptLikeImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
     }
 }

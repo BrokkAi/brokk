@@ -25,6 +25,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DEFINITION),
             Set.of(ASSIGNMENT, TYPED_PARAMETER),
             Set.of(DECORATOR),
+            IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName

@@ -92,11 +92,8 @@ public final class MainProject extends AbstractProject {
 
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GPT_5)),
-            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO)));
+    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS =
+            Map.of("Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -422,16 +419,6 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal("Architect");
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal("Architect", config);
-    }
-
-    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -439,21 +426,6 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setCodeModelConfig(ModelConfig config) {
         setModelConfigInternal("Code", config);
-    }
-
-    @Override
-    public void setAskModelConfig(ModelConfig config) {
-        setModelConfigInternal("Ask", config);
-    }
-
-    @Override
-    public ModelConfig getSearchModelConfig() {
-        return getModelConfigInternal("Search");
-    }
-
-    @Override
-    public void setSearchModelConfig(ModelConfig config) {
-        setModelConfigInternal("Search", config);
     }
 
     @Override

@@ -629,31 +629,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return exceptionReporter;
     }
 
-    /** Returns the configured Architect model, falling back to the system model if unavailable. */
-    public StreamingChatModel getArchitectModel() {
-        var config = project.getArchitectModelConfig();
-        return getModelOrDefault(config, "Architect");
-    }
-
     /** Returns the configured Code model, falling back to the system model if unavailable. */
     public StreamingChatModel getCodeModel() {
         var config = project.getCodeModelConfig();
         return getModelOrDefault(config, "Code");
     }
 
-    /** Returns the configured Search model, falling back to the system model if unavailable. */
-    public StreamingChatModel getSearchModel() {
-        var config = project.getSearchModelConfig();
-        return getModelOrDefault(config, "Search");
-    }
-
-    private StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
+    public StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
         StreamingChatModel model = service.getModel(config);
         if (model != null) {
             return model;
         }
 
-        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH));
+        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT));
         if (model != null) {
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
@@ -1433,6 +1421,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit, boolean autoCompress)
             throws InterruptedException {
+        var planningModel = io.getInstructionsPanel().getSelectedModel();
+        var codeModel = getCodeModel();
+        return executeTask(task, planningModel, codeModel, autoCommit, autoCompress);
+    }
+
+    public TaskResult executeTask(
+            TaskList.TaskItem task,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            boolean autoCommit,
+            boolean autoCompress)
+            throws InterruptedException {
         var prompt = task.text().strip();
         if (prompt.isEmpty()) {
             throw new IllegalArgumentException("Task text must be non-blank");
@@ -1440,8 +1440,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         try (var scope = beginTask(prompt, false)) {
-            var planningModel = requireNonNull(getService().getModel(Service.GEMINI_2_5_PRO));
-            var codeModel = getCodeModel();
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithSearch(scope);
         } finally {
@@ -1532,6 +1530,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextGenerator A function that takes the current live context and returns an updated context.
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
+    @SuppressWarnings("RedundantNullCheck") // called during Chrome init while instructionsPanel is null
     @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var oldLiveContext = liveContext();
@@ -1543,22 +1542,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window
-        if (MainProject.getHistoryAutoCompress()
+        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
+        // This does not run for headless tasks, I think this is not a problem b/c we still compress
+        // after each task; this is to protect users doing repeated manual Ask/Code.
+        // (null check here against IP is NOT redundant; this is called during Chrome init)
+        if (io instanceof Chrome
+                && io.getInstructionsPanel() != null
+                && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
             int tokenCount = Messages.getApproximateTokens(cf.format());
 
-            try {
-                var svc = getService();
-                var model = getCodeModel();
-                int maxInputTokens = svc.getMaxInputTokens(model);
-                double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
-                if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
-                    compressHistoryAsync();
-                }
-            } catch (ServiceWrapper.ServiceInitializationException e) {
-                // FIXME CI does not have a working Service so this errors out
+            var svc = getService();
+            var model = io.getInstructionsPanel().getSelectedModel();
+            int maxInputTokens = svc.getMaxInputTokens(model);
+            double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
+            if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
+                compressHistoryAsync();
             }
         }
         return newLiveContext;
@@ -1734,7 +1734,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return BuildDetails.EMPTY;
             }
 
-            BuildAgent agent = new BuildAgent(project, getLlm(getSearchModel(), "Infer build details"), toolRegistry);
+            BuildAgent agent =
+                    new BuildAgent(project, getLlm(service.get().getScanModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
@@ -1909,7 +1910,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                         .stripIndent()
                                         .formatted(codeForLLM)));
 
-                var result = getLlm(getSearchModel(), "Generate style guide").sendRequest(messages);
+                var result = getLlm(service.get().getScanModel(), "Generate style guide")
+                        .sendRequest(messages);
                 if (result.error() != null) {
                     String message =
                             "Failed to generate style guide: " + result.error().getMessage();

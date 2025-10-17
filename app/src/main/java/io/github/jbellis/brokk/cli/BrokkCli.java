@@ -445,6 +445,10 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");
                         return 1;
                     }
+                    if (codeModel == null) {
+                        System.err.println("Error: --lutz requires --codemodel to be specified.");
+                        return 1;
+                    }
                     var agent =
                             new SearchAgent(requireNonNull(lutzPrompt), cm, planModel, EnumSet.of(Terminal.TASK_LIST));
                     result = agent.execute();
@@ -464,7 +468,7 @@ public final class BrokkCli implements Callable<Integer> {
                         for (var task : pendingTasks) {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
-                            var taskResult = cm.executeTask(task, true, true);
+                            var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
                             scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 

@@ -66,6 +66,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
             Set.of(DECORATOR),
+            // imports
+            IMPORT_DECLARATION,
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -770,5 +772,26 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
         }
         return null;
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        JavascriptAnalyzer.createModulesFromJavaScriptLikeImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
     }
 }

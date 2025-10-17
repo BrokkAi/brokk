@@ -1472,7 +1472,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             try {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting Build Agent...");
                 var agent = new BuildAgent(
-                        proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
+                        proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
                 if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {

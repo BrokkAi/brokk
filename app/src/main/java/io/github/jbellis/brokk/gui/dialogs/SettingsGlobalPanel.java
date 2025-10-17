@@ -68,6 +68,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
+    private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -921,6 +922,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         });
 
+        // Create top panel with preferred code model selector
+        var topPanel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(0, 0, 10, 0);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0.0;
+        topPanel.add(new JLabel("Preferred Code Model:"), gbc);
+
+        preferredCodeModelCombo = new JComboBox<>(availableModelNames);
+        // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
+        var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        comboHolder.add(preferredCodeModelCombo);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0; // let the holder absorb extra space
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(comboHolder, gbc);
+
+        panel.add(topPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
         return panel;
@@ -1143,6 +1167,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
+        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        preferredCodeModelCombo.setSelectedItem(currentCodeConfig.name());
 
         // GitHub Tab
         if (gitHubSettingsPanel != null) {
@@ -1302,6 +1328,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
+
+        // Preferred Code Model
+        var selectedCodeModel = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedCodeModel != null && !selectedCodeModel.isEmpty()) {
+            var codeConfig = new Service.ModelConfig(selectedCodeModel);
+            chrome.getProject().getMainProject().setCodeModelConfig(codeConfig);
+        }
 
         // GitHub Tab - managed via Connect/Disconnect flow
         if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {

@@ -144,6 +144,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,
             Set<String> decoratorNodeTypes,
+            String importNodeType,
             String identifierFieldName,
             String bodyFieldName,
             String parametersFieldName,
@@ -1216,8 +1217,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-            // Handle module-level import statements first if present in this match
-            TSNode importNode = capturedNodesForMatch.get("module.import_statement");
+
+            // Handle import statements first if present in this match
+            TSNode importNode =
+                    capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
             if (importNode != null && !importNode.isNull()) {
                 String importText = textSlice(importNode, fileBytes).strip();
                 if (!importText.isEmpty()) {
@@ -1551,45 +1554,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // After processing all captures, if there were import statements, create a MODULE CodeUnit
-        if (!localImportStatements.isEmpty()) {
-            String modulePackageName =
-                    determinePackageName(file, rootNode, rootNode, src); // Use rootNode for general package name
-            // Use a consistent, unique short name for the module CU, based on filename.
-            // This ensures module CUs from different files have distinct fqNames.
-            String moduleShortName = file.getFileName();
-            CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
-
-            // Check if a module CU with this FQ name already exists
-            // or if this logic somehow runs twice for the same file.
-            if (!localCuByFqName.containsKey(moduleCU.fqName())) {
-                localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
-                localCuByFqName.put(moduleCU.fqName(), moduleCU);
-                // Join imports into a single multi-line signature string for the module CU
-                String importBlockSignature = String.join("\n", localImportStatements);
-                localSignatures
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(importBlockSignature);
-                // Add a general range for the module CU (e.g. entire file or first import to last)
-                // For simplicity, can use the range of the root node or skip detailed range for module CU.
-                // Here, we'll use the root node's range as a placeholder.
-                var moduleRange = new Range(
-                        rootNode.getStartByte(),
-                        rootNode.getEndByte(),
-                        rootNode.getStartPoint().getRow(),
-                        rootNode.getEndPoint().getRow(),
-                        rootNode.getStartByte()); // commentStartByte same as startByte for module
-                // Module CUs typically don't need comment expansion as they represent the whole file
-                localSourceRanges
-                        .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(moduleRange);
-                log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
-            } else {
-                log.warn(
-                        "Module CU for {} with fqName {} already exists. Skipping duplicate module CU creation.",
-                        file,
-                        moduleCU.fqName());
-            }
-        }
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                determinePackageName(file, rootNode, rootNode, src),
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
 
         log.trace(
                 "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries.",
@@ -1633,6 +1606,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 Collections.unmodifiableList(localImportStatements),
                 tree);
     }
+
+    /**
+     * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
+     */
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {}
 
     /* ---------- Signature Building Logic ---------- */
 

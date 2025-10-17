@@ -522,6 +522,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
 
+        // Create and add TerminalPanel as third tab (with terminal icon)
+        this.terminalPanel =
+                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
+        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
+        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
+
         var contextAreaContainer = instructionsPanel.getContextAreaContainer();
         rightTabbedPanel.addChangeListener(e -> {
             var selected = rightTabbedPanel.getSelectedComponent();
@@ -551,14 +557,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 } catch (Exception ex) {
                     logger.debug("Unable to move shared ModelSelector to TaskListPanel", ex);
                 }
+            } else if (selected == terminalPanel) {
+                if (terminalPanel.isReady()) {
+                    terminalPanel.requestFocusInTerminal();
+                } else {
+                    terminalPanel.whenReady().thenRun(() -> terminalPanel.requestFocusInTerminal());
+                }
             }
         });
-
-        // Create and add TerminalPanel as third tab (with terminal icon)
-        this.terminalPanel =
-                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
-        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
-        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
         // No right-side drawer; the rightTabbedContainer occupies full right side
         rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
@@ -2596,6 +2602,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+            taskListPanel.refreshFromManager();
         });
     }
 

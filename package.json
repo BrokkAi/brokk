@@ -25,6 +25,13 @@
                 "description": "Microphone permissions are required for transcribing prompts."
             }
         ],
+        "documentTypes": [
+            {
+                "type": "directory",
+                "role": "Editor",
+                "description": "Open folder as Brokk project"
+            }
+        ],
         "jar": "app/build/libs/brokk-*.jar",
         "javafx": true,
         "title": "Brokk",

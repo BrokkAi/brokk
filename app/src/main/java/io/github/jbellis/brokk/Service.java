@@ -826,8 +826,9 @@ public class Service implements IExceptionReportingService {
             // o3mini is fine with this but gemini models are not.
             return false;
         }
-        // hack for o3-mini not being able to combine json schema with argument descriptions in the text body
-        if (location.contains("o3-mini")) {
+
+        // gpt-5 sucks at this
+        if (location.contains("gpt-5")) {
             return false;
         }
 
