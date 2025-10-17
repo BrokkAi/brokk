@@ -470,26 +470,26 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
 
         return new ImageIcon(scaled);
-        }
-        
-        private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
+    }
+
+    private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
         JPopupMenu menu = new JPopupMenu();
         var scenario = new WorkspacePanel.SingleFragment(fragment);
         var actions = scenario.getActions(chrome.getContextPanel());
         for (var action : actions) {
-        menu.add(action);
+            menu.add(action);
         }
         try {
-        if (chrome != null && chrome.themeManager != null) {
-        chrome.themeManager.registerPopupMenu(menu);
-        }
+            if (chrome != null && chrome.themeManager != null) {
+                chrome.themeManager.registerPopupMenu(menu);
+            }
         } catch (Exception ex) {
-        logger.debug("Failed to register chip popup menu with theme manager", ex);
+            logger.debug("Failed to register chip popup menu with theme manager", ex);
         }
         return menu;
-        }
-        
-        private void executeCloseChip(ContextFragment fragment) {
+    }
+
+    private void executeCloseChip(ContextFragment fragment) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
         if (!onLatest) {
