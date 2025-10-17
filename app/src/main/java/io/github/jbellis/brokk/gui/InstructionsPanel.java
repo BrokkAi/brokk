@@ -906,7 +906,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var service = chrome.getContextManager().getService();
         var model = service.getModel(config);
 
-        // Handle empty context case
+        // Handle empty context case (no heavy computation, just UI updates)
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
                 try {
@@ -933,20 +933,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        // Build full text of current context, similar to WorkspacePanel
-        var allFragments = ctx.getAllFragmentsInDisplayOrder();
-        var fullText = new StringBuilder();
-        for (var frag : allFragments) {
-            if (frag.isText() || frag.getType().isOutput()) {
-                fullText.append(frag.text()).append("\n");
-            }
-        }
-
-        // Compute tokens off-EDT
+        // For non-empty context: move text concatenation and token counting off EDT
         chrome.getContextManager()
                 .submitBackgroundTask(
                         "Compute token estimate (Instructions)",
-                        () -> Messages.getApproximateTokens(fullText.toString()))
+                        () -> {
+                            // Build the full text from the provided Context inside the background thread
+                            var allFragments = ctx.getAllFragmentsInDisplayOrder();
+                            var sb = new StringBuilder();
+                            for (var frag : allFragments) {
+                                if (frag.isText() || frag.getType().isOutput()) {
+                                    sb.append(frag.text()).append("\n");
+                                }
+                            }
+                            return Messages.getApproximateTokens(sb.toString());
+                        })
                 .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                     try {
                         if (model == null || model instanceof Service.UnavailableStreamingModel) {
