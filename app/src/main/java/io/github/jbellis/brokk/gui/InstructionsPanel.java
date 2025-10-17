@@ -923,7 +923,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             }
                         }
                     }
-                    
+
                     int approxTokens = Messages.getApproximateTokens(fullText.toString());
                     int maxTokens = service.getMaxInputTokens(model);
                     if (maxTokens <= 0) {
