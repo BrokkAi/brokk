@@ -364,7 +364,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
-        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
+        modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
 
@@ -900,6 +900,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
+        assert !SwingUtilities.isEventDispatchThread() : "updateTokenCostIndicator must not be called on the EDT";
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
