@@ -47,33 +47,29 @@ public class InstructionsPanelTokenCountTest {
         });
 
         try {
-            ex.submit(
-                    () -> {
-                        // Record whether this worker thread is the EDT (it should not be)
-                        countedOnEdt.set(SwingUtilities.isEventDispatchThread());
+            ex.submit(() -> {
+                // Record whether this worker thread is the EDT (it should not be)
+                countedOnEdt.set(SwingUtilities.isEventDispatchThread());
 
-                        // Perform the (potentially expensive) token counting using the production helper
-                        int approx = Messages.getApproximateTokens(largeText);
+                // Perform the (potentially expensive) token counting using the production helper
+                int approx = Messages.getApproximateTokens(largeText);
 
-                        // Now post a UI update on the EDT (simulates what InstructionsPanel does)
-                        SwingUtilities.invokeLater(
-                                () -> {
-                                    // Use a reasonable max token value so the bar has a non-zero fill
-                                    int max = Math.max(1, approx * 2);
-                                    bar.setTokens(approx, max);
-                                    bar.setVisible(true);
-                                    uiUpdated.countDown();
-                                });
-                    });
+                // Now post a UI update on the EDT (simulates what InstructionsPanel does)
+                SwingUtilities.invokeLater(() -> {
+                    // Use a reasonable max token value so the bar has a non-zero fill
+                    int max = Math.max(1, approx * 2);
+                    bar.setTokens(approx, max);
+                    bar.setVisible(true);
+                    uiUpdated.countDown();
+                });
+            });
 
             // Wait for the UI update to occur (timeout to avoid flakiness)
             boolean signaled = uiUpdated.await(2, TimeUnit.SECONDS);
             assertTrue(signaled, "Timed out waiting for UI update from token counting task");
 
             // Assert that the token counting did NOT happen on the EDT
-            assertFalse(
-                    countedOnEdt.get(),
-                    "Token counting should not run on the AWT Event Dispatch Thread");
+            assertFalse(countedOnEdt.get(), "Token counting should not run on the AWT Event Dispatch Thread");
 
             // Assert the TokenUsageBar was made visible by the UI update
             assertTrue(bar.isVisible(), "TokenUsageBar should be visible after the async update");

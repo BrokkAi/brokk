@@ -1380,39 +1380,39 @@ public class WorkspacePanel extends JPanel {
         // Capture fragment texts (immutable list) on the EDT so we can safely pass them to background work.
         java.util.List<String> fragmentTexts = new ArrayList<>();
         for (var frag : allFragments) {
-        String locText;
-        if (frag.isText() || frag.getType().isOutput()) {
-        var text = frag.text();
-        // collect text snapshot for token counting later
-        fragmentTexts.add(text);
-        int loc = text.split("\\r?\\n", -1).length;
-        totalLines += loc;
-        locText = "%,d".formatted(loc);
-        } else {
-        locText = "Image";
-        }
-        var desc = frag.description();
-        
-        // Mark editable if it's in the editable streams
-        boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
-        if (isEditable) {
-        desc = "✏️ " + desc;
-        }
-        
-        // Build file references for the record
-        List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
-        if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-        fileReferences = frag.files().stream()
-        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
-        file.getFileName(), file.toString(), file))
-        .distinct()
-        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-        .toList();
-        }
-        
-        // Create rich description object
-        var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
-        tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
+            String locText;
+            if (frag.isText() || frag.getType().isOutput()) {
+                var text = frag.text();
+                // collect text snapshot for token counting later
+                fragmentTexts.add(text);
+                int loc = text.split("\\r?\\n", -1).length;
+                totalLines += loc;
+                locText = "%,d".formatted(loc);
+            } else {
+                locText = "Image";
+            }
+            var desc = frag.description();
+
+            // Mark editable if it's in the editable streams
+            boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
+            if (isEditable) {
+                desc = "✏️ " + desc;
+            }
+
+            // Build file references for the record
+            List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
+            if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                fileReferences = frag.files().stream()
+                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
+                                file.getFileName(), file.toString(), file))
+                        .distinct()
+                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                        .toList();
+            }
+
+            // Create rich description object
+            var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
+            tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
         }
 
         var innerLabel = safeGetLabel(0);
@@ -2095,122 +2095,121 @@ public class WorkspacePanel extends JPanel {
     }
 
     private void computeApproxTokensAsync(java.util.List<String> fragmentTexts, int totalLines) {
-    // Run token estimation off the EDT. The fragment texts list must be a snapshot captured on the EDT before calling
-    // this helper (populateContextTable now does that).
-    contextManager
-    .submitBackgroundTask(
-    "Compute token estimate",
-    () -> {
-    try {
-    String joined = String.join("\n", fragmentTexts);
-    return Messages.getApproximateTokens(joined);
-    } catch (Exception ex) {
-    logger.debug("Token estimate background task failed", ex);
-    return 0;
-    }
-    })
-    .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
-    var innerLabel = safeGetLabel(0);
-    var costLabel = safeGetLabel(1);
-    
-    // Check for context size warning against the selected model only
-    var service = contextManager.getService();
-    var instructionsPanel = chrome.getInstructionsPanel();
-    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedConfig();
-    
-    boolean showRedWarning = false;
-    boolean showYellowWarning = false;
-    int selectedModelMaxInputTokens = -1;
-    String selectedModelName = selectedConfig.name();
-    
-    if (!selectedModelName.isBlank()) {
-    try {
-    var modelInstance = service.getModel(selectedConfig);
-    if (modelInstance == null) {
-    logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
-    } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
-    logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
-    } else {
-    selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
-    if (selectedModelMaxInputTokens <= 0) {
-    logger.warn(
-    "Selected model {} has invalid maxInputTokens: {}",
-    selectedModelName,
-    selectedModelMaxInputTokens);
-    } else {
-    // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
-    if (approxTokens > selectedModelMaxInputTokens / 1.1) {
-    showRedWarning = true;
-    }
-    // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
-    else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
-    showYellowWarning = true;
-    }
-    }
-    }
-    } catch (Exception e) {
-    logger.warn(
-    "Error processing selected model {} for context warning: {}",
-    selectedModelName,
-    e.getMessage(),
-    e);
-    }
-    }
-    
-    String warningTooltip =
-    """
+        // Run token estimation off the EDT. The fragment texts list must be a snapshot captured on the EDT before
+        // calling
+        // this helper (populateContextTable now does that).
+        contextManager
+                .submitBackgroundTask("Compute token estimate", () -> {
+                    try {
+                        String joined = String.join("\n", fragmentTexts);
+                        return Messages.getApproximateTokens(joined);
+                    } catch (Exception ex) {
+                        logger.debug("Token estimate background task failed", ex);
+                        return 0;
+                    }
+                })
+                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                    var innerLabel = safeGetLabel(0);
+                    var costLabel = safeGetLabel(1);
+
+                    // Check for context size warning against the selected model only
+                    var service = contextManager.getService();
+                    var instructionsPanel = chrome.getInstructionsPanel();
+                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedConfig();
+
+                    boolean showRedWarning = false;
+                    boolean showYellowWarning = false;
+                    int selectedModelMaxInputTokens = -1;
+                    String selectedModelName = selectedConfig.name();
+
+                    if (!selectedModelName.isBlank()) {
+                        try {
+                            var modelInstance = service.getModel(selectedConfig);
+                            if (modelInstance == null) {
+                                logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
+                            } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
+                                logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
+                            } else {
+                                selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
+                                if (selectedModelMaxInputTokens <= 0) {
+                                    logger.warn(
+                                            "Selected model {} has invalid maxInputTokens: {}",
+                                            selectedModelName,
+                                            selectedModelMaxInputTokens);
+                                } else {
+                                    // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
+                                    if (approxTokens > selectedModelMaxInputTokens / 1.1) {
+                                        showRedWarning = true;
+                                    }
+                                    // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
+                                    else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
+                                        showYellowWarning = true;
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            logger.warn(
+                                    "Error processing selected model {} for context warning: {}",
+                                    selectedModelName,
+                                    e.getMessage(),
+                                    e);
+                        }
+                    }
+
+                    String warningTooltip =
+                            """
     Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
     Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
     """;
-    
-    // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
-    innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-    String costEstimate = calculateCostEstimate(approxTokens, service);
-    String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
-    
-    // Single-line summary to keep the paperclip aligned
-    innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
-    
-    // Preserve details in tooltip
-    innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
-    .formatted(totalLines, approxTokens, costText));
-    
-    // Keep the secondary label hidden to avoid changing the row height
-    costLabel.setText(" ");
-    costLabel.setVisible(false);
-    
-    // Remove any existing warning labels from the warningPanel
-    warningPanel.removeAll();
-    
-    if (showRedWarning) {
-    String warningText = String.format(
-    "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
-    approxTokens, selectedModelName, selectedModelMaxInputTokens);
-    
-    JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
-    warningPanel.add(warningArea, BorderLayout.CENTER);
-    
-    } else if (showYellowWarning) {
-    String warningText = String.format(
-    "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
-    approxTokens, selectedModelName, selectedModelMaxInputTokens);
-    
-    JTextArea warningArea = createWarningTextArea(
-    warningText,
-    Color.YELLOW,
-    warningTooltip); // Standard yellow might be hard to see on some themes
-    warningPanel.add(warningArea, BorderLayout.CENTER);
-    }
-    
-    warningPanel.revalidate();
-    warningPanel.repaint();
-    
-    revalidate();
-    repaint();
-    
-    // Notify listeners that bottom controls height may have changed
-    fireBottomControlsHeightChanged();
-    }));
+
+                    // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
+                    innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
+                    String costEstimate = calculateCostEstimate(approxTokens, service);
+                    String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
+
+                    // Single-line summary to keep the paperclip aligned
+                    innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
+
+                    // Preserve details in tooltip
+                    innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                            .formatted(totalLines, approxTokens, costText));
+
+                    // Keep the secondary label hidden to avoid changing the row height
+                    costLabel.setText(" ");
+                    costLabel.setVisible(false);
+
+                    // Remove any existing warning labels from the warningPanel
+                    warningPanel.removeAll();
+
+                    if (showRedWarning) {
+                        String warningText = String.format(
+                                "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
+                                approxTokens, selectedModelName, selectedModelMaxInputTokens);
+
+                        JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
+                        warningPanel.add(warningArea, BorderLayout.CENTER);
+
+                    } else if (showYellowWarning) {
+                        String warningText = String.format(
+                                "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
+                                approxTokens, selectedModelName, selectedModelMaxInputTokens);
+
+                        JTextArea warningArea = createWarningTextArea(
+                                warningText,
+                                Color.YELLOW,
+                                warningTooltip); // Standard yellow might be hard to see on some themes
+                        warningPanel.add(warningArea, BorderLayout.CENTER);
+                    }
+
+                    warningPanel.revalidate();
+                    warningPanel.repaint();
+
+                    revalidate();
+                    repaint();
+
+                    // Notify listeners that bottom controls height may have changed
+                    fireBottomControlsHeightChanged();
+                }));
     }
 
     /**
