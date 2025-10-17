@@ -394,7 +394,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         pasteMenuItem.addActionListener(e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
-        chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu);
+        SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
