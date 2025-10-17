@@ -21,7 +21,7 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
@@ -2154,11 +2154,11 @@ public class HistoryOutputPanel extends JPanel {
 
                 var plus = new JLabel("+" + de.linesAdded());
                 plus.setFont(smallFont);
-                plus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getAdded(!isDark));
+                plus.setForeground(ThemeColors.getDiffAdded(!isDark));
 
                 var minus = new JLabel("-" + de.linesDeleted());
                 minus.setFont(smallFont);
-                minus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(!isDark));
+                minus.setForeground(ThemeColors.getDiffDeleted(!isDark));
 
                 var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
                 rowPanel.setOpaque(false);
@@ -2310,14 +2310,14 @@ public class HistoryOutputPanel extends JPanel {
             var palette = List.of(
                     isDark ? Color.LIGHT_GRAY : Color.DARK_GRAY,
                     isDark
-                            ? ColorUtil.brighter(Colors.getAdded(true), 0.4f)
-                            : ColorUtil.brighter(Colors.getAdded(false), -0.4f),
+                            ? ColorUtil.brighter(ThemeColors.getDiffAdded(true), 0.4f)
+                            : ColorUtil.brighter(ThemeColors.getDiffAdded(false), -0.4f),
                     isDark
-                            ? ColorUtil.brighter(Colors.getChanged(true), 0.6f)
-                            : ColorUtil.brighter(Colors.getChanged(false), -0.4f),
+                            ? ColorUtil.brighter(ThemeColors.getDiffChanged(true), 0.6f)
+                            : ColorUtil.brighter(ThemeColors.getDiffChanged(false), -0.4f),
                     isDark
-                            ? ColorUtil.brighter(Colors.getDeleted(true), 1.2f)
-                            : ColorUtil.brighter(Colors.getDeleted(false), -0.4f));
+                            ? ColorUtil.brighter(ThemeColors.getDiffDeleted(true), 1.2f)
+                            : ColorUtil.brighter(ThemeColors.getDiffDeleted(false), -0.4f));
             return palette.get(paletteIndex);
         }
 

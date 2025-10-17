@@ -9,7 +9,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.git.ICommitInfo;
@@ -377,10 +377,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 boolean unpushed = (boolean) table.getModel().getValueAt(row, COL_UNPUSHED);
 
                 if (!isSelected) {
-                    c.setBackground(unpushed ? Colors.getChanged(isDark) : table.getBackground());
+                    c.setBackground(unpushed ? ThemeColors.getDiffChanged(isDark) : table.getBackground());
                     c.setForeground(table.getForeground());
                 } else {
-                    c.setBackground(unpushed ? Colors.getChanged(isDark).darker() : table.getSelectionBackground());
+                    c.setBackground(unpushed ? ThemeColors.getDiffChanged(isDark).darker() : table.getSelectionBackground());
                     c.setForeground(table.getSelectionForeground());
                 }
                 if (column == 2 && value instanceof java.time.Instant instant) {

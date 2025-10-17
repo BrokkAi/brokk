@@ -72,6 +72,9 @@ public class GuiTheme {
                 com.formdev.flatlaf.FlatIntelliJLaf.setup();
             }
 
+            // Reload ThemeColors to pick up new UIManager values
+            io.github.jbellis.brokk.gui.mop.ThemeColors.reloadColors();
+
             // Register custom icons for this theme
             registerCustomIcons(isDark);
 

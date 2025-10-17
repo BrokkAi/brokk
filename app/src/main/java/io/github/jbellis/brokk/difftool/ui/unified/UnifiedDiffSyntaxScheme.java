@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui.unified;
 
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 import java.awt.Font;
 import javax.swing.UIManager;
@@ -29,9 +29,9 @@ public class UnifiedDiffSyntaxScheme {
         Color defaultBackground = UIManager.getColor("Panel.background");
 
         // Use the same colors as side-by-side diff for consistency
-        Color basedAddedColor = Colors.getAdded(isDark);
-        Color baseDeletedColor = Colors.getDeleted(isDark);
-        Color baseChangedColor = Colors.getChanged(isDark);
+        Color basedAddedColor = ThemeColors.getDiffAdded(isDark);
+        Color baseDeletedColor = ThemeColors.getDiffDeleted(isDark);
+        Color baseChangedColor = ThemeColors.getDiffChanged(isDark);
 
         // Create foreground and background colors for unified diff display
         // Background uses the base colors, foreground uses darker/contrasting versions

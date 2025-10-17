@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.*;
 import javax.swing.text.BadLocationException;
@@ -25,8 +25,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     public static final JMHighlightPainter CURRENT_SEARCH;
 
     static {
-        SEARCH = new JMHighlightPainter(Colors.SEARCH);
-        CURRENT_SEARCH = new JMHighlightPainter(Colors.CURRENT_SEARCH);
+        SEARCH = new JMHighlightPainter(ThemeColors.getSearchHighlight());
+        CURRENT_SEARCH = new JMHighlightPainter(ThemeColors.getCurrentSearchHighlight());
     }
 
     protected final Color color;

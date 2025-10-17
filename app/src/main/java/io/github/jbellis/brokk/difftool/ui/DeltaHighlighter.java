@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.difftool.ui;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,7 +92,7 @@ public final class DeltaHighlighter {
         var painter =
                 switch (delta.getType()) {
                     case INSERT -> {
-                        var color = Colors.getAdded(isDark);
+                        var color = ThemeColors.getDiffAdded(isDark);
                         yield isEmpty
                                 ? new JMHighlightPainter.JMHighlightLinePainter(color)
                                 : isEndAndNewline
@@ -100,7 +100,7 @@ public final class DeltaHighlighter {
                                         : new JMHighlightPainter(color);
                     }
                     case DELETE -> {
-                        var color = Colors.getDeleted(isDark);
+                        var color = ThemeColors.getDiffDeleted(isDark);
                         yield isEmpty
                                 ? new JMHighlightPainter.JMHighlightLinePainter(color)
                                 : isEndAndNewline
@@ -108,7 +108,7 @@ public final class DeltaHighlighter {
                                         : new JMHighlightPainter(color);
                     }
                     case CHANGE -> {
-                        var color = Colors.getChanged(isDark);
+                        var color = ThemeColors.getDiffChanged(isDark);
                         yield isEndAndNewline
                                 ? new JMHighlightPainter.JMHighlightNewLinePainter(color)
                                 : new JMHighlightPainter(color);

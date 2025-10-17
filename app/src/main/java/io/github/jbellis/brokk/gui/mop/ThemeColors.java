@@ -27,7 +27,10 @@ public class ThemeColors {
         return color != null ? color : fallback;
     }
 
-    static {
+    /**
+     * Initializes all color mappings. Called at class load time and when theme changes.
+     */
+    private static void initializeColors() {
         // Initialize dark theme colors using UIManager where available
         DARK_COLORS.put("chat_background", getUIManagerColor("Panel.background", new Color(37, 37, 37)));
         DARK_COLORS.put("message_background", getUIManagerColor("TextField.background", new Color(64, 64, 64)));
@@ -181,6 +184,21 @@ public class ThemeColors {
         LIGHT_COLORS.put("search_current", new Color(255, 165, 0)); // Orange
     }
 
+    static {
+        // Initialize colors at class load time
+        initializeColors();
+    }
+
+    /**
+     * Reloads all colors from UIManager. Call this after changing the Look and Feel
+     * to ensure colors update to match the new theme.
+     */
+    public static void reloadColors() {
+        DARK_COLORS.clear();
+        LIGHT_COLORS.clear();
+        initializeColors();
+    }
+
     /**
      * Gets a color for the specified theme and key.
      *
@@ -288,5 +306,80 @@ public class ThemeColors {
      */
     public static Color getCurrentSearchHighlight() {
         return getColor(false, "search_current"); // Theme-independent for now
+    }
+
+    // Direct UIManager access convenience methods
+
+    /**
+     * Gets the panel background color from UIManager.
+     *
+     * @return the panel background color
+     */
+    public static Color getPanelBackground() {
+        return UIManager.getColor("Panel.background");
+    }
+
+    /**
+     * Gets the label foreground color from UIManager.
+     *
+     * @return the label foreground color
+     */
+    public static Color getLabelForeground() {
+        return UIManager.getColor("Label.foreground");
+    }
+
+    /**
+     * Gets the component link color from UIManager.
+     *
+     * @return the component link color
+     */
+    public static Color getLinkColor() {
+        return UIManager.getColor("Component.linkColor");
+    }
+
+    /**
+     * Gets the component border color from UIManager.
+     *
+     * @return the component border color
+     */
+    public static Color getBorderColor() {
+        return UIManager.getColor("Component.borderColor");
+    }
+
+    /**
+     * Gets the text field background color from UIManager.
+     *
+     * @return the text field background color
+     */
+    public static Color getTextFieldBackground() {
+        return UIManager.getColor("TextField.background");
+    }
+
+    /**
+     * Gets the text field foreground color from UIManager.
+     *
+     * @return the text field foreground color
+     */
+    public static Color getTextFieldForeground() {
+        return UIManager.getColor("TextField.foreground");
+    }
+
+    /**
+     * Gets the editor pane background color from UIManager.
+     *
+     * @return the editor pane background color
+     */
+    public static Color getEditorBackground() {
+        return UIManager.getColor("EditorPane.background");
+    }
+
+    /**
+     * Gets a color directly from UIManager.
+     *
+     * @param key the UIManager key
+     * @return the color, or null if not found
+     */
+    public static Color getUIManagerColorDirect(String key) {
+        return UIManager.getColor(key);
     }
 }

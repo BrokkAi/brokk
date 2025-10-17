@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.difftool.search.SearchHit;
 import io.github.jbellis.brokk.difftool.search.SearchHits;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
 import java.awt.*;
@@ -427,9 +428,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Get color based on delta type
             var color =
                     switch (delta.getType()) {
-                        case INSERT -> io.github.jbellis.brokk.difftool.utils.Colors.getAdded(isDark);
-                        case DELETE -> io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(isDark);
-                        case CHANGE -> io.github.jbellis.brokk.difftool.utils.Colors.getChanged(isDark);
+                        case INSERT -> ThemeColors.getDiffAdded(isDark);
+                        case DELETE -> ThemeColors.getDiffDeleted(isDark);
+                        case CHANGE -> ThemeColors.getDiffChanged(isDark);
                         case EQUAL -> null; // Should not happen
                     };
 
