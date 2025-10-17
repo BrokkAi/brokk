@@ -396,23 +396,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu);
 
-        // Add right-click handler to TokenUsageBar
-        tokenUsageBar.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
-                }
-            }
-        });
-
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
         add(topBarPanel, BorderLayout.NORTH);
@@ -727,6 +710,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+        
+        // Add right-click handler to TokenUsageBar
+        tokenUsageBar.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
+                }
+            }
+        });
+        
         bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
 
         var contextRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
