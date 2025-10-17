@@ -348,6 +348,13 @@ public class BuildAgent {
             Set<String> excludedDirectories,
             java.util.Map<String, String> environmentVariables) {
 
+        @SuppressWarnings("RedundantNullCheck")
+        public BuildDetails {
+            if (environmentVariables == null) {
+                environmentVariables = java.util.Map.of();
+            }
+        }
+
         public BuildDetails(
                 String buildLintCommand,
                 String testAllCommand,
