@@ -364,8 +364,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> {
             chrome.getProject().setCodeModelConfig(cfg);
-            SwingUtilities.invokeLater(
-                    () -> updateTokenCostIndicator(chrome.getContextManager().selectedContext()));
+            updateTokenCostIndicator(chrome.getContextManager().selectedContext());
         });
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
