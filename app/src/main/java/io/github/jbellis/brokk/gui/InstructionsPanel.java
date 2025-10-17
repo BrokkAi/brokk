@@ -1712,7 +1712,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             var cm = chrome.getContextManager();
             SearchAgent agent = new SearchAgent(
-                    query, cm, modelToUse, EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
+                    query,
+                    cm,
+                    modelToUse,
+                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
+                    false,
+                    io.github.jbellis.brokk.cli.SearchMetrics.NO_OP);
             var result = agent.execute();
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
