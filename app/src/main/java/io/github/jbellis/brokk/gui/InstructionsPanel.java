@@ -901,6 +901,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator(Context ctx) {
+        /*
+          Offload heavy token-counting work off the AWT Event Dispatch Thread (EDT) to avoid UI jank.
+          Approach:
+            1. Snapshot fragment texts (captured safely) and perform string concatenation + token encoding
+               inside a background Callable submitted via ContextManager.submitBackgroundTask.
+            2. The background Callable returns an int token estimate (defensive try/catch, returns 0 on error).
+            3. Post UI-only updates (tokenUsageBar.setTokens / setTooltip / setVisible) back to the EDT
+               using SwingUtilities.invokeLater.
+
+          This keeps all thread-affine UI work on the EDT while preventing potentially expensive
+          string and tokenization work from blocking UI responsiveness.
+        */
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
         var model = service.getModel(config);
