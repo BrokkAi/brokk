@@ -273,6 +273,8 @@ public class SearchAgent {
                              Use text-based tools if you need to search other file types.
                           4) Group related lookups into a single call when possible.
                           5) Make multiple tool calls at once when searching for different types of code.
+                          6) Add relevant summaries or files to the Workspace; it's okay to add content that you are
+                             not certain is relevant, since you can always drop it later.
 
                         Output discipline:
                           - Start each turn by pruning and summarizing before any new exploration.
@@ -451,25 +453,14 @@ public class SearchAgent {
 
         // Fine-grained Analyzer capabilities
         var analyzerWrapper = cm.getAnalyzerWrapper();
-        if (analyzerWrapper.providesSummaries()) {
-            names.add("getClassSkeletons");
-        }
-        if (analyzerWrapper.providesSourceCode()) {
-            names.add("getClassSources");
-            names.add("getMethodSources");
-        }
         if (analyzerWrapper.providesInterproceduralAnalysis()) {
             names.add("getUsages");
-            names.add("getCallGraphTo");
-            names.add("getCallGraphFrom");
         }
 
         // Text-based search
         names.add("searchSubstrings");
         names.add("searchGitCommitMessages");
         names.add("searchFilenames");
-        names.add("getFileContents");
-        names.add("getFileSummaries");
 
         // Workspace curation
         names.add("addFilesToWorkspace");
@@ -591,8 +582,7 @@ public class SearchAgent {
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
-            case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
+            case "getFiles" -> 8;
             case "answer", "createTaskList", "workspaceComplete", "abortSearch" -> 100;
             default -> 9;
         };
@@ -736,15 +726,7 @@ public class SearchAgent {
     // =======================
 
     private boolean shouldSummarize(String toolName) {
-        return Set.of(
-                        "searchSymbols",
-                        "getUsages",
-                        "getClassSources",
-                        "searchSubstrings",
-                        "searchFilenames",
-                        "searchGitCommitMessages",
-                        "getFileContents",
-                        "getFileSummaries")
+        return Set.of("searchSymbols", "searchSubstrings", "searchFilenames", "searchGitCommitMessages")
                 .contains(toolName);
     }
 
