@@ -90,6 +90,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                         logger.trace("onHover callback threw", ex);
                     }
                 }
+                // If the highlighted fragment was only due to hovering, clear it on exit
+                if (Objects.equals(highlightedFragment, prev)) {
+                    highlightedFragment = null;
+                }
                 setCursor(Cursor.getDefaultCursor());
                 repaint();
             }
@@ -302,6 +306,26 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 g2d.setColor(getAccentColor());
                 g2d.setStroke(new BasicStroke(1.0f));
                 g2d.drawRoundRect(0, 0, width - 1, height - 1, ARC, ARC);
+            }
+
+            // Hovered fragment overlay/border (lighter than persistent highlight)
+            if (currentHoverFragment != null) {
+                for (var s : segs) {
+                    if (s.frag != null
+                            && Objects.equals(s.frag, currentHoverFragment)
+                            && !Objects.equals(s.frag, highlightedFragment)) {
+                        // subtle overlay
+                        g2d.setComposite(AlphaComposite.SrcOver.derive(0.12f));
+                        g2d.setColor(getAccentColor());
+                        g2d.fillRect(s.startX, 0, s.widthPx, height);
+
+                        // border
+                        g2d.setComposite(AlphaComposite.SrcOver);
+                        g2d.setColor(getAccentColor());
+                        g2d.setStroke(new BasicStroke(1.0f));
+                        g2d.drawRect(s.startX, 0, Math.max(0, s.widthPx - 1), Math.max(0, height - 1));
+                    }
+                }
             }
 
             // Highlighted fragment overlay/border
