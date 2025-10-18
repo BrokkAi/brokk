@@ -14,7 +14,11 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -37,6 +41,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Logger for defensive debug logging in catch blocks (avoid empty catches)
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
+
+    // Chip lookup and hover/highlight state
+    private final Map<ContextFragment, RoundedChipPanel> fragmentToChip = new ConcurrentHashMap<>();
+    private final Set<ContextFragment> highlightedFragments = ConcurrentHashMap.newKeySet();
+    private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -94,8 +103,66 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onRemoveFragment = listener;
     }
 
+    /**
+     * Set a callback invoked when the mouse enters/leaves a chip for a fragment.
+     * Pass null to clear.
+     */
+    public void setOnHover(@Nullable BiConsumer<ContextFragment, Boolean> listener) {
+        this.onHover = listener;
+    }
+
+    /**
+     * Highlight or clear highlight for a specific fragment chip.
+     * Safe to call from any thread; will marshal to the EDT.
+     */
+    public void highlightFragment(ContextFragment fragment, boolean highlight) {
+        Runnable r = () -> {
+            if (highlight) {
+                highlightedFragments.add(fragment);
+            } else {
+                highlightedFragments.remove(fragment);
+            }
+            var chip = fragmentToChip.get(fragment);
+            if (chip != null) {
+                // Find label to restyle fully when removing highlight
+                JLabel label = null;
+                Object labelObj = chip.getClientProperty("brokk.chip.label");
+                if (labelObj instanceof JLabel l) label = l;
+
+                var fragObj = chip.getClientProperty("brokk.fragment");
+                ContextFragment frag = (fragObj instanceof ContextFragment f) ? f : null;
+
+                if (highlight) {
+                    chip.setBorderColor(getAccentColor());
+                    chip.repaint();
+                } else if (label != null) {
+                    styleChip(chip, label, chrome.getTheme().isDarkTheme(), frag);
+                } else {
+                    // Fallback: repaint to clear
+                    chip.repaint();
+                }
+            }
+            repaint();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    private Color getAccentColor() {
+        Color c = UIManager.getColor("Component.focusColor");
+        if (c == null) c = UIManager.getColor("Focus.color");
+        if (c == null) c = UIManager.getColor("List.selectionBackground");
+        if (c == null) c = ThemeColors.getColor(chrome.getTheme().isDarkTheme(), "mode_answer_accent");
+        if (c == null) c = new Color(0x1F6FEB);
+        return c;
+    }
+
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
+        fragmentToChip.clear();
 
         for (var fragment : fragments) {
             add(createChip(fragment));
@@ -702,7 +769,50 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Keep a handle to the fragment and close button so theme changes can restyle accurately
         chip.putClientProperty("brokk.fragment", fragment);
         chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+        fragmentToChip.put(fragment, chip);
         styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
+
+        // Install hover handlers on the chip and its key children; use a per-chip counter
+        // to avoid duplicate enter/exit notifications when moving between subcomponents.
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                    chip.setBorderColor(getAccentColor());
+                    chip.repaint();
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                    // Do not clear border if this fragment is explicitly highlighted
+                    if (!highlightedFragments.contains(fragment)) {
+                        styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
+                    }
+                }
+            }
+        };
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        close.addMouseListener(hoverAdapter);
+        sep.addMouseListener(hoverAdapter);
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
@@ -775,6 +885,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
                     // styleChip() now updates the close button icon with proper background color
                     styleChip(chip, label, isDark, fragment);
+                    // Re-apply highlight if this fragment is highlighted
+                    if (fragment != null && highlightedFragments.contains(fragment) && chip instanceof RoundedChipPanel rc) {
+                        rc.setBorderColor(getAccentColor());
+                    }
                 }
             }
         }
