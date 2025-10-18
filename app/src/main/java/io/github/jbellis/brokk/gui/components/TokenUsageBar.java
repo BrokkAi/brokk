@@ -34,6 +34,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private int maxTokens = 1; // Avoid division by zero
 
+    @Nullable
+    private volatile Runnable onClick = null;
     // Rounded rectangle arc (diameter for corner rounding). Radius is arc/2.
     private static final int ARC = 8;
     private static final int MIN_SEGMENT_PX = 8; // 2x radius
@@ -74,6 +76,32 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Mouse listeners for hover, exit, and clicks
         MouseAdapter mouseAdapter = new MouseAdapter() {
             @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!isEnabled() || e.isPopupTrigger() || !SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                // Prefer segment-level click if available
+                var seg = findSegmentAt(e.getX());
+                if (seg != null && seg.frag != null && onSegmentClick != null) {
+                    try {
+                        onSegmentClick.accept(seg.frag);
+                    } catch (Exception ex) {
+                        logger.trace("onSegmentClick callback threw", ex);
+                    }
+                    return;
+                }
+                // Fallback to whole-bar click action
+                Runnable r = onClick;
+                if (r != null) {
+                    try {
+                        r.run();
+                    } catch (Exception ex) {
+                        logger.debug("TokenUsageBar onClick handler threw", ex);
+                    }
+                }
+            }
+
+            @Override
             public void mouseEntered(MouseEvent e) {
                 repaint();
             }
@@ -96,26 +124,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (Objects.equals(highlightedFragment, prev)) {
                     highlightedFragment = null;
                 }
-                setCursor(Cursor.getDefaultCursor());
+                setCursor(onClick != null ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
                 repaint();
-            }
-
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                // Do not consume event so popup triggers (right-click) elsewhere still work
-                if (!SwingUtilities.isLeftMouseButton(e)) {
-                    return;
-                }
-                var seg = findSegmentAt(e.getX());
-                // If seg.frag is null this segment represents a grouped "Other" bucket. We skip forwarding the
-                // click to external listeners (workspace chips). See class-level comment for rationale.
-                if (seg != null && seg.frag != null && onSegmentClick != null) {
-                    try {
-                        onSegmentClick.accept(seg.frag);
-                    } catch (Exception ex) {
-                        logger.trace("onSegmentClick callback threw", ex);
-                    }
-                }
             }
 
             @Override
@@ -141,8 +151,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             logger.trace("onHover callback (enter) threw", ex);
                         }
                     }
-                    // Update cursor to indicate clickability when appropriate
-                    if (onSegmentClick != null && newFrag != null) {
+                    // Update cursor: clickable on segment OR whole bar if onClick is set
+                    if ((onSegmentClick != null && newFrag != null) || onClick != null) {
                         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                     } else {
                         setCursor(Cursor.getDefaultCursor());
@@ -180,16 +190,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Disable click behavior entirely; kept for binary/source compatibility.
-     * Deprecated: use setOnSegmentClick(Consumer) instead.
+     * Registers a click handler for the whole bar. Left-click invokes the handler when enabled.
+     * Pass null to disable. Updates cursor to reflect interactivity. Exceptions are caught and logged.
      */
-    @Deprecated
     public void setOnClick(@Nullable Runnable onClick) {
-        // Keep API for compatibility; intentionally no-op. Log if callers still pass a Runnable.
-        if (onClick != null) {
-            logger.debug("TokenUsageBar.setOnClick is deprecated and ignored.");
-        }
-        setCursor(Cursor.getDefaultCursor());
+        this.onClick = onClick;
+        setCursor(onClick != null ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+        repaint();
     }
 
     /**
@@ -453,13 +460,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Pass 1: mark small fragments
+        // Pass 1: mark small fragments (but never group HISTORY fragments)
         double[] rawWidths = new double[usable.size()];
         List<ContextFragment> small = new ArrayList<>();
         for (int i = 0; i < usable.size(); i++) {
             int t = tokensForFragment(usable.get(i));
             rawWidths[i] = (t * 1.0 / totalTokens) * fillWidth;
-            if (rawWidths[i] < MIN_SEGMENT_PX) {
+            if (rawWidths[i] < MIN_SEGMENT_PX && usable.get(i).getType() != ContextFragment.FragmentType.HISTORY) {
                 small.add(usable.get(i));
             }
         }
