@@ -14,7 +14,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -37,6 +40,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Logger for defensive debug logging in catch blocks (avoid empty catches)
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
+
+    // Chip lookup and hover/highlight state
+    private final Map<ContextFragment, RoundedChipPanel> fragmentToChip = new ConcurrentHashMap<>();
+    private static final float DIM_ALPHA = 0.45f;
+    private static final float DIM_ALPHA_HOVER = 0.30f;
+    private @Nullable ContextFragment hoverTarget;
+    private @Nullable ContextFragment persistentTarget;
+    private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -94,12 +105,60 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onRemoveFragment = listener;
     }
 
+    /**
+     * Set a callback invoked when the mouse enters/leaves a chip for a fragment.
+     * Pass null to clear.
+     */
+    public void setOnHover(@Nullable BiConsumer<ContextFragment, Boolean> listener) {
+        this.onHover = listener;
+    }
+
+    /**
+     * Hover highlight for a specific fragment chip. This drives dimming, not borders.
+     * Safe to call from any thread; will marshal to the EDT.
+     */
+    public void highlightFragment(ContextFragment fragment, boolean highlight) {
+        Runnable r = () -> {
+            if (highlight) {
+                hoverTarget = fragment;
+            } else if (Objects.equals(hoverTarget, fragment)) {
+                hoverTarget = null;
+            }
+            applyGlobalDimming(resolveActiveTarget());
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /**
+     * Persistently select a fragment (e.g., from TokenUsageBar click). Pass null to clear.
+     * Safe to call from any thread; will marshal to the EDT.
+     */
+    public void setPersistentTarget(@Nullable ContextFragment fragment) {
+        Runnable r = () -> {
+            persistentTarget = fragment;
+            applyGlobalDimming(resolveActiveTarget());
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
+        fragmentToChip.clear();
 
         for (var fragment : fragments) {
             add(createChip(fragment));
         }
+
+        // Re-apply dimming on new chips
+        applyGlobalDimming(resolveActiveTarget());
 
         // Re-layout this panel
         revalidate();
@@ -452,6 +511,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.setBackground(bg);
         label.setForeground(fg);
+        // Remember baseline colors so dimming/restores can be accurate
+        chip.putClientProperty("brokk.chip.baseBg", bg);
+        chip.putClientProperty("brokk.chip.baseFg", fg);
+        // Remember baseline border color so highlight clear can restore it without recomputing
+        chip.putClientProperty("brokk.chip.baseBorder", border);
 
         // Rounded look: padding as inner border, rounded border painted by RoundedChipPanel
         var inner = new EmptyBorder(2, 8, 2, 6);
@@ -480,7 +544,95 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var closeObj = chip.getClientProperty("brokk.chip.closeButton");
         if (closeObj instanceof MaterialButton closeButton) {
             closeButton.setIcon(buildCloseIcon(bg));
+            chip.putClientProperty("brokk.chip.baseIcon", closeButton.getIcon());
         }
+    }
+
+    private @Nullable ContextFragment resolveActiveTarget() {
+        return persistentTarget != null ? persistentTarget : hoverTarget;
+    }
+
+    private static Color withAlpha(Color c, float alpha) {
+        int a = Math.max(0, Math.min(255, Math.round(alpha * 255f)));
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), a);
+    }
+
+    private static Icon alphaIcon(Icon icon, float alpha) {
+        int w = Math.max(1, icon.getIconWidth());
+        int h = Math.max(1, icon.getIconHeight());
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = img.createGraphics();
+        try {
+            g2.setComposite(AlphaComposite.SrcOver.derive(Math.max(0f, Math.min(1f, alpha))));
+            icon.paintIcon(null, g2, 0, 0);
+        } finally {
+            g2.dispose();
+        }
+        return new ImageIcon(img);
+    }
+
+    /**
+     * Apply global dimming based on the currently active target.
+     * When target == null, restore base styling for all chips.
+     */
+    private void applyGlobalDimming(@Nullable ContextFragment target) {
+        boolean isDark = chrome.getTheme().isDarkTheme();
+
+        for (var entry : fragmentToChip.entrySet()) {
+            ContextFragment frag = entry.getKey();
+            RoundedChipPanel chip = entry.getValue();
+
+            Object labelObj = chip.getClientProperty("brokk.chip.label");
+            JLabel label = (labelObj instanceof JLabel l) ? l : null;
+            if (label == null) continue;
+
+            if (target == null || Objects.equals(target, frag)) {
+                // Restore base style for target or when no target is active
+                styleChip(chip, label, isDark, frag);
+                continue;
+            }
+
+            // Dim non-target chips
+            float dimAlpha =
+                    (target != null && !Objects.equals(target, persistentTarget)) ? DIM_ALPHA_HOVER : DIM_ALPHA;
+
+            Color baseBg = (Color) chip.getClientProperty("brokk.chip.baseBg");
+            if (baseBg == null) baseBg = chip.getBackground();
+            Color baseFg = (Color) chip.getClientProperty("brokk.chip.baseFg");
+            if (baseFg == null) baseFg = label.getForeground();
+            Color baseBorder = (Color) chip.getClientProperty("brokk.chip.baseBorder");
+            if (baseBorder == null) baseBorder = Color.GRAY;
+
+            Color dimBg = withAlpha(baseBg, dimAlpha);
+            Color dimFg = withAlpha(baseFg, dimAlpha);
+            Color dimBorder = withAlpha(baseBorder, dimAlpha);
+
+            chip.setBackground(dimBg);
+            chip.setBorderColor(dimBorder);
+            label.setForeground(dimFg);
+
+            // Dim separator
+            for (var child : chip.getComponents()) {
+                if (child instanceof JPanel p && Boolean.TRUE.equals(p.getClientProperty("brokk.chip.separator"))) {
+                    p.setBackground(dimBorder);
+                }
+            }
+
+            // Dim close icon
+            var closeObj = chip.getClientProperty("brokk.chip.closeButton");
+            Icon baseIcon = null;
+            if (closeObj instanceof MaterialButton closeButton) {
+                Object baseIconObj = chip.getClientProperty("brokk.chip.baseIcon");
+                if (baseIconObj instanceof Icon bi) baseIcon = bi;
+                if (baseIcon == null) baseIcon = closeButton.getIcon();
+                if (baseIcon != null) {
+                    closeButton.setIcon(alphaIcon(baseIcon, dimAlpha));
+                }
+            }
+        }
+
+        revalidate();
+        repaint();
     }
 
     private Icon buildCloseIcon(Color chipBackground) {
@@ -702,7 +854,50 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Keep a handle to the fragment and close button so theme changes can restyle accurately
         chip.putClientProperty("brokk.fragment", fragment);
         chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+        fragmentToChip.put(fragment, chip);
         styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
+
+        // Install hover handlers on the chip and its key children; use a per-chip counter
+        // to avoid duplicate enter/exit notifications when moving between subcomponents.
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                    hoverTarget = fragment;
+                    applyGlobalDimming(resolveActiveTarget());
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                    if (Objects.equals(hoverTarget, fragment)) {
+                        hoverTarget = null;
+                    }
+                    applyGlobalDimming(resolveActiveTarget());
+                }
+            }
+        };
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        close.addMouseListener(hoverAdapter);
+        sep.addMouseListener(hoverAdapter);
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
@@ -773,10 +968,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 if (label != null) {
                     var fragObj = chip.getClientProperty("brokk.fragment");
                     ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
-                    // styleChip() now updates the close button icon with proper background color
+                    // styleChip() updates the close button icon and resets baseline properties
                     styleChip(chip, label, isDark, fragment);
                 }
             }
         }
+        // Re-apply global dimming based on active target
+        applyGlobalDimming(resolveActiveTarget());
     }
 }

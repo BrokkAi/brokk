@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
@@ -32,13 +34,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private int maxTokens = 1; // Avoid division by zero
 
-    // Hover state for highlight
-    private boolean hovered = false;
-
     // Rounded rectangle arc (diameter for corner rounding). Radius is arc/2.
     private static final int ARC = 8;
     private static final int MIN_SEGMENT_PX = 8; // 2x radius
     private static final int SEGMENT_GAP = 2;
+    private static final float DIM_ALPHA = 0.45f;
+    private static final float DIM_ALPHA_HOVER = 0.30f;
 
     // Fragments and computed segments
     private volatile List<ContextFragment> fragments = List.of();
@@ -49,6 +50,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile String unfilledTooltipHtml = null;
 
+    // New interactivity callbacks and state
+    @Nullable
+    private volatile BiConsumer<ContextFragment, Boolean> onHover;
+
+    @Nullable
+    private volatile Consumer<ContextFragment> onSegmentClick;
+
+    @Nullable
+    private volatile ContextFragment highlightedFragment;
+
+    @Nullable
+    private volatile ContextFragment currentHoverFragment;
+
     public TokenUsageBar() {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
@@ -57,20 +71,88 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Seed to enable tooltips; actual content comes from getToolTipText(MouseEvent)
         setToolTipText("Shows Workspace token usage.");
 
-        // Only track hover; no click behavior per requirements
-        addMouseListener(new MouseAdapter() {
+        // Mouse listeners for hover, exit, and clicks
+        MouseAdapter mouseAdapter = new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
-                hovered = true;
                 repaint();
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
-                hovered = false;
+                // fire hover-exit for any currently hovered fragment
+                var prev = currentHoverFragment;
+                currentHoverFragment = null;
+                // Note: grouped "Other" segments never set currentHoverFragment (frag == null), so no external
+                // hover-exit is forwarded for them.
+                if (prev != null && onHover != null) {
+                    try {
+                        onHover.accept(prev, false);
+                    } catch (Exception ex) {
+                        logger.trace("onHover callback threw", ex);
+                    }
+                }
+                // If the highlighted fragment was only due to hovering, clear it on exit
+                if (Objects.equals(highlightedFragment, prev)) {
+                    highlightedFragment = null;
+                }
+                setCursor(Cursor.getDefaultCursor());
                 repaint();
             }
-        });
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                // Do not consume event so popup triggers (right-click) elsewhere still work
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                var seg = findSegmentAt(e.getX());
+                // If seg.frag is null this segment represents a grouped "Other" bucket. We skip forwarding the
+                // click to external listeners (workspace chips). See class-level comment for rationale.
+                if (seg != null && seg.frag != null && onSegmentClick != null) {
+                    try {
+                        onSegmentClick.accept(seg.frag);
+                    } catch (Exception ex) {
+                        logger.trace("onSegmentClick callback threw", ex);
+                    }
+                }
+            }
+
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                var seg = findSegmentAt(e.getX());
+                // If seg.frag is null this is the grouped "Other" bucket; we intentionally skip forwarding hover
+                // events to external listeners. See class-level comment for rationale.
+                ContextFragment newFrag = seg == null ? null : seg.frag;
+                ContextFragment oldFrag = currentHoverFragment;
+                if (!Objects.equals(oldFrag, newFrag)) {
+                    if (oldFrag != null && onHover != null) {
+                        try {
+                            onHover.accept(oldFrag, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback (exit) threw", ex);
+                        }
+                    }
+                    currentHoverFragment = newFrag;
+                    if (newFrag != null && onHover != null) {
+                        try {
+                            onHover.accept(newFrag, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback (enter) threw", ex);
+                        }
+                    }
+                    // Update cursor to indicate clickability when appropriate
+                    if (onSegmentClick != null && newFrag != null) {
+                        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                    } else {
+                        setCursor(Cursor.getDefaultCursor());
+                    }
+                    repaint();
+                }
+            }
+        };
+        addMouseListener(mouseAdapter);
+        addMouseMotionListener(mouseAdapter);
     }
 
     /**
@@ -98,11 +180,51 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Disable click behavior entirely; keep API but ignore the runnable to respect new UX.
+     * Disable click behavior entirely; kept for binary/source compatibility.
+     * Deprecated: use setOnSegmentClick(Consumer) instead.
      */
+    @Deprecated
     public void setOnClick(@Nullable Runnable onClick) {
+        // Keep API for compatibility; intentionally no-op. Log if callers still pass a Runnable.
+        if (onClick != null) {
+            logger.debug("TokenUsageBar.setOnClick is deprecated and ignored.");
+        }
         setCursor(Cursor.getDefaultCursor());
-        // intentionally ignored (no click behavior in the bar)
+    }
+
+    /**
+     * Set a callback invoked when the mouse enters/leaves a fragment segment.
+     * Pass null to clear.
+     */
+    public void setOnHover(@Nullable BiConsumer<ContextFragment, Boolean> cb) {
+        this.onHover = cb;
+    }
+
+    /**
+     * Set a callback invoked when the user left-clicks a fragment segment.
+     * Pass null to clear.
+     */
+    public void setOnSegmentClick(@Nullable Consumer<ContextFragment> cb) {
+        this.onSegmentClick = cb;
+    }
+
+    /**
+     * Highlight or clear highlight for a specific fragment. Safe to call off-EDT.
+     */
+    public void highlightFragment(ContextFragment fragment, boolean highlight) {
+        Runnable r = () -> {
+            if (highlight) {
+                highlightedFragment = fragment;
+            } else if (Objects.equals(highlightedFragment, fragment)) {
+                highlightedFragment = null;
+            }
+            repaint();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     public void setMaxTokens(int max) {
@@ -143,6 +265,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return super.getToolTipText(event);
     }
 
+    @Nullable
+    private Segment findSegmentAt(int x) {
+        int width = getWidth();
+        var segs = computeSegments(width);
+        int clamped = Math.max(0, Math.min(x, width));
+        for (var s : segs) {
+            if (clamped >= s.startX && clamped < s.startX + s.widthPx) {
+                return s;
+            }
+        }
+        return null;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -157,27 +292,29 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             g2d.setColor(getTrackColor());
             g2d.fillRoundRect(0, 0, width, height, ARC, ARC);
 
-            // Draw per-fragment segments
+            // Draw per-fragment segments with global dimming for non-targets and per-segment borders
             var segs = computeSegments(width);
+            ContextFragment target = highlightedFragment != null ? highlightedFragment : currentHoverFragment;
+            boolean hoverMode = highlightedFragment == null && currentHoverFragment != null && target != null;
+            float dimAlpha = hoverMode ? DIM_ALPHA_HOVER : DIM_ALPHA;
             for (var s : segs) {
                 if (s.widthPx <= 0) continue;
+                boolean dim = target != null && (s.frag == null || !Objects.equals(s.frag, target));
+                float alpha = dim ? dimAlpha : 1f;
+
+                // Fill
+                g2d.setComposite(AlphaComposite.SrcOver.derive(alpha));
                 g2d.setColor(s.bg);
                 g2d.fillRoundRect(s.startX, 0, s.widthPx, height, ARC, ARC);
-                // Optional border (only outer border looks good; inner borders between segments can look jagged)
-                // We skip borders to keep it clean.
-            }
 
-            // Hover affordance (subtle overlay + outline) regardless of clickability
-            if (hovered && isEnabled()) {
-                g2d.setComposite(AlphaComposite.SrcOver.derive(0.08f));
-                g2d.setColor(getAccentColor());
-                g2d.fillRoundRect(0, 0, width, height, ARC, ARC);
-
-                g2d.setComposite(AlphaComposite.SrcOver);
-                g2d.setColor(getAccentColor());
-                g2d.setStroke(new BasicStroke(1.0f));
-                g2d.drawRoundRect(0, 0, width - 1, height - 1, ARC, ARC);
+                // Border similar to WorkspaceItemsChipPanel styling
+                g2d.setColor(getSegmentBorderColor(s.frag));
+                g2d.setComposite(AlphaComposite.SrcOver.derive(alpha));
+                int bw = Math.max(1, s.widthPx - 1);
+                int bh = Math.max(1, height - 1);
+                g2d.drawRoundRect(s.startX, 0, bw, bh, ARC, ARC);
             }
+            g2d.setComposite(AlphaComposite.SrcOver);
 
             // Draw text on top: current tokens in white, aligned to the fill's east edge
             g2d.setFont(getFont().deriveFont(Font.BOLD, 11f));
@@ -293,7 +430,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
-            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "");
+            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "", null);
             this.segments = List.of(s);
             return this.segments;
         }
@@ -444,7 +581,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     : FragmentColorUtils.classify(Objects.requireNonNull(frag));
             Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
             String tip = isOther ? buildOtherTooltip(small) : buildFragmentTooltip(Objects.requireNonNull(frag));
-            out.add(new Segment(x, w.width, bg, tip));
+            // For grouped "Other" buckets we pass frag = null intentionally.
+            // See Segment.frag comment and mouse handlers: hover/click will not be forwarded for grouped segments.
+            out.add(new Segment(x, w.width, bg, tip, isOther ? null : frag));
             x += w.width + SEGMENT_GAP;
         }
 
@@ -460,6 +599,27 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 .filter(f -> f.isText() || f.getType().isOutput())
                 .mapToInt(this::tokensForFragment)
                 .sum();
+    }
+
+    private Color getSegmentBorderColor(@Nullable ContextFragment frag) {
+        boolean isDark = isDarkTheme();
+        if (frag == null) {
+            // Grouped "Other" bucket
+            return ThemeColors.getColor(isDark, "notif_info_border");
+        }
+        try {
+            if (frag.getType().isEditable()) {
+                Color border = UIManager.getColor("Component.borderColor");
+                if (border == null) border = Color.GRAY;
+                return border;
+            }
+            if (frag.getType() == ContextFragment.FragmentType.SKELETON) {
+                return ThemeColors.getColor(isDark, "notif_cost_border");
+            }
+        } catch (Exception ignored) {
+            // fall through to default
+        }
+        return ThemeColors.getColor(isDark, "notif_info_border");
     }
 
     private int tokensForFragment(ContextFragment f) {
@@ -481,17 +641,25 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
+    // NOTE: Segment.frag may be null for grouped "Other" buckets (multiple small fragments combined).
+    // Design decision: we intentionally DO NOT forward hover/click events for grouped segments (frag == null).
+    // Rationale: forwarding a grouped segment would require either highlighting many chips simultaneously
+    // or complex UI semantics; keeping this local to the token bar is simpler and less surprising.
     private static class Segment {
         final int startX;
         final int widthPx;
         final Color bg;
         final String tooltipHtml;
 
-        Segment(int startX, int widthPx, Color bg, String tooltipHtml) {
+        @Nullable
+        final ContextFragment frag;
+
+        Segment(int startX, int widthPx, Color bg, String tooltipHtml, @Nullable ContextFragment frag) {
             this.startX = startX;
             this.widthPx = widthPx;
             this.bg = bg;
             this.tooltipHtml = tooltipHtml;
+            this.frag = frag;
         }
     }
 
@@ -635,15 +803,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private boolean isDarkTheme() {
         return UIManager.getBoolean("laf.dark");
-    }
-
-    private Color getAccentColor() {
-        Color c = UIManager.getColor("Component.focusColor");
-        if (c == null) c = UIManager.getColor("Focus.color");
-        if (c == null) c = UIManager.getColor("List.selectionBackground");
-        if (c == null) c = ThemeColors.getColor(isDarkTheme(), "mode_answer_accent");
-        if (c == null) c = new Color(0x1F6FEB);
-        return c;
     }
 
     private static Color lighten(Color base, float amount) {
