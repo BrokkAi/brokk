@@ -825,6 +825,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
+        // Cross-highlighting: when user hovers chips/segments, highlight the counterpart
+        workspaceItemsChipPanel.setOnHover((frag, entered) -> {
+            try {
+                if (frag == null) return;
+                // TokenUsageBar.highlightFragment is safe to call off-EDT
+                tokenUsageBar.highlightFragment(frag, entered);
+            } catch (Exception ex) {
+                logger.trace("workspace->token highlight callback threw", ex);
+            }
+        });
+
+        tokenUsageBar.setOnHover((frag, entered) -> {
+            try {
+                if (frag == null) return;
+                // WorkspaceItemsChipPanel.highlightFragment is safe to call off-EDT
+                workspaceItemsChipPanel.highlightFragment(frag, entered);
+            } catch (Exception ex) {
+                logger.trace("token->workspace highlight callback threw", ex);
+            }
+        });
+
+        // Clicking a segment should highlight the chip (persistently) so user can find it
+        tokenUsageBar.setOnSegmentClick(frag -> {
+            try {
+                if (frag == null) return;
+                workspaceItemsChipPanel.highlightFragment(frag, true);
+            } catch (Exception ex) {
+                logger.trace("token segment click callback threw", ex);
+            }
+        });
+
         // Insert beneath the command-input area (index 2)
         return titledContainer;
     }
@@ -1918,6 +1949,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         workspaceItemsChipPanel.setFragments(fragments);
         // Feed per-fragment data to the token bar
         tokenUsageBar.setFragments(fragments);
+
+        // Re-register cross-listeners (idempotent)
+        workspaceItemsChipPanel.setOnHover((frag, entered) -> {
+            try {
+                if (frag == null) return;
+                tokenUsageBar.highlightFragment(frag, entered);
+            } catch (Exception ex) {
+                logger.trace("workspace->token highlight callback threw", ex);
+            }
+        });
+
+        tokenUsageBar.setOnHover((frag, entered) -> {
+            try {
+                if (frag == null) return;
+                workspaceItemsChipPanel.highlightFragment(frag, entered);
+            } catch (Exception ex) {
+                logger.trace("token->workspace highlight callback threw", ex);
+            }
+        });
+
+        tokenUsageBar.setOnSegmentClick(frag -> {
+            try {
+                if (frag == null) return;
+                workspaceItemsChipPanel.highlightFragment(frag, true);
+            } catch (Exception ex) {
+                logger.trace("token segment click callback threw", ex);
+            }
+        });
+
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
     }
