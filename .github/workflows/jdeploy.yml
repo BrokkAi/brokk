@@ -1,0 +1,58 @@
+# This workflow will build a Java project with Gradle and bundle them as native app installers with jDeploy
+# See https://www.jdeploy.com for more information.
+
+name: jDeploy CI with Gradle
+
+on:
+  push:
+    branches: [ 'master', 'jdeploy-test' ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      
+      - name: Get version from git
+        id: version
+        run: |
+          VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --always --dirty=-SNAPSHOT)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+      
+      - name: Build with Gradle
+        uses: gradle/gradle-build-action@67421db6bd0bf253fb4bd25b31ebb98943c375e1
+        with:
+          arguments: build
+      
+      - name: Build shadow JAR
+        run: ./gradlew shadowJar
+
+      - name: Get JAR filename
+        id: jar
+        run: |
+          JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
+          JAR_NAME=$(basename "$JAR_FILE")
+          echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
+          echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
+          echo "Found JAR: $JAR_NAME"
+      
+      - name: Update package.json with JAR name
+        run: |
+          jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_file }}"' package.json > package.tmp.json && mv package.tmp.json package.json
+      
+      - name: Build App Installer Bundles
+        uses: shannah/jdeploy@master
+        with:
+          github_token: ${{ github.token }}

@@ -324,6 +324,20 @@ jDeploy detects pre-releases based on semantic versioning:
 
 Prereleases are marked appropriately in GitHub releases and distribution channels.
 
+### Development Builds
+
+Automatic development builds are created by the `jdeploy.yaml` workflow on every commit to the `master` branch. These builds allow developers to test the latest changes without waiting for an official release.
+
+**Accessing Development Builds:**
+- Development builds are available at: https://github.com/BrokkAi/brokk/releases/tag/master
+- The `master` tag is automatically updated after each commit to `master`
+- Platform-specific installers (macOS, Windows, Linux) are available for download
+
+**Auto-Update Behavior:**
+- If installed with auto-update enabled, the application will download the latest build each time it's launched
+- This keeps the development version synchronized with the current state of the `master` branch
+- Version numbers in development builds include git commit information (e.g., `0.12.1-30-g77dcc897`)
+
 ## Performance Baseline Testing
 
 The TreeSitterRepoRunner provides comprehensive performance analysis for TreeSitter analyzers across major open source projects.
