@@ -149,7 +149,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
     }
 
-
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
         fragmentToChip.clear();
@@ -594,7 +593,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             }
 
             // Dim non-target chips
-            float dimAlpha = (target != null && !Objects.equals(target, persistentTarget)) ? DIM_ALPHA_HOVER : DIM_ALPHA;
+            float dimAlpha =
+                    (target != null && !Objects.equals(target, persistentTarget)) ? DIM_ALPHA_HOVER : DIM_ALPHA;
 
             Color baseBg = (Color) chip.getClientProperty("brokk.chip.baseBg");
             if (baseBg == null) baseBg = chip.getBackground();

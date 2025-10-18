@@ -16,9 +16,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Predicate;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.WordUtils;
@@ -33,7 +33,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private int fallbackCurrentTokens = 0;
 
     private int maxTokens = 1; // Avoid division by zero
-
 
     // Rounded rectangle arc (diameter for corner rounding). Radius is arc/2.
     private static final int ARC = 8;
@@ -54,10 +53,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     // New interactivity callbacks and state
     @Nullable
     private volatile BiConsumer<ContextFragment, Boolean> onHover;
+
     @Nullable
     private volatile Consumer<ContextFragment> onSegmentClick;
+
     @Nullable
     private volatile ContextFragment highlightedFragment;
+
     @Nullable
     private volatile ContextFragment currentHoverFragment;
 
@@ -648,6 +650,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         final int widthPx;
         final Color bg;
         final String tooltipHtml;
+
         @Nullable
         final ContextFragment frag;
 
@@ -801,7 +804,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private boolean isDarkTheme() {
         return UIManager.getBoolean("laf.dark");
     }
-
 
     private static Color lighten(Color base, float amount) {
         amount = Math.max(0f, Math.min(1f, amount));
