@@ -135,11 +135,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 if (highlight) {
                     chip.setBorderColor(getAccentColor());
                     chip.repaint();
-                } else if (label != null) {
-                    styleChip(chip, label, chrome.getTheme().isDarkTheme(), frag);
                 } else {
-                    // Fallback: repaint to clear
-                    chip.repaint();
+                    Object baseObj = chip.getClientProperty("brokk.chip.baseBorder");
+                    if (baseObj instanceof Color base) {
+                        chip.setBorderColor(base);
+                        chip.repaint();
+                    } else if (label != null) {
+                        // Baseline not stored; recompute full style as a fallback
+                        styleChip(chip, label, chrome.getTheme().isDarkTheme(), frag);
+                    } else {
+                        // Fallback: repaint to clear
+                        chip.repaint();
+                    }
                 }
             }
             repaint();
@@ -519,6 +526,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.setBackground(bg);
         label.setForeground(fg);
+        // Remember baseline border color so highlight clear can restore it without recomputing
+        chip.putClientProperty("brokk.chip.baseBorder", border);
 
         // Rounded look: padding as inner border, rounded border painted by RoundedChipPanel
         var inner = new EmptyBorder(2, 8, 2, 6);
