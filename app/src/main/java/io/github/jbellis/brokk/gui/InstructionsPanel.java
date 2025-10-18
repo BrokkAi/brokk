@@ -850,7 +850,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setOnSegmentClick(frag -> {
             try {
                 if (frag == null) return;
-                workspaceItemsChipPanel.highlightFragment(frag, true);
+                workspaceItemsChipPanel.setPersistentTarget(frag);
             } catch (Exception ex) {
                 logger.trace("token segment click callback threw", ex);
             }
@@ -1972,7 +1972,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setOnSegmentClick(frag -> {
             try {
                 if (frag == null) return;
-                workspaceItemsChipPanel.highlightFragment(frag, true);
+                workspaceItemsChipPanel.setPersistentTarget(frag);
             } catch (Exception ex) {
                 logger.trace("token segment click callback threw", ex);
             }
