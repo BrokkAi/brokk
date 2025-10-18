@@ -83,6 +83,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 // fire hover-exit for any currently hovered fragment
                 var prev = currentHoverFragment;
                 currentHoverFragment = null;
+                // Note: grouped "Other" segments never set currentHoverFragment (frag == null), so no external
+                // hover-exit is forwarded for them.
                 if (prev != null && onHover != null) {
                     try {
                         onHover.accept(prev, false);
@@ -105,6 +107,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     return;
                 }
                 var seg = findSegmentAt(e.getX());
+                // If seg.frag is null this segment represents a grouped "Other" bucket. We skip forwarding the
+                // click to external listeners (workspace chips). See class-level comment for rationale.
                 if (seg != null && seg.frag != null && onSegmentClick != null) {
                     try {
                         onSegmentClick.accept(seg.frag);
@@ -117,6 +121,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             @Override
             public void mouseMoved(MouseEvent e) {
                 var seg = findSegmentAt(e.getX());
+                // If seg.frag is null this is the grouped "Other" bucket; we intentionally skip forwarding hover
+                // events to external listeners. See class-level comment for rationale.
                 ContextFragment newFrag = seg == null ? null : seg.frag;
                 ContextFragment oldFrag = currentHoverFragment;
                 if (!Objects.equals(oldFrag, newFrag)) {
@@ -611,6 +617,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     : FragmentColorUtils.classify(Objects.requireNonNull(frag));
             Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
             String tip = isOther ? buildOtherTooltip(small) : buildFragmentTooltip(Objects.requireNonNull(frag));
+            // For grouped "Other" buckets we pass frag = null intentionally.
+            // See Segment.frag comment and mouse handlers: hover/click will not be forwarded for grouped segments.
             out.add(new Segment(x, w.width, bg, tip, isOther ? null : frag));
             x += w.width + SEGMENT_GAP;
         }
@@ -648,6 +656,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
+    // NOTE: Segment.frag may be null for grouped "Other" buckets (multiple small fragments combined).
+    // Design decision: we intentionally DO NOT forward hover/click events for grouped segments (frag == null).
+    // Rationale: forwarding a grouped segment would require either highlighting many chips simultaneously
+    // or complex UI semantics; keeping this local to the token bar is simpler and less surprising.
     private static class Segment {
         final int startX;
         final int widthPx;
