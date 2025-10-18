@@ -17,6 +17,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.WordUtils;
@@ -49,6 +51,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile String unfilledTooltipHtml = null;
 
+    // New interactivity callbacks and state
+    @Nullable
+    private volatile BiConsumer<ContextFragment, Boolean> onHover;
+    @Nullable
+    private volatile Consumer<ContextFragment> onSegmentClick;
+    @Nullable
+    private volatile ContextFragment highlightedFragment;
+    @Nullable
+    private volatile ContextFragment currentHoverFragment;
+
     public TokenUsageBar() {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
@@ -57,8 +69,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Seed to enable tooltips; actual content comes from getToolTipText(MouseEvent)
         setToolTipText("Shows Workspace token usage.");
 
-        // Only track hover; no click behavior per requirements
-        addMouseListener(new MouseAdapter() {
+        // Mouse listeners for hover, exit, and clicks
+        MouseAdapter mouseAdapter = new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
                 hovered = true;
@@ -68,9 +80,69 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             @Override
             public void mouseExited(MouseEvent e) {
                 hovered = false;
+                // fire hover-exit for any currently hovered fragment
+                var prev = currentHoverFragment;
+                currentHoverFragment = null;
+                if (prev != null && onHover != null) {
+                    try {
+                        onHover.accept(prev, false);
+                    } catch (Exception ex) {
+                        logger.trace("onHover callback threw", ex);
+                    }
+                }
+                setCursor(Cursor.getDefaultCursor());
                 repaint();
             }
-        });
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                // Do not consume event so popup triggers (right-click) elsewhere still work
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                var seg = findSegmentAt(e.getX());
+                if (seg != null && seg.frag != null && onSegmentClick != null) {
+                    try {
+                        onSegmentClick.accept(seg.frag);
+                    } catch (Exception ex) {
+                        logger.trace("onSegmentClick callback threw", ex);
+                    }
+                }
+            }
+
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                var seg = findSegmentAt(e.getX());
+                ContextFragment newFrag = seg == null ? null : seg.frag;
+                ContextFragment oldFrag = currentHoverFragment;
+                if (!Objects.equals(oldFrag, newFrag)) {
+                    if (oldFrag != null && onHover != null) {
+                        try {
+                            onHover.accept(oldFrag, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback (exit) threw", ex);
+                        }
+                    }
+                    currentHoverFragment = newFrag;
+                    if (newFrag != null && onHover != null) {
+                        try {
+                            onHover.accept(newFrag, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback (enter) threw", ex);
+                        }
+                    }
+                    // Update cursor to indicate clickability when appropriate
+                    if (onSegmentClick != null && newFrag != null) {
+                        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                    } else {
+                        setCursor(Cursor.getDefaultCursor());
+                    }
+                    repaint();
+                }
+            }
+        };
+        addMouseListener(mouseAdapter);
+        addMouseMotionListener(mouseAdapter);
     }
 
     /**
@@ -98,11 +170,51 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Disable click behavior entirely; keep API but ignore the runnable to respect new UX.
+     * Disable click behavior entirely; kept for binary/source compatibility.
+     * Deprecated: use setOnSegmentClick(Consumer) instead.
      */
+    @Deprecated
     public void setOnClick(@Nullable Runnable onClick) {
+        // Keep API for compatibility; intentionally no-op. Log if callers still pass a Runnable.
+        if (onClick != null) {
+            logger.debug("TokenUsageBar.setOnClick is deprecated and ignored.");
+        }
         setCursor(Cursor.getDefaultCursor());
-        // intentionally ignored (no click behavior in the bar)
+    }
+
+    /**
+     * Set a callback invoked when the mouse enters/leaves a fragment segment.
+     * Pass null to clear.
+     */
+    public void setOnHover(@Nullable BiConsumer<ContextFragment, Boolean> cb) {
+        this.onHover = cb;
+    }
+
+    /**
+     * Set a callback invoked when the user left-clicks a fragment segment.
+     * Pass null to clear.
+     */
+    public void setOnSegmentClick(@Nullable Consumer<ContextFragment> cb) {
+        this.onSegmentClick = cb;
+    }
+
+    /**
+     * Highlight or clear highlight for a specific fragment. Safe to call off-EDT.
+     */
+    public void highlightFragment(ContextFragment fragment, boolean highlight) {
+        Runnable r = () -> {
+            if (highlight) {
+                highlightedFragment = fragment;
+            } else if (Objects.equals(highlightedFragment, fragment)) {
+                highlightedFragment = null;
+            }
+            repaint();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     public void setMaxTokens(int max) {
@@ -143,6 +255,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return super.getToolTipText(event);
     }
 
+    @Nullable
+    private Segment findSegmentAt(int x) {
+        int width = getWidth();
+        var segs = computeSegments(width);
+        int clamped = Math.max(0, Math.min(x, width));
+        for (var s : segs) {
+            if (clamped >= s.startX && clamped < s.startX + s.widthPx) {
+                return s;
+            }
+        }
+        return null;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -177,6 +302,24 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 g2d.setColor(getAccentColor());
                 g2d.setStroke(new BasicStroke(1.0f));
                 g2d.drawRoundRect(0, 0, width - 1, height - 1, ARC, ARC);
+            }
+
+            // Highlighted fragment overlay/border
+            if (highlightedFragment != null) {
+                for (var s : segs) {
+                    if (s.frag != null && Objects.equals(s.frag, highlightedFragment)) {
+                        // subtle overlay
+                        g2d.setComposite(AlphaComposite.SrcOver.derive(0.18f));
+                        g2d.setColor(getAccentColor());
+                        g2d.fillRect(s.startX, 0, s.widthPx, height);
+
+                        // border
+                        g2d.setComposite(AlphaComposite.SrcOver);
+                        g2d.setColor(getAccentColor());
+                        g2d.setStroke(new BasicStroke(1.5f));
+                        g2d.drawRect(s.startX, 0, Math.max(0, s.widthPx - 1), Math.max(0, height - 1));
+                    }
+                }
             }
 
             // Draw text on top: current tokens in white, aligned to the fill's east edge
@@ -293,7 +436,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
-            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "");
+            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "", null);
             this.segments = List.of(s);
             return this.segments;
         }
@@ -444,7 +587,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     : FragmentColorUtils.classify(Objects.requireNonNull(frag));
             Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
             String tip = isOther ? buildOtherTooltip(small) : buildFragmentTooltip(Objects.requireNonNull(frag));
-            out.add(new Segment(x, w.width, bg, tip));
+            out.add(new Segment(x, w.width, bg, tip, isOther ? null : frag));
             x += w.width + SEGMENT_GAP;
         }
 
@@ -486,12 +629,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         final int widthPx;
         final Color bg;
         final String tooltipHtml;
+        @Nullable
+        final ContextFragment frag;
 
-        Segment(int startX, int widthPx, Color bg, String tooltipHtml) {
+        Segment(int startX, int widthPx, Color bg, String tooltipHtml, @Nullable ContextFragment frag) {
             this.startX = startX;
             this.widthPx = widthPx;
             this.bg = bg;
             this.tooltipHtml = tooltipHtml;
+            this.frag = frag;
         }
     }
 
