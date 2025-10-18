@@ -255,12 +255,19 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Creates a ProjectFile instance from a path string returned by JGit. JGit paths are relative to the working tree
      * root. The returned ProjectFile will be relative to projectRoot.
+     *
+     * @return An Optional containing the ProjectFile, or empty if the path contains unmappable characters
      */
-    ProjectFile toProjectFile(String gitPath) {
-        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
-        Path absolutePath = workingTreeRoot.resolve(gitPath);
-        Path pathRelativeToProjectRoot = projectRoot.relativize(absolutePath);
-        return new ProjectFile(projectRoot, pathRelativeToProjectRoot);
+    Optional<ProjectFile> toProjectFile(String gitPath) {
+        try {
+            Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
+            Path absolutePath = workingTreeRoot.resolve(gitPath);
+            Path pathRelativeToProjectRoot = projectRoot.relativize(absolutePath);
+            return Optional.of(new ProjectFile(projectRoot, pathRelativeToProjectRoot));
+        } catch (InvalidPathException e) {
+            logger.warn("Skipping file with unmappable path characters: {}", gitPath);
+            return Optional.empty();
+        }
     }
 
     // ==================== Merge Mode Enum ====================
@@ -516,7 +523,11 @@ public class GitRepo implements Closeable, IGitRepo {
             // not really much caller can do about this, it's a critical method
             throw new RuntimeException(e);
         }
-        trackedFilesCache = trackedPaths.stream().map(this::toProjectFile).collect(Collectors.toSet());
+        trackedFilesCache = trackedPaths.stream()
+                .map(this::toProjectFile)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toSet());
         return trackedFilesCache;
     }
 
@@ -572,7 +583,11 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.trace("Raw modified files (including conflicts): {}", allRelevantPaths);
 
         for (var path : allRelevantPaths) {
-            var projectFile = toProjectFile(path);
+            var projectFileOpt = toProjectFile(path);
+            if (projectFileOpt.isEmpty()) {
+                continue; // Skip files with unmappable path characters
+            }
+            var projectFile = projectFileOpt.get();
             String determinedStatus;
 
             // Priority: conflicts first, then added/missing, then general modifications
@@ -1556,8 +1571,11 @@ public class GitRepo implements Closeable, IGitRepo {
         stagedPaths.addAll(status.getAdded());
         stagedPaths.addAll(status.getChanged());
         stagedPaths.addAll(status.getRemoved());
-        var originallyStagedFiles =
-                stagedPaths.stream().map(this::toProjectFile).collect(Collectors.toSet());
+        var originallyStagedFiles = stagedPaths.stream()
+                .map(this::toProjectFile)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toSet());
 
         var allUncommittedFilesWithStatus = getModifiedFiles();
         var allUncommittedProjectFiles =
@@ -1795,8 +1813,11 @@ public class GitRepo implements Closeable, IGitRepo {
                                         d.getNewPath(),
                                         commitInfo.id());
                                 currGitRel = d.getOldPath();
-                                currPath = toProjectFile(currGitRel);
-                                renameFound = true;
+                                var currPathOpt = toProjectFile(currGitRel);
+                                if (currPathOpt.isPresent()) {
+                                    currPath = currPathOpt.get();
+                                    renameFound = true;
+                                }
                                 break;
                             }
                         }
@@ -2310,24 +2331,44 @@ public class GitRepo implements Closeable, IGitRepo {
                     // real project path.
                     // The main concern is ensuring we use the correct path (old vs new) based on ChangeType.
 
-                    var result =
-                            switch (entry.getChangeType()) {
-                                case ADD, COPY -> new ModifiedFile(toProjectFile(entry.getNewPath()), "new");
-                                case MODIFY -> new ModifiedFile(toProjectFile(entry.getNewPath()), "modified");
-                                case DELETE -> new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted");
-                                case RENAME -> {
-                                    modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted"));
-                                    yield new ModifiedFile(toProjectFile(entry.getNewPath()), "new");
-                                }
-                                default -> {
-                                    logger.warn(
-                                            "Unhandled DiffEntry ChangeType: {} for old path '{}', new path '{}'",
-                                            entry.getChangeType(),
-                                            entry.getOldPath(),
-                                            entry.getNewPath());
-                                    yield null;
-                                }
-                            };
+                    @Nullable ModifiedFile result = null;
+                    switch (entry.getChangeType()) {
+                        case ADD, COPY -> {
+                            var projFile = toProjectFile(entry.getNewPath());
+                            if (projFile.isPresent()) {
+                                result = new ModifiedFile(projFile.get(), "new");
+                            }
+                        }
+                        case MODIFY -> {
+                            var projFile = toProjectFile(entry.getNewPath());
+                            if (projFile.isPresent()) {
+                                result = new ModifiedFile(projFile.get(), "modified");
+                            }
+                        }
+                        case DELETE -> {
+                            var projFile = toProjectFile(entry.getOldPath());
+                            if (projFile.isPresent()) {
+                                result = new ModifiedFile(projFile.get(), "deleted");
+                            }
+                        }
+                        case RENAME -> {
+                            var oldProjFile = toProjectFile(entry.getOldPath());
+                            if (oldProjFile.isPresent()) {
+                                modifiedFiles.add(new ModifiedFile(oldProjFile.get(), "deleted"));
+                            }
+                            var newProjFile = toProjectFile(entry.getNewPath());
+                            if (newProjFile.isPresent()) {
+                                result = new ModifiedFile(newProjFile.get(), "new");
+                            }
+                        }
+                        default -> {
+                            logger.warn(
+                                    "Unhandled DiffEntry ChangeType: {} for old path '{}', new path '{}'",
+                                    entry.getChangeType(),
+                                    entry.getOldPath(),
+                                    entry.getNewPath());
+                        }
+                    }
                     if (result != null) {
                         modifiedFiles.add(result);
                     }

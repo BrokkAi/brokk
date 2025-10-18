@@ -77,7 +77,7 @@ public class WandAction {
                 </goal>
                 """
                         .formatted(
-                                ContextFragment.getSummary(
+                                ContextFragment.describe(
                                         contextManager.topContext().allFragments()),
                                 originalPrompt);
 

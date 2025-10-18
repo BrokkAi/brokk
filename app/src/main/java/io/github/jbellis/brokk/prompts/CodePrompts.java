@@ -710,7 +710,7 @@ public abstract class CodePrompts {
      *     for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
     public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
-        var summaries = ContextFragment.getSummary(ctx.getAllFragmentsInDisplayOrder());
+        var summaries = ContextFragment.describe(ctx.getAllFragmentsInDisplayOrder());
         if (summaries.isEmpty()) {
             return List.of();
         }

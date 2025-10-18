@@ -24,6 +24,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -127,6 +128,10 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String lutzPrompt;
 
+    @CommandLine.Option(names = "--lutz-lite", description = "Execute a single task to solve the given issue.")
+    @Nullable
+    private String lutzLitePrompt;
+
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
 
@@ -167,19 +172,20 @@ public final class BrokkCli implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         // --- Action Validation ---
-        long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+        long actionCount = Stream.of(
+                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, lutzLitePrompt)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --merge, --build) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --merge, --build) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build) or --worktree is required.");
             return 1;
         }
 
@@ -190,6 +196,7 @@ public final class BrokkCli implements Callable<Integer> {
             askPrompt = maybeLoadFromFile(askPrompt);
             searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
             lutzPrompt = maybeLoadFromFile(lutzPrompt);
+            lutzLitePrompt = maybeLoadFromFile(lutzLitePrompt);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -242,7 +249,8 @@ public final class BrokkCli implements Callable<Integer> {
                 buildLintCmd != null ? buildLintCmd : "",
                 testAllCmd != null ? testAllCmd : "",
                 testSomeCmd != null ? testSomeCmd : "",
-                Set.of());
+                Set.of(),
+                Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
         logger.info("Build Details: " + buildDetails);
 
         cm.createHeadless(buildDetails);
@@ -255,9 +263,14 @@ public final class BrokkCli implements Callable<Integer> {
         StreamingChatModel codeModel = null;
 
         // Determine which models are required by the chosen action(s).
-        boolean needsPlanModel =
-                architectPrompt != null || searchAnswerPrompt != null || lutzPrompt != null || deepScan || merge;
-        boolean needsCodeModel = codePrompt != null || askPrompt != null || architectPrompt != null || merge;
+        boolean needsPlanModel = architectPrompt != null
+                || searchAnswerPrompt != null
+                || lutzPrompt != null
+                || lutzLitePrompt != null
+                || deepScan
+                || merge;
+        boolean needsCodeModel =
+                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
 
         if (needsPlanModel && planModelName == null) {
             System.err.println("Error: This action requires --planmodel to be specified.");
@@ -340,7 +353,7 @@ public final class BrokkCli implements Callable<Integer> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
-                    ContextFragment.getSummary(cm.topContext().allFragments()));
+                    ContextFragment.describe(cm.topContext().allFragments()));
 
             String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
                     .filter(s -> s != null && !s.isBlank())
@@ -376,7 +389,7 @@ public final class BrokkCli implements Callable<Integer> {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                ContextFragment.getSummary(cm.topContext().allFragments()));
+                ContextFragment.describe(cm.topContext().allFragments()));
 
         TaskResult result;
         // Decide scope action/input
@@ -393,6 +406,8 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = requireNonNull(searchAnswerPrompt);
         } else if (build) {
             scopeInput = "Build";
+        } else if (lutzLitePrompt != null) {
+            scopeInput = requireNonNull(lutzLitePrompt);
         } else { // lutzPrompt != null
             scopeInput = requireNonNull(lutzPrompt);
         }
@@ -476,6 +491,28 @@ public final class BrokkCli implements Callable<Integer> {
                     System.exit(0);
                     // make the compiler happy
                     result = null;
+                } else if (lutzLitePrompt != null) {
+                    if (planModel == null) {
+                        System.err.println("Error: --lutz-lite requires --planmodel to be specified.");
+                        return 1;
+                    }
+                    if (codeModel == null) {
+                        System.err.println("Error: --lutz-lite requires --codemodel to be specified.");
+                        return 1;
+                    }
+
+                    var taskText =
+                            """
+                            Solve the following issue. Pull appropriate existing tests into the Workspace; if you are adding new functionality, add new tests if you can do so within the existing constraints.
+
+                            Issue: """
+                                    + requireNonNull(lutzLitePrompt);
+                    var task = new TaskList.TaskItem(taskText, false);
+
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
+                    var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
+                    scope.append(taskResult);
+                    result = taskResult;
                 } else { // lutzPrompt != null
                     if (planModel == null) {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");

@@ -2,6 +2,8 @@ package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -48,6 +50,7 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * The BuildAgent class is responsible for executing a process to gather and report build details for a software
@@ -346,16 +349,10 @@ public class BuildAgent {
             String testAllCommand,
             String testSomeCommand,
             Set<String> excludedDirectories,
-            java.util.Map<String, String> environmentVariables) {
+            @JsonSetter(nulls = Nulls.AS_EMPTY) Map<String, String> environmentVariables) {
 
-        @SuppressWarnings("RedundantNullCheck")
-        public BuildDetails {
-            if (environmentVariables == null) {
-                environmentVariables = java.util.Map.of();
-            }
-        }
-
-        public BuildDetails(
+        @VisibleForTesting
+        BuildDetails(
                 String buildLintCommand,
                 String testAllCommand,
                 String testSomeCommand,
@@ -408,7 +405,7 @@ public class BuildAgent {
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.getSummary(ctx.allFragments());
+            var summaries = ContextFragment.describe(ctx.allFragments());
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),
@@ -836,7 +833,7 @@ public class BuildAgent {
      * - For Python projects: VIRTUAL_ENV=.venv
      * - Otherwise: no defaults
      */
-    private java.util.Map<String, String> defaultEnvForProject() {
+    private Map<String, String> defaultEnvForProject() {
         var lang = project.getBuildLanguage();
         if (lang == io.github.jbellis.brokk.analyzer.Languages.PYTHON) {
             return java.util.Map.of("VIRTUAL_ENV", ".venv");

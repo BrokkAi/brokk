@@ -246,7 +246,8 @@ public class WorkspaceTools {
             value =
                     "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map.")
     public String dropWorkspaceFragments(
-            @P("Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty.")
+            @P(
+                            "Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty. 'Discarded Context' fragment is not itself drop-able.")
                     Map<String, String> idToExplanation) {
         if (idToExplanation.isEmpty()) {
             return "Fragment map cannot be empty.";

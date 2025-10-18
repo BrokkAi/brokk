@@ -99,13 +99,13 @@ public interface ContextFragment {
         }
     }
 
-    static String getSummary(Collection<ContextFragment> fragments) {
-        return getSummary(fragments.stream());
+    static String describe(Collection<ContextFragment> fragments) {
+        return describe(fragments.stream());
     }
 
-    static String getSummary(Stream<ContextFragment> fragments) {
+    static String describe(Stream<ContextFragment> fragments) {
         return fragments
-                .map(ContextFragment::formatSummary)
+                .map(ContextFragment::description)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
     }
@@ -163,17 +163,6 @@ public interface ContextFragment {
 
     /** Indicates if the fragment's content can change based on project/file state. */
     boolean isDynamic();
-
-    /**
-     * Used for Quick Context LLM to give the LLM more information than the description but less than full text.
-     *
-     * <p>ACHTUNG! While multiple CF subtypes override this, FrozenFragment does not; you will always get just the
-     * description of a FrozenFragment. This is useful for debug logging (description is much more compact), but
-     * confusing if you're not careful.
-     */
-    default String formatSummary() throws CancellationException {
-        return description();
-    }
 
     default boolean isText() {
         return true;
@@ -347,28 +336,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public String formatSummary() {
-            IAnalyzer analyzer = getAnalyzer();
-            if (!analyzer.isEmpty()) {
-                var summary = analyzer.as(SkeletonProvider.class)
-                        .map(skp -> skp.getSkeletons(file).entrySet().stream())
-                        .orElse(Stream.empty())
-                        .sorted(Map.Entry.comparingByKey())
-                        .map(Map.Entry::getValue)
-                        .collect(Collectors.joining("\n"));
-
-                return """
-                        <file source="%s" summarized=true>
-                        %s
-                        </file>
-                        """
-                        .formatted(file, summary);
-            } else {
-                return PathFragment.formatSummary(file); // Fallback if analyzer not ready, empty, or inappropriate
-            }
-        }
-
-        @Override
         public String repr() {
             return "File(['%s'])".formatted(file.toString());
         }
@@ -479,11 +446,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public String formatSummary() {
-            return PathFragment.formatSummary(file);
-        }
-
-        @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof GitFileFragment that)) return false;
@@ -543,11 +505,6 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             return Set.of();
-        }
-
-        @Override
-        public String formatSummary() {
-            return PathFragment.formatSummary(file);
         }
 
         @Override
@@ -675,11 +632,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public String formatSummary() {
-            return PathFragment.formatSummary(file);
-        }
-
-        @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ImageFileFragment that)) return false;
@@ -774,11 +726,6 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             return Set.of();
-        }
-
-        @Override
-        public String formatSummary() {
-            return "<fragment description=\"%s\" />".formatted(description());
         }
 
         @Override
@@ -910,11 +857,6 @@ public interface ContextFragment {
         public Set<ProjectFile> files() {
             // SearchFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(java.util.stream.Collectors.toSet());
-        }
-
-        @Override
-        public String formatSummary() {
-            return format(); // full search result
         }
     }
 
@@ -1205,11 +1147,6 @@ public interface ContextFragment {
         @Override
         public String description() {
             return "stacktrace of " + exception;
-        }
-
-        @Override
-        public String formatSummary() {
-            return format(); // full source
         }
 
         @Override
@@ -1713,11 +1650,6 @@ public interface ContextFragment {
                     .formatted(String.join(", ", targetIdentifiers), summaryType.name(), id(), text());
         }
 
-        @Override
-        public String formatSummary() {
-            return format();
-        }
-
         public List<String> getTargetIdentifiers() {
             return targetIdentifiers;
         }
@@ -1819,11 +1751,6 @@ public interface ContextFragment {
                     """
                     .stripIndent()
                     .formatted(id(), text()); // Analyzer not used by its text()
-        }
-
-        @Override
-        public String formatSummary() {
-            return "";
         }
 
         @Override
@@ -1949,11 +1876,6 @@ public interface ContextFragment {
             // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
             return TaskEntry.formatMessages(messages);
-        }
-
-        @Override
-        public String formatSummary() {
-            return format(); // if it's explicitly added to the workspace it's probably important
         }
 
         @Override

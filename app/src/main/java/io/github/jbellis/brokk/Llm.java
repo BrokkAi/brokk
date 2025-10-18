@@ -133,6 +133,7 @@ public class Llm {
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
+    // Sequence for request/response log files
     private int requestSequence = 1;
 
     public Llm(
@@ -192,10 +193,14 @@ public class Llm {
         return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
     }
 
-    /** Write the request JSON before sending to the model, to a file named "<base>-request.json". */
-    private synchronized void logRequest(ChatRequest request) {
+    /**
+     * Write the request JSON before sending to the model, to a file named "<base>-request.json".
+     * Returns the assigned sequence number so that the corresponding response can use the same number.
+     */
+    private synchronized int logRequest(ChatRequest request) {
+        int assignedSequence = requestSequence++;
         try {
-            var filename = "%s %03d-request.json".formatted(logFileTimestamp(), requestSequence);
+            var filename = "%s %03d-request.json".formatted(logFileTimestamp(), assignedSequence);
             var requestPath = taskHistoryDir.resolve(filename);
             var requestOptions = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
@@ -206,6 +211,7 @@ public class Llm {
         } catch (IOException e) {
             logger.error("Failed to write pre-send request JSON", e);
         }
+        return assignedSequence;
     }
 
     /**
@@ -214,14 +220,15 @@ public class Llm {
      */
     private StreamingResult doSingleStreamingCall(ChatRequest request, boolean addJsonFence)
             throws InterruptedException {
+        int logSequence = logRequest(request);
         StreamingResult result;
         try {
             result = doSingleStreamingCallInternal(request, addJsonFence);
         } catch (InterruptedException e) {
-            logResult(model, request, null);
+            logResult(model, request, null, logSequence);
             throw e;
         }
-        logResult(model, request, result);
+        logResult(model, request, result, logSequence);
         return result;
     }
 
@@ -230,9 +237,6 @@ public class Llm {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
         }
-
-        // Pre-log the request JSON before sending it to the model
-        logRequest(request);
 
         // latch for awaiting any response from llm
         var tick = new Semaphore(0);
@@ -1327,7 +1331,7 @@ public class Llm {
      * Writes response history (.log) to task-specific files, pairing with pre-sent request JSON via a shared base path.
      */
     private synchronized void logResult(
-            StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result) {
+            StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result, int logSequence) {
         try {
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
@@ -1343,8 +1347,8 @@ public class Llm {
             String fileTimestamp = logFileTimestamp();
             String shortDesc =
                     result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath = taskHistoryDir.resolve(
-                    String.format("%s %03d-%s.log", fileTimestamp, requestSequence++, shortDesc));
+            var filePath =
+                    taskHistoryDir.resolve(String.format("%s %03d-%s.log", fileTimestamp, logSequence, shortDesc));
             var options = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };

@@ -183,11 +183,9 @@ public class Environment {
                 policyFile.toFile().deleteOnExit();
 
                 // Phase 2: Support approved custom executors in sandbox mode
-                ExecutorConfig config = executorConfig;
-
-                if (config != null && ExecutorValidator.isApprovedForSandbox(config)) {
+                if (executorConfig != null && ExecutorValidator.isApprovedForSandbox(executorConfig)) {
                     // Use custom executor with sandbox
-                    String[] executorCommand = config.buildCommand(command);
+                    String[] executorCommand = executorConfig.buildCommand(command);
                     String[] sandboxedCommand = new String[executorCommand.length + 4];
                     sandboxedCommand[0] = "sandbox-exec";
                     sandboxedCommand[1] = "-f";
@@ -196,16 +194,16 @@ public class Environment {
                     System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
                     shellCommand = sandboxedCommand;
 
-                    logger.info("using custom executor '{}' with sandbox", config.getDisplayName());
+                    logger.info("using custom executor '{}' with sandbox", executorConfig.getDisplayName());
                 } else {
                     // Fallback to system default with sandbox
                     shellCommand =
                             new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
 
-                    if (config != null) {
+                    if (executorConfig != null) {
                         logger.info(
                                 "custom executor '{}' not approved for sandbox, using /bin/sh",
-                                config.getDisplayName());
+                                executorConfig.getDisplayName());
                     }
                 }
                 // TODO
@@ -216,14 +214,12 @@ public class Environment {
             }
         } else {
             // Phase 1: Support custom executors for non-sandboxed execution
-            ExecutorConfig config = executorConfig;
-
-            if (config != null && config.isValid()) {
-                shellCommand = config.buildCommand(command);
-                logger.info("using custom executor '{}'", config.getDisplayName());
+            if (executorConfig != null && executorConfig.isValid()) {
+                shellCommand = executorConfig.buildCommand(command);
+                logger.info("using custom executor '{}'", executorConfig.getDisplayName());
             } else {
-                if (config != null && !config.isValid()) {
-                    logger.warn("invalid custom executor '{}', using system default", config);
+                if (executorConfig != null && !executorConfig.isValid()) {
+                    logger.warn("invalid custom executor '{}', using system default", executorConfig);
                 }
                 // Fall back to system default
                 shellCommand = isWindows()

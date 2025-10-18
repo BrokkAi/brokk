@@ -21,6 +21,8 @@ import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import org.apache.commons.text.StringEscapeUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -33,11 +35,47 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private final ContextManager contextManager;
     private @Nullable Consumer<ContextFragment> onRemoveFragment;
 
+    // Logger for defensive debug logging in catch blocks (avoid empty catches)
+    private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
+
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
         setOpaque(false);
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
+
+        // Add right-click listener for blank space
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleBlankSpaceRightClick(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleBlankSpaceRightClick(e);
+                }
+            }
+        });
+    }
+
+    private void handleBlankSpaceRightClick(MouseEvent e) {
+        // Check if click is on blank space (not within any chip component)
+        Component clickTarget = getComponentAt(e.getPoint());
+        if (clickTarget != null && clickTarget != WorkspaceItemsChipPanel.this) {
+            // Click is within a chip component, ignore
+            return;
+        }
+
+        // Use NoSelection scenario to get standard blank-space actions
+        var scenario = new WorkspacePanel.NoSelection();
+        var actions = scenario.getActions(chrome.getContextPanel());
+
+        // Show popup menu using PopupBuilder
+        WorkspacePanel.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
     }
 
     /**
@@ -509,6 +547,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
+    private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
+        JPopupMenu menu = new JPopupMenu();
+        var scenario = new WorkspacePanel.SingleFragment(fragment);
+        var actions = scenario.getActions(chrome.getContextPanel());
+        for (var action : actions) {
+            menu.add(action);
+        }
+        try {
+            chrome.themeManager.registerPopupMenu(menu);
+        } catch (Exception ex) {
+            logger.debug("Failed to register chip popup menu with theme manager", ex);
+        }
+        return menu;
+    }
+
     private void executeCloseChip(ContextFragment fragment) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
@@ -557,14 +610,32 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 label.setToolTipText(buildDefaultTooltip(fragment));
                 label.getAccessibleContext().setAccessibleDescription(fragment.description());
             }
-        } catch (Exception ignored) {
-            // Defensive: avoid issues if any accessor fails
+        } catch (Exception ex) {
+            // Defensive logging instead of ignoring to satisfy static analysis rules.
+            logger.debug("Failed to set chip tooltip for fragment {}", fragment, ex);
         }
 
         label.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
 
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
                 }
@@ -592,6 +663,24 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         close.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
                 executeCloseChip(fragment);
             }
@@ -617,7 +706,28 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
+                if (e.isConsumed()) return; // popup already handled
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
