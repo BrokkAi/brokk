@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.tools;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.Completions;
@@ -151,6 +150,13 @@ public class WorkspaceTools {
         int addedCount = 0;
         List<String> classesNotFound = new ArrayList<>();
         var analyzer = getAnalyzer();
+        var liveContext = contextManager.liveContext();
+        var workspaceFiles = liveContext
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
 
         for (String className : classNames.stream().distinct().toList()) {
             if (className.isBlank()) {
@@ -159,9 +165,13 @@ public class WorkspaceTools {
             }
             var defOpt = analyzer.getDefinition(className);
             if (defOpt.isPresent()) {
-                var fragment = new ContextFragment.CodeFragment(contextManager, defOpt.get());
-                contextManager.addVirtualFragment(fragment);
-                addedCount++;
+                var codeUnit = defOpt.get();
+                // Skip if the source file is already in workspace as a ProjectPathFragment
+                if (!workspaceFiles.contains(codeUnit.source())) {
+                    var fragment = new ContextFragment.CodeFragment(contextManager, codeUnit);
+                    contextManager.addVirtualFragment(fragment);
+                    addedCount++;
+                }
             } else {
                 classesNotFound.add(className);
                 logger.warn("Could not find definition for class: {}", className);
@@ -245,9 +255,10 @@ public class WorkspaceTools {
 
     @Tool(
             value =
-                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map.")
+                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you will need to edit as part of your current task, unless the edits are localized to a single function.")
     public String dropWorkspaceFragments(
-            @P("Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty.")
+            @P(
+                            "Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty. 'Discarded Context' fragment is not itself drop-able.")
                     Map<String, String> idToExplanation) {
         if (idToExplanation.isEmpty()) {
             return "Fragment map cannot be empty.";
@@ -256,15 +267,15 @@ public class WorkspaceTools {
         var currentContext = contextManager.liveContext();
         var allFragments = currentContext.getAllFragmentsInDisplayOrder();
 
-        // Prepare existing DISCARDED_CONTEXT map if present (we find this first so we can protect it
+        // Get existing DISCARDED_CONTEXT map (we find this first so we can protect it
         // from being removed by a caller attempting to drop it).
-        var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
+        var existingDiscardedMap = currentContext.getDiscardedFragmentsNote();
         var existingDiscarded = currentContext
                 .virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
                 .filter(vf -> vf instanceof ContextFragment.StringFragment)
                 .map(vf -> (ContextFragment.StringFragment) vf)
-                .filter(sf -> discardedDescription.equals(sf.description()))
+                .filter(sf -> ContextFragment.DISCARDED_CONTEXT.description().equals(sf.description()))
                 .findFirst();
 
         var idsToDropSet = new HashSet<>(idToExplanation.keySet());
@@ -291,15 +302,7 @@ public class WorkspaceTools {
                 && idsToDropSet.contains(existingDiscarded.get().id());
 
         var mapper = Json.getMapper();
-        Map<String, String> mergedDiscarded = new LinkedHashMap<>();
-        existingDiscarded.ifPresent(sf -> {
-            try {
-                var existing = mapper.readValue(sf.text(), new TypeReference<Map<String, String>>() {});
-                mergedDiscarded.putAll(existing);
-            } catch (Exception e) {
-                logger.warn("Failed to parse existing DISCARDED_CONTEXT JSON; starting fresh", e);
-            }
-        });
+        Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
         for (var f : toDrop) {
@@ -475,15 +478,27 @@ public class WorkspaceTools {
         List<String> notFound = new ArrayList<>();
 
         var analyzer = getAnalyzer();
+        var liveContext = contextManager.liveContext();
+        var workspaceFiles = liveContext
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
+
         for (String methodName : methodNames.stream().distinct().toList()) {
             if (methodName.isBlank()) {
                 continue;
             }
             var cuOpt = analyzer.getDefinition(methodName);
             if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                var fragment = new ContextFragment.CodeFragment(contextManager, cuOpt.get());
-                contextManager.addVirtualFragment(fragment);
-                count++;
+                var codeUnit = cuOpt.get();
+                // Skip if the source file is already in workspace as a ProjectPathFragment
+                if (!workspaceFiles.contains(codeUnit.source())) {
+                    var fragment = new ContextFragment.CodeFragment(contextManager, codeUnit);
+                    contextManager.addVirtualFragment(fragment);
+                    count++;
+                }
             } else {
                 notFound.add(methodName);
                 logger.warn("Could not find method definition for: {}", methodName);

@@ -1,0 +1,74 @@
+{
+  "name": "Brokk Dark",
+  "dark": true,
+  "author": "Brokk Team",
+  "parentTheme": "Darcula",
+  "ui": {
+    "Button": {
+      "close.foreground": "#C8C8C8"
+    },
+    "Brokk": {
+      "chat_background": "#252525",
+      "message_background": "#404040",
+      "chat_text": "#D4D4D4",
+      "chat_header_text": "#729FCF",
+      "message_border_custom": "#2E6437",
+      "message_border_ai": "#568E82",
+      "message_border_user": "#5E7DAF",
+      "custom_message_background": "#3C3C3C",
+      "custom_message_foreground": "#DCDCDC",
+
+      "code_block_background": "#323232",
+      "code_block_border": "#505050",
+      "plain_text_foreground": "#E6E6E6",
+      "codeHighlight": "#7D8C6F",
+      "rsyntax_background": "#323232",
+
+      "link_color_hex": "#678CB1",
+      "border_color_hex": "#555555",
+
+      "git_status_new": "#58CB3F",
+      "git_status_modified": "#47EFE6",
+      "git_status_deleted": "#93633F",
+      "git_status_unknown": "#808080",
+      "git_status_added": "#58CB3F",
+      "git_changed": "#EFCA08",
+
+      "git_badge_background": "#007ACC",
+      "git_badge_text": "#FFFFFF",
+
+      "badge_border": "#428BCA",
+      "badge_foreground": "#428BCA",
+      "badge_hover_border": "#337AB7",
+      "selected_badge_border": "#000000",
+      "selected_badge_foreground": "#000000",
+
+      "filter_unselected_foreground": "#FF8800",
+      "filter_selected_foreground": "#FFFFFF",
+      "filter_icon_hover_background": "#FFFFFF40",
+
+      "chevron_normal": "#C8C8C8",
+      "chevron_hover": "#FFFFFF",
+
+      "notif_error_bg": "#3B1E20",
+      "notif_error_fg": "#FFB4B4",
+      "notif_error_border": "#B71C1C",
+      "notif_confirm_bg": "#1E3323",
+      "notif_confirm_fg": "#C3E8C8",
+      "notif_confirm_border": "#2E7D32",
+      "notif_cost_bg": "#1B2A3A",
+      "notif_cost_fg": "#B7D8FF",
+      "notif_cost_border": "#007ACC",
+      "notif_info_bg": "#332B1E",
+      "notif_info_fg": "#FFD79A",
+      "notif_info_border": "#FF9800",
+
+      "diff_added": "#3C503C",
+      "diff_changed": "#314B65",
+      "diff_deleted": "#503C3C",
+
+      "search_highlight": "#FFFF00",
+      "search_current": "#FFA500"
+    }
+  }
+}

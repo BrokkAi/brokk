@@ -74,6 +74,7 @@ public class AttachContextDialog extends JDialog {
 
     private final JTextField searchField = new JTextField(30);
     private final JCheckBox includeSubfoldersCheck = new JCheckBox("Include subfolders");
+    private final JCheckBox includeTestFilesCheck = new JCheckBox("Include tests");
     private final JCheckBox summarizeCheck = new JCheckBox("Summarize");
     private final OverlayPanel searchOverlay;
     private final ClosingAutoCompletion ac;
@@ -183,6 +184,12 @@ public class AttachContextDialog extends JDialog {
         includeSubfoldersCheck.setMargin(new Insets(0, 0, 0, 0));
         includeSubfoldersCheck.setVisible(false); // Only visible for Folders tab
 
+        // Include tests (Usages tab only)
+        includeTestFilesCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        includeTestFilesCheck.setMargin(new Insets(0, 0, 0, 0));
+        includeTestFilesCheck.setSelected(true); // Default to including tests
+        includeTestFilesCheck.setVisible(false); // Only visible for Usages tab
+
         // Summarize checkbox below the include-subfolders
         summarizeCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
         summarizeCheck.setMargin(new Insets(0, 0, 0, 0));
@@ -198,6 +205,7 @@ public class AttachContextDialog extends JDialog {
         var summarizePanel = new JPanel();
         summarizePanel.setLayout(new BoxLayout(summarizePanel, BoxLayout.Y_AXIS));
         summarizePanel.add(includeSubfoldersCheck);
+        summarizePanel.add(includeTestFilesCheck);
         summarizePanel.add(summarizeCheck);
         searchAndSummarize.add(summarizePanel, BorderLayout.SOUTH);
 
@@ -327,8 +335,9 @@ public class AttachContextDialog extends JDialog {
         // Refresh popup sizing on tab change
         AutoCompleteUtil.sizePopupWindows(ac, searchField, List.of());
 
-        // Update folder checkbox visibility for each tab
+        // Update checkbox visibility for each tab
         includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
+        includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
 
         searchField.requestFocusInWindow();
     }
@@ -340,6 +349,10 @@ public class AttachContextDialog extends JDialog {
         summarizeCheck.setEnabled(analyzerReady);
         summarizeCheck.setToolTipText(
                 analyzerReady ? hotkeyModifierString + "-I" : "Summarize" + ANALYZER_NOT_READY_TOOLTIP);
+
+        // Manage include tests checkbox (only relevant for Usages tab)
+        includeTestFilesCheck.setEnabled(false);
+        includeTestFilesCheck.setToolTipText("Include tests" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Files and Folders are always enabled
         filesBtn.setEnabled(true);
@@ -388,6 +401,11 @@ public class AttachContextDialog extends JDialog {
         boolean usagesEnabled = hasUsages;
         usagesBtn.setEnabled(usagesEnabled);
         usagesBtn.setToolTipText(usagesEnabled ? hotkeyModifierString + "-5" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
+
+        // Include tests checkbox follows the Usages gating
+        includeTestFilesCheck.setEnabled(usagesEnabled);
+        includeTestFilesCheck.setToolTipText(
+                usagesEnabled ? "Include tests" : "Include tests" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Ensure the selected segment remains valid
         if ((classesBtn.isSelected() && !classesEnabled)
@@ -543,7 +561,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
-        var frag = new ContextFragment.UsageFragment(cm, target);
+        var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }

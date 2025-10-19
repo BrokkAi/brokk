@@ -1,0 +1,74 @@
+{
+  "name": "Brokk Light",
+  "dark": false,
+  "author": "Brokk Team",
+  "parentTheme": "IntelliJ",
+  "ui": {
+    "Button": {
+      "close.foreground": "#505050"
+    },
+    "Brokk": {
+      "chat_background": "#F0F0F0",
+      "message_background": "#FAFAFA",
+      "chat_text": "#1E1E1E",
+      "chat_header_text": "#3367D6",
+      "message_border_custom": "#2E6437",
+      "message_border_ai": "#568E82",
+      "message_border_user": "#5E7DAF",
+      "custom_message_background": "#F5F5F5",
+      "custom_message_foreground": "#1E1E1E",
+
+      "code_block_background": "#F0F0F0",
+      "code_block_border": "#808080",
+      "plain_text_foreground": "#000000",
+      "codeHighlight": "#7D8C6F",
+      "rsyntax_background": "#FFFFFF",
+
+      "link_color_hex": "#2675BF",
+      "border_color_hex": "#DDDDDD",
+
+      "git_status_new": "#2A7722",
+      "git_status_modified": "#3C76CA",
+      "git_status_deleted": "#43646D",
+      "git_status_unknown": "#B4B4B4",
+      "git_status_added": "#2A7722",
+      "git_changed": "#CC8F00",
+
+      "git_badge_background": "#DC3545",
+      "git_badge_text": "#FFFFFF",
+
+      "badge_border": "#428BCA",
+      "badge_foreground": "#428BCA",
+      "badge_hover_border": "#337AB7",
+      "selected_badge_border": "#000000",
+      "selected_badge_foreground": "#000000",
+
+      "filter_unselected_foreground": "#FF6600",
+      "filter_selected_foreground": "#000000",
+      "filter_icon_hover_background": "#00000020",
+
+      "chevron_normal": "#505050",
+      "chevron_hover": "#282828",
+
+      "notif_error_bg": "#FFEBEE",
+      "notif_error_fg": "#B71C1C",
+      "notif_error_border": "#EF9A9A",
+      "notif_confirm_bg": "#E8F5E9",
+      "notif_confirm_fg": "#1B5E20",
+      "notif_confirm_border": "#A5D6A7",
+      "notif_cost_bg": "#E3F2FD",
+      "notif_cost_fg": "#0D47A1",
+      "notif_cost_border": "#90CAF9",
+      "notif_info_bg": "#FFF3E0",
+      "notif_info_fg": "#E65100",
+      "notif_info_border": "#FFCC80",
+
+      "diff_added": "#DCFADC",
+      "diff_changed": "#DCEBFA",
+      "diff_deleted": "#FADCDC",
+
+      "search_highlight": "#FFFF00",
+      "search_current": "#FFA500"
+    }
+  }
+}

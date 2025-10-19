@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.cli;
 
 import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -13,6 +14,7 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
+import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ConflictInspector;
 import io.github.jbellis.brokk.agents.ContextAgent;
@@ -26,6 +28,7 @@ import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.metrics.DefaultSearchMetrics;
 import io.github.jbellis.brokk.metrics.SearchMetrics;
+import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -43,15 +46,19 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
-@SuppressWarnings("NullAway.Init") // NullAway is upset that some fiels are initialized in picocli's call()
+@SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
         name = "brokk-cli",
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BrokkCli implements Callable<Integer> {
+    private static final Logger logger = LogManager.getLogger(BrokkCli.class);
+
     @CommandLine.Option(names = "--project", description = "Path to the project root.")
     @Nullable
     private Path projectPath;
@@ -125,8 +132,15 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String lutzPrompt;
 
+    @CommandLine.Option(names = "--lutz-lite", description = "Execute a single task to solve the given issue.")
+    @Nullable
+    private String lutzLitePrompt;
+
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
+
+    @CommandLine.Option(names = "--build", description = "Run verification build on the current workspace.")
+    private boolean build = false;
 
     @CommandLine.Option(
             names = "--worktree",
@@ -175,7 +189,7 @@ public final class BrokkCli implements Callable<Integer> {
     private AbstractProject project;
 
     public static void main(String[] args) {
-        System.err.println("Starting Brokk CLI...");
+        logger.info("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
 
         int exitCode = new CommandLine(new BrokkCli()).execute(args);
@@ -200,18 +214,19 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Action Validation ---
         long actionCount = Stream.of(
-                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, searchWorkspace)
+                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, lutzLitePrompt, searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
+        if (build) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --merge, --search-workspace) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --merge, --search-workspace) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) or --worktree is required.");
             return 1;
         }
 
@@ -230,6 +245,7 @@ public final class BrokkCli implements Callable<Integer> {
             askPrompt = maybeLoadFromFile(askPrompt);
             searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
             lutzPrompt = maybeLoadFromFile(lutzPrompt);
+            lutzLitePrompt = maybeLoadFromFile(lutzLitePrompt);
             searchWorkspace = maybeLoadFromFile(searchWorkspace);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
@@ -251,23 +267,24 @@ public final class BrokkCli implements Callable<Integer> {
         if (worktreePath != null) {
             worktreePath = worktreePath.toAbsolutePath();
             if (Files.exists(worktreePath)) {
-                System.err.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
+                logger.debug("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
                     // Use --commit if provided, otherwise default branch HEAD
                     String targetCommit;
                     if (commit != null) {
                         targetCommit = gitRepo.resolveToCommit(commit).getName();
+                        logger.debug("Using commit from --commit option: " + targetCommit);
                     } else {
                         var defaultBranch = gitRepo.getDefaultBranch();
                         targetCommit = gitRepo.resolveToCommit(defaultBranch).getName();
+                        logger.debug("Using default branch " + defaultBranch + " at commit " + targetCommit);
                     }
 
                     gitRepo.worktrees().addWorktreeDetached(worktreePath, targetCommit);
-
-                    System.err.println("Successfully created detached worktree at " + worktreePath);
-                    System.err.println("Checked out commit " + targetCommit);
+                    logger.debug("Successfully created detached worktree at " + worktreePath);
                 } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
+                    logger.error("Error creating worktree", e);
                     System.err.println("Error creating worktree: " + e.getMessage());
                     return 1;
                 }
@@ -282,7 +299,20 @@ public final class BrokkCli implements Callable<Integer> {
         var mainProject = new MainProject(projectPath);
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
         cm = new ContextManager(project);
-        cm.createHeadless();
+
+        // Build BuildDetails from environment variables
+        String buildLintCmd = System.getenv("BRK_BUILD_CMD");
+        String testAllCmd = System.getenv("BRK_TESTALL_CMD");
+        String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
+        var buildDetails = new BuildAgent.BuildDetails(
+                buildLintCmd != null ? buildLintCmd : "",
+                testAllCmd != null ? testAllCmd : "",
+                testSomeCmd != null ? testSomeCmd : "",
+                Set.of(),
+                Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
+        logger.info("Build Details: " + buildDetails);
+
+        cm.createHeadless(buildDetails);
         var io = cm.getIo();
 
         //  Model Overrides initialization
@@ -296,10 +326,12 @@ public final class BrokkCli implements Callable<Integer> {
         boolean needsPlanModel = architectPrompt != null
                 || searchAnswerPrompt != null
                 || lutzPrompt != null
+                || lutzLitePrompt != null
                 || deepScan
                 || merge
                 || (searchWorkspace != null && !searchWorkspace.isBlank());
-        boolean needsCodeModel = codePrompt != null || askPrompt != null || architectPrompt != null || merge;
+        boolean needsCodeModel =
+                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
 
         if (needsPlanModel && planModelName == null) {
             System.err.println("Error: This action requires --planmodel to be specified.");
@@ -432,7 +464,7 @@ public final class BrokkCli implements Callable<Integer> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
-                    ContextFragment.getSummary(cm.topContext().allFragments()));
+                    ContextFragment.describe(cm.topContext().allFragments()));
 
             String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
                     .filter(s -> s != null && !s.isBlank())
@@ -468,7 +500,7 @@ public final class BrokkCli implements Callable<Integer> {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                ContextFragment.getSummary(cm.topContext().allFragments()));
+                ContextFragment.describe(cm.topContext().allFragments()));
 
         TaskResult result;
         // Decide scope action/input
@@ -483,6 +515,10 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = "Merge";
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
+        } else if (build) {
+            scopeInput = "Build";
+        } else if (lutzLitePrompt != null) {
+            scopeInput = requireNonNull(lutzLitePrompt);
         } else { // lutzPrompt != null
             scopeInput = requireNonNull(lutzPrompt);
         }
@@ -530,12 +566,12 @@ public final class BrokkCli implements Callable<Integer> {
 
                     var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
                     if (conflictOpt.isEmpty()) {
-                        System.out.println(
+                        System.err.println(
                                 "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
                         return 1;
                     }
                     var conflict = conflictOpt.get();
-                    System.out.println(conflict);
+                    logger.debug(conflict.toString());
                     MergeAgent mergeAgent = new MergeAgent(
                             cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
                     try {
@@ -560,6 +596,39 @@ public final class BrokkCli implements Callable<Integer> {
                             SearchMetrics.noOp());
                     result = agent.execute();
                     scope.append(result);
+                } else if (build) {
+                    String buildError = BuildAgent.runVerification(cm);
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            buildError.isEmpty()
+                                    ? "Build verification completed successfully."
+                                    : "Build verification failed:\n" + buildError);
+                    // we have no `result` since we did not interact with the LLM
+                    System.exit(0);
+                    // make the compiler happy
+                    result = null;
+                } else if (lutzLitePrompt != null) {
+                    if (planModel == null) {
+                        System.err.println("Error: --lutz-lite requires --planmodel to be specified.");
+                        return 1;
+                    }
+                    if (codeModel == null) {
+                        System.err.println("Error: --lutz-lite requires --codemodel to be specified.");
+                        return 1;
+                    }
+
+                    var taskText =
+                            """
+                            Solve the following issue. Pull appropriate existing tests into the Workspace; if you are adding new functionality, add new tests if you can do so within the existing constraints.
+
+                            Issue: """
+                                    + requireNonNull(lutzLitePrompt);
+                    var task = new TaskList.TaskItem(taskText, false);
+
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
+                    var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
+                    scope.append(taskResult);
+                    result = taskResult;
                 } else { // lutzPrompt != null
                     if (planModel == null) {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");
@@ -608,11 +677,13 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                 }
             } catch (Throwable th) {
-                io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
+                logger.error("Internal error", th);
+                io.toolError(requireNonNull(th.getMessage()), "Internal error");
                 return 1; // internal error
             }
         }
 
+        result = castNonNull(result);
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             io.toolError(
                     result.stopDetails().explanation(),

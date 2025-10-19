@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -19,6 +21,8 @@ import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import org.apache.commons.text.StringEscapeUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -31,11 +35,47 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private final ContextManager contextManager;
     private @Nullable Consumer<ContextFragment> onRemoveFragment;
 
+    // Logger for defensive debug logging in catch blocks (avoid empty catches)
+    private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
+
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
         setOpaque(false);
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
+
+        // Add right-click listener for blank space
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleBlankSpaceRightClick(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleBlankSpaceRightClick(e);
+                }
+            }
+        });
+    }
+
+    private void handleBlankSpaceRightClick(MouseEvent e) {
+        // Check if click is on blank space (not within any chip component)
+        Component clickTarget = getComponentAt(e.getPoint());
+        if (clickTarget != null && clickTarget != WorkspaceItemsChipPanel.this) {
+            // Click is within a chip component, ignore
+            return;
+        }
+
+        // Use NoSelection scenario to get standard blank-space actions
+        var scenario = new WorkspacePanel.NoSelection();
+        var actions = scenario.getActions(chrome.getContextPanel());
+
+        // Show popup menu using PopupBuilder
+        WorkspacePanel.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
     }
 
     /**
@@ -355,6 +395,32 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return sb.toString();
     }
 
+    /**
+     * Helper to get the background color for a given chip kind.
+     */
+    private Color getChipBackgroundColor(ChipKind kind, boolean isDark) {
+        return switch (kind) {
+            case EDIT -> {
+                // Use accent color for EDIT chips; fall back to linkColor, then to a reasonable theme color
+                Color bg = UIManager.getColor("Component.accentColor");
+                if (bg == null) {
+                    bg = UIManager.getColor("Component.linkColor");
+                }
+                if (bg == null) {
+                    // Robust fallback if theme key is missing
+                    bg = ThemeColors.getColor(isDark, ThemeColors.GIT_BADGE_BACKGROUND);
+                }
+                // In light mode, make the accent background lighter for a softer look
+                if (!isDark) {
+                    bg = lighten(bg, 0.7f); // blend 70% towards white
+                }
+                yield bg;
+            }
+            case SUMMARY -> ThemeColors.getColor(isDark, "notif_cost_bg");
+            case OTHER -> ThemeColors.getColor(isDark, "notif_info_bg");
+        };
+    }
+
     private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
         ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
 
@@ -364,19 +430,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         switch (kind) {
             case EDIT -> {
-                // Use accent color for EDIT chips; fall back to linkColor, then to a reasonable theme color
-                bg = UIManager.getColor("Component.accentColor");
-                if (bg == null) {
-                    bg = UIManager.getColor("Component.linkColor");
-                }
-                if (bg == null) {
-                    // Robust fallback if theme key is missing
-                    bg = ThemeColors.getColor(isDark, "git_badge_background");
-                }
-                // In light mode, make the accent background lighter for a softer look
-                if (!isDark) {
-                    bg = lighten(bg, 0.7f); // blend 70% towards white
-                }
+                bg = getChipBackgroundColor(kind, isDark);
                 fg = contrastingText(bg);
                 border = UIManager.getColor("Component.borderColor");
                 if (border == null) {
@@ -421,16 +475,42 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 p.repaint();
             }
         }
+
+        // Update close button icon with the chip's background color for proper contrast in high-contrast mode
+        var closeObj = chip.getClientProperty("brokk.chip.closeButton");
+        if (closeObj instanceof MaterialButton closeButton) {
+            closeButton.setIcon(buildCloseIcon(bg));
+        }
     }
 
-    private Icon buildCloseIcon() {
-        // Always fetch the current UI icon to respect the active theme
+    private Icon buildCloseIcon(Color chipBackground) {
+        int targetW = 10;
+        int targetH = 10;
+
+        // In high-contrast mode, draw a theme-aware × with proper contrast against the chip background
+        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+        if (isHighContrast) {
+            BufferedImage icon = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = icon.createGraphics();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                // Use contrasting color based on the chip's background
+                Color iconColor = ColorUtil.contrastingText(chipBackground);
+                g2.setColor(iconColor);
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawLine(2, 2, targetW - 3, targetH - 3);
+                g2.drawLine(2, targetH - 3, targetW - 3, 2);
+            } finally {
+                g2.dispose();
+            }
+            return new ImageIcon(icon);
+        }
+
+        // For non-high-contrast themes, use the standard icon approach
         var uiIcon = UIManager.getIcon("Brokk.close");
         if (uiIcon == null) {
             uiIcon = Icons.CLOSE;
         }
-        int targetW = 10;
-        int targetH = 10;
 
         Icon source = uiIcon;
         Image scaled;
@@ -465,6 +545,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
 
         return new ImageIcon(scaled);
+    }
+
+    private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
+        JPopupMenu menu = new JPopupMenu();
+        var scenario = new WorkspacePanel.SingleFragment(fragment);
+        var actions = scenario.getActions(chrome.getContextPanel());
+        for (var action : actions) {
+            menu.add(action);
+        }
+        try {
+            chrome.themeManager.registerPopupMenu(menu);
+        } catch (Exception ex) {
+            logger.debug("Failed to register chip popup menu with theme manager", ex);
+        }
+        return menu;
     }
 
     private void executeCloseChip(ContextFragment fragment) {
@@ -515,14 +610,32 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 label.setToolTipText(buildDefaultTooltip(fragment));
                 label.getAccessibleContext().setAccessibleDescription(fragment.description());
             }
-        } catch (Exception ignored) {
-            // Defensive: avoid issues if any accessor fails
+        } catch (Exception ex) {
+            // Defensive logging instead of ignoring to satisfy static analysis rules.
+            logger.debug("Failed to set chip tooltip for fragment {}", fragment, ex);
         }
 
         label.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
 
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
                 }
@@ -532,9 +645,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
-        // Construct with an empty label and set the icon explicitly.
+        // Construct with an empty label. Icon will be set by styleChip() after background color is determined.
         var close = new MaterialButton("");
-        close.setIcon(buildCloseIcon());
         close.setFocusable(false);
         // keep the icon-only styling but keep hit area reasonable
         close.setOpaque(false);
@@ -550,6 +662,24 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             // best-effort accessibility improvements
         }
         close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
             @Override
             public void mouseClicked(MouseEvent e) {
                 executeCloseChip(fragment);
@@ -576,7 +706,28 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+            }
+
+            @Override
             public void mouseClicked(MouseEvent e) {
+                if (e.isConsumed()) return; // popup already handled
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
@@ -622,13 +773,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 if (label != null) {
                     var fragObj = chip.getClientProperty("brokk.fragment");
                     ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                    // styleChip() now updates the close button icon with proper background color
                     styleChip(chip, label, isDark, fragment);
-                }
-                var closeObj = chip.getClientProperty("brokk.chip.closeButton");
-                if (closeObj instanceof MaterialButton b) {
-                    b.setIcon(buildCloseIcon());
-                    b.revalidate();
-                    b.repaint();
                 }
             }
         }

@@ -83,16 +83,14 @@ public class AnalyzerUtil {
                 continue;
             }
             sites.stream().sorted().forEach(site -> {
-                result.append(
-                        """
-                                 %s %s
-                                 ```
-                                 %s
-                                 ```
-                                """
-                                .stripIndent()
-                                .indent(2 * entry.depth)
-                                .formatted(arrow, site.target().fqName(), site.sourceLine()));
+                result.append("""
+            %s %s
+            ```
+            %s
+            ```
+            """
+                        .indent(2 * entry.depth)
+                        .formatted(arrow, site.target().fqName(), site.sourceLine()));
 
                 // Process this method's callers/callees (if not already processed)
                 if (visited.add(site.target().fqName())) {

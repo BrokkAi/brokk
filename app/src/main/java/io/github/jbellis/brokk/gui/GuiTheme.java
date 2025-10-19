@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
@@ -23,6 +24,7 @@ public class GuiTheme {
 
     public static final String THEME_DARK = "dark";
     public static final String THEME_LIGHT = "light";
+    public static final String THEME_HIGH_CONTRAST = "high-contrast";
 
     private final JFrame frame;
 
@@ -48,6 +50,44 @@ public class GuiTheme {
     }
 
     /**
+     * Loads and applies a theme to the Look and Feel.
+     * This static method can be called before any Chrome instances exist,
+     * making it suitable for application startup initialization.
+     *
+     * @param themeName The theme name (dark/light/high-contrast)
+     */
+    public static void setupLookAndFeel(String themeName) {
+        String effectiveTheme = themeName;
+        if (effectiveTheme == null || effectiveTheme.isEmpty()) {
+            logger.warn("Null or empty theme name, defaulting to dark");
+            effectiveTheme = THEME_DARK;
+        }
+
+        String themeFile =
+                switch (effectiveTheme) {
+                    case THEME_LIGHT -> "/themes/BrokkLight.theme.json";
+                    case THEME_DARK -> "/themes/BrokkDark.theme.json";
+                    case THEME_HIGH_CONTRAST -> "/themes/HighContrast.theme.json";
+                    default -> {
+                        logger.warn("Unknown theme '{}', defaulting to dark", effectiveTheme);
+                        yield "/themes/BrokkDark.theme.json";
+                    }
+                };
+
+        try (var stream = GuiTheme.class.getResourceAsStream(themeFile)) {
+            if (stream == null) {
+                logger.error("Theme file '{}' not found, falling back to Darcula", themeFile);
+                com.formdev.flatlaf.FlatDarculaLaf.setup();
+            } else {
+                IntelliJTheme.setup(stream);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to load theme from '{}': {}", themeFile, e.getMessage());
+            com.formdev.flatlaf.FlatDarculaLaf.setup();
+        }
+    }
+
+    /**
      * Applies the current theme to the application
      *
      * @param isDark true for dark theme, false for light theme
@@ -60,19 +100,22 @@ public class GuiTheme {
 
     public void applyTheme(boolean isDark, boolean wordWrap) {
         String themeName = getThemeName(isDark);
+        applyTheme(themeName, wordWrap);
+    }
 
+    public void applyTheme(String themeName, boolean wordWrap) {
         try {
             // Save preference first so we know the value is stored
             MainProject.setTheme(themeName);
 
-            // Apply the theme to the Look and Feel
-            if (isDark) {
-                com.formdev.flatlaf.FlatDarculaLaf.setup();
-            } else {
-                com.formdev.flatlaf.FlatIntelliJLaf.setup();
-            }
+            // Use the static utility method to load theme JSON and apply to UIManager
+            setupLookAndFeel(themeName);
+
+            // Reload ThemeColors to pick up new UIManager values
+            io.github.jbellis.brokk.gui.mop.ThemeColors.reloadColors();
 
             // Register custom icons for this theme
+            boolean isDark = !THEME_LIGHT.equals(themeName);
             registerCustomIcons(isDark);
 
             // Apply theme to RSyntaxTextArea components
@@ -143,11 +186,11 @@ public class GuiTheme {
     /**
      * Applies the appropriate theme to all RSyntaxTextArea components
      *
-     * @param themeName "dark" or "light"
+     * @param themeName "dark", "light", or "high-contrast"
      * @param wordWrap whether word wrap mode is enabled
      */
     private void applyThemeAsync(String themeName, boolean wordWrap) {
-        loadRSyntaxTheme(THEME_DARK.equals(themeName))
+        loadRSyntaxTheme(themeName)
                 .ifPresent(theme ->
                         // Apply to all RSyntaxTextArea components in open windows
                         SwingUtilities.invokeLater(() -> {
@@ -172,12 +215,21 @@ public class GuiTheme {
     /**
      * Loads an RSyntaxTextArea theme.
      *
-     * @param isDark true for dark theme, false for light theme
+     * @param themeName The theme name (dark, light, or high-contrast)
      * @return The loaded Theme object, or null if loading fails.
      */
-    public static Optional<Theme> loadRSyntaxTheme(boolean isDark) {
-        String themeChoice = getThemeName(isDark);
-        String themeResource = "/org/fife/ui/rsyntaxtextarea/themes/%s".formatted(isDark ? "dark.xml" : "default.xml");
+    public static Optional<Theme> loadRSyntaxTheme(String themeName) {
+        String themeResource =
+                switch (themeName) {
+                    case THEME_LIGHT -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+                    case THEME_DARK -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    case THEME_HIGH_CONTRAST -> "/org/fife/ui/rsyntaxtextarea/themes/high-contrast.xml";
+                    default -> {
+                        logger.warn("Unknown theme '{}' for RSyntaxTextArea, defaulting to dark", themeName);
+                        yield "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    }
+                };
+
         var inputStream = GuiTheme.class.getResourceAsStream(themeResource);
 
         if (inputStream == null) {
@@ -189,7 +241,7 @@ public class GuiTheme {
             return Optional.of(Theme.load(inputStream));
         } catch (IOException e) {
             logger.error(
-                    "Could not load {} RSyntaxTextArea theme from {}: {}", themeChoice, themeResource, e.getMessage());
+                    "Could not load {} RSyntaxTextArea theme from {}: {}", themeName, themeResource, e.getMessage());
             return Optional.empty();
         }
     }
@@ -237,10 +289,11 @@ public class GuiTheme {
     /**
      * Checks if dark theme is currently active
      *
-     * @return true if dark theme is active
+     * @return true if dark theme or high contrast theme is active
      */
     public boolean isDarkTheme() {
-        return THEME_DARK.equalsIgnoreCase(MainProject.getTheme());
+        String theme = MainProject.getTheme();
+        return THEME_DARK.equalsIgnoreCase(theme) || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
     }
 
     /**
@@ -263,7 +316,8 @@ public class GuiTheme {
      * @param textArea The text area to apply theme to
      */
     public void applyCurrentThemeToComponent(RSyntaxTextArea textArea) {
-        loadRSyntaxTheme(isDarkTheme()).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
+        String themeName = MainProject.getTheme();
+        loadRSyntaxTheme(themeName).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
     }
 
     /**

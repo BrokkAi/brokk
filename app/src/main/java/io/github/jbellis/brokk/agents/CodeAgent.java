@@ -121,7 +121,6 @@ public class CodeAgent {
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
-        var io = contextManager.getIo();
         var coder = contextManager.getLlm(
                 new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
@@ -171,6 +170,7 @@ public class CodeAgent {
             throw new RuntimeException(e);
         }
 
+        logger.debug("Starting task: {} with options {}", userInput, options);
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -352,11 +352,13 @@ public class CodeAgent {
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-        return new TaskResult(
+        var tr = new TaskResult(
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
                 es.changedFiles(),
                 stopDetails);
+        logger.debug("Task result: {}", tr);
+        return tr;
     }
 
     void report(String message) {
@@ -557,7 +559,6 @@ public class CodeAgent {
 
                 Please continue from there (WITHOUT repeating that one).
                 """
-                .stripIndent()
                 .formatted(lastBlock);
     }
 
@@ -1043,7 +1044,6 @@ public class CodeAgent {
                 > %s
                   %s
                 """
-                .stripIndent()
                 .formatted(absPath.toString(), line, col, message, lineText, pointer);
     }
 

@@ -409,6 +409,12 @@ public final class ConflictInspector {
                     f.baseContent() == null ? 0 : f.baseContent().length());
         }
 
+        if (files.isEmpty()) {
+            logger.debug(
+                    "Detected merge state {} but no actual conflicted files in index; treating as resolved", state);
+            return null;
+        }
+
         return new MergeAgent.MergeConflict(
                 state, ourCommitId, effectiveOtherCommitId, baseCommitId, Set.copyOf(files), Map.copyOf(nonText));
     }

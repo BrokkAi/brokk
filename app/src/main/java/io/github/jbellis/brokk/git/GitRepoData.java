@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -238,6 +239,8 @@ public class GitRepoData {
                 .filter(path -> !"/dev/null".equals(path))
                 .sorted() // Sort paths alphabetically for consistent ordering
                 .map(repo::toProjectFile)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .collect(Collectors.toList());
     }
 

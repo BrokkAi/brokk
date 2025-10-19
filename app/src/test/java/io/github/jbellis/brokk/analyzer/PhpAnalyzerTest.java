@@ -95,32 +95,6 @@ public class PhpAnalyzerTest {
                 """
         #[Attribute1]
         class Foo extends BaseFoo implements IFoo, IBar {
-          private const MY_CONST = ...;
-          public static $staticProp = ...;
-          protected $value;
-          private ?string $nullableProp;
-          #[Attribute2]
-          public function __construct(int $v) { ... }
-          public function getValue(): int { ... }
-          abstract protected function abstractMethod();
-          final public static function &refReturnMethod(): array { ... }
-        }
-        """
-                        .stripIndent();
-        // Note: The exact rendering of property initializers (= ...) might vary.
-        // The test above assumes property declarations without initializers in skeleton for simplicity, or with "...".
-        // `const MY_CONST = ...;` is fine as field-like definition node is `const_element` (name + value).
-        // `public static $staticProp = ...;` is also fine.
-        // `$value` and `$nullableProp` are without initializers.
-        // The PhpAnalyzer needs to correctly render property text from `property_element`
-        // and const text from `const_element`. The `buildSignatureString` for FIELD_LIKE
-        // uses `textSlice(nodeForContent, src).stripLeading().strip()`.
-        // This should capture `private const MY_CONST = "hello"` and `public static $staticProp = 123`.
-        // Let's update expected:
-        expectedSkeleton =
-                """
-        #[Attribute1]
-        class Foo extends BaseFoo implements IFoo, IBar {
           private const MY_CONST = "hello";
           public static $staticProp = 123;
           protected $value;
@@ -131,8 +105,7 @@ public class PhpAnalyzerTest {
           abstract protected function abstractMethod();
           final public static function &refReturnMethod(): array { ... }
         }
-        """
-                        .stripIndent();
+        """;
         // Note: `abstract protected` order might be `protected abstract` based on `extractModifiers` natural order.
         // The test used `abstract protected`. `extractModifiers` iterates children. The order depends on grammar.
         // Assuming PHP grammar order: visibility, static, abstract/final. So "protected abstract".
@@ -201,8 +174,7 @@ public class PhpAnalyzerTest {
         trait MyTrait {
           public function traitMethod() { ... }
         }
-        """
-                        .stripIndent();
+        """;
         assertEquals(expectedTraitSkeleton.trim(), traitOpt.get().trim());
     }
 
@@ -257,10 +229,10 @@ public class PhpAnalyzerTest {
         assertTrue(fooClassCUOpt.isPresent());
         final var sourceOpt = analyzer.getClassSource("My.Lib.Foo", true);
         assertTrue(sourceOpt.isPresent());
-        final var classSource = sourceOpt.get().stripIndent();
+        final var classSource = sourceOpt.get();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";
-        assertTrue(classSource.stripIndent().startsWith(expectedSourceStart));
-        assertTrue(classSource.stripIndent().endsWith("}")); // Outer class brace
+        assertTrue(classSource.startsWith(expectedSourceStart));
+        assertTrue(classSource.endsWith("}")); // Outer class brace
         assertTrue(classSource.contains("private const MY_CONST = \"hello\";"));
         assertTrue(classSource.contains("public function getValue(): int {"));
     }

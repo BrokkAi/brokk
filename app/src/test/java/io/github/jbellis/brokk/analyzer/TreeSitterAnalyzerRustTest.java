@@ -105,8 +105,7 @@ public class TreeSitterAnalyzerRustTest {
                                          const ID: u32 = 1;
                                          fn area(&self) -> f64 { ... }
                                        }
-                                       """
-                        .stripIndent();
+                                       """;
         assertEquals(
                 normalizeSource.apply(expectedPointSkeleton),
                 normalizeSource.apply(pointSkeleton),
@@ -118,8 +117,7 @@ public class TreeSitterAnalyzerRustTest {
                                           pub trait Drawable {
                                             fn draw(&self);
                                           }
-                                          """
-                        .stripIndent();
+                                          """;
         assertEquals(
                 normalizeSource.apply(expectedDrawableSkeleton),
                 normalizeSource.apply(drawableSkeleton),
@@ -141,8 +139,7 @@ public class TreeSitterAnalyzerRustTest {
         String expectedDistanceSkeleton =
                 """
                                           pub fn distance(p: &Point, q: &Point) -> f64 { ... }
-                                          """
-                        .stripIndent();
+                                          """;
         assertEquals(
                 normalizeSource.apply(expectedDistanceSkeleton),
                 normalizeSource.apply(skeletonsInPointRs.get(distanceCU)),
@@ -161,8 +158,7 @@ public class TreeSitterAnalyzerRustTest {
                                          Rgb(u8, u8, u8)
                                          Named { name: String }
                                        }
-                                       """
-                        .stripIndent();
+                                       """;
         assertEquals(
                 normalizeSource.apply(expectedColorSkeleton),
                 normalizeSource.apply(colorSkeleton),
@@ -178,8 +174,7 @@ public class TreeSitterAnalyzerRustTest {
                                               const ID: u32;
                                               fn area(&self) -> f64;
                                             }
-                                            """
-                        .stripIndent();
+                                            """;
         assertEquals(
                 normalizeSource.apply(expectedShapeTraitSkeleton),
                 normalizeSource.apply(shapeTraitSkeleton),

@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -11,6 +10,7 @@ import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
+import io.github.jbellis.brokk.util.EnvironmentJava;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -356,7 +356,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public @Nullable String getJdk() {
         var value = workspaceProps.getProperty(PROP_JDK_HOME);
         if (value == null || value.isBlank()) {
-            value = BuildAgent.detectJdk();
+            value = EnvironmentJava.detectJdk();
             setJdk(value);
         }
         return value;

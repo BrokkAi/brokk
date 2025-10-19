@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
+import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Environment;
@@ -164,8 +165,43 @@ public class MenuBar {
 
         menuBar.add(editMenu);
 
+        // Session menu
+        var sessionMenu = new JMenu("Session");
+
+        var newSessionItem = new JMenuItem("New Session");
+        newSessionItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            chrome.getContextManager()
+                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
+        }));
+        sessionMenu.add(newSessionItem);
+
+        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
+        newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            chrome.getContextManager()
+                    .createSessionFromContextAsync(
+                            chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
+        }));
+        sessionMenu.add(newSessionCopyWorkspaceItem);
+
+        sessionMenu.addSeparator();
+
+        var manageSessionsItem = new JMenuItem("Manage Sessions...");
+        manageSessionsItem.addActionListener(e -> {
+            var dialog = new SessionsDialog(chrome, chrome.getContextManager());
+            dialog.setVisible(true);
+        });
+        sessionMenu.add(manageSessionsItem);
+
+        menuBar.add(sessionMenu);
+
         // Context menu
-        var contextMenu = new JMenu("Workspace");
+        var contextMenu = new JMenu("Context");
 
         var refreshItem = new JMenuItem("Refresh Code Intelligence");
         refreshItem.addActionListener(e -> runWithRefocus(chrome, () -> {
@@ -178,7 +214,7 @@ public class MenuBar {
 
         contextMenu.addSeparator();
 
-        var attachContextItem = new JMenuItem("Attach Context...");
+        var attachContextItem = new JMenuItem("Attach ...");
         attachContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         attachContextItem.addActionListener(e -> {
@@ -187,7 +223,7 @@ public class MenuBar {
         attachContextItem.setEnabled(true);
         contextMenu.add(attachContextItem);
 
-        var summarizeContextItem = new JMenuItem("Summarize Context...");
+        var summarizeContextItem = new JMenuItem("Summarize ...");
         summarizeContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeContextItem.addActionListener(e -> {
@@ -291,28 +327,16 @@ public class MenuBar {
 
         contextMenu.addSeparator();
 
-        var newSessionItem = new JMenuItem("New Session");
-        newSessionItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            chrome.getContextManager()
-                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
+        var compressTaskHistoryItem = new JMenuItem("Compress Task History");
+        compressTaskHistoryItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_R, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        compressTaskHistoryItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            chrome.getContextManager().submitContextTask(() -> {
+                chrome.getContextManager().compressHistoryAsync();
+            });
         }));
-        contextMenu.add(newSessionItem);
-
-        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
-        newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            chrome.getContextManager()
-                    .createSessionFromContextAsync(
-                            chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
-        }));
-        contextMenu.add(newSessionCopyWorkspaceItem);
-
-        contextMenu.addSeparator();
+        compressTaskHistoryItem.setEnabled(true);
+        contextMenu.add(compressTaskHistoryItem);
 
         // Clear Task History (Cmd/Ctrl+P)
         var clearTaskHistoryItem = new JMenuItem("Clear Task History");
@@ -324,6 +348,8 @@ public class MenuBar {
         }));
         clearTaskHistoryItem.setEnabled(true);
         contextMenu.add(clearTaskHistoryItem);
+
+        contextMenu.addSeparator();
 
         var dropAllItem = new JMenuItem("Drop All");
         dropAllItem.setAccelerator(KeyStroke.getKeyStroke(

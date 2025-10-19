@@ -9,13 +9,13 @@ import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
-import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
@@ -160,7 +160,7 @@ public class SessionsDialog extends JDialog {
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
         markdownOutputPanel.withContextForLookups(contextManager, chrome);
-        markdownOutputPanel.updateTheme(chrome.getTheme().isDarkTheme());
+        markdownOutputPanel.updateTheme(io.github.jbellis.brokk.MainProject.getTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -618,14 +618,14 @@ public class SessionsDialog extends JDialog {
             var palette = List.of(
                     isDark ? Color.LIGHT_GRAY : Color.DARK_GRAY,
                     isDark
-                            ? ColorUtil.brighter(Colors.getAdded(true), 0.4f)
-                            : ColorUtil.brighter(Colors.getAdded(false), -0.4f),
+                            ? ColorUtil.brighter(ThemeColors.getDiffAdded(true), 0.4f)
+                            : ColorUtil.brighter(ThemeColors.getDiffAdded(false), -0.4f),
                     isDark
-                            ? ColorUtil.brighter(Colors.getChanged(true), 0.6f)
-                            : ColorUtil.brighter(Colors.getChanged(false), -0.4f),
+                            ? ColorUtil.brighter(ThemeColors.getDiffChanged(true), 0.6f)
+                            : ColorUtil.brighter(ThemeColors.getDiffChanged(false), -0.4f),
                     isDark
-                            ? ColorUtil.brighter(Colors.getDeleted(true), 1.2f)
-                            : ColorUtil.brighter(Colors.getDeleted(false), -0.4f));
+                            ? ColorUtil.brighter(ThemeColors.getDiffDeleted(true), 1.2f)
+                            : ColorUtil.brighter(ThemeColors.getDiffDeleted(false), -0.4f));
             return palette.get(paletteIndex);
         }
 

@@ -8,11 +8,6 @@ import java.util.Set;
 public class DisabledAnalyzer implements IAnalyzer {
 
     @Override
-    public boolean isEmpty() {
-        return true;
-    }
-
-    @Override
     public List<CodeUnit> getAllDeclarations() {
         return Collections.emptyList();
     }
@@ -25,11 +20,6 @@ public class DisabledAnalyzer implements IAnalyzer {
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
         return Collections.emptySet();
-    }
-
-    @Override
-    public Optional<ProjectFile> getFileFor(String fqcn) {
-        return Optional.empty();
     }
 
     @Override

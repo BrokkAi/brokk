@@ -223,8 +223,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                             (return_statement (jsx_self_closing_element) @jsx_return)
                             (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
                             (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
-                            """
-                            .stripIndent();
+                            """;
             // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
             // Ensure cursor is handled if it were AutoCloseable.
             TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
@@ -261,8 +260,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                         (assignment_expression left: (subscript_expression index: _ @mutated.id))
                         (update_expression argument: (identifier) @mutated.id)
                         (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
-                        """
-                        .stripIndent();
+                        """;
 
         // TSLanguage and TSQuery are not AutoCloseable.
         TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance

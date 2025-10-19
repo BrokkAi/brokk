@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
@@ -181,15 +182,11 @@ public class Brokk {
         }
     }
 
-    private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
+    private static void initializeLookAndFeelAndSplashScreen(String themeName) {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    if (isDark) {
-                        com.formdev.flatlaf.FlatDarculaLaf.setup();
-                    } else {
-                        com.formdev.flatlaf.FlatIntelliJLaf.setup();
-                    }
+                    GuiTheme.setupLookAndFeel(themeName);
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
                 }
@@ -381,8 +378,8 @@ public class Brokk {
         MainProject.loadRecentProjects(); // Load and potentially clean recent projects list
         ParsedArgs parsedArgs = parseArguments(args);
 
-        boolean isDark = MainProject.getTheme().equals("dark");
-        initializeLookAndFeelAndSplashScreen(isDark);
+        String themeName = MainProject.getTheme();
+        initializeLookAndFeelAndSplashScreen(themeName);
 
         // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {
@@ -391,6 +388,31 @@ public class Brokk {
                     Desktop.getDesktop().setAboutHandler(e -> AboutDialog.showAboutDialog(null));
                 } catch (UnsupportedOperationException ignored) {
                     // AboutHandler not supported on this platform/JVM – safe to ignore
+                }
+
+                // Register OpenFilesHandler for directory associations
+                try {
+                    Desktop.getDesktop().setOpenFileHandler(e -> {
+                        List<Path> pathsToOpen = e.getFiles().stream()
+                                .filter(java.io.File::isDirectory)
+                                .map(java.io.File::toPath)
+                                .toList();
+
+                        if (!pathsToOpen.isEmpty()) {
+                            // Open projects asynchronously to avoid blocking the handler
+                            SwingUtilities.invokeLater(() -> {
+                                hideSplashScreen();
+                                for (Path path : pathsToOpen) {
+                                    new OpenProjectBuilder(path).open().exceptionally(ex -> {
+                                        logger.error("Failed to open project from file handler: {}", path, ex);
+                                        return false;
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } catch (UnsupportedOperationException ignored) {
+                    // OpenFileHandler not supported – safe to ignore
                 }
             });
 
@@ -751,8 +773,7 @@ public class Brokk {
 
                                           Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
                                           """
-                                    .formatted(cause.getMessage())
-                                    .stripIndent();
+                                    .formatted(cause.getMessage());
                     SwingUtil.runOnEdt(() -> {
                         hideSplashScreen(); // Hide splash before showing error dialog
                         JOptionPane.showMessageDialog(

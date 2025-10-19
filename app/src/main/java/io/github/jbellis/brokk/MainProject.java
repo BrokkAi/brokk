@@ -107,8 +107,7 @@ public final class MainProject extends AbstractProject {
             """
                                                                The commit message should be structured as follows: <type>: <description>
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
-                                                               """
-                    .stripIndent();
+                                                               """;
 
     @Nullable
     private static volatile Boolean isDataShareAllowedCache = null;
@@ -151,8 +150,7 @@ public final class MainProject extends AbstractProject {
             - What additional tests, if any, would add the most value?
 
             Conclude with a summary of serious functional or design issues ONLY.
-            """
-                    .stripIndent();
+            """;
 
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {}

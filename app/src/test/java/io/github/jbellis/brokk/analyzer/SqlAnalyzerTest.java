@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -346,5 +347,154 @@ class SqlAnalyzerTest {
 
         List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentProjectFile);
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file.");
+    }
+
+    @Test
+    void testUpdateWithModifiedFile() throws IOException, InterruptedException {
+        Path sqlFile = tempDir.resolve("modified.sql");
+        String originalContent = "CREATE TABLE original_table (id INT);";
+        Files.writeString(sqlFile, originalContent, StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject, Collections.emptySet());
+        assertEquals(1, analyzer1.getAllDeclarations().size());
+        assertEquals("original_table", analyzer1.getAllDeclarations().get(0).shortName());
+
+        // Modify the file
+        Thread.sleep(50); // Ensure mtime difference
+        String modifiedContent = "CREATE TABLE modified_table (id INT, name VARCHAR(100));";
+        Files.writeString(sqlFile, modifiedContent, StandardCharsets.UTF_8);
+
+        // Update analyzer with the modified file
+        IAnalyzer analyzer2 = analyzer1.update(Set.of(projectFile));
+
+        List<CodeUnit> declarations = analyzer2.getAllDeclarations();
+        assertEquals(1, declarations.size());
+        assertEquals("modified_table", declarations.get(0).shortName());
+    }
+
+    @Test
+    void testUpdateWithDeletedFile() throws IOException {
+        Path sqlFile1 = tempDir.resolve("file1.sql");
+        Path sqlFile2 = tempDir.resolve("file2.sql");
+        Files.writeString(sqlFile1, "CREATE TABLE table1 (id INT);", StandardCharsets.UTF_8);
+        Files.writeString(sqlFile2, "CREATE TABLE table2 (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile1 =
+                new ProjectFile(tempDir, sqlFile1.getFileName().toString());
+        ProjectFile projectFile2 =
+                new ProjectFile(tempDir, sqlFile2.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile1, projectFile2));
+
+        SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject, Collections.emptySet());
+        assertEquals(2, analyzer1.getAllDeclarations().size());
+
+        // Delete the first file
+        Files.delete(sqlFile1);
+
+        // Update analyzer with the deleted file
+        IAnalyzer analyzer2 = analyzer1.update(Set.of(projectFile1));
+
+        List<CodeUnit> declarations = analyzer2.getAllDeclarations();
+        assertEquals(1, declarations.size());
+        assertEquals("table2", declarations.get(0).shortName());
+    }
+
+    @Test
+    void testUpdateWithNewFile() throws IOException, InterruptedException {
+        Path sqlFile1 = tempDir.resolve("file1.sql");
+        Files.writeString(sqlFile1, "CREATE TABLE table1 (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile1 =
+                new ProjectFile(tempDir, sqlFile1.getFileName().toString());
+
+        var testProject = createTestProject(Set.of(projectFile1));
+        SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject, Collections.emptySet());
+        assertEquals(1, analyzer1.getAllDeclarations().size());
+
+        Thread.sleep(50); // Ensure mtime difference
+
+        // Create a new file
+        Path sqlFile2 = tempDir.resolve("file2.sql");
+        Files.writeString(sqlFile2, "CREATE TABLE table2 (id INT);", StandardCharsets.UTF_8);
+        ProjectFile projectFile2 =
+                new ProjectFile(tempDir, sqlFile2.getFileName().toString());
+
+        // Update the project mock to include both files
+        var updatedTestProject = createTestProject(Set.of(projectFile1, projectFile2));
+
+        // Create a new analyzer with the updated project that includes both files
+        SqlAnalyzer analyzer2 = new SqlAnalyzer(updatedTestProject, Collections.emptySet());
+
+        List<CodeUnit> declarations = analyzer2.getAllDeclarations();
+        assertEquals(2, declarations.size());
+        var names = declarations.stream().map(CodeUnit::shortName).collect(Collectors.toSet());
+        assertTrue(names.contains("table1"));
+        assertTrue(names.contains("table2"));
+    }
+
+    @Test
+    void testUpdateWithEmptyChanges() throws IOException {
+        Path sqlFile = tempDir.resolve("test.sql");
+        Files.writeString(sqlFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject, Collections.emptySet());
+        IAnalyzer analyzer2 = analyzer1.update(Collections.emptySet());
+
+        // Should return the same analyzer instance when no changes
+        assertSame(analyzer1, analyzer2);
+    }
+
+    @Test
+    void testUpdateWithNonSqlFiles() throws IOException {
+        Path sqlFile = tempDir.resolve("test.sql");
+        Path txtFile = tempDir.resolve("test.txt");
+        Files.writeString(sqlFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
+        Files.writeString(txtFile, "Some text content", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject, Collections.emptySet());
+        assertEquals(1, analyzer1.getAllDeclarations().size());
+
+        // Try to update with a non-SQL file (should be ignored)
+        ProjectFile txtProjectFile =
+                new ProjectFile(tempDir, txtFile.getFileName().toString());
+        IAnalyzer analyzer2 = analyzer1.update(Set.of(txtProjectFile));
+
+        // Should still be the same since no SQL files were updated
+        assertSame(analyzer1, analyzer2);
+    }
+
+    @Test
+    void testFullUpdate() throws IOException, InterruptedException {
+        Path sqlFile = tempDir.resolve("test.sql");
+        String initialContent = "CREATE TABLE initial_table (id INT);";
+        Files.writeString(sqlFile, initialContent, StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer1 = new SqlAnalyzer(testProject, Collections.emptySet());
+        assertEquals(1, analyzer1.getAllDeclarations().size());
+        assertEquals("initial_table", analyzer1.getAllDeclarations().get(0).shortName());
+
+        // Modify the file
+        Thread.sleep(50); // Ensure mtime difference
+        String modifiedContent = "CREATE TABLE modified_table (id INT);";
+        Files.writeString(sqlFile, modifiedContent, StandardCharsets.UTF_8);
+
+        // Use full update (no explicit file list)
+        IAnalyzer analyzer2 = analyzer1.update();
+
+        List<CodeUnit> declarations = analyzer2.getAllDeclarations();
+        assertEquals(1, declarations.size());
+        assertEquals("modified_table", declarations.get(0).shortName());
     }
 }

@@ -60,31 +60,29 @@ public class ValidationAgent {
 
         var systemMessage =
                 """
-                You are an assistant that identifies potentially relevant test files.
-                Given a coding task, the current workspace, and a list of test files, identify which files *may* contain tests relevant to implementing the instructions.
-                List the full paths of the potentially relevant files, one per line. If none seem relevant, respond with "None".
+        You are an assistant that identifies potentially relevant test files.
+        Given a coding task, the current workspace, and a list of test files, identify which files *may* contain tests relevant to implementing the instructions.
+        List the full paths of the potentially relevant files, one per line. If none seem relevant, respond with "None".
 
-                Give the most-relevant files first.
-                """
-                        .stripIndent();
+        Give the most-relevant files first.
+        """;
         var userMessage =
                 """
-                <testfiles>
-                %s
-                </testfiles>
+        <testfiles>
+        %s
+        </testfiles>
 
-                <workspace>
-                %s
-                </workspace>
+        <workspace>
+        %s
+        </workspace>
 
-                <task>
-                %s
-                </task>
+        <task>
+        %s
+        </task>
 
-                Which of these test files might be relevant to testing the changes made to satisfy the given task? List the full paths, one per line.
-                """
-                        .formatted(filesText, workspaceSummary, instructions)
-                        .stripIndent();
+        Which of these test files might be relevant to testing the changes made to satisfy the given task? List the full paths, one per line.
+        """
+                        .formatted(filesText, workspaceSummary, instructions);
 
         // send the request
         var messages = List.of(new SystemMessage(systemMessage), new UserMessage(userMessage));
@@ -159,13 +157,12 @@ public class ValidationAgent {
 
         var criteria =
                 """
-                       Determine whether the following test file is useful for verifying code
-                       changes required by these instructions:
+        Determine whether the following test file is useful for verifying code
+        changes required by these instructions:
 
-                       %s
-                       """
-                        .formatted(instructions)
-                        .stripIndent();
+        %s
+        """
+                        .formatted(instructions);
 
         var candidate =
                 """
@@ -173,8 +170,7 @@ public class ValidationAgent {
 
                         %s
                         """
-                        .formatted(file, fileContent)
-                        .stripIndent();
+                        .formatted(file, fileContent);
 
         boolean relevant = RelevanceClassifier.isRelevant(llm, criteria, candidate);
         return new RelevanceResult(file, relevant);

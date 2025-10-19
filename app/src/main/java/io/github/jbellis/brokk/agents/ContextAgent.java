@@ -547,6 +547,8 @@ public class ContextAgent {
                    For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
                    then Foo.java and Bar.java are relevant files.
                  - Compare this combined list against the filenames available.
+                 - It's possible that files that were previously discarded are newly relevant, but when in doubt,
+                   do not recommend files that are listed in the <discarded_context> section.
 
                 Then, list the full path of each relevant filename, one per line.
                 </instructions>
@@ -557,20 +559,17 @@ public class ContextAgent {
                         .formatted(String.join("\n", filenames));
 
         var finalSystemMessage = new SystemMessage(systemPrompt);
-        var userPrompt =
-                """
-                <goal>
-                %s
-                </goal>
-
-                %s
-                """
-                        .formatted(goal, filenamePrompt)
-                        .stripIndent();
+        var discardedNote = getDiscardedContextNote();
+        var userPrompt = new StringBuilder().append("<goal>\n").append(goal).append("\n</goal>\n\n");
+        if (!discardedNote.isEmpty()) {
+            userPrompt.append("<discarded_context>\n").append(discardedNote).append("\n</discarded_context>\n\n");
+        }
+        userPrompt.append(filenamePrompt);
 
         List<ChatMessage> messages = Stream.concat(
                         Stream.of(finalSystemMessage),
-                        Stream.concat(workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt))))
+                        Stream.concat(
+                                workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt.toString()))))
                 .toList();
 
         int promptTokens = Messages.getApproximateMessageTokens(messages);
@@ -703,8 +702,7 @@ public class ContextAgent {
 
                 IMPORTANT: The provided section contains only one of those categories; do not assume the other category is present.
                 Analyze the provided information and determine which items are most relevant to achieving the goal.
-                """
-                        .stripIndent();
+                """;
 
         var finalSystemMessage = new SystemMessage(deepPromptTemplate);
         var userMessageText = new StringBuilder();
@@ -734,6 +732,14 @@ public class ContextAgent {
                     .append("\n</available_files_content>\n\n");
         }
 
+        var discardedNote = getDiscardedContextNote();
+        if (!discardedNote.isEmpty()) {
+            userMessageText
+                    .append("<discarded_context>\n")
+                    .append(discardedNote)
+                    .append("\n</discarded_context>\n\n");
+        }
+
         userMessageText.append("\n<goal>\n%s\n</goal>\n".formatted(goal));
         var userPrompt =
                 """
@@ -745,6 +751,8 @@ public class ContextAgent {
                 - Think about how you would solve the <goal>, and identify additional classes and files relevant to your plan.
                   For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
                   then Foo and Bar are relevant classes, and their source files may be relevant files.
+                - It's possible that files that were previously discarded are newly relevant, but when in doubt,
+                  do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
 
                 Then call the `recommendContext` tool with the appropriate entries:
@@ -813,6 +821,18 @@ public class ContextAgent {
     }
 
     private static class ContextTooLargeException extends Exception {}
+
+    // --- Discarded context helper ---
+
+    private String getDiscardedContextNote() {
+        var discardedMap = cm.liveContext().getDiscardedFragmentsNote();
+        if (discardedMap.isEmpty()) {
+            return "";
+        }
+        return discardedMap.entrySet().stream()
+                .map(e -> "- " + e.getKey() + ": " + e.getValue())
+                .collect(Collectors.joining("\n"));
+    }
 
     // --- File content helpers ---
 

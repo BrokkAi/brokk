@@ -1089,8 +1089,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                                        ---
 
                                        %s
-                                       """
-                        .stripIndent(),
+                                       """,
                 header.id(),
                 header.title(),
                 header.author(),

@@ -1907,7 +1907,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                                         %s
                                         """
-                                        .stripIndent()
                                         .formatted(codeForLLM)));
 
                 var result = getLlm(service.get().getScanModel(), "Generate style guide")
@@ -2516,14 +2515,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
+    public void createHeadless() {
+        createHeadless(BuildDetails.EMPTY);
+    }
+
     /**
-     * Allows injection of a custom {@link IConsoleIO} implementation, enabling head-less (CLI) operation where a GUI is
-     * not available.
-     *
-     * <p>This should be invoked immediately after constructing the {@code ContextManager} but before any tasks are
+     * This should be invoked immediately after constructing the {@code ContextManager} but before any tasks are
      * submitted, so that all logging and UI callbacks are routed to the desired sink.
      */
-    public void createHeadless() {
+    public void createHeadless(BuildDetails buildDetails) {
         this.io = new HeadlessConsole();
         this.userActions.setIo(this.io);
 
@@ -2535,7 +2535,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // otherwise we leave them empty
         var mp = project.getMainProject();
         if (mp.loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
-            mp.setBuildDetails(BuildAgent.BuildDetails.EMPTY);
+            mp.setBuildDetails(buildDetails);
         }
 
         // no AnalyzerListener, instead we will block for it to be ready
@@ -2577,12 +2577,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         lowBalanceNotified = false; // reset low-balance flag
                         var msg =
                                 """
-                                  Brokk is running in the free tier. Only low-cost models are available.
+                        Brokk is running in the free tier. Only low-cost models are available.
 
-                                  To enable smarter models, subscribe or top-up at
-                                  %s
-                                  """
-                                        .stripIndent()
+                        To enable smarter models, subscribe or top-up at
+                        %s
+                        """
                                         .formatted(Service.TOP_UP_URL);
                         SwingUtilities.invokeLater(
                                 () -> io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));

@@ -42,10 +42,10 @@ public final class MergePrompts {
                 - Organize the output with Markdown headings and concise bulleted explanations.
                 - First, provide a short executive summary
                 - Then, detail "Changed Public APIs":
-                  - Added/removed/renamed types (classes, interfaces, records, enums)
-                  - Added/removed/changed public/protected methods and fields
-                  - Signature changes (parameters, generics, exceptions, visibility, static/final)
-                  - Behavioral changes that materially affect API contracts or threading, nullability, or error handling
+                - Added/removed/renamed types (classes, interfaces, records, enums)
+                - Added/removed/changed public/protected methods and fields
+                - Signature changes (parameters, generics, exceptions, visibility, static/final)
+                - Behavioral changes that materially affect API contracts or threading, nullability, or error handling
                 - Call out BREAKING CHANGES clearly
                 - Mention notable refactors, file moves/renames, and dependency/configuration changes that affect integration.
                 - Where the diff is ambiguous, state assumptions explicitly (e.g., "likely rename", "inferred contract change").
@@ -59,7 +59,6 @@ public final class MergePrompts {
                 </diff>
                 </range>
                 """
-                        .stripIndent()
                         .formatted(from, to, diff));
 
         return List.of(system, user);

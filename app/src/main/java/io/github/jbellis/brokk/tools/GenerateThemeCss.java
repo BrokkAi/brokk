@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.tools;
 
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 import java.io.IOException;
@@ -9,7 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Tiny CLI that dumps both theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
+ * Tiny CLI that dumps all three theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
  * in JDK + Brokk classes.
  *
  * <p>Usage (manual): $ sbt "runMain io.github.jbellis.brokk.tools.GenerateThemeCss [outputPath]"
@@ -21,8 +22,10 @@ public final class GenerateThemeCss {
 
         Files.createDirectories(target.getParent());
 
-        String darkBlock = toCssVariables(true);
-        String lightBlock = toCssVariables(false);
+        // Generate CSS for all three themes
+        String darkBlock = toCssVariables(GuiTheme.THEME_DARK);
+        String lightBlock = toCssVariables(GuiTheme.THEME_LIGHT);
+        String highContrastBlock = toCssVariables(GuiTheme.THEME_HIGH_CONTRAST);
 
         String banner =
                 """
@@ -31,7 +34,7 @@ public final class GenerateThemeCss {
              */
             """;
 
-        String content = banner + "\n" + darkBlock + "\n" + lightBlock + "\n";
+        String content = banner + "\n" + darkBlock + "\n" + lightBlock + "\n" + highContrastBlock + "\n";
 
         Files.writeString(target, content);
         System.out.printf("Theme SCSS written to %s (%d bytes)%n", target.toAbsolutePath(), content.length());
@@ -43,15 +46,24 @@ public final class GenerateThemeCss {
     /**
      * Converts theme colors to CSS variables for a specific theme.
      *
-     * @param isDarkTheme true for dark theme, false for light theme
+     * @param themeName the theme name (dark, light, or high-contrast)
      * @return String containing CSS variables block
      */
-    private static String toCssVariables(boolean isDarkTheme) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(":root").append(isDarkTheme ? ".theme-dark" : ".theme-light").append(" {\n");
+    private static String toCssVariables(String themeName) {
+        // Load the theme into UIManager so ThemeColors can read from it
+        GuiTheme.setupLookAndFeel(themeName);
 
-        // Get the appropriate color map
-        Map<String, Color> colors = ThemeColors.getAllColors(isDarkTheme);
+        // Reload ThemeColors to pick up the new theme
+        ThemeColors.reloadColors();
+
+        StringBuilder sb = new StringBuilder();
+        // Convert theme name to CSS class name (e.g., "high-contrast" -> ".theme-high-contrast")
+        String cssClassName = ".theme-" + themeName;
+        sb.append(":root").append(cssClassName).append(" {\n");
+
+        // Get colors from ThemeColors (now loaded from UIManager)
+        // The boolean parameter is ignored, but we pass true for consistency
+        Map<String, Color> colors = ThemeColors.getAllColors(true);
 
         colors.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
             String key = entry.getKey();

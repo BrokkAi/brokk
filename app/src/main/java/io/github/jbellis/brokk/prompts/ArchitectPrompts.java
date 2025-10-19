@@ -26,7 +26,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
           %s
           </style_guide>
           """
-                        .stripIndent()
                         .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
                         .trim();
         return new SystemMessage(text);
@@ -128,8 +127,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
         DO NOT assume that the workspace is correctly configured to start solving the goal! You MUST
         evaluate the workspace contents INDEPENDENTLY at each step and drop irrelevant fragments for
         the next step in your plan!
-        """
-                .stripIndent();
+        """;
     }
 
     public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int minInputTokenLimit) {
@@ -154,7 +152,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
                     A lean, focused workspace is essential for complex tasks.
                     """
-                                .stripIndent()
                                 .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
             } else if (workspaceTokenSize > warningLimit) {
                 workspaceWarning =
@@ -171,7 +168,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
                     A lean, focused workspace is crucial for complex tasks.
                     """
-                                .stripIndent()
                                 .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
             }
         }
@@ -203,7 +199,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .stripIndent()
                 .formatted(goal, formatWorkspaceToc(cm), workspaceWarning);
     }
 }

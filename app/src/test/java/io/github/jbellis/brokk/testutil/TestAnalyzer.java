@@ -32,18 +32,8 @@ public class TestAnalyzer implements io.github.jbellis.brokk.analyzer.IAnalyzer,
     }
 
     @Override
-    public boolean isEmpty() {
-        return false;
-    }
-
-    @Override
     public List<CodeUnit> getAllDeclarations() {
         return allClasses;
-    }
-
-    @Override
-    public List<CodeUnit> getMembersInClass(String fqClass) {
-        return methodsMap.getOrDefault(fqClass, List.of());
     }
 
     public Map<String, List<CodeUnit>> getMethodsMap() {

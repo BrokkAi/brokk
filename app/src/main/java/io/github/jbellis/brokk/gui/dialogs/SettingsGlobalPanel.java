@@ -65,6 +65,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
@@ -670,12 +671,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         lightThemeRadio = new JRadioButton("Light");
         darkThemeRadio = new JRadioButton("Dark");
+        highContrastThemeRadio = new JRadioButton("High Contrast");
         var themeGroup = new ButtonGroup();
         themeGroup.add(lightThemeRadio);
         themeGroup.add(darkThemeRadio);
+        themeGroup.add(highContrastThemeRadio);
 
-        lightThemeRadio.putClientProperty("theme", false); // Custom property for easy identification
-        darkThemeRadio.putClientProperty("theme", true);
+        lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
+        darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
+        highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -685,6 +689,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(highContrastThemeRadio, gbc);
 
         // Word wrap for code blocks
         gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
@@ -1110,10 +1117,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
 
         // Appearance Tab
-        if (MainProject.getTheme().equals("dark")) {
-            darkThemeRadio.setSelected(true);
-        } else {
-            lightThemeRadio.setSelected(true);
+        String currentTheme = MainProject.getTheme();
+        switch (currentTheme) {
+            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
+            default -> lightThemeRadio.setSelected(true);
         }
 
         // Code Block Layout
@@ -1251,9 +1259,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
 
         // Appearance Tab
-        boolean newIsDark = darkThemeRadio.isSelected();
+        // Get theme from the selected radio button's client property
+        String newTheme = GuiTheme.THEME_LIGHT; // default
+        if (lightThemeRadio.isSelected()) {
+            newTheme = (String) lightThemeRadio.getClientProperty("theme");
+        } else if (darkThemeRadio.isSelected()) {
+            newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (highContrastThemeRadio.isSelected()) {
+            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
+        }
+
         boolean newWrapMode = wordWrapCheckbox.isSelected();
-        String newTheme = newIsDark ? "dark" : "light";
         boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
 
         // Check if either theme or wrap mode changed
@@ -1269,7 +1285,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             // Apply theme and wrap mode changes via unified Chrome method
             if (themeChanged || wrapChanged) {
-                chrome.switchThemeAndWrapMode(newIsDark, newWrapMode);
+                chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
                 logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
             }
         }

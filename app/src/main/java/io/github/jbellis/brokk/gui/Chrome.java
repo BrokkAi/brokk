@@ -245,6 +245,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
     private @Nullable TerminalDrawerPanel terminalDrawer = null;
+    // Branch selector moved to Chrome so it can be shown above the right tab stack
+    private @Nullable BranchSelectorButton branchSelectorButton = null;
+    // Container that wraps the right tabbed pane plus the header (branch button + title).
+    // Declared as a field because various methods (collapse/expand etc.) reference it.
+    private @Nullable JPanel rightTabbedContainer = null;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -311,7 +316,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         initializeThemeManager();
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
-        frame.setTitle("Brokk: " + getProject().getRoot());
+        var rootPath = getProject().getRoot();
+        var title = "%s (%s)".formatted(rootPath.getFileName(), rootPath.getParent());
+        frame.setTitle(title);
 
         // Show initial system message
         showNotification(
@@ -482,29 +489,40 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
         rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
 
+        // Wrap the tabbed panel in a container that includes a small header above it.
+        // The header hosts the branch selector on the left and a centered "Instructions" title.
+        this.rightTabbedContainer = new JPanel(new BorderLayout());
+        this.rightTabbedContainer.setOpaque(false);
+
+        var headerPanel = new JPanel(new BorderLayout(H_GAP, 0));
+        headerPanel.setOpaque(true);
+        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
+        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Branch");
+        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+        headerPanel.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
+
+        // Branch selector button on the left
+        branchSelectorButton = new BranchSelectorButton(this);
+        int branchWidth = 210;
+        // Use a reasonable default height for compact header. The exact height will be adjusted by layout.
+        var branchDim = new Dimension(branchWidth, 28);
+        branchSelectorButton.setPreferredSize(branchDim);
+        branchSelectorButton.setMinimumSize(branchDim);
+        branchSelectorButton.setMaximumSize(branchDim);
+
+        var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        leftHeader.setOpaque(false);
+        leftHeader.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
+        leftHeader.add(branchSelectorButton);
+        headerPanel.add(leftHeader, BorderLayout.WEST);
+
+        rightTabbedContainer.add(headerPanel, BorderLayout.NORTH);
+        rightTabbedContainer.add(rightTabbedPanel, BorderLayout.CENTER);
+
         // Create and add TaskListPanel as second tab (with list icon)
         taskListPanel = new TaskListPanel(this);
         rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
         rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
-
-        var contextAreaContainer = instructionsPanel.getContextAreaContainer();
-        rightTabbedPanel.addChangeListener(e -> {
-            var selected = rightTabbedPanel.getSelectedComponent();
-            if (selected == instructionsPanel) {
-                taskListPanel.restoreControls();
-                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
-                instructionsPanel.revalidate();
-                instructionsPanel.repaint();
-            } else if (selected == taskListPanel) {
-                var parent = contextAreaContainer.getParent();
-                if (parent != null) {
-                    parent.remove(contextAreaContainer);
-                    parent.revalidate();
-                    parent.repaint();
-                }
-                taskListPanel.setSharedContextArea(contextAreaContainer);
-            }
-        });
 
         // Create and add TerminalPanel as third tab (with terminal icon)
         this.terminalPanel =
@@ -512,12 +530,51 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
         rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
 
-        // No right-side drawer; the rightTabbedPanel occupies full right side
-        rightTabbedPanel.setMinimumSize(new Dimension(200, 325));
+        var contextAreaContainer = instructionsPanel.getContextAreaContainer();
+        rightTabbedPanel.addChangeListener(e -> {
+            var selected = rightTabbedPanel.getSelectedComponent();
+            if (selected == instructionsPanel) {
+                // Move shared Context area back to Instructions
+                taskListPanel.restoreControls();
+                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
+                instructionsPanel.revalidate();
+                instructionsPanel.repaint();
+
+                // Move shared ModelSelector back to Instructions bottom bar
+                instructionsPanel.restoreModelSelectorToBottom();
+            } else if (selected == taskListPanel) {
+                // Move shared Context area to Tasks
+                var parent = contextAreaContainer.getParent();
+                if (parent != null) {
+                    parent.remove(contextAreaContainer);
+                    parent.revalidate();
+                    parent.repaint();
+                }
+                taskListPanel.setSharedContextArea(contextAreaContainer);
+
+                // Move shared ModelSelector to the TaskList controls (next to Play/Stop)
+                try {
+                    var comp = instructionsPanel.getModelSelectorComponent();
+                    taskListPanel.setSharedModelSelector(comp);
+                } catch (Exception ex) {
+                    logger.debug("Unable to move shared ModelSelector to TaskListPanel", ex);
+                }
+            } else if (selected == terminalPanel) {
+                if (terminalPanel.isReady()) {
+                    terminalPanel.requestFocusInTerminal();
+                } else {
+                    terminalPanel.whenReady().thenRun(() -> terminalPanel.requestFocusInTerminal());
+                }
+            }
+        });
+
+        // No right-side drawer; the rightTabbedContainer occupies full right side
+        rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
 
         // Attach the combined components as the bottom component
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        workspaceInstructionsSplit.setBottomComponent(rightTabbedPanel);
+        // Use the container (with header) as the bottom component so the header sits just north of the tabs.
+        workspaceInstructionsSplit.setBottomComponent(rightTabbedContainer);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
         // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
         workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
@@ -779,9 +836,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
-        boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         boolean wrapMode = MainProject.getCodeBlockWrapMode();
-        switchThemeAndWrapMode(isDark, wrapMode);
+        switchThemeAndWrapMode(currentTheme, wrapMode);
     }
 
     /**
@@ -828,8 +884,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager.applyTheme(isDark);
     }
 
+    public void switchTheme(String themeName) {
+        boolean wordWrap = MainProject.getCodeBlockWrapMode();
+        themeManager.applyTheme(themeName, wordWrap);
+    }
+
     public void switchThemeAndWrapMode(boolean isDark, boolean wordWrap) {
         themeManager.applyTheme(isDark, wordWrap);
+    }
+
+    public void switchThemeAndWrapMode(String themeName, boolean wordWrap) {
+        themeManager.applyTheme(themeName, wordWrap);
     }
 
     public GuiTheme getTheme() {
@@ -941,7 +1006,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     logger.trace("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
                     return;
                 }
-                instructionsPanel.refreshBranchUi(display);
+                // Delegate branch UI updates to the branch selector hosted in Chrome
+                refreshBranchUi(display);
                 lastDisplayedBranchLabel = display;
             } catch (Exception ex) {
                 logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
@@ -1935,7 +2001,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (workingFragment.isText()
                     && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
-                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.updateTheme(MainProject.getTheme());
                 markdownPanel.setText(List.of(Messages.customSystem(workingFragment.text())));
 
                 // Use shared utility method to create searchable content panel without scroll pane
@@ -2459,6 +2525,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         closeButton.setBorderPainted(false);
         closeButton.setFocusPainted(false);
         closeButton.setToolTipText("Close");
+        var closeFg = UIManager.getColor("Button.close.foreground");
+        closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
 
         closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -2469,7 +2537,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
-                closeButton.setForeground(null);
+                var closeFg = UIManager.getColor("Button.close.foreground");
+                closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
             }
         });
@@ -2546,6 +2615,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+            taskListPanel.refreshFromManager();
         });
     }
 
@@ -2990,6 +3060,47 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    /**
+     * Refresh the branch selector UI hosted in Chrome. Safe to call from any thread.
+     *
+     * @param branchName the branch name to display (may be null/blank)
+     */
+    public void refreshBranchUi(String branchName) {
+        SwingUtilities.invokeLater(() -> {
+            if (branchSelectorButton != null) {
+                branchSelectorButton.refreshBranch(branchName);
+            }
+            // Keep the project files drawer title in sync if needed
+            try {
+                updateProjectFilesDrawerTitle(branchName);
+            } catch (Exception ex) {
+                logger.debug("updateProjectFilesDrawerTitle failed", ex);
+            }
+        });
+    }
+
+    /**
+     * Update the Project Files drawer title (or border) to reflect the current branch.
+     * This is intentionally conservative: it will try to update the ProjectFilesPanel border/title
+     * and otherwise act as a safe no-op so callers don't need null checks.
+     *
+     * @param branchName branch name to append to the title (may be null/blank)
+     */
+    private void updateProjectFilesDrawerTitle(String branchName) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                String base = "Project Files";
+                String suffix = branchName.isBlank() ? "" : " — " + branchName;
+                projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
+                projectFilesPanel.revalidate();
+                projectFilesPanel.repaint();
+            } catch (Exception ex) {
+                // Defensive: don't let UI-sync failures propagate
+                logger.debug("updateProjectFilesDrawerTitle inner failed", ex);
+            }
+        });
+    }
+
     /** Builds a JLabel for use as a square tab component, ensuring width == height. */
     private static JLabel createSquareTabLabel(Icon icon, String tooltip) {
         var label = new JLabel(icon);
@@ -3005,8 +3116,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (icon instanceof io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon themedIcon) {
             try {
                 themedIcon.ensureResolved();
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
                 // Defensive: do not let icon resolution errors interrupt UI construction
+                logger.debug("Failed to resolve themed icon; continuing without blocking UI", ex);
             }
         }
 
@@ -3069,8 +3181,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         // Clamp to avoid pathological values
                         savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
                     }
-                } catch (Exception ignored) {
-                    // fallback will be used on restore
+                } catch (Exception ex) {
+                    // Non-fatal: we'll use default proportion on restore
+                    logger.debug("Failed to save top split proportion; using defaults on restore", ex);
                 }
 
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
@@ -3090,14 +3203,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         instructionsHeightPx =
                                 Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
                     }
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
                     // Defensive; we'll clamp during restore regardless
+                    logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
                 }
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
 
-                // Swap to Instructions-only in the bottom (now using the rightTabbedPanel directly)
-                mainVerticalSplitPane.setBottomComponent(rightTabbedPanel);
+                // Swap to Instructions-only in the bottom (now using the rightTabbedContainer directly)
+                mainVerticalSplitPane.setBottomComponent(rightTabbedContainer);
 
                 // Revalidate layout, then set the main divider so bottom == pinned Instructions height
                 mainVerticalSplitPane.revalidate();
@@ -3106,12 +3220,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 this.workspaceCollapsed = true;
             } else {
-                // Ensure the workspace split bottom points to the instructions area (rightTabbedPanel), then restore it
+                // Ensure the workspace split bottom points to the instructions area (rightTabbedContainer), then
+                // restore it
                 // as bottom
                 try {
-                    topSplitPane.setBottomComponent(rightTabbedPanel);
-                } catch (Exception ignored) {
-                    // If it's already set due to prior operations, ignore
+                    topSplitPane.setBottomComponent(rightTabbedContainer);
+                } catch (Exception ex) {
+                    // If it's already set due to prior operations, ignore but record for diagnostics
+                    logger.debug("topSplitPane.setBottomComponent() failed (likely already set)", ex);
                 }
                 mainVerticalSplitPane.setBottomComponent(topSplitPane);
 
@@ -3138,8 +3254,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     // Finally set the top split divider by proportion to restore Workspace share
                     try {
                         topSplitPane.setDividerLocation(p);
-                    } catch (Exception ignored) {
-                        // ignore
+                    } catch (Exception ex) {
+                        logger.debug("Failed to set topSplitPane divider by proportion; will rely on layout", ex);
                     }
                 });
 

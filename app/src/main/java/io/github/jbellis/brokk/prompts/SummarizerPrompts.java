@@ -68,7 +68,6 @@ public class SummarizerPrompts {
         Summarize the text in %d words or fewer.
         </goal>
         """
-                .stripIndent()
                 .formatted(actionTxt, wordBudget);
     }
 
@@ -77,8 +76,7 @@ public class SummarizerPrompts {
                You are an expert software engineer that generates concise summaries of code-related text.
 
                Reply only with the summary, without any additional text, explanations, or line breaks.
-               """
-                .stripIndent();
+               """;
     }
 
     public List<ChatMessage> compressHistory(String entryText) {
@@ -91,7 +89,6 @@ public class SummarizerPrompts {
         Here is the task to summarize. Do not include XML tags or other markup.
         %s
         """
-                        .stripIndent()
                         .formatted(entryText);
         return List.of(new SystemMessage(systemIntro()), new UserMessage(instructions));
     }
@@ -100,8 +97,7 @@ public class SummarizerPrompts {
         return """
                Describe the intent, behaviour changes and key implementation ideas in human language.
                Use bullet points or short paragraphs. 75–150 words is ideal. Just focus on the most important changes.
-               """
-                .stripIndent();
+               """;
     }
 
     private String prDescriptionFromCommitsGuidance() {
@@ -109,8 +105,7 @@ public class SummarizerPrompts {
                Use ONLY the commit messages below. Summarise the intent, major behaviour
                changes, and key implementation ideas. 75–150 words, ideal.
                Do NOT include raw commit messages verbatim.
-               """
-                .stripIndent();
+               """;
     }
 
     public List<ChatMessage> collectPrDescriptionMessages(String diff) {
@@ -119,7 +114,6 @@ public class SummarizerPrompts {
                         """
                     You are an expert software engineer writing clear pull-request descriptions.
                     %s"""
-                                .stripIndent()
                                 .formatted(prDescriptionGuidance())),
                 new UserMessage("<diff>\n" + diff + "\n</diff>"));
     }
@@ -132,7 +126,6 @@ public class SummarizerPrompts {
                         """
                 You are an expert software engineer writing clear pull-request descriptions.
                 %s"""
-                                .stripIndent()
                                 .formatted(prDescriptionFromCommitsGuidance())),
                 new UserMessage("<commits>\n" + body + "\n</commits>"));
     }
@@ -148,7 +141,6 @@ public class SummarizerPrompts {
 
                     Guidelines for the description:
                     %s"""
-                                .stripIndent()
                                 .formatted(prDescriptionGuidance())),
                 new UserMessage("<diff>\n" + diff + "\n</diff>"));
     }
@@ -166,7 +158,6 @@ public class SummarizerPrompts {
 
                     Guidelines for the description:
                     %s"""
-                                .stripIndent()
                                 .formatted(prDescriptionFromCommitsGuidance())),
                 new UserMessage("<commits>\n" + body + "\n</commits>"));
     }

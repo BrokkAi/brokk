@@ -186,10 +186,9 @@ public class EditBlock {
                     replaceMostSimilarChunk(contextManager, originalContent, block.afterText(), "");
                     commentary =
                             """
-                                 The replacement text is already present in the file. If we no longer need to apply
-                                 this block, omit it from your reply.
-                                 """
-                                    .stripIndent();
+                    The replacement text is already present in the file. If we no longer need to apply
+                    this block, omit it from your reply.
+                    """;
                 } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
                     commentary = "";
                 }
@@ -199,8 +198,7 @@ public class EditBlock {
                             """
                               Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
                               Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
-                              """
-                                    .stripIndent();
+                              """;
                 }
 
                 logger.debug(
@@ -236,15 +234,15 @@ public class EditBlock {
             var beforeText = beforeText();
             var afterText = afterText();
             return """
-                   %s
-                   %s
-                   <<<<<<< SEARCH
-                   %s%s
-                   =======
-                   %s%s
-                   >>>>>>> REPLACE
-                   %s
-                   """
+            %s
+            %s
+            <<<<<<< SEARCH
+            %s%s
+            =======
+            %s%s
+            >>>>>>> REPLACE
+            %s
+            """
                     .formatted(
                             DEFAULT_FENCE.get(0),
                             rawFileName(),

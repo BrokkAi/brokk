@@ -55,7 +55,7 @@ public class JavaAnalyzerTest {
     public void extractMethodSource() {
         final var sourceOpt = analyzer.getMethodSource("A.method2", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim().stripIndent();
+        final var source = sourceOpt.get().trim();
         final String expected =
                 """
                 public String method2(String input) {
@@ -67,8 +67,7 @@ public class JavaAnalyzerTest {
                         return "prefix_" + input + " " + otherInput;
                     }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
 
         assertEquals(expected, source);
     }
@@ -77,7 +76,7 @@ public class JavaAnalyzerTest {
     public void extractMethodSourceNested() {
         final var sourceOpt = analyzer.getMethodSource("A.AInner.AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim().stripIndent();
+        final var source = sourceOpt.get().trim();
 
         final var expected =
                 """
@@ -85,8 +84,7 @@ public class JavaAnalyzerTest {
                                 System.out.println("hello");
                             }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
 
         assertEquals(expected, source);
     }
@@ -95,7 +93,7 @@ public class JavaAnalyzerTest {
     public void extractMethodSourceConstructor() {
         final var sourceOpt = analyzer.getMethodSource("B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim().stripIndent();
+        final var source = sourceOpt.get().trim();
 
         final var expected =
                 """
@@ -103,8 +101,7 @@ public class JavaAnalyzerTest {
                                 System.out.println("B constructor");
                             }
                         """
-                        .trim()
-                        .stripIndent();
+                        .trim();
 
         assertEquals(expected, source);
     }
@@ -124,7 +121,7 @@ public class JavaAnalyzerTest {
     public void getClassSourceNestedTest() {
         final var sourceOpt = analyzer.getClassSource("A.AInner", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().stripIndent();
+        final var source = sourceOpt.get();
         // Verify the source contains inner class definition
         final var expected =
                 """
@@ -136,8 +133,7 @@ public class JavaAnalyzerTest {
                         }
                     }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
         assertEquals(expected, source);
     }
 
@@ -145,7 +141,7 @@ public class JavaAnalyzerTest {
     public void getClassSourceTwiceNestedTest() {
         final var sourceOpt = analyzer.getClassSource("A.AInner.AInnerInner", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().stripIndent();
+        final var source = sourceOpt.get();
         // Verify the source contains inner class definition
         final var expected =
                 """
@@ -155,8 +151,7 @@ public class JavaAnalyzerTest {
                             }
                         }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
         assertEquals(expected, source);
     }
 
@@ -176,7 +171,7 @@ public class JavaAnalyzerTest {
     public void getSkeletonTestA() {
         final var skeletonOpt = analyzer.getSkeleton("A");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim().stripIndent();
+        final var skeleton = skeletonOpt.get().trim();
 
         final var expected =
                 """
@@ -199,8 +194,7 @@ public class JavaAnalyzerTest {
                   private void usesInnerClass()
                 }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
         assertEquals(expected, skeleton);
     }
 
@@ -208,7 +202,7 @@ public class JavaAnalyzerTest {
     public void getSkeletonTestD() {
         final var skeletonOpt = analyzer.getSkeleton("D");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim().stripIndent();
+        final var skeleton = skeletonOpt.get().trim();
 
         final var expected =
                 """
@@ -223,8 +217,7 @@ public class JavaAnalyzerTest {
                   }
                 }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
         assertEquals(expected, skeleton);
     }
 
@@ -232,7 +225,7 @@ public class JavaAnalyzerTest {
     public void getSkeletonTestEnum() {
         final var skeletonOpt = analyzer.getSkeleton("EnumClass");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim().stripIndent();
+        final var skeleton = skeletonOpt.get().trim();
 
         final var expected =
                 """
@@ -241,8 +234,7 @@ public class JavaAnalyzerTest {
                   BAR
                 }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
         assertEquals(expected, skeleton);
     }
 
@@ -250,7 +242,7 @@ public class JavaAnalyzerTest {
     public void getGetSkeletonHeaderTest() {
         final var skeletonOpt = analyzer.getSkeletonHeader("D");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim().stripIndent();
+        final var skeleton = skeletonOpt.get().trim();
 
         final var expected =
                 """
@@ -260,8 +252,7 @@ public class JavaAnalyzerTest {
                   [...]
                 }
                 """
-                        .trim()
-                        .stripIndent();
+                        .trim();
         assertEquals(expected, skeleton);
     }
 

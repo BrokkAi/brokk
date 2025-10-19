@@ -57,8 +57,7 @@ public class WandAction {
     }
 
     public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO) throws InterruptedException {
-        var service = contextManager.getService();
-        var model = service.getWandModel();
+        var model = contextManager.getCodeModel();
 
         String instruction =
                 """
@@ -78,7 +77,7 @@ public class WandAction {
                 </goal>
                 """
                         .formatted(
-                                ContextFragment.getSummary(
+                                ContextFragment.describe(
                                         contextManager.topContext().allFragments()),
                                 originalPrompt);
 

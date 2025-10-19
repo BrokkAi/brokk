@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui.tests;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -12,6 +11,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -206,7 +206,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         // Enable/disable Run All based on current build details availability
         if (chrome != null) {
             try {
-                var details = chrome.getProject().loadBuildDetails();
+                var details = chrome.getProject().awaitBuildDetails();
                 runAllButton.setEnabled(!details.equals(BuildAgent.BuildDetails.EMPTY)
                         && !details.testAllCommand().isBlank());
             } catch (Exception ex) {
@@ -641,23 +641,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
         // Guard basic configuration
         var project = chrome.getProject();
-        BuildAgent.BuildDetails details;
-        try {
-            details = project.loadBuildDetails();
-        } catch (Exception e) {
-            chrome.toolError("Failed to load build details: " + e.getMessage(), "Run All Tests");
-            return;
-        }
-        if (details == null
-                || details.equals(BuildAgent.BuildDetails.EMPTY)
+        BuildAgent.BuildDetails details = project.awaitBuildDetails();
+        if (details.equals(BuildAgent.BuildDetails.EMPTY)
                 || details.testAllCommand().isBlank()) {
             chrome.toolError(
                     "No 'Test All Command' configured. Open Settings ▸ Build to configure it.", "Run All Tests");
             return;
         }
 
-        String command = prefixWithJavaHomeIfNeeded(project, details.testAllCommand());
-        executeTests(command, -1);
+        String command = details.testAllCommand();
+        executeTests(command, -1, details.environmentVariables());
     }
 
     public void runTests(Set<ProjectFile> testFiles) {
@@ -667,14 +660,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
         // Guard basic configuration
         var project = chrome.getProject();
-        BuildAgent.BuildDetails details;
-        try {
-            details = project.loadBuildDetails();
-        } catch (Exception e) {
-            chrome.toolError("Failed to load build details: " + e.getMessage(), "Run Tests");
-            return;
-        }
-        if (details == null || details.equals(BuildAgent.BuildDetails.EMPTY)) {
+        BuildAgent.BuildDetails details = project.awaitBuildDetails();
+        if (details.equals(BuildAgent.BuildDetails.EMPTY)) {
             chrome.toolError("No build details configured. Open Settings ▸ Build to configure it.", "Run Tests");
             return;
         }
@@ -685,7 +672,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        executeTests(command, testFiles.size());
+        executeTests(command, testFiles.size(), details.environmentVariables());
     }
 
     private void stopTests() {
@@ -696,7 +683,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void executeTests(String command, int fileCount) {
+    private void executeTests(String command, int fileCount, java.util.Map<String, String> environment) {
         if (chrome == null) {
             logger.warn("executeTests called without Chrome context; ignoring.");
             return;
@@ -708,7 +695,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runOnEdt(() -> {
             stopButton.setVisible(true);
             stopButton.setEnabled(true);
-            Color stopColor = ThemeColors.getColor(false, "git_badge_background");
+            Color stopColor = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
             stopButton.setBackground(stopColor);
         });
 
@@ -717,12 +704,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Running tests", () -> {
             try {
+                ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
+
                 Environment.instance.runShellCommand(
                         command,
                         project.getRoot(),
                         line -> appendToRun(runId, line + "\n"),
                         Environment.UNLIMITED_TIMEOUT,
-                        project,
+                        execCfg,
+                        environment,
                         process -> activeTestProcess = process);
                 completeRun(runId, 0, Instant.now());
             } catch (Environment.SubprocessException e) {
@@ -746,24 +736,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
             return null;
         });
-    }
-
-    private static String prefixWithJavaHomeIfNeeded(io.github.jbellis.brokk.AbstractProject project, String command) {
-        if (command.isBlank()) {
-            return command;
-        }
-        if (project.getBuildLanguage() != Languages.JAVA) {
-            return command;
-        }
-        String jdk = project.getJdk();
-        if (BuildAgent.JAVA_HOME_SENTINEL.equals(jdk)) {
-            var env = System.getenv("JAVA_HOME");
-            jdk = (env == null || env.isBlank()) ? null : env;
-        }
-        if (jdk == null || jdk.isBlank()) {
-            return command;
-        }
-        return "JAVA_HOME=" + jdk + " " + command;
     }
 
     private void applyThemeColorsFromUIManager() {

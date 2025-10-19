@@ -21,7 +21,6 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
-import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
@@ -1766,7 +1765,8 @@ public class HistoryOutputPanel extends JPanel {
         }
         if (mainTask != null) {
             String titleHint = context.getAction();
-            new OutputWindow(this, historyTasks, mainTask, titleHint, chrome.themeManager.isDarkTheme(), false);
+            new OutputWindow(
+                    this, historyTasks, mainTask, titleHint, io.github.jbellis.brokk.MainProject.getTheme(), false);
         }
     }
 
@@ -1777,8 +1777,8 @@ public class HistoryOutputPanel extends JPanel {
         var history = contextManager.topContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
-        OutputWindow newStreamingWindow =
-                new OutputWindow(this, history, mainTask, titleHint, chrome.themeManager.isDarkTheme(), true);
+        OutputWindow newStreamingWindow = new OutputWindow(
+                this, history, mainTask, titleHint, io.github.jbellis.brokk.MainProject.getTheme(), true);
         if (lastSpinnerMessage != null) {
             newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
         }
@@ -1846,22 +1846,21 @@ public class HistoryOutputPanel extends JPanel {
                                 + "Do not output free-form text.");
                 var user = new UserMessage(
                         """
-                        <capture>
-                        %s
-                        </capture>
+                <capture>
+                %s
+                </capture>
 
-                        Instructions:
-                        - Prefer using tasks that are already defined in the capture.
-                        - If no such tasks exist, use your best judgement with the following guidelines:
-                          - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
-                          - Prefer tasks that keep the project buildable and testable after each step.
-                          - Avoid multi-goal items; split if needed.
-                          - Avoid external/non-code tasks.
-                        - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
+                Instructions:
+                - Prefer using tasks that are already defined in the capture.
+                - If no such tasks exist, use your best judgement with the following guidelines:
+                - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+                - Prefer tasks that keep the project buildable and testable after each step.
+                - Avoid multi-goal items; split if needed.
+                - Avoid external/non-code tasks.
+                - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                        Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
-                        """
-                                .stripIndent()
+                Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
+                """
                                 .formatted(captureText));
 
                 var toolSpecs = contextManager.getToolRegistry().getRegisteredTools(List.of("createTaskList"));
@@ -1916,7 +1915,7 @@ public class HistoryOutputPanel extends JPanel {
          * @param history The conversation tasks to display in the history section (all but the main task)
          * @param main The main/last task to display in the live area
          * @param titleHint A hint for the window title (e.g., task summary or spinner message)
-         * @param isDark Whether to use dark theme
+         * @param themeName The theme name (dark, light, or high-contrast)
          * @param isBlockingMode Whether the window shows a streaming (in-progress) output
          */
         public OutputWindow(
@@ -1924,7 +1923,7 @@ public class HistoryOutputPanel extends JPanel {
                 List<TaskEntry> history,
                 TaskEntry main,
                 @Nullable String titleHint,
-                boolean isDark,
+                String themeName,
                 boolean isBlockingMode) {
             super(determineWindowTitle(titleHint, isBlockingMode)); // Call superclass constructor first
 
@@ -1945,7 +1944,7 @@ public class HistoryOutputPanel extends JPanel {
             // Create markdown panel with the text
             outputPanel = new MarkdownOutputPanel();
             outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
-            outputPanel.updateTheme(isDark);
+            outputPanel.updateTheme(themeName);
             // Seed main content first, then history
             outputPanel.setMainThenHistoryAsync(main, history).thenRun(() -> outputPanel.setBlocking(isBlockingMode));
 
@@ -2154,11 +2153,11 @@ public class HistoryOutputPanel extends JPanel {
 
                 var plus = new JLabel("+" + de.linesAdded());
                 plus.setFont(smallFont);
-                plus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getAdded(!isDark));
+                plus.setForeground(ThemeColors.getDiffAdded(!isDark));
 
                 var minus = new JLabel("-" + de.linesDeleted());
                 minus.setFont(smallFont);
-                minus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(!isDark));
+                minus.setForeground(ThemeColors.getDiffDeleted(!isDark));
 
                 var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
                 rowPanel.setOpaque(false);
@@ -2310,14 +2309,14 @@ public class HistoryOutputPanel extends JPanel {
             var palette = List.of(
                     isDark ? Color.LIGHT_GRAY : Color.DARK_GRAY,
                     isDark
-                            ? ColorUtil.brighter(Colors.getAdded(true), 0.4f)
-                            : ColorUtil.brighter(Colors.getAdded(false), -0.4f),
+                            ? ColorUtil.brighter(ThemeColors.getDiffAdded(true), 0.4f)
+                            : ColorUtil.brighter(ThemeColors.getDiffAdded(false), -0.4f),
                     isDark
-                            ? ColorUtil.brighter(Colors.getChanged(true), 0.6f)
-                            : ColorUtil.brighter(Colors.getChanged(false), -0.4f),
+                            ? ColorUtil.brighter(ThemeColors.getDiffChanged(true), 0.6f)
+                            : ColorUtil.brighter(ThemeColors.getDiffChanged(false), -0.4f),
                     isDark
-                            ? ColorUtil.brighter(Colors.getDeleted(true), 1.2f)
-                            : ColorUtil.brighter(Colors.getDeleted(false), -0.4f));
+                            ? ColorUtil.brighter(ThemeColors.getDiffDeleted(true), 1.2f)
+                            : ColorUtil.brighter(ThemeColors.getDiffDeleted(false), -0.4f));
             return palette.get(paletteIndex);
         }
 

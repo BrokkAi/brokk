@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.Json;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -529,6 +530,34 @@ public class Context {
     @Override
     public int hashCode() {
         return id.hashCode();
+    }
+
+    /**
+     * Retrieves the DISCARDED_CONTEXT fragment and parses it as a Map of description -> explanation.
+     * Returns an empty map if no DISCARDED_CONTEXT fragment exists or if parsing fails.
+     */
+    public Map<String, String> getDiscardedFragmentsNote() {
+        var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
+        var existingDiscarded = virtualFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
+                .filter(vf -> vf instanceof ContextFragment.StringFragment)
+                .map(vf -> (ContextFragment.StringFragment) vf)
+                .filter(sf -> discardedDescription.equals(sf.description()))
+                .findFirst();
+
+        if (existingDiscarded.isEmpty()) {
+            return Map.of();
+        }
+
+        var mapper = Json.getMapper();
+        try {
+            return mapper.readValue(
+                    existingDiscarded.get().text(),
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            logger.warn("Failed to parse DISCARDED_CONTEXT JSON", e);
+            return Map.of();
+        }
     }
 
     public boolean workspaceContentEquals(Context other) {

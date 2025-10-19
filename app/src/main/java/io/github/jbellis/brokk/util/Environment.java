@@ -3,8 +3,6 @@ package io.github.jbellis.brokk.util;
 import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
 import io.github.jbellis.brokk.Brokk;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
 import java.io.BufferedReader;
@@ -49,6 +47,11 @@ public class Environment {
     /** Unlimited timeout constant (no timeout guard). */
     public static final Duration UNLIMITED_TIMEOUT = Duration.ofNanos(Long.MAX_VALUE);
 
+    public static String exeName(String base) {
+        var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        return os.contains("win") ? base + ".exe" : base;
+    }
+
     @FunctionalInterface
     public interface ShellCommandRunner {
         String run(Consumer<String> outputConsumer, Duration timeout) throws SubprocessException, InterruptedException;
@@ -57,7 +60,7 @@ public class Environment {
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
             (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null, null);
+                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null, Map.of(), null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -85,7 +88,7 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null, null);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null, Map.of(), null);
     }
 
     /**
@@ -94,9 +97,14 @@ public class Environment {
      * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
      */
     public String runShellCommand(
-            String command, Path root, Consumer<String> outputConsumer, Duration timeout, @Nullable IProject project)
+            String command,
+            Path root,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable ExecutorConfig executorConfig,
+            Map<String, String> environment)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project, null);
+        return runShellCommand(command, root, outputConsumer, timeout, executorConfig, environment, null);
     }
 
     public String runShellCommand(
@@ -104,26 +112,21 @@ public class Environment {
             Path root,
             Consumer<String> outputConsumer,
             Duration timeout,
-            @Nullable IProject project,
+            @Nullable ExecutorConfig executorConfig,
+            Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project, processConsumer);
-    }
+        // Check if shellCommandRunnerFactory has been overridden for testing.
+        // If so, use the factory path (which allows tests to mock/stub).
+        // Otherwise, use the direct path with ExecutorConfig and environment support.
+        if (shellCommandRunnerFactory != DEFAULT_SHELL_COMMAND_RUNNER_FACTORY) {
+            // Test hook: delegate to factory
+            return shellCommandRunnerFactory.apply(command, root).run(outputConsumer, timeout);
+        }
 
-    /**
-     * Runs a shell command with optional sandbox, configurable timeout, and project for executor configuration.
-     *
-     * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
-     */
-    public String runShellCommand(
-            String command,
-            Path root,
-            boolean sandbox,
-            Consumer<String> outputConsumer,
-            Duration timeout,
-            @Nullable IProject project)
-            throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project, null);
+        // Production path: use the new overload with full support
+        return runShellCommandInternal(
+                command, root, false, timeout, outputConsumer, executorConfig, environment, processConsumer);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
@@ -133,7 +136,8 @@ public class Environment {
             boolean sandbox,
             Duration timeout,
             Consumer<String> outputConsumer,
-            @Nullable IProject project,
+            @Nullable ExecutorConfig executorConfig,
+            Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
         logger.debug(
@@ -179,11 +183,9 @@ public class Environment {
                 policyFile.toFile().deleteOnExit();
 
                 // Phase 2: Support approved custom executors in sandbox mode
-                ExecutorConfig config = (project != null) ? ExecutorConfig.fromProject(project) : null;
-
-                if (config != null && ExecutorValidator.isApprovedForSandbox(config)) {
+                if (executorConfig != null && ExecutorValidator.isApprovedForSandbox(executorConfig)) {
                     // Use custom executor with sandbox
-                    String[] executorCommand = config.buildCommand(command);
+                    String[] executorCommand = executorConfig.buildCommand(command);
                     String[] sandboxedCommand = new String[executorCommand.length + 4];
                     sandboxedCommand[0] = "sandbox-exec";
                     sandboxedCommand[1] = "-f";
@@ -192,16 +194,16 @@ public class Environment {
                     System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
                     shellCommand = sandboxedCommand;
 
-                    logger.info("using custom executor '{}' with sandbox", config.getDisplayName());
+                    logger.info("using custom executor '{}' with sandbox", executorConfig.getDisplayName());
                 } else {
                     // Fallback to system default with sandbox
                     shellCommand =
                             new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
 
-                    if (config != null) {
+                    if (executorConfig != null) {
                         logger.info(
                                 "custom executor '{}' not approved for sandbox, using /bin/sh",
-                                config.getDisplayName());
+                                executorConfig.getDisplayName());
                     }
                 }
                 // TODO
@@ -212,14 +214,12 @@ public class Environment {
             }
         } else {
             // Phase 1: Support custom executors for non-sandboxed execution
-            ExecutorConfig config = (project != null) ? ExecutorConfig.fromProject(project) : null;
-
-            if (config != null && config.isValid()) {
-                shellCommand = config.buildCommand(command);
-                logger.info("using custom executor '{}'", config.getDisplayName());
+            if (executorConfig != null && executorConfig.isValid()) {
+                shellCommand = executorConfig.buildCommand(command);
+                logger.info("using custom executor '{}'", executorConfig.getDisplayName());
             } else {
-                if (config != null && !config.isValid()) {
-                    logger.warn("invalid custom executor '{}', using system default", config);
+                if (executorConfig != null && !executorConfig.isValid()) {
+                    logger.warn("invalid custom executor '{}', using system default", executorConfig);
                 }
                 // Fall back to system default
                 shellCommand = isWindows()
@@ -231,12 +231,9 @@ public class Environment {
         logger.trace("command: {}", String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
 
-        if (project != null) {
-            String jdkPath = project.getJdk();
-            if (jdkPath != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(jdkPath)) {
-                pb.environment().put("JAVA_HOME", jdkPath);
-                logger.debug("Set JAVA_HOME={} for subprocess.", jdkPath);
-            }
+        if (!environment.isEmpty()) {
+            var expanded = expandEnvMap(environment);
+            pb.environment().putAll(expanded);
         }
 
         Process process;
