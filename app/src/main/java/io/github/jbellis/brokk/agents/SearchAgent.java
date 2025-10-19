@@ -463,7 +463,7 @@ public class SearchAgent {
         names.add("searchFilenames");
 
         // Workspace curation
-        names.add("addFilesToWorkspace");
+        names.add("promoteToFullContents");
         names.add("addClassesToWorkspace");
         names.add("addClassSummariesToWorkspace");
         names.add("addMethodsToWorkspace");

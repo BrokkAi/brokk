@@ -95,7 +95,7 @@ public class WorkspaceTools {
 
     @Tool(
             "Edit project files to the Workspace. Use this when Code Agent will need to make changes to these files, or if you need to read the full source. Only call when you have identified specific filenames. DO NOT call this to create new files -- Code Agent can do that without extra steps.")
-    public String addFilesToWorkspace(
+    public String addFilesToWorkspace(  
             @P(
                             "List of file paths relative to the project root (e.g., 'src/main/java/com/example/MyClass.java'). Must not be empty.")
                     List<String> relativePaths) {
@@ -132,6 +132,103 @@ public class WorkspaceTools {
         if (!errors.isEmpty()) {
             result += "Errors were [%s]".formatted(String.join(", ", errors));
         }
+        return result;
+    }
+
+    @Tool(
+            "Promote partial code fragments (Code or Skeleton fragments) for specified files to full file contents. Use this when you already have partial analysis in the workspace but need the complete source code.")
+    public String promoteToFullContents(
+            @P(
+                            "List of file paths relative to the project root (e.g., 'src/main/java/com/example/MyClass.java'). Must not be empty.")
+                    List<String> relativePaths) {
+        if (relativePaths.isEmpty()) {
+            return "File paths list cannot be empty.";
+        }
+
+        List<ProjectFile> projectFiles = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        
+        // Resolve and validate all paths first
+        for (String path : relativePaths) {
+            if (path.isBlank()) {
+                errors.add("Null or blank path provided.");
+                continue;
+            }
+            try {
+                var file = contextManager.toFile(path);
+                if (!file.exists()) {
+                    errors.add("File at `%s` does not exist".formatted(path));
+                    continue;
+                }
+                projectFiles.add(file);
+            } catch (IllegalArgumentException e) {
+                errors.add("Invalid path: " + path);
+            }
+        }
+
+        if (projectFiles.isEmpty()) {
+            if (errors.isEmpty()) {
+                return "No valid file paths provided.";
+            }
+            return "Errors were [%s]".formatted(String.join(", ", errors));
+        }
+
+        // Find and collect all partial fragments to drop
+        var currentContext = contextManager.liveContext();
+        var fileSet = new HashSet<>(projectFiles);
+        var fragmentsToDrop = new ArrayList<String>();
+
+        // Find Code fragments whose source file matches any of our target files
+        currentContext.virtualFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.CODE)
+                .filter(vf -> vf instanceof ContextFragment.CodeFragment)
+                .map(vf -> (ContextFragment.CodeFragment) vf)
+                .filter(cf -> fileSet.contains(cf.getCodeUnit().source()))
+                .forEach(cf -> fragmentsToDrop.add(cf.id()));
+
+        // FIXME
+        // Find Skeleton fragments whose target identifiers resolve to files in our set
+        currentContext.virtualFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
+                .filter(vf -> vf instanceof ContextFragment.SkeletonFragment)
+                .map(vf -> (ContextFragment.SkeletonFragment) vf)
+                .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
+                .forEach(sf -> {
+                    // Check if any of the skeleton's target file paths match our files
+                    var skeletonFiles = sf.getTargetIdentifiers().stream()
+                            .map(fp -> {
+                                try {
+                                    return contextManager.toFile(fp);
+                                } catch (IllegalArgumentException e) {
+                                    return null;
+                                }
+                            })
+                            .filter(f -> f != null && fileSet.contains(f))
+                            .toList();
+                    if (!skeletonFiles.isEmpty()) {
+                        fragmentsToDrop.add(sf.id());
+                    }
+                });
+
+        // Add the full files to the workspace
+        contextManager.addFiles(projectFiles);
+
+        // Drop the partial fragments if any were found
+        if (!fragmentsToDrop.isEmpty()) {
+            contextManager.pushContext(ctx -> ctx.removeFragmentsByIds(fragmentsToDrop));
+        }
+
+        String fileNames = projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
+        String result = "Promoted %d file(s) to full contents: %s".formatted(projectFiles.size(), fileNames);
+        
+        if (!fragmentsToDrop.isEmpty()) {
+            result += ". Dropped %d partial fragment(s).".formatted(fragmentsToDrop.size());
+        }
+        
+        if (!errors.isEmpty()) {
+            result += " Errors were [%s]".formatted(String.join(", ", errors));
+        }
+        
         return result;
     }
 
