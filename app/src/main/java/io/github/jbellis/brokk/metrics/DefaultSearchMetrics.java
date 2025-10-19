@@ -67,7 +67,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
     @Override
     public synchronized void recordFilesAddedPaths(Set<String> paths) {
-        if (currentTurn != null && paths != null && !paths.isEmpty()) {
+        if (currentTurn != null && !paths.isEmpty()) {
             currentTurn.addFilePaths(paths);
         }
     }
@@ -106,7 +106,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
     @Override
     public synchronized void recordFinalWorkspaceFiles(Set<String> finalFiles) {
-        this.finalWorkspaceFiles = (finalFiles == null) ? null : new HashSet<>(finalFiles);
+        this.finalWorkspaceFiles = new HashSet<>(finalFiles);
     }
 
     /**

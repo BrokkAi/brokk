@@ -214,7 +214,13 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Action Validation ---
         long actionCount = Stream.of(
-                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, lutzLitePrompt, searchWorkspace)
+                        architectPrompt,
+                        codePrompt,
+                        askPrompt,
+                        searchAnswerPrompt,
+                        lutzPrompt,
+                        lutzLitePrompt,
+                        searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;

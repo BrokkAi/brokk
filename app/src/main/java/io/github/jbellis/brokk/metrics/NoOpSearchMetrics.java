@@ -50,8 +50,8 @@ public enum NoOpSearchMetrics implements SearchMetrics {
             return AbstractProject.objectMapper.writeValueAsString(result);
         } catch (JsonProcessingException e) {
             // Fallback to a tiny JSON string if serialization fails
-            return "{\"query\":\"" + (query == null ? "" : query) + "\",\"found_file\":\""
-                    + (foundFile == null ? "" : foundFile) + "\",\"turns\":" + turns + ",\"elapsed_ms\":" + elapsedMs
+            return "{\"query\":\"" + query + "\",\"found_file\":\""
+                    + foundFile + "\",\"turns\":" + turns + ",\"elapsed_ms\":" + elapsedMs
                     + ",\"success\":" + success + "}";
         }
     }
