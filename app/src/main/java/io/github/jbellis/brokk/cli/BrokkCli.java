@@ -388,7 +388,7 @@ public final class BrokkCli implements Callable<Integer> {
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
             } catch (Throwable th) {
-                System.err.println("Fatal error during SearchAgent execution: " + getStackTrace(th));
+                logger.error("Fatal error during SearchAgent execution", th);
                 long elapsedTime = System.currentTimeMillis() - startTime;
                 String errorMessage = th.getMessage() != null
                         ? th.getMessage()
@@ -412,11 +412,30 @@ public final class BrokkCli implements Callable<Integer> {
             var messages = searchResult.output().messages();
             int turns = countTurns(messages);
 
-            // Found file will be inferred by the harness from metrics; emit empty here.
-            String foundFile = "";
+            // Infer found files from turn history - use files from last turn
+            // The LLM typically adds the answer file(s) in the final turn(s)
+            List<String> foundFiles = List.of();
+            var turnHistory = metrics.getTurns();
+
+            // Iterate backwards through turns to find the most recently added files
+            for (int i = turnHistory.size() - 1; i >= 0 && foundFiles.isEmpty(); i--) {
+                var filesInTurn = turnHistory.get(i).getFiles_added_paths();
+                if (!filesInTurn.isEmpty()) {
+                    // Return all files from this turn, sorted alphabetically for determinism
+                    foundFiles = filesInTurn.stream().sorted().toList();
+                }
+            }
+
+            // Fallback to alphabetical from final workspace if no files in turn history
+            if (foundFiles.isEmpty()) {
+                var finalFiles = metrics.getFinalWorkspaceFiles();
+                if (finalFiles != null && !finalFiles.isEmpty()) {
+                    foundFiles = finalFiles.stream().sorted().toList();
+                }
+            }
 
             // Output enhanced JSON result with metrics
-            var json = metrics.toJson(searchWorkspace, foundFile, turns, elapsedTime, success);
+            var json = metrics.toJson(searchWorkspace, foundFiles, turns, elapsedTime, success);
             System.out.println(json);
 
             return success ? 0 : 1;

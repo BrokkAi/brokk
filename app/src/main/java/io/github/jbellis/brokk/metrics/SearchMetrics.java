@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.metrics;
 
 import io.github.jbellis.brokk.TaskResult;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -44,12 +45,12 @@ public interface SearchMetrics {
      * Serialize metrics along with the basic result fields into JSON.
      *
      * @param query the original query
-     * @param foundFile the primary file (may be empty)
+     * @param foundFiles list of files found (from last non-empty turn, may be empty)
      * @param turns number of turns (AI messages)
      * @param elapsedMs elapsed time in ms
      * @param success whether the search succeeded
      */
-    String toJson(String query, String foundFile, int turns, long elapsedMs, boolean success);
+    String toJson(String query, List<String> foundFiles, int turns, long elapsedMs, boolean success);
 
     /**
      * Convenience factory for a no-op metrics instance.

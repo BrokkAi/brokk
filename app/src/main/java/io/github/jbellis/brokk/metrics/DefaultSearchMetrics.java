@@ -110,15 +110,32 @@ public class DefaultSearchMetrics implements SearchMetrics {
     }
 
     /**
+     * Get the final workspace files that were recorded.
+     * Used by BrokkCli to infer the found file.
+     */
+    public synchronized @Nullable Set<String> getFinalWorkspaceFiles() {
+        return finalWorkspaceFiles;
+    }
+
+    /**
+     * Get the turn history with files added per turn.
+     * Used by BrokkCli to determine the last file added.
+     */
+    public synchronized List<TurnMetrics> getTurns() {
+        return new ArrayList<>(turns);
+    }
+
+    /**
      * Generate enhanced JSON output with metrics.
      * Maintains backward compatibility by keeping original fields in same order.
      */
     @Override
-    public synchronized String toJson(String query, String foundFile, int turns, long elapsedMs, boolean success) {
+    public synchronized String toJson(
+            String query, List<String> foundFiles, int turns, long elapsedMs, boolean success) {
         var contextScan = new ContextScanInfo(contextScanFilesAdded, contextScanTimeMs, contextScanSkipped);
         var result = new SearchResult(
                 query,
-                foundFile,
+                foundFiles,
                 turns,
                 elapsedMs,
                 success,
@@ -141,7 +158,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
      */
     public record SearchResult(
             String query,
-            String found_file,
+            List<String> found_files,
             int turns,
             long elapsed_ms,
             boolean success,
