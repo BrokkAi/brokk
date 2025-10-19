@@ -164,10 +164,6 @@ public final class BrokkCli implements Callable<Integer> {
             description = "Skip the initial ContextAgent scan in --search-workspace mode.")
     private boolean disableContextScan = false;
 
-    @CommandLine.Option(
-            names = "--build-commit",
-            description = "Print the git commit hash of this Brokk build and exit.")
-    private boolean buildCommit = false;
 
     @CommandLine.Option(
             names = "--list-models",
@@ -187,12 +183,6 @@ public final class BrokkCli implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        // Handle --build-commit early exit
-        if (buildCommit) {
-            String commit = getBuildCommit();
-            System.out.println(commit);
-            return 0;
-        }
 
         // Handle --list-models early exit
         if (listModels) {
@@ -259,11 +249,8 @@ public final class BrokkCli implements Callable<Integer> {
         // Worktree setup
         if (worktreePath != null) {
             worktreePath = worktreePath.toAbsolutePath();
-            boolean isSearchWorkspaceMode = searchWorkspace != null && !searchWorkspace.isBlank();
             if (Files.exists(worktreePath)) {
-                if (!isSearchWorkspaceMode) {
-                    System.out.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
-                }
+                System.err.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
                     // Use --commit if provided, otherwise default branch HEAD
@@ -277,10 +264,8 @@ public final class BrokkCli implements Callable<Integer> {
 
                     gitRepo.worktrees().addWorktreeDetached(worktreePath, targetCommit);
 
-                    if (!isSearchWorkspaceMode) {
-                        System.out.println("Successfully created detached worktree at " + worktreePath);
-                        System.out.println("Checked out commit " + targetCommit);
-                    }
+                    System.err.println("Successfully created detached worktree at " + worktreePath);
+                    System.err.println("Checked out commit " + targetCommit);
                 } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
                     System.err.println("Error creating worktree: " + e.getMessage());
                     return 1;
@@ -782,10 +767,6 @@ public final class BrokkCli implements Callable<Integer> {
         return sb.toString();
     }
 
-    private static String getBuildCommit() {
-        // Get from BuildInfo generated at build time
-        return io.github.jbellis.brokk.BuildInfo.gitCommit;
-    }
 
     private static int countTurns(List<ChatMessage> messages) {
         // Count AI messages as turns

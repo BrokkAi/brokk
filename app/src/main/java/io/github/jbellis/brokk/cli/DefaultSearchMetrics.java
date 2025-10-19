@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.cli;
 
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.TaskResult;
@@ -130,20 +129,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
     /**
      * Complete search result with all metrics.
-     * Field order matches backward compatibility requirements.
      */
-    @JsonPropertyOrder({
-        "query",
-        "found_file",
-        "turns",
-        "elapsed_ms",
-        "success",
-        "context_scan",
-        "turns_detail",
-        "failure_type",
-        "stop_reason",
-        "final_workspace_size"
-    })
     public record SearchResult(
             String query,
             String found_file,
@@ -164,7 +150,6 @@ public class DefaultSearchMetrics implements SearchMetrics {
     /**
      * Metrics for a single search turn.
      */
-    @JsonPropertyOrder({"turn", "tool_calls", "files_added", "time_ms"})
     public static class TurnMetrics {
         private final int turn;
         private final List<String> tool_calls = new ArrayList<>();
