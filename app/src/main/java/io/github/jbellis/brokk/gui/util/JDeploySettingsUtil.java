@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.util.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -21,44 +20,48 @@ public class JDeploySettingsUtil {
     // JSON config file we maintain in the user's config directory
     private static final String CONFIG_FILE_NAME = "jdeploy.json";
 
+    // Default config instance
+    private static final JDeployConfig DEFAULT_CONFIG = new DefaultJDeployConfig();
+
     private JDeploySettingsUtil() {
         // utility
     }
 
     /**
-     * Update the per-user JSON config file with the provided JVM memory settings.
+     * Update the per-user JSON config file with the provided JVM memory settings. Uses the default configuration
+     * directory.
      *
-     * <p>Behavior: - Ensures the user's ~/.config/brokk directory exists. - Reads existing ~/.config/brokk/jdeploy.json
-     * if present, preserving all non -Xmx args. - Removes any existing -Xmx* args. - If settings.automatic() is false
-     * and manualMb() > 0, appends a single -XmxNNNm arg.
+     * <p>Behavior: - Ensures the user's config directory exists. - Reads existing jdeploy.json if present, preserving
+     * all non -Xmx args. - Removes any existing -Xmx* args. - If settings.automatic() is false and manualMb() > 0,
+     * appends a single -XmxNNNm arg.
      */
     public static void updateJvmMemorySettings(MainProject.JvmMemorySettings settings) {
-        var home = System.getProperty("user.home");
-        if (home == null || home.isBlank()) {
-            logger.warn("Cannot determine user.home; skipping JDeploy config update");
-            return;
-        }
+        updateJvmMemorySettings(settings, DEFAULT_CONFIG);
+    }
 
+    /**
+     * Update the per-user JSON config file with the provided JVM memory settings. Uses the provided JDeployConfig to
+     * determine the configuration directory.
+     *
+     * <p>Behavior: - Ensures the config directory exists. - Reads existing jdeploy.json if present, preserving all non
+     * -Xmx args. - Removes any existing -Xmx* args. - If settings.automatic() is false and manualMb() > 0, appends a
+     * single -XmxNNNm arg.
+     */
+    public static void updateJvmMemorySettings(MainProject.JvmMemorySettings settings, JDeployConfig config) {
         try {
-            updateUserJdeployConfig(settings);
+            updateUserJdeployConfig(settings, config);
         } catch (Exception e) {
             logger.warn("Failed to update user jdeploy config file", e);
         }
     }
 
     /**
-     * Update the per-user jdeploy config file at ~/.config/brokk/jdeploy.json. This preserves all non -Xmx args,
-     * removes any existing -Xmx args, and appends a single -XmxNNNm when manual memory is selected with a positive
-     * size. If the file or directory do not exist they will be created.
+     * Update the per-user jdeploy config file. This preserves all non -Xmx args, removes any existing -Xmx args, and
+     * appends a single -XmxNNNm when manual memory is selected with a positive size. If the file or directory do not
+     * exist they will be created.
      */
-    private static void updateUserJdeployConfig(MainProject.JvmMemorySettings settings) {
-        var home = System.getProperty("user.home");
-        if (home == null || home.isBlank()) {
-            logger.warn("Cannot determine user.home; skipping user jdeploy config update");
-            return;
-        }
-
-        var configDir = Path.of(home, ".config", "brokk");
+    private static void updateUserJdeployConfig(MainProject.JvmMemorySettings settings, JDeployConfig deployConfig) {
+        var configDir = deployConfig.getConfigDir();
         try {
             Files.createDirectories(configDir);
         } catch (IOException e) {

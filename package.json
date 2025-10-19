@@ -10,7 +10,9 @@
     "jdeploy": {
         "jdk": false,
         "args": ["--add-modules jdk.incubator.vector"],
-        "configFile": "{{ user.home }}/.config/brokk/jdeploy.json",
+        "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
+        "configFileWin": "{{ path(env.APPDATA ?? path(user.home, \"AppData\", \"Roaming\"), \"Brokk\", \"jdeploy.json\") }}",
+        "configFileLinux": "{{ path(env.XDG_CONFIG_HOME ?? path(user.home, \".config\"), \"Brokk\", \"jdeploy.json\") }}",
         "publishTargets": [{
             "name": "github: brokk",
             "type": "GITHUB",
