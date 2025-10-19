@@ -222,7 +222,7 @@ public class ArchitectAgent {
         // Instantiate and run SearchAgent
         io.llmOutput("Search Agent engaged: " + query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(
-                query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), false, SearchMetrics.NO_OP);
+                query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), false, SearchMetrics.noOp());
         var result = searchAgent.execute();
         scope.append(result);
 
@@ -268,7 +268,7 @@ public class ArchitectAgent {
         // Run Search first using the scan model (fast, token-friendly)
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(
-                goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), false, SearchMetrics.NO_OP);
+                goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), false, SearchMetrics.noOp());
         io.llmOutput("Search Agent engaged: " + goal, ChatMessageType.CUSTOM);
         var searchResult = searchAgent.execute();
         scope.append(searchResult);

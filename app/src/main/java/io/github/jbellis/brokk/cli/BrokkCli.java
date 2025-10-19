@@ -354,7 +354,7 @@ public final class BrokkCli implements Callable<Integer> {
             long startTime = System.currentTimeMillis();
             TaskResult searchResult;
             boolean success;
-            var metrics = new SearchMetrics();
+            var metrics = new DefaultSearchMetrics();
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
@@ -571,7 +571,7 @@ public final class BrokkCli implements Callable<Integer> {
                             planModel,
                             EnumSet.of(Terminal.ANSWER),
                             false,
-                            SearchMetrics.NO_OP);
+                            SearchMetrics.noOp());
                     result = agent.execute();
                     scope.append(result);
                 } else { // lutzPrompt != null
@@ -589,7 +589,7 @@ public final class BrokkCli implements Callable<Integer> {
                             planModel,
                             EnumSet.of(Terminal.TASK_LIST),
                             false,
-                            SearchMetrics.NO_OP);
+                            SearchMetrics.noOp());
 
                     result = agent.execute();
                     scope.append(result);
