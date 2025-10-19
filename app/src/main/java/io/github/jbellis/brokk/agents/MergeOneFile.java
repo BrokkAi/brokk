@@ -18,22 +18,20 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
-import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -118,15 +116,14 @@ public final class MergeOneFile {
         this.currentSessionMessages = new ArrayList<>();
         var sys = new SystemMessage(
                 """
-                You are a merge assistant resolving conflicts in ONE file. You can:
-                  - Inspect class skeletons / sources / method bodies (if available)
-                  - Read raw file contents (fallback)
-                  - Explain single commits to understand intent
-                When you have enough context, call `callCodeAgent` with concrete instructions; it will perform the edit.
-                Do NOT output the final merged file directly; always delegate to CodeAgent.
-                Keep changes minimal and strictly related to resolving conflicts and restoring compilation/tests.
-                """
-                        .stripIndent());
+        You are a merge assistant resolving conflicts in ONE file. You can:
+        - Inspect class skeletons / sources / method bodies (if available)
+        - Read raw file contents (fallback)
+        - Explain single commits to understand intent
+        When you have enough context, call `callCodeAgent` with concrete instructions; it will perform the edit.
+        Do NOT output the final merged file directly; always delegate to CodeAgent.
+        Keep changes minimal and strictly related to resolving conflicts and restoring compilation/tests.
+        """);
         var header = buildMergeHeader(file, conflict.ourCommits(), conflict.theirCommits());
         var conflicted = readFileAsCodeBlock(file);
         var firstUser = new UserMessage(
@@ -144,7 +141,6 @@ public final class MergeOneFile {
 
                 Remember, when making tool calls you can call multiple tools per turn, this will improve your performance.
                 """
-                        .stripIndent()
                         .formatted(header, file.toString(), conflicted));
         currentSessionMessages.add(sys);
         currentSessionMessages.add(firstUser);
@@ -318,10 +314,10 @@ public final class MergeOneFile {
 
         // Compute explanation
         var gw = new GitWorkflow(cm);
-        var model = requireNonNull(cm.getService().getModel(Service.GPT_5_MINI));
-        String explanation = null;
+        var explainModel = cm.getService().getScanModel();
+        String explanation;
         try {
-            explanation = gw.explainCommit(model, shortHash);
+            explanation = gw.explainCommit(explainModel, shortHash);
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }
@@ -381,7 +377,6 @@ public final class MergeOneFile {
                 theirs: %s
                 </merge_context>
                 """
-                        .stripIndent()
                         .formatted(type, file, oursShort, baseShort, theirsShort);
 
         // Append one-line commit info for relevant OUR/THEIR commits from this file's blame
@@ -399,7 +394,7 @@ public final class MergeOneFile {
                     logger.error("Failed to read commit message for {}: {}", id, e.getMessage(), e);
                     oneLine = id;
                 }
-                lines.add("<commit id=\"" + id + "\">" + escapeXml(oneLine) + "</commit>");
+                lines.add("<commit id=\"" + id + "\">" + StringEscapeUtils.escapeXml10(oneLine) + "</commit>");
             }
             sections.add("<our_commits>\n" + String.join("\n", lines) + "\n</our_commits>");
         }
@@ -415,7 +410,7 @@ public final class MergeOneFile {
                     logger.error("Failed to read commit message for {}: {}", id, e.getMessage(), e);
                     oneLine = id;
                 }
-                lines.add("<commit id=\"" + id + "\">" + escapeXml(oneLine) + "</commit>");
+                lines.add("<commit id=\"" + id + "\">" + StringEscapeUtils.escapeXml10(oneLine) + "</commit>");
             }
             sections.add("<their_commits>\n" + String.join("\n", lines) + "\n</their_commits>");
         }
@@ -439,7 +434,6 @@ public final class MergeOneFile {
                %s
                </failure>
                """
-                .stripIndent()
                 .formatted(file, details);
     }
 
@@ -453,18 +447,7 @@ public final class MergeOneFile {
                On your next call to callCodeAgent, use a full-file replacement strategy:
                provide clear, concise instructions to replace the entire file content with the correct,
                fully-resolved version (no conflict markers). Keep changes minimal and only resolve the conflicts.
-               """
-                .stripIndent();
-    }
-
-    /** Escape XML special characters for safe embedding of commit messages. */
-    private static String escapeXml(@Nullable String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
+               """;
     }
 
     /**
@@ -483,11 +466,7 @@ public final class MergeOneFile {
                 "\n\nRemember to use the BRK_CONFLICT_BEGIN_[n]..BRK_CONFLICT_END_[n] markers to simplify your SEARCH/REPLACE blocks!"
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
         var agent = new CodeAgent(cm, codeModel, io);
-        var result = agent.runSingleFileEdit(
-                file,
-                instructions,
-                requireNonNull(currentSessionMessages),
-                EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS));
+        var result = agent.runSingleFileEdit(file, instructions, requireNonNull(currentSessionMessages));
         this.lastCodeAgentResult = result;
         return String.valueOf(result.stopDetails());
     }

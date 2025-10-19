@@ -133,6 +133,7 @@ public class Llm {
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
+    // Sequence for request/response log files
     private int requestSequence = 1;
 
     public Llm(
@@ -192,10 +193,14 @@ public class Llm {
         return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
     }
 
-    /** Write the request JSON before sending to the model, to a file named "<base>-request.json". */
-    private void logRequest(ChatRequest request) {
+    /**
+     * Write the request JSON before sending to the model, to a file named "<base>-request.json".
+     * Returns the assigned sequence number so that the corresponding response can use the same number.
+     */
+    private synchronized int logRequest(ChatRequest request) {
+        int assignedSequence = requestSequence++;
         try {
-            var filename = "%s %03d-request.json".formatted(logFileTimestamp(), requestSequence);
+            var filename = "%s %03d-request.json".formatted(logFileTimestamp(), assignedSequence);
             var requestPath = taskHistoryDir.resolve(filename);
             var requestOptions = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
@@ -206,6 +211,7 @@ public class Llm {
         } catch (IOException e) {
             logger.error("Failed to write pre-send request JSON", e);
         }
+        return assignedSequence;
     }
 
     /**
@@ -214,14 +220,15 @@ public class Llm {
      */
     private StreamingResult doSingleStreamingCall(ChatRequest request, boolean addJsonFence)
             throws InterruptedException {
+        int logSequence = logRequest(request);
         StreamingResult result;
         try {
             result = doSingleStreamingCallInternal(request, addJsonFence);
         } catch (InterruptedException e) {
-            logResult(model, request, null);
+            logResult(model, request, null, logSequence);
             throw e;
         }
-        logResult(model, request, result);
+        logResult(model, request, result, logSequence);
         return result;
     }
 
@@ -230,9 +237,6 @@ public class Llm {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
         }
-
-        // Pre-log the request JSON before sending it to the model
-        logRequest(request);
 
         // latch for awaiting any response from llm
         var tick = new Semaphore(0);
@@ -259,6 +263,7 @@ public class Llm {
                 logger.error(e);
                 errorRef.set(e);
                 completed.set(true);
+                ExceptionReporter.tryReportException(e);
             } finally {
                 if (firstToken.get()) {
                     firstToken.set(false);
@@ -275,14 +280,10 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput("\n```json\n", ChatMessageType.AI);
+                            io.llmOutput("\n```json\n", ChatMessageType.AI, false, forceReasoningEcho);
                             fenceOpen.set(true);
                         }
-                        if (forceReasoningEcho) {
-                            io.llmOutput(accumulatedTextBuilder.toString(), ChatMessageType.AI, false, true);
-                        } else {
-                            io.llmOutput(token, ChatMessageType.AI);
-                        }
+                        io.llmOutput(token, ChatMessageType.AI, false, forceReasoningEcho);
                     }
                 });
             }
@@ -323,7 +324,7 @@ public class Llm {
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI);
+                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -341,7 +342,7 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI);
+                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -365,7 +366,7 @@ public class Llm {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI);
+                    io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
                     fenceOpen.set(false);
                 }
                 completed.set(true);
@@ -402,7 +403,7 @@ public class Llm {
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
-            io.llmOutput("\n```", ChatMessageType.AI);
+            io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
             fenceOpen.set(false);
         }
 
@@ -430,7 +431,7 @@ public class Llm {
         var response = completedChatResponse.get(); // Will be null if an error occurred or onComplete got null
         assert response != null : "If no error, completedChatResponse must be set by onCompleteResponse";
         if (echo) {
-            io.llmOutput("\n", ChatMessageType.AI);
+            io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
         }
         return StreamingResult.fromResponse(response, null);
     }
@@ -569,7 +570,7 @@ public class Llm {
             long backoffSeconds = 1L << (attempt - 1);
             backoffSeconds = Math.min(backoffSeconds, 16L);
 
-            // Busywait with countdown
+            // Throttled countdown notifications (every ~2s)
             if (backoffSeconds > 1) {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
@@ -581,13 +582,25 @@ public class Llm {
                         IConsoleIO.NotificationRole.INFO,
                         String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
             }
-            long endTime = System.currentTimeMillis() + backoffSeconds * 1000;
-            while (System.currentTimeMillis() < endTime) {
-                long remain = endTime - System.currentTimeMillis();
-                if (remain <= 0) break;
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Retrying in %.1f seconds...".formatted(remain / 1000.0));
-                Thread.sleep(Math.min(remain, 100));
+
+            long endTime = System.currentTimeMillis() + backoffSeconds * 1000L;
+            long nextNotifyAt = System.currentTimeMillis() + 2000L; // notify at most every 2 seconds
+            while (true) {
+                long now = System.currentTimeMillis();
+                long remain = endTime - now;
+                if (remain <= 0) {
+                    break;
+                }
+
+                if (backoffSeconds > 1 && now >= nextNotifyAt) {
+                    long secsLeft = (long) Math.ceil(remain / 1000.0);
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Retrying in %d seconds...".formatted(secsLeft));
+                    nextNotifyAt = now + 2000L;
+                }
+
+                // short sleep to remain responsive to interruption while avoiding busy-wait
+                Thread.sleep(Math.min(remain, 200));
             }
         }
 
@@ -662,7 +675,7 @@ public class Llm {
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI);
+            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
         }
     }
 
@@ -773,7 +786,9 @@ public class Llm {
                     if (echo) {
                         io.llmOutput(
                                 "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
-                                ChatMessageType.CUSTOM);
+                                ChatMessageType.CUSTOM,
+                                false,
+                                forceReasoningEcho);
                     }
                     attemptMessages.add(new AiMessage(rawResult.text()));
                     attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
@@ -796,7 +811,9 @@ public class Llm {
                 io.llmOutput(
                         "\nRetry " + attempt + "/" + (maxTries - 1)
                                 + ": invalid JSON response; requesting proper format.",
-                        ChatMessageType.CUSTOM);
+                        ChatMessageType.CUSTOM,
+                        false,
+                        forceReasoningEcho);
                 var txt = rawResult.text();
                 attemptMessages.add(new AiMessage(txt));
                 attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));
@@ -889,7 +906,6 @@ public class Llm {
                              %s
                              </toolcall>
                              """
-                                .stripIndent()
                                 .formatted(tr.id(), tr.toolName(), tr.text()))
                 .collect(Collectors.joining("\n"));
     }
@@ -948,7 +964,6 @@ public class Llm {
                     ]
                   }
                 """
-                        .stripIndent()
                         .formatted(
                                 e == null
                                         ? ""
@@ -1005,7 +1020,6 @@ public class Llm {
                   ]
                 }
                 """
-                        .stripIndent()
                         .formatted(e == null ? "" : "Your previous response was not valid: " + e.getMessage());
 
         // Check if we've already added tool instructions to any message
@@ -1237,11 +1251,10 @@ public class Llm {
                                 assert description != null : "null description for " + entry;
 
                                 return """
-                                        <parameter name="%s" type="%s" required="%s">
-                                        %s
-                                        </parameter>
-                                        """
-                                        .stripIndent()
+                                <parameter name="%s" type="%s" required="%s">
+                                %s
+                                </parameter>
+                                """
                                         .formatted(
                                                 entry.getKey(),
                                                 type,
@@ -1253,12 +1266,11 @@ public class Llm {
                             .collect(Collectors.joining("\n"));
 
                     return """
-                            <tool name="%s">
-                            %s
-                            %s
-                            </tool>
-                            """
-                            .stripIndent()
+                    <tool name="%s">
+                    %s
+                    %s
+                    </tool>
+                    """
                             .formatted(
                                     tool.name(),
                                     tool.description(),
@@ -1275,7 +1287,6 @@ public class Llm {
 
                 Include all the tool calls necessary to satisfy the request in a single object!
                 """
-                .stripIndent()
                 .formatted(tools.size(), toolsDescription, retryInstructionsProvider.apply(null));
     }
 
@@ -1314,7 +1325,7 @@ public class Llm {
      * Writes response history (.log) to task-specific files, pairing with pre-sent request JSON via a shared base path.
      */
     private synchronized void logResult(
-            StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result) {
+            StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result, int logSequence) {
         try {
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
@@ -1330,8 +1341,8 @@ public class Llm {
             String fileTimestamp = logFileTimestamp();
             String shortDesc =
                     result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath = taskHistoryDir.resolve(
-                    String.format("%s %03d-%s.log", fileTimestamp, requestSequence++, shortDesc));
+            var filePath =
+                    taskHistoryDir.resolve(String.format("%s %03d-%s.log", fileTimestamp, logSequence, shortDesc));
             var options = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
@@ -1543,7 +1554,6 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .stripIndent()
                         .formatted(formatThrowable(error), contentToShow);
             }
             // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
@@ -1585,5 +1595,14 @@ public class Llm {
         public StreamingResult withRetryCount(int retries) {
             return new StreamingResult(chatResponse, error, retries);
         }
+    }
+
+    public StreamingChatModel getModel() {
+        return this.model;
+    }
+
+    @Override
+    public String toString() {
+        return "LLM[" + model.provider().toString() + "]";
     }
 }

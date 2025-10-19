@@ -3,16 +3,14 @@ package io.github.jbellis.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import com.github.tjake.jlama.model.AbstractModel;
-import com.github.tjake.jlama.model.ModelSupport;
-import com.github.tjake.jlama.safetensors.DType;
-import com.github.tjake.jlama.safetensors.SafeTensorSupport;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
@@ -23,9 +21,7 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.WindowEvent;
-import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Security;
@@ -74,7 +70,6 @@ public class Brokk {
     private static final ConcurrentHashMap<Path, Chrome> openProjectWindows = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<IProject, List<Chrome>> mainToWorktreeChromes = new ConcurrentHashMap<>();
     private static final Set<Path> reOpeningProjects = ConcurrentHashMap.newKeySet();
-    public static final CompletableFuture<@Nullable AbstractModel> embeddingModelFuture;
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
     private static final SystemScaleProvider systemScaleProvider = new SystemScaleProviderImpl();
@@ -95,32 +90,7 @@ public class Brokk {
         }
     }
 
-    // start loading embeddings model immediately
-    static {
-        embeddingModelFuture = CompletableFuture.supplyAsync(() -> {
-            logger.info("Loading embedding model asynchronously...");
-            var modelName = "sentence-transformers/all-MiniLM-L6-v2";
-            File localModelPath;
-            try {
-                var cacheDir = System.getProperty("user.home") + "/.cache/brokk";
-                if (!Files.exists(Path.of(cacheDir)) && !new File(cacheDir).mkdirs()) {
-                    throw new IOException("Unable to create model-cache directory at " + cacheDir);
-                }
-                localModelPath = SafeTensorSupport.maybeDownloadModel(cacheDir, modelName);
-            } catch (IOException e) {
-                // InstructionsPanel will catch ExecutionException
-                throw new UncheckedIOException(e);
-            }
-            // Assuming loadEmbeddingModel returns BertEmbeddingModel or a compatible type
-            var model = ModelSupport.loadEmbeddingModel(localModelPath, DType.F32, DType.I8);
-            logger.info("Embedding model loading complete.");
-            // Cast to the specific type expected by the Future if necessary
-            return model;
-        });
-    }
-
     private static void setupSystemPropertiesAndIcon() {
-
         if (!Environment.isMacOs()) {
             var existing = System.getProperty("sun.java2d.uiScale");
             if (existing != null) {
@@ -212,15 +182,11 @@ public class Brokk {
         }
     }
 
-    private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
+    private static void initializeLookAndFeelAndSplashScreen(String themeName) {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    if (isDark) {
-                        com.formdev.flatlaf.FlatDarculaLaf.setup();
-                    } else {
-                        com.formdev.flatlaf.FlatIntelliJLaf.setup();
-                    }
+                    GuiTheme.setupLookAndFeel(themeName);
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
                 }
@@ -332,7 +298,7 @@ public class Brokk {
                     if (!isValidDirectory(p)) logger.warn("Skipping invalid path: {}", p);
                 })
                 .collect(Collectors.partitioningBy(p -> {
-                    if (GitRepo.hasGitRepo(p)) {
+                    if (GitRepoFactory.hasGitRepo(p)) {
                         try (GitRepo tempR = new GitRepo(p)) {
                             return tempR.isWorktree();
                         } catch (Exception e) {
@@ -363,7 +329,7 @@ public class Brokk {
 
         for (Path worktreePath : worktreePaths) {
             MainProject parentProject = null;
-            if (GitRepo.hasGitRepo(worktreePath)) { // Redundant check, but safe
+            if (GitRepoFactory.hasGitRepo(worktreePath)) { // Redundant check, but safe
                 try (GitRepo wtRepo = new GitRepo(worktreePath)) { // isWorktree already confirmed by partitioning
                     Path gitTopLevel = wtRepo.getGitTopLevel();
                     parentProject = (MainProject) findOpenProjectByPath(gitTopLevel);
@@ -412,8 +378,8 @@ public class Brokk {
         MainProject.loadRecentProjects(); // Load and potentially clean recent projects list
         ParsedArgs parsedArgs = parseArguments(args);
 
-        boolean isDark = MainProject.getTheme().equals("dark");
-        initializeLookAndFeelAndSplashScreen(isDark);
+        String themeName = MainProject.getTheme();
+        initializeLookAndFeelAndSplashScreen(themeName);
 
         // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {
@@ -422,6 +388,31 @@ public class Brokk {
                     Desktop.getDesktop().setAboutHandler(e -> AboutDialog.showAboutDialog(null));
                 } catch (UnsupportedOperationException ignored) {
                     // AboutHandler not supported on this platform/JVM – safe to ignore
+                }
+
+                // Register OpenFilesHandler for directory associations
+                try {
+                    Desktop.getDesktop().setOpenFileHandler(e -> {
+                        List<Path> pathsToOpen = e.getFiles().stream()
+                                .filter(java.io.File::isDirectory)
+                                .map(java.io.File::toPath)
+                                .toList();
+
+                        if (!pathsToOpen.isEmpty()) {
+                            // Open projects asynchronously to avoid blocking the handler
+                            SwingUtilities.invokeLater(() -> {
+                                hideSplashScreen();
+                                for (Path path : pathsToOpen) {
+                                    new OpenProjectBuilder(path).open().exceptionally(ex -> {
+                                        logger.error("Failed to open project from file handler: {}", path, ex);
+                                        return false;
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } catch (UnsupportedOperationException ignored) {
+                    // OpenFileHandler not supported – safe to ignore
                 }
             });
 
@@ -782,8 +773,7 @@ public class Brokk {
 
                                           Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
                                           """
-                                    .formatted(cause.getMessage())
-                                    .stripIndent();
+                                    .formatted(cause.getMessage());
                     SwingUtil.runOnEdt(() -> {
                         hideSplashScreen(); // Hide splash before showing error dialog
                         JOptionPane.showMessageDialog(
@@ -961,7 +951,7 @@ public class Brokk {
                 if (response == JOptionPane.YES_OPTION) {
                     try {
                         logger.info("Initializing Git repository at {}...", project.getRoot());
-                        io.github.jbellis.brokk.git.GitRepo.initRepo(project.getRoot());
+                        GitRepoFactory.initRepo(project.getRoot());
                         project = AbstractProject.createProject(projectPath, parent); // Re-create project
                         logger.info("Git repository initialized successfully at {}.", project.getRoot());
                     } catch (Exception e) {

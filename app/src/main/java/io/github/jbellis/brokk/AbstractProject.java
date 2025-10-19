@@ -2,14 +2,15 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
+import io.github.jbellis.brokk.util.EnvironmentJava;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,7 +46,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepo.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
@@ -355,7 +356,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public @Nullable String getJdk() {
         var value = workspaceProps.getProperty(PROP_JDK_HOME);
         if (value == null || value.isBlank()) {
-            value = BuildAgent.detectJdk();
+            value = EnvironmentJava.detectJdk();
             setJdk(value);
         }
         return value;

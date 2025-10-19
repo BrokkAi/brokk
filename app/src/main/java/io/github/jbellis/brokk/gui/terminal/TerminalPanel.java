@@ -172,20 +172,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             dark = c.getTheme().isDarkTheme();
         }
         applyTerminalColors(dark);
-        try {
-            startProcess(cmd);
-        } catch (Exception e) {
-            try {
-                console.toolError("Error starting terminal: " + e.getMessage(), "Terminal Error");
-            } catch (Exception loggingException) {
-                if (logger.isErrorEnabled()) {
-                    logger.error(
-                            "Failed displaying error: logging error - {}.  original error - {}",
-                            e.getMessage(),
-                            loggingException.getMessage());
-                }
-            }
-        }
+        startProcessAsync(cmd);
     }
 
     private JPanel buildHeader(String shellCommand) {
@@ -212,6 +199,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         closeButton.setBorderPainted(false);
         closeButton.setFocusPainted(false);
         closeButton.setToolTipText("Close terminal");
+        var closeFg = UIManager.getColor("Button.close.foreground");
+        closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
         closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseEntered(java.awt.event.MouseEvent e) {
@@ -221,7 +210,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
 
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
-                closeButton.setForeground(null);
+                var closeFg = UIManager.getColor("Button.close.foreground");
+                closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
             }
         });
@@ -255,7 +245,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                // Get the terminal content from the buffer
                 var buffer = w.getTerminalTextBuffer();
                 if (buffer == null) {
                     console.systemNotify(
@@ -280,17 +269,27 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                // Add to workspace
                 if (console instanceof Chrome c) {
-                    c.getContextManager().addPastedTextFragment(content);
+                    c.getContextManager().submitContextTask(() -> {
+                        try {
+                            c.getContextManager().addPastedTextFragment(content);
+                            SwingUtilities.invokeLater(() -> {
+                                console.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
+                            });
+                        } catch (Exception ex) {
+                            logger.error("Error adding terminal content to workspace", ex);
+                            SwingUtilities.invokeLater(() -> {
+                                console.toolError(
+                                        "Failed to add terminal content to workspace: " + ex.getMessage(),
+                                        "Terminal Capture Failed");
+                            });
+                        }
+                    });
                 }
             } catch (Exception ex) {
-                logger.debug("Error capturing terminal output", ex);
-                try {
-                    console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture");
-                } catch (Exception ignore) {
-                    logger.debug("Error reporting capture failure", ignore);
-                }
+                logger.error("Error capturing terminal output", ex);
+                console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed");
             }
         }));
 
@@ -299,44 +298,62 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         return panel;
     }
 
-    private void startProcess(String[] cmd) throws IOException {
-        Map<String, String> env = new HashMap<>(System.getenv());
-        // Keep color support enabled; JediTerm will render ANSI correctly.
-        env.putIfAbsent("TERM", "xterm-256color");
-        // On macOS, set TERM_PROGRAM to help user configs detect Terminal.app-like environment
-        if (Environment.isMacOs()) {
-            env.put("TERM_PROGRAM", "Apple_Terminal");
-        }
-
-        String cwd = (initialCwd != null) ? initialCwd.toString() : System.getProperty("user.dir");
-        process =
-                new PtyProcessBuilder(cmd).setDirectory(cwd).setEnvironment(env).start();
-
-        var p = process;
-
-        connector = new PtyProcessTtyConnector(p, StandardCharsets.UTF_8);
-        var w = widget;
-        if (w != null) {
-            w.setTtyConnector(connector);
-            w.start();
-            readyFuture.complete(this);
-
-            // On macOS, ask the shell to print an SGR reset so the terminal receives it on stdout
-            if (Environment.isMacOs()) {
-
-                try {
-                    var c2 = connector;
-                    if (c2 != null) {
-                        c2.write("printf '\\033[0m\\033[39;49m'; clear\r\n");
-                    }
-                } catch (Exception ignore2) {
-                    logger.debug("Failed to write delayed SGR reset via printf", ignore2);
+    private void startProcessAsync(String[] cmd) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                Map<String, String> env = new HashMap<>(System.getenv());
+                // Keep color support enabled; JediTerm will render ANSI correctly.
+                env.putIfAbsent("TERM", "xterm-256color");
+                // On macOS, set TERM_PROGRAM to help user configs detect Terminal.app-like environment
+                if (Environment.isMacOs()) {
+                    env.put("TERM_PROGRAM", "Apple_Terminal");
                 }
-            }
-        }
 
-        // Focus the terminal after startup
-        SwingUtilities.invokeLater(this::requestFocusInTerminal);
+                String cwd = (initialCwd != null) ? initialCwd.toString() : System.getProperty("user.dir");
+                var newProcess = new PtyProcessBuilder(cmd)
+                        .setDirectory(cwd)
+                        .setEnvironment(env)
+                        .start();
+                var newConnector = new PtyProcessTtyConnector(newProcess, StandardCharsets.UTF_8);
+
+                // Update fields and UI on EDT
+                SwingUtilities.invokeLater(() -> {
+                    process = newProcess;
+                    connector = newConnector;
+                    var w = widget;
+                    if (w != null) {
+                        w.setTtyConnector(newConnector);
+                        w.start();
+                        readyFuture.complete(this);
+
+                        // On macOS, ask the shell to print an SGR reset so the terminal receives it on stdout
+                        if (Environment.isMacOs()) {
+                            try {
+                                newConnector.write("printf '\\033[0m\\033[39;49m'; clear\r\n");
+                            } catch (Exception ignore2) {
+                                logger.debug("Failed to write delayed SGR reset via printf", ignore2);
+                            }
+                        }
+                    }
+                    // Focus the terminal after startup
+                    requestFocusInTerminal();
+                });
+            } catch (Exception e) {
+                logger.error("Error starting terminal process", e);
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        console.toolError("Error starting terminal: " + e.getMessage(), "Terminal Error");
+                    } catch (Exception loggingException) {
+                        if (logger.isErrorEnabled()) {
+                            logger.error(
+                                    "Failed displaying error: logging error - {}.  original error - {}",
+                                    e.getMessage(),
+                                    loggingException.getMessage());
+                        }
+                    }
+                });
+            }
+        });
     }
 
     private boolean isPowerShellAvailable() {

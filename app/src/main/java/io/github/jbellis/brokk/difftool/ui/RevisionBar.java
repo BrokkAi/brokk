@@ -5,7 +5,7 @@ import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -37,7 +37,7 @@ public class RevisionBar extends JComponent {
         }
         if (borderColor == null) {
             // Fallback: derive from panel background
-            borderColor = ColorUtil.darker(Colors.getPanelBackground());
+            borderColor = ColorUtil.darker(ThemeColors.getPanelBackground());
         }
         setBorder(BorderFactory.createLineBorder(borderColor));
         addMouseListener(getMouseListener());
@@ -99,7 +99,7 @@ public class RevisionBar extends JComponent {
             borderColor = UIManager.getColor("Separator.foreground");
         }
         if (borderColor == null) {
-            borderColor = ColorUtil.darker(Colors.getPanelBackground());
+            borderColor = ColorUtil.darker(ThemeColors.getPanelBackground());
         }
         setBorder(BorderFactory.createLineBorder(borderColor));
     }

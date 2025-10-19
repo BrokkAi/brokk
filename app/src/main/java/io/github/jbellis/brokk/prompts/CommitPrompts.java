@@ -47,17 +47,14 @@ public class CommitPrompts {
         <diff>
         %s
         </diff>
-        """
-                .stripIndent()
-                .formatted(trimmedDiff);
+        """.formatted(trimmedDiff);
 
         var instructions =
                 """
         <goal>
         Here is my diff, please give me a concise commit message based on the format instructions provided in the system prompt.
         </goal>
-        """
-                        .stripIndent();
+        """;
         return List.of(
                 new SystemMessage(systemIntro(formatInstructions)), new UserMessage(context + "\n\n" + instructions));
     }

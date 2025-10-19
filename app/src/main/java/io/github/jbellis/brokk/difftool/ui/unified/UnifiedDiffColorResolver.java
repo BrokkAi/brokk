@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui.unified;
 
-import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,10 +23,10 @@ public final class UnifiedDiffColorResolver {
     @Nullable
     public static Color getBackgroundColor(UnifiedDiffDocument.LineType lineType, boolean isDarkTheme) {
         return switch (lineType) {
-            case ADDITION -> Colors.getAdded(isDarkTheme);
-            case DELETION -> Colors.getDeleted(isDarkTheme);
+            case ADDITION -> ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_ADDED);
+            case DELETION -> ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_DELETED);
             case CONTEXT -> null; // Use default background for context lines
-            case HEADER, OMITTED_LINES -> Colors.getChanged(isDarkTheme);
+            case HEADER, OMITTED_LINES -> ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_CHANGED);
         };
     }
 

@@ -7,7 +7,6 @@ import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
-import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
@@ -245,9 +244,9 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
                 // --- Determine Color ---
                 Color color =
                         switch (delta.getType()) {
-                            case INSERT -> Colors.getAdded(diffPanel.isDarkTheme());
-                            case DELETE -> Colors.getDeleted(diffPanel.isDarkTheme());
-                            case CHANGE -> Colors.getChanged(diffPanel.isDarkTheme());
+                            case INSERT -> ThemeColors.getDiffAdded(diffPanel.isDarkTheme());
+                            case DELETE -> ThemeColors.getDiffDeleted(diffPanel.isDarkTheme());
+                            case CHANGE -> ThemeColors.getDiffChanged(diffPanel.isDarkTheme());
                             case EQUAL -> throw new IllegalStateException("Equal delta should not be painted here");
                         };
                 Color darkerColor = color.darker(); // Use a darker shade for borders

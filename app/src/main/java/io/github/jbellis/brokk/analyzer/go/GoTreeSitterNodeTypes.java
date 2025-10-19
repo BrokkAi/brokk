@@ -19,6 +19,8 @@ public final class GoTreeSitterNodeTypes {
     // Interface method
     public static final String METHOD_ELEM = "method_elem";
 
+    public static final String IMPORT_DECLARATION = "import_declaration";
+
     private GoTreeSitterNodeTypes() {
         // Utility class - no instantiation
     }

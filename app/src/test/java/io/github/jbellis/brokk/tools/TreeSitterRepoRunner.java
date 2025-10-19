@@ -88,7 +88,7 @@ public class TreeSitterRepoRunner {
                         "https://github.com/spring-projects/spring-framework.git",
                         "main",
                         Map.of("java", List.of("**/*.java")),
-                        List.of("**/test/**", "build/**", "**/target/**")));
+                        List.of("**/test/**", "build/**", "**/testData/**")));
         projects.put(
                 "kafka",
                 new ProjectConfig(
@@ -662,7 +662,7 @@ public class TreeSitterRepoRunner {
             case "cpp" -> {
                 // Try to create CppTreeSitterAnalyzer if available
                 try {
-                    Class<?> cppAnalyzerClass = Class.forName("io.github.jbellis.brokk.analyzer.CppTreeSitterAnalyzer");
+                    Class<?> cppAnalyzerClass = Class.forName("io.github.jbellis.brokk.analyzer.CppAnalyzer");
                     var constructor = cppAnalyzerClass.getConstructor(IProject.class, Set.class);
                     yield (IAnalyzer) constructor.newInstance(project, Set.of());
                 } catch (Exception e) {
@@ -671,8 +671,14 @@ public class TreeSitterRepoRunner {
                 }
             }
             case "java" -> {
-                // Use JavaAnalyzer.create() factory method as per master branch
-                yield JavaAnalyzer.create(project);
+                try {
+                    Class<?> javaAnalyzerClass = Class.forName("io.github.jbellis.brokk.analyzer.JavaAnalyzer");
+                    var constructor = javaAnalyzerClass.getConstructor(IProject.class);
+                    yield (IAnalyzer) constructor.newInstance(project);
+                } catch (Exception e) {
+                    System.err.println("Warning: JavaAnalyzer not available: " + e.getMessage());
+                    yield null;
+                }
             }
             case "typescript" -> {
                 try {
@@ -1055,8 +1061,6 @@ public class TreeSitterRepoRunner {
                                     "TIME(sec)",
                                     "MEMORY(MB)",
                                     "MB/FILE",
-                                    "FAILED",
-                                    "REASON",
                                     "-".repeat(100));
 
             var status = result.failed ? "YES" : "NO";
@@ -1105,9 +1109,7 @@ public class TreeSitterRepoRunner {
                                     Runtime.getRuntime().maxMemory() / (1024 * 1024),
                                     Runtime.getRuntime().availableProcessors(),
                                     resultsJson,
-                                    formatFailuresJson())
-                            .stripIndent();
-
+                                    formatFailuresJson());
             Files.writeString(file, json);
         }
 
@@ -1250,8 +1252,7 @@ public class TreeSitterRepoRunner {
                                     failedSection,
                                     totalSuccessful,
                                     totalFailed,
-                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed))
-                            .stripIndent();
+                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed));
 
             Files.writeString(file, summary);
         }

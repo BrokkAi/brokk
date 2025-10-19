@@ -14,15 +14,19 @@ import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
-import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -36,6 +40,7 @@ import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -59,6 +64,9 @@ public class CodeAgent {
     private final StreamingChatModel model;
     private final IConsoleIO io;
 
+    // A "global" for current task Context. Updated mid-task with new files and build status.
+    private Context context;
+
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
@@ -67,10 +75,26 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
+        // placeholder to make Null Away happy; initialized in runTaskInternal
+        this.context = new Context(contextManager, null);
     }
 
     public enum Option {
         DEFER_BUILD
+    }
+
+    /** Implicitly includes the DEFER_BUILD option. */
+    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+        var ctx = new Context(contextManager, null)
+                .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+
+        contextManager.getAnalyzerWrapper().pause();
+        try {
+            // TODO runTaskInternal allows creating new files, should we prevent that?
+            return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
+        } finally {
+            contextManager.getAnalyzerWrapper().resume();
+        }
     }
 
     /**
@@ -83,18 +107,20 @@ public class CodeAgent {
         // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
-            return runTaskInternal(userInput, options);
+            return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }
     }
 
-    private TaskResult runTaskInternal(String userInput, Set<Option> options) {
+    private TaskResult runTaskInternal(
+            Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
+        // Seed the local Context reference for this task
+        context = initialContext;
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
-        var io = contextManager.getIo();
         var coder = contextManager.getLlm(
                 new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
@@ -116,9 +142,7 @@ public class CodeAgent {
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                contextManager,
-                userInput.trim(),
-                CodePrompts.instance.codeReminder(contextManager.getService(), model));
+                context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
@@ -133,6 +157,20 @@ public class CodeAgent {
                 originalFileContents,
                 Collections.emptyMap());
 
+        // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
+        // to date before we paused it, but empirically that is not the case as of this writing.
+        try {
+            contextManager
+                    .getAnalyzerWrapper()
+                    .updateFiles(contextManager.getFilesInContext())
+                    .get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+
+        logger.debug("Starting task: {} with options {}", userInput, options);
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -140,18 +178,13 @@ public class CodeAgent {
                 break;
             }
 
-            // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
-            // to date
-            // before we paused it, but empirically that is not the case as of this writing.
-            var filesToRefresh = es.changedFiles().isEmpty() ? contextManager.getFilesInContext() : es.changedFiles();
-            var analyzerFuture = contextManager.getAnalyzerWrapper().updateFiles(filesToRefresh);
-
             // Make the LLM request
             StreamingResult streamingResult;
             try {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
-                        contextManager,
                         model,
+                        context,
+                        prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         es.changedFiles());
@@ -199,16 +232,6 @@ public class CodeAgent {
             cs = parseOutcome.cs();
             es = parseOutcome.es();
 
-            // Wait for analyzer update before applying blocks
-            try {
-                analyzerFuture.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                continue; // let main loop interruption check handle
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-
             // APPLY PHASE applies blocks
             var applyOutcome = applyPhase(cs, es, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
@@ -223,10 +246,45 @@ public class CodeAgent {
             cs = applyOutcome.cs();
             es = applyOutcome.es();
 
+            // Incorporate any newly created files into the live context immediately
+            var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
+                    .flatMap(f -> f.files().stream())
+                    .collect(Collectors.toSet());
+            var newlyCreated = es.changedFiles().stream()
+                    .filter(pf -> !filesInContext.contains(pf))
+                    .collect(Collectors.toSet());
+            if (!newlyCreated.isEmpty()) {
+                // Stage any files that were created during this task, regardless of stop reason
+                try {
+                    contextManager.getRepo().add(newlyCreated);
+                    contextManager.getRepo().invalidateCaches();
+                } catch (GitAPIException e) {
+                    io.toolError("Failed to add newly created files to git: " + e.getMessage());
+                }
+
+                var newFrags = newlyCreated.stream()
+                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
+                        .collect(Collectors.toList());
+                context = context.addPathFragments(newFrags);
+            }
+
             // After a successful apply, consider compacting the turn into a clean, synthetic summary.
             // Only do this if the turn had more than a single user/AI pair; for simple one-shot turns,
             // keep the original messages for clarity.
             if (es.blocksAppliedWithoutBuild() > 0) {
+                // update analyzer with changes so it can find newly created test files
+                try {
+                    contextManager
+                            .getAnalyzerWrapper()
+                            .updateFiles(es.changedFiles())
+                            .get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue; // let main loop interruption check handle
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+
                 int msgsThisTurn = cs.taskMessages().size() - cs.turnStartIndex();
                 if (msgsThisTurn > 2) {
                     var srb = es.toSearchReplaceBlocks();
@@ -265,6 +323,7 @@ public class CodeAgent {
             }
 
             var verifyOutcome = verifyPhase(cs, es, metrics);
+
             if (verifyOutcome instanceof Step.Retry retryVerify) {
                 cs = retryVerify.cs();
                 es = retryVerify.es();
@@ -293,145 +352,13 @@ public class CodeAgent {
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-        return new TaskResult(
+        var tr = new TaskResult(
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
                 es.changedFiles(),
                 stopDetails);
-    }
-
-    /**
-     * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
-     * same request / parse / apply FSM that {@link #runTask(String, Set)} uses, but it stops after all SEARCH/REPLACE
-     * blocks have been applied (no build verification is performed).
-     *
-     * @param file the file to edit
-     * @param instructions user instructions describing the desired change
-     * @param readOnlyMessages conversation context that should be provided to the LLM as read-only (e.g., other related
-     *     files, build output, etc.)
-     * @param flags
-     * @return a {@link TaskResult} recording the conversation and the original contents of all files that were changed
-     */
-    public TaskResult runSingleFileEdit(
-            ProjectFile file,
-            String instructions,
-            List<ChatMessage> readOnlyMessages,
-            Set<CodePrompts.InstructionsFlags> flags) {
-        // 0.  Setup: coder, parser, initial messages, and initial state
-        var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
-        coder.setOutput(io);
-
-        EditBlockParser parser = EditBlockParser.instance;
-
-        UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
-
-        var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
-        var editState = new EditState(
-                new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap());
-
-        logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
-                .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
-
-        TaskResult.StopDetails stopDetails;
-
-        // 1.  Main FSM loop (request → parse → apply)
-        while (true) {
-            // ----- 1-a.  Construct messages for this turn --------------------
-            List<ChatMessage> llmMessages = CodePrompts.instance.getSingleFileCodeMessages(
-                    contextManager.getProject(),
-                    readOnlyMessages,
-                    conversationState.taskMessages(),
-                    requireNonNull(conversationState.nextRequest(), "nextRequest must be set before sending to LLM"),
-                    file);
-
-            // ----- 1-b.  Send to LLM -----------------------------------------
-            StreamingResult streamingResult;
-            try {
-                streamingResult = coder.sendRequest(llmMessages);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
-
-            // ----- 1-c.  REQUEST PHASE ---------------------------------------
-            var step = requestPhase(conversationState, editState, streamingResult, null);
-            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
-                stopDetails = details;
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-d.  PARSE PHASE -----------------------------------------
-            step = parsePhase(
-                    conversationState, editState, streamingResult.text(), streamingResult.isPartial(), parser, null);
-            if (step instanceof Step.Retry retry) {
-                conversationState = retry.cs();
-                editState = retry.es();
-                continue; // back to while-loop top
-            }
-            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
-                stopDetails = details;
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-e.  APPLY PHASE -----------------------------------------
-            step = applyPhase(conversationState, editState, null);
-            if (step instanceof Step.Retry retry2) {
-                conversationState = retry2.cs();
-                editState = retry2.es();
-                continue;
-            }
-            if (step instanceof Step.Fatal fatal3) {
-                stopDetails = fatal3.stopDetails();
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-e.5.  PARSE-JAVA PHASE ----------------------------------
-            step = parseJavaPhase(conversationState, editState, null);
-            if (step instanceof Step.Retry retryJava) {
-                conversationState = retryJava.cs();
-                editState = retryJava.es();
-                continue;
-            }
-            if (step instanceof Step.Fatal fatalJava) {
-                stopDetails = fatalJava.stopDetails();
-                break;
-            }
-            conversationState = step.cs();
-            editState = step.es();
-
-            // ----- 1-f.  Termination checks ----------------------------------
-            if (editState.pendingBlocks().isEmpty()) {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-                break;
-            }
-
-            if (Thread.currentThread().isInterrupted()) {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
-        }
-
-        // 2.  Produce TaskResult
-        assert stopDetails != null;
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
-
-        String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? instructions
-                : instructions + " [" + stopDetails.reason().name() + "]";
-
-        return new TaskResult(
-                "Code: " + finalAction,
-                new ContextFragment.TaskFragment(contextManager, finalMessages, instructions),
-                editState.changedFiles(),
-                stopDetails);
+        logger.debug("Task result: {}", tr);
+        return tr;
     }
 
     void report(String message) {
@@ -632,7 +559,6 @@ public class CodeAgent {
 
                 Please continue from there (WITHOUT repeating that one).
                 """
-                .stripIndent()
                 .formatted(lastBlock);
     }
 
@@ -702,7 +628,8 @@ public class CodeAgent {
 
         String buildError;
         try {
-            buildError = BuildAgent.runVerification(contextManager);
+            context = BuildAgent.runVerification(context);
+            buildError = context.getBuildError();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
@@ -712,6 +639,50 @@ public class CodeAgent {
         // Base success/failure decision on raw build result, not processed output
         if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
+            if (!es.javaLintDiagnostics().isEmpty()) {
+                // Write one markdown file per source file to capture pre-lint findings and sources.
+                try {
+                    var tmp = System.getProperty("java.io.tmpdir");
+                    var timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HH-mm")
+                            .format(LocalDateTime.now(ZoneId.systemDefault()));
+                    var subdir = Path.of(tmp, "brokk", "codeagent-" + timestamp);
+                    Files.createDirectories(subdir);
+
+                    for (var entry : es.javaLintDiagnostics().entrySet()) {
+                        ProjectFile pf = entry.getKey();
+                        var list = entry.getValue();
+                        var diagsString =
+                                list.stream().map(JavaDiagnostic::description).collect(Collectors.joining("\n"));
+
+                        var unique = System.currentTimeMillis() + "-"
+                                + UUID.randomUUID().toString().substring(0, 8);
+                        var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
+                        var out = subdir.resolve(fileName);
+
+                        var markdownContent =
+                                """
+                                # False Positive for %s
+
+                                %s
+
+                                # Source
+
+                                ```java
+                                %s
+                                ```
+                                """
+                                        .formatted(
+                                                pf.getFileName(),
+                                                diagsString,
+                                                pf.read().orElse(""));
+
+                        Files.writeString(out, markdownContent);
+                        logger.info("Wrote pre-lint findings for {} to {}", pf.getFileName(), out.toString());
+                    }
+                } catch (IOException e) {
+                    logger.warn("Failed to write pre-lint diagnostics file(s)", e);
+                }
+            }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
@@ -1054,37 +1025,9 @@ public class CodeAgent {
             }
         });
 
-        // If no diagnostics, continue. Otherwise, ask LLM to fix syntax/identifier issues first.
-        if (perFileProblems.isEmpty()) {
-            var nextEs = es.withJavaLintDiagnostics(perFileProblems);
-            return new Step.Continue(cs, nextEs);
-        }
-
-        // Build a concise diagnostic summary for the LLM
-        var summary = perFileProblems.entrySet().stream()
-                .sorted(Comparator.comparing(e -> e.getKey().toString()))
-                .flatMap(e -> e.getValue().stream().map(CodeAgent.JavaDiagnostic::description))
-                .collect(Collectors.joining("\n"));
-
-        var prompt =
-                """
-                Java syntax or identifier errors were detected in the edited files. Please fix these before we proceed to the full build.
-
-                %s
-                """
-                        .stripIndent()
-                        .formatted(summary);
-
-        var nextRequest = new UserMessage(prompt);
-        var nextCs = new ConversationState(
-                cs.taskMessages(), nextRequest, cs.taskMessages().size());
-
-        // Save diagnostics and record a "build failure" so we reset the per-turn baseline and stop before verifying
-        var withDiags = es.withJavaLintDiagnostics(perFileProblems);
-        var nextEs = withDiags.afterBuildFailure(summary);
-
-        report("Java parse errors detected; asking LLM to fix syntax/identifier issues before building.");
-        return new Step.Retry(nextCs, nextEs);
+        // Save diagnostics per-file and continue (non-blocking pre-lint)
+        var nextEs = es.withJavaLintDiagnostics(perFileProblems);
+        return new Step.Continue(cs, nextEs);
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
@@ -1101,7 +1044,6 @@ public class CodeAgent {
                 > %s
                   %s
                 """
-                .stripIndent()
                 .formatted(absPath.toString(), line, col, message, lineText, pointer);
     }
 
@@ -1243,6 +1185,7 @@ public class CodeAgent {
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
+
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(

@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import java.util.Collections;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -25,6 +24,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
+            IMPORT_DECLARATION,
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
             "body", // bodyFieldName (e.g. function_declaration.body -> block)
             "parameters", // parametersFieldName
@@ -46,23 +46,32 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Nullable
     private final ThreadLocal<TSQuery> packageQuery;
 
-    public GoAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.GO, excludedFiles);
+    private ThreadLocal<TSQuery> createGoNamespaceQuery() {
         // Initialize the ThreadLocal for the package query.
         // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
-        this.packageQuery = ThreadLocal.withInitial(() -> {
+        return ThreadLocal.withInitial(() -> {
             try {
                 return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-            } catch (RuntimeException e) {
-                // Log and rethrow to indicate a critical setup error for this thread's query.
+            } catch (Exception e) { // TSQuery constructor can throw various exceptions
                 log.error("Failed to compile packageQuery for GoAnalyzer ThreadLocal", e);
-                throw e;
+                throw e; // Re-throw to indicate critical setup error for this thread's query
             }
         });
     }
 
     public GoAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+        super(project, Languages.GO);
+        this.packageQuery = createGoNamespaceQuery();
+    }
+
+    private GoAnalyzer(IProject project, AnalyzerState state) {
+        super(project, Languages.GO, state);
+        this.packageQuery = createGoNamespaceQuery();
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new GoAnalyzer(getProject(), state);
     }
 
     @Override

@@ -4,13 +4,12 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessage;
-import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.AnalyzerUtil.CodeWithSource;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.usages.FuzzyResult;
+import io.github.jbellis.brokk.analyzer.usages.FuzzyUsageFinder;
+import io.github.jbellis.brokk.analyzer.usages.UsageHit;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
@@ -100,13 +99,13 @@ public interface ContextFragment {
         }
     }
 
-    static String getSummary(Collection<ContextFragment> fragments) {
-        return getSummary(fragments.stream());
+    static String describe(Collection<ContextFragment> fragments) {
+        return describe(fragments.stream());
     }
 
-    static String getSummary(Stream<ContextFragment> fragments) {
+    static String describe(Stream<ContextFragment> fragments) {
         return fragments
-                .map(ContextFragment::formatSummary)
+                .map(ContextFragment::description)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
     }
@@ -157,24 +156,13 @@ public interface ContextFragment {
     default String formatToc() {
         // ACHTUNG! if we ever start overriding this, we'll need to serialize it into FrozenFragment
         return """
-               <fragment-toc description="%s" fragmentid="%s" />
-               """
+                <fragment-toc description="%s" fragmentid="%s" />
+                """
                 .formatted(description(), id());
     }
 
     /** Indicates if the fragment's content can change based on project/file state. */
     boolean isDynamic();
-
-    /**
-     * Used for Quick Context LLM to give the LLM more information than the description but less than full text.
-     *
-     * <p>ACHTUNG! While multiple CF subtypes override this, FrozenFragment does not; you will always get just the
-     * description of a FrozenFragment. This is useful for debug logging (description is much more compact), but
-     * confusing if you're not careful.
-     */
-    default String formatSummary() throws CancellationException {
-        return description();
-    }
 
     default boolean isText() {
         return true;
@@ -285,11 +273,10 @@ public interface ContextFragment {
         @Override
         default String format() {
             return """
-                   <file path="%s" fragmentid="%s">
-                   %s
-                   </file>
-                   """
-                    .stripIndent()
+                    <file path="%s" fragmentid="%s">
+                    %s
+                    </file>
+                    """
                     .formatted(file().toString(), id(), text());
         }
 
@@ -345,28 +332,6 @@ public interface ContextFragment {
                 return file.getFileName();
             }
             return "%s [%s]".formatted(file.getFileName(), file.getParent());
-        }
-
-        @Override
-        public String formatSummary() {
-            IAnalyzer analyzer = getAnalyzer();
-            if (!analyzer.isEmpty()) {
-                var summary = analyzer.as(SkeletonProvider.class)
-                        .map(skp -> skp.getSkeletons(file).entrySet().stream())
-                        .orElse(Stream.empty())
-                        .sorted(Map.Entry.comparingByKey())
-                        .map(Map.Entry::getValue)
-                        .collect(Collectors.joining("\n"));
-
-                return """
-                   <file source="%s" summarized=true>
-                   %s
-                   </file>
-                   """
-                        .formatted(file, summary);
-            } else {
-                return PathFragment.formatSummary(file); // Fallback if analyzer not ready, empty, or inappropriate
-            }
         }
 
         @Override
@@ -466,22 +431,16 @@ public interface ContextFragment {
             // but if it were, it should use %s for the ID.
             // Keeping existing format which doesn't include fragmentid.
             return """
-                   <file path="%s" revision="%s">
-                   %s
-                   </file>
-                   """
-                    .stripIndent()
+                    <file path="%s" revision="%s">
+                    %s
+                    </file>
+                    """
                     .formatted(file().toString(), revision(), text());
         }
 
         @Override
         public boolean isDynamic() {
             return false; // Content is fixed to a revision
-        }
-
-        @Override
-        public String formatSummary() {
-            return PathFragment.formatSummary(file);
         }
 
         @Override
@@ -544,11 +503,6 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             return Set.of();
-        }
-
-        @Override
-        public String formatSummary() {
-            return PathFragment.formatSummary(file);
         }
 
         @Override
@@ -662,22 +616,16 @@ public interface ContextFragment {
         public String format() {
             // Format for LLM, indicating image content (similar to PasteImageFragment)
             return """
-                   <file path="%s" fragmentid="%s">
-                   [Image content provided out of band]
-                   </file>
-                   """
-                    .stripIndent()
+                    <file path="%s" fragmentid="%s">
+                    [Image content provided out of band]
+                    </file>
+                    """
                     .formatted(file().toString(), id());
         }
 
         @Override
         public boolean isDynamic() {
             return true; // Image file on disk could change
-        }
-
-        @Override
-        public String formatSummary() {
-            return PathFragment.formatSummary(file);
         }
 
         @Override
@@ -753,11 +701,10 @@ public interface ContextFragment {
         @Override
         public String format() {
             return """
-                   <fragment description="%s" fragmentid="%s">
-                   %s
-                   </fragment>
-                   """
-                    .stripIndent()
+                    <fragment description="%s" fragmentid="%s">
+                    %s
+                    </fragment>
+                    """
                     .formatted(description(), id(), text());
         }
 
@@ -775,11 +722,6 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             return Set.of();
-        }
-
-        @Override
-        public String formatSummary() {
-            return "<fragment description=\"%s\" />".formatted(description());
         }
 
         @Override
@@ -911,11 +853,6 @@ public interface ContextFragment {
         public Set<ProjectFile> files() {
             // SearchFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(java.util.stream.Collectors.toSet());
-        }
-
-        @Override
-        public String formatSummary() {
-            return format(); // full search result
         }
     }
 
@@ -1107,11 +1044,10 @@ public interface ContextFragment {
         @Override
         public String format() {
             return """
-                   <fragment description="%s" fragmentid="%s">
-                   %s
-                   </fragment>
-                   """
-                    .stripIndent()
+                    <fragment description="%s" fragmentid="%s">
+                    %s
+                    </fragment>
+                    """
                     .formatted(description(), id(), text());
         }
 
@@ -1209,11 +1145,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public String formatSummary() {
-            return format(); // full source
-        }
-
-        @Override
         public String syntaxStyle() {
             if (sources.isEmpty()) {
                 return SyntaxConstants.SYNTAX_STYLE_NONE;
@@ -1240,7 +1171,7 @@ public interface ContextFragment {
         private final boolean includeTestFiles;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, false);
+            this(contextManager, targetIdentifier, true);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
@@ -1252,7 +1183,7 @@ public interface ContextFragment {
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
-            this(existingId, contextManager, targetIdentifier, false);
+            this(existingId, contextManager, targetIdentifier, true);
         }
 
         public UsageFragment(
@@ -1271,21 +1202,32 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
-            if (maybeUsagesProvider.isEmpty()) {
+            if (analyzer.isEmpty()) {
                 return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
             }
-            var up = maybeUsagesProvider.get();
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
-            List<CodeUnit> uses = up.getUses(targetIdentifier);
-            if (!includeTestFiles) {
-                uses = uses.stream()
-                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                        .toList();
+            var either = usageResult.toEither();
+            if (either.hasErrorMessage()) {
+                return either.getErrorMessage();
             }
-            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+
+            List<CodeWithSource> parts = processUsages(analyzer, either);
             var formatted = CodeWithSource.text(parts);
             return formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
+        }
+
+        private List<CodeWithSource> processUsages(IAnalyzer analyzer, FuzzyResult.EitherUsagesOrError either) {
+            List<UsageHit> uses = either.getUsages().stream()
+                    .sorted(Comparator.comparingDouble(UsageHit::confidence).reversed())
+                    .toList();
+            if (!includeTestFiles) {
+                uses = uses.stream()
+                        .filter(cu -> !ContextManager.isTestFile(cu.file()))
+                        .toList();
+            }
+            return AnalyzerUtil.processUsages(
+                    analyzer, uses.stream().map(UsageHit::enclosing).toList());
         }
 
         @Override
@@ -1296,19 +1238,17 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             var analyzer = getAnalyzer();
-            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
-            if (maybeUsagesProvider.isEmpty()) {
-                return Set.of(); // If no provider, no sources can be found.
+            if (analyzer.isEmpty()) {
+                return Collections.emptySet();
             }
-            var up = maybeUsagesProvider.get();
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
-            List<CodeUnit> uses = up.getUses(targetIdentifier);
-            if (!includeTestFiles) {
-                uses = uses.stream()
-                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                        .toList();
+            var either = usageResult.toEither();
+            if (either.hasErrorMessage()) {
+                return Collections.emptySet();
             }
-            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+
+            List<CodeWithSource> parts = processUsages(analyzer, either);
             return parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
         }
 
@@ -1697,17 +1637,11 @@ public interface ContextFragment {
         @Override
         public String format() {
             return """
-                   <summary targets="%s" type="%s" fragmentid="%s">
-                   %s
-                   </summary>
-                   """
-                    .stripIndent()
+                    <summary targets="%s" type="%s" fragmentid="%s">
+                    %s
+                    </summary>
+                    """
                     .formatted(String.join(", ", targetIdentifiers), summaryType.name(), id(), text());
-        }
-
-        @Override
-        public String formatSummary() {
-            return format();
         }
 
         public List<String> getTargetIdentifiers() {
@@ -1733,6 +1667,7 @@ public interface ContextFragment {
 
     interface OutputFragment {
         List<TaskEntry> entries();
+
         /** Should raw HTML inside markdown be escaped before rendering? */
         default boolean isEscapeHtml() {
             return true;
@@ -1804,17 +1739,11 @@ public interface ContextFragment {
         @Override
         public String format() {
             return """
-                   <taskhistory fragmentid="%s">
-                   %s
-                   </taskhistory>
-                   """
-                    .stripIndent()
+                    <taskhistory fragmentid="%s">
+                    %s
+                    </taskhistory>
+                    """
                     .formatted(id(), text()); // Analyzer not used by its text()
-        }
-
-        @Override
-        public String formatSummary() {
-            return "";
         }
 
         @Override
@@ -1857,6 +1786,8 @@ public interface ContextFragment {
                 String description,
                 boolean escapeHtml) {
             super(calculateId(description, messages), contextManager); // ID is content hash
+            // don't break sessions saved like this
+            // assert !messages.isEmpty() : "No messages provided in the task fragment";
             this.parser = parser;
             this.messages = List.copyOf(messages);
             this.description = description;
@@ -1881,6 +1812,8 @@ public interface ContextFragment {
                 String description,
                 boolean escapeHtml) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            // don't break sessions saved like this
+            // assert !messages.isEmpty() : "No messages provided in the task fragment";
             this.parser = parser;
             this.messages = List.copyOf(messages);
             this.description = description;
@@ -1936,11 +1869,6 @@ public interface ContextFragment {
             // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
             return TaskEntry.formatMessages(messages);
-        }
-
-        @Override
-        public String formatSummary() {
-            return format(); // if it's explicitly added to the workspace it's probably important
         }
 
         @Override

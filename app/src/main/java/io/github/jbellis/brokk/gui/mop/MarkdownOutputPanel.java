@@ -80,22 +80,24 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        updateTheme(guiTheme.isDarkTheme());
+        String themeName = MainProject.getTheme();
+        updateTheme(themeName);
     }
 
     @Override
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
-        updateTheme(guiTheme.isDarkTheme(), wordWrap);
+        String themeName = MainProject.getTheme();
+        updateTheme(themeName, wordWrap);
     }
 
-    public void updateTheme(boolean isDark) {
+    public void updateTheme(String themeName) {
         boolean wrapMode = MainProject.getCodeBlockWrapMode();
-        updateTheme(isDark, wrapMode);
+        updateTheme(themeName, wrapMode);
     }
 
-    public void updateTheme(boolean isDark, boolean wordWrap) {
+    public void updateTheme(String themeName, boolean wordWrap) {
         boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        webHost.setRuntimeTheme(isDark, isDevMode, wordWrap);
+        webHost.setRuntimeTheme(themeName, isDevMode, wordWrap);
     }
 
     public void setBlocking(boolean blocked) {

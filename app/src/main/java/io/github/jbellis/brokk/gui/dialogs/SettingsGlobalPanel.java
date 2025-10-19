@@ -66,9 +66,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
+    private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -298,6 +300,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Panel navigation
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
+        adder.add("panel.switchToDependencies", "Switch to Dependencies");
         adder.add("panel.switchToChanges", "Switch to Changes");
         adder.add("panel.switchToWorktrees", "Switch to Worktrees");
         adder.add("panel.switchToLog", "Switch to Log");
@@ -439,6 +442,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.openSettings",
             "global.closeWindow",
             "panel.switchToProjectFiles",
+            "panel.switchToDependencies",
             "panel.switchToChanges",
             "panel.switchToWorktrees",
             "panel.switchToLog",
@@ -479,6 +483,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.openSettings" -> "Open Settings";
             case "global.closeWindow" -> "Close Window";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
+            case "panel.switchToDependencies" -> "Switch to Dependencies";
             case "panel.switchToChanges" -> "Switch to Changes";
             case "panel.switchToWorktrees" -> "Switch to Worktrees";
             case "panel.switchToLog" -> "Switch to Log";
@@ -509,6 +514,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.openSettings",
             "global.closeWindow",
             "panel.switchToProjectFiles",
+            "panel.switchToDependencies",
             "panel.switchToChanges",
             "panel.switchToWorktrees",
             "panel.switchToLog",
@@ -760,12 +766,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         lightThemeRadio = new JRadioButton("Light");
         darkThemeRadio = new JRadioButton("Dark");
+        highContrastThemeRadio = new JRadioButton("High Contrast");
         var themeGroup = new ButtonGroup();
         themeGroup.add(lightThemeRadio);
         themeGroup.add(darkThemeRadio);
+        themeGroup.add(highContrastThemeRadio);
 
-        lightThemeRadio.putClientProperty("theme", false); // Custom property for easy identification
-        darkThemeRadio.putClientProperty("theme", true);
+        lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
+        darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
+        highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -775,6 +784,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(highContrastThemeRadio, gbc);
 
         // Word wrap for code blocks
         gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
@@ -1012,6 +1024,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         });
 
+        // Create top panel with preferred code model selector
+        var topPanel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(0, 0, 10, 0);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0.0;
+        topPanel.add(new JLabel("Preferred Code Model:"), gbc);
+
+        preferredCodeModelCombo = new JComboBox<>(availableModelNames);
+        // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
+        var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        comboHolder.add(preferredCodeModelCombo);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0; // let the holder absorb extra space
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(comboHolder, gbc);
+
+        panel.add(topPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
         return panel;
@@ -1207,10 +1242,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
 
         // Appearance Tab
-        if (MainProject.getTheme().equals("dark")) {
-            darkThemeRadio.setSelected(true);
-        } else {
-            lightThemeRadio.setSelected(true);
+        String currentTheme = MainProject.getTheme();
+        switch (currentTheme) {
+            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
+            default -> lightThemeRadio.setSelected(true);
         }
 
         // Code Block Layout
@@ -1264,6 +1300,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
+        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        preferredCodeModelCombo.setSelectedItem(currentCodeConfig.name());
 
         // GitHub Tab
         if (gitHubSettingsPanel != null) {
@@ -1292,6 +1330,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh(); // Key change might affect org policy
+                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
                 } catch (IllegalArgumentException ex) {
                     JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
                     return false;
@@ -1305,12 +1344,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh();
+                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
                 }
             } else { // newBrokkKeyFromField is empty
                 MainProject.setBrokkKey(newBrokkKeyFromField);
                 refreshBalanceDisplay();
                 updateSignupLabelVisibility();
                 parentDialog.triggerDataRetentionPolicyRefresh();
+                chrome.getContextManager().reloadService(); // Reinitialize service with cleared key
             }
         }
 
@@ -1358,9 +1399,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Appearance Tab
-        boolean newIsDark = darkThemeRadio.isSelected();
+        // Get theme from the selected radio button's client property
+        String newTheme = GuiTheme.THEME_LIGHT; // default
+        if (lightThemeRadio.isSelected()) {
+            newTheme = (String) lightThemeRadio.getClientProperty("theme");
+        } else if (darkThemeRadio.isSelected()) {
+            newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (highContrastThemeRadio.isSelected()) {
+            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
+        }
+
         boolean newWrapMode = wordWrapCheckbox.isSelected();
-        String newTheme = newIsDark ? "dark" : "light";
         boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
 
         // Check if either theme or wrap mode changed
@@ -1376,7 +1425,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             // Apply theme and wrap mode changes via unified Chrome method
             if (themeChanged || wrapChanged) {
-                chrome.switchThemeAndWrapMode(newIsDark, newWrapMode);
+                chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
                 logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
             }
         }
@@ -1435,6 +1484,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
+
+        // Preferred Code Model
+        var selectedCodeModel = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedCodeModel != null && !selectedCodeModel.isEmpty()) {
+            var codeConfig = new Service.ModelConfig(selectedCodeModel);
+            chrome.getProject().getMainProject().setCodeModelConfig(codeConfig);
+        }
 
         // GitHub Tab - managed via Connect/Disconnect flow
         if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
@@ -3028,7 +3084,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToChanges() {
+    private static javax.swing.KeyStroke defaultSwitchToDependencies() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -3036,7 +3092,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToWorktrees() {
+    private static javax.swing.KeyStroke defaultSwitchToChanges() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -3044,7 +3100,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToLog() {
+    private static javax.swing.KeyStroke defaultSwitchToWorktrees() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -3052,7 +3108,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToPullRequests() {
+    private static javax.swing.KeyStroke defaultSwitchToLog() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
@@ -3060,12 +3116,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToIssues() {
+    private static javax.swing.KeyStroke defaultSwitchToPullRequests() {
         int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? java.awt.event.KeyEvent.META_DOWN_MASK
                         : java.awt.event.KeyEvent.ALT_DOWN_MASK;
         return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_6, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToIssues() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, modifier);
     }
 
     // General navigation defaults
@@ -3152,6 +3216,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             // Panel navigation
             case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
+            case "panel.switchToDependencies" -> defaultSwitchToDependencies();
             case "panel.switchToChanges" -> defaultSwitchToChanges();
             case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
             case "panel.switchToLog" -> defaultSwitchToLog();

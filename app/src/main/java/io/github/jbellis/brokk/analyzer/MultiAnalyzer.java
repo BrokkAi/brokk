@@ -1,18 +1,14 @@
 package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.io.Files;
+import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class MultiAnalyzer
-        implements IAnalyzer,
-                CallGraphProvider,
-                UsagesProvider,
-                SkeletonProvider,
-                SourceCodeProvider,
-                TypeAliasProvider {
+        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -53,16 +49,22 @@ public class MultiAnalyzer
     }
 
     @Override
-    public List<CodeUnit> getUses(String fqName) {
+    public List<String> importStatementsOf(ProjectFile file) {
         return delegates.values().stream()
-                .flatMap(
-                        analyzer1 -> analyzer1
-                                .as(UsagesProvider.class)
-                                .map(up -> up.getUses(fqName))
-                                .orElse(Collections.emptyList())
-                                .stream())
-                .distinct()
-                .collect(Collectors.toList());
+                .flatMap(analyzer -> analyzer.importStatementsOf(file).stream())
+                .toList();
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, range).stream())
+                .findFirst();
+    }
+
+    @Override
+    public IProject getProject() {
+        return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
 
     @Override
@@ -111,17 +113,13 @@ public class MultiAnalyzer
     @Override
     public Optional<String> getClassSource(String fqcn, boolean includeComments) {
         for (var delegate : delegates.values()) {
-            try {
-                final var maybeSource =
-                        delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
-                if (maybeSource.isPresent()) {
-                    return maybeSource;
-                }
-            } catch (SymbolNotFoundException e) {
-                // pass
+            final var maybeSource =
+                    delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
+            if (maybeSource.isPresent()) {
+                return maybeSource;
             }
         }
-        throw new SymbolNotFoundException("Class source not found for " + fqcn + " in any analyzer.");
+        return Optional.empty();
     }
 
     @Override
@@ -220,15 +218,18 @@ public class MultiAnalyzer
 
     @Override
     public IAnalyzer update() {
-        for (var an : delegates.values()) {
-            an.update();
+        final var newDelegates = new HashMap<Language, IAnalyzer>(delegates.size());
+        for (var entry : delegates.entrySet()) {
+            var delegateKey = entry.getKey();
+            var analyzer = entry.getValue();
+            newDelegates.put(delegateKey, analyzer.update());
         }
-        return this;
+        return new MultiAnalyzer(newDelegates);
     }
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-
+        final var newDelegates = new HashMap<Language, IAnalyzer>(delegates.size());
         for (var entry : delegates.entrySet()) {
             var delegateKey = entry.getKey();
             var analyzer = entry.getValue();
@@ -240,13 +241,13 @@ public class MultiAnalyzer
                     .collect(Collectors.toSet());
 
             if (relevantFiles.isEmpty()) {
-                continue;
+                newDelegates.put(delegateKey, analyzer);
+            } else {
+                newDelegates.put(delegateKey, analyzer.update(relevantFiles));
             }
-
-            analyzer.update(relevantFiles);
         }
 
-        return this;
+        return new MultiAnalyzer(newDelegates);
     }
 
     @Override

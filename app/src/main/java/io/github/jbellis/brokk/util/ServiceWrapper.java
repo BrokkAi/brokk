@@ -37,14 +37,6 @@ public class ServiceWrapper {
         return get().quickModel();
     }
 
-    public String nameOf(StreamingChatModel model) {
-        return get().nameOf(model);
-    }
-
-    public StreamingChatModel quickestModel() {
-        return get().quickestModel();
-    }
-
     public static class ServiceInitializationException extends RuntimeException {
         public ServiceInitializationException(Exception e) {
             super(e);

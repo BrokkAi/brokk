@@ -11,7 +11,9 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
+import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.Desktop;
@@ -163,8 +165,43 @@ public class MenuBar {
 
         menuBar.add(editMenu);
 
+        // Session menu
+        var sessionMenu = new JMenu("Session");
+
+        var newSessionItem = new JMenuItem("New Session");
+        newSessionItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            chrome.getContextManager()
+                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
+        }));
+        sessionMenu.add(newSessionItem);
+
+        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
+        newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            chrome.getContextManager()
+                    .createSessionFromContextAsync(
+                            chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
+        }));
+        sessionMenu.add(newSessionCopyWorkspaceItem);
+
+        sessionMenu.addSeparator();
+
+        var manageSessionsItem = new JMenuItem("Manage Sessions...");
+        manageSessionsItem.addActionListener(e -> {
+            var dialog = new SessionsDialog(chrome, chrome.getContextManager());
+            dialog.setVisible(true);
+        });
+        sessionMenu.add(manageSessionsItem);
+
+        menuBar.add(sessionMenu);
+
         // Context menu
-        var contextMenu = new JMenu("Workspace");
+        var contextMenu = new JMenu("Context");
 
         var refreshItem = new JMenuItem("Refresh Code Intelligence");
         refreshItem.addActionListener(e -> runWithRefocus(chrome, () -> {
@@ -177,7 +214,7 @@ public class MenuBar {
 
         contextMenu.addSeparator();
 
-        var attachContextItem = new JMenuItem("Attach Context...");
+        var attachContextItem = new JMenuItem("Attach ...");
         attachContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         attachContextItem.addActionListener(e -> {
@@ -186,7 +223,7 @@ public class MenuBar {
         attachContextItem.setEnabled(true);
         contextMenu.add(attachContextItem);
 
-        var summarizeContextItem = new JMenuItem("Summarize Context...");
+        var summarizeContextItem = new JMenuItem("Summarize ...");
         summarizeContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeContextItem.addActionListener(e -> {
@@ -290,28 +327,16 @@ public class MenuBar {
 
         contextMenu.addSeparator();
 
-        var newSessionItem = new JMenuItem("New Session");
-        newSessionItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            chrome.getContextManager()
-                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
+        var compressTaskHistoryItem = new JMenuItem("Compress Task History");
+        compressTaskHistoryItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_R, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        compressTaskHistoryItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            chrome.getContextManager().submitContextTask(() -> {
+                chrome.getContextManager().compressHistoryAsync();
+            });
         }));
-        contextMenu.add(newSessionItem);
-
-        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
-        newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            chrome.getContextManager()
-                    .createSessionFromContextAsync(
-                            chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
-        }));
-        contextMenu.add(newSessionCopyWorkspaceItem);
-
-        contextMenu.addSeparator();
+        compressTaskHistoryItem.setEnabled(true);
+        contextMenu.add(compressTaskHistoryItem);
 
         // Clear Task History (Cmd/Ctrl+P)
         var clearTaskHistoryItem = new JMenuItem("Clear Task History");
@@ -323,6 +348,8 @@ public class MenuBar {
         }));
         clearTaskHistoryItem.setEnabled(true);
         contextMenu.add(clearTaskHistoryItem);
+
+        contextMenu.addSeparator();
 
         var dropAllItem = new JMenuItem("Drop All");
         dropAllItem.setAccelerator(KeyStroke.getKeyStroke(
@@ -368,23 +395,24 @@ public class MenuBar {
                 windowMenu.removeAll();
 
                 // Add IntelliJ-style sidebar panel switching shortcuts
-                // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
-                int modifier = System.getProperty("os.name")
-                                .toLowerCase(java.util.Locale.ROOT)
-                                .contains("mac")
-                        ? KeyEvent.META_DOWN_MASK
-                        : KeyEvent.ALT_DOWN_MASK;
-
                 var projectFilesItem = new JMenuItem("Project Files");
-                projectFilesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
+                projectFilesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
                 projectFilesItem.addActionListener(actionEvent -> {
                     chrome.getLeftTabbedPanel().setSelectedIndex(0);
                 });
                 windowMenu.add(projectFilesItem);
 
+                var dependenciesItem = new JMenuItem("Dependencies");
+                dependenciesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+                dependenciesItem.addActionListener(actionEvent -> {
+                    var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getDependenciesPanel());
+                    if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                });
+                windowMenu.add(dependenciesItem);
+
                 if (chrome.getProject().hasGit()) {
                     var gitItem = new JMenuItem("Commit");
-                    gitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
+                    gitItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                     gitItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
@@ -394,7 +422,7 @@ public class MenuBar {
 
                 if (chrome.getProject().isGitHubRepo() && chrome.getProject().hasGit()) {
                     var pullRequestsItem = new JMenuItem("Pull Requests");
-                    pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
+                    pullRequestsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                     pullRequestsItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
@@ -406,7 +434,7 @@ public class MenuBar {
                                 != io.github.jbellis.brokk.issues.IssueProviderType.NONE
                         && chrome.getProject().hasGit()) {
                     var issuesItem = new JMenuItem("Issues");
-                    issuesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
+                    issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                     issuesItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);

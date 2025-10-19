@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.context;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
@@ -12,9 +11,12 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.Json;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -23,7 +25,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -183,6 +184,35 @@ public class Context {
         return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action);
     }
 
+    /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
+    public List<ProjectFile> getMostRelevantFiles(int topK) {
+        var ineligibleSources = fragments.stream()
+                .filter(f -> !f.isEligibleForAutoContext())
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+
+        record WeightedFile(ProjectFile file, double weight) {}
+
+        var weightedSeeds = fragments.stream()
+                .filter(f -> !f.files().isEmpty())
+                .flatMap(fragment -> {
+                    double weight = Math.sqrt(1.0 / fragment.files().size());
+                    return fragment.files().stream().map(file -> new WeightedFile(file, weight));
+                })
+                .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
+
+        if (weightedSeeds.isEmpty()) {
+            return List.of();
+        }
+
+        var gitDistanceResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
+        return gitDistanceResults.stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .filter(file -> !ineligibleSources.contains(file))
+                .limit(topK)
+                .toList();
+    }
+
     /**
      * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
      * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
@@ -190,48 +220,19 @@ public class Context {
     public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        // Collect ineligible sources from fragments not eligible for auto-context
-        var ineligibleSources = fragments.stream()
-                .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.files().stream())
-                .collect(Collectors.toSet());
-
-        // All file fragments have a weight of 1.0 each; virtuals share a weight of 1.0
-        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
-        var fileFragments = fragments.stream().filter(f -> f.getType().isPath()).toList();
-        var virtuals = fragments.stream().filter(f -> f.getType().isVirtual()).toList();
-
-        fileFragments.stream().flatMap(cf -> cf.files().stream()).forEach(f -> weightedSeeds.put(f, 1.0));
-        int virtualCount = Math.max(1, virtuals.size());
-        virtuals.stream()
-                .flatMap(cf -> cf.files().stream())
-                .forEach(f -> weightedSeeds.merge(f, 1.0 / virtualCount, Double::sum));
-
-        if (weightedSeeds.isEmpty()) {
+        var relevantFiles = getMostRelevantFiles(topK);
+        if (relevantFiles.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
 
-        return buildAutoContextFragment(contextManager, analyzer, weightedSeeds, ineligibleSources, topK);
-    }
-
-    public static SkeletonFragment buildAutoContextFragment(
-            IContextManager contextManager,
-            IAnalyzer analyzer,
-            Map<ProjectFile, Double> weightedSeeds,
-            Set<ProjectFile> ineligibleSources,
-            int topK) {
-        var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
-
         List<String> targetFqns = new ArrayList<>();
-        for (var sourceFile : pagerankResults) {
-            boolean eligible = !ineligibleSources.contains(sourceFile);
-            if (!eligible) continue;
-
-            targetFqns.addAll(analyzer.getDeclarationsInFile(sourceFile).stream()
+        for (var sourceFile : relevantFiles) {
+            targetFqns.addAll(analyzer.topLevelCodeUnitsOf(sourceFile).stream()
                     .map(CodeUnit::fqName)
                     .toList());
             if (targetFqns.size() >= topK) break;
         }
+
         if (targetFqns.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
@@ -286,8 +287,7 @@ public class Context {
                 .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
 
         Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual() && f.getType().isEditable())
-                .map(f -> (ContextFragment) f);
+                .filter(f -> f.getType().isVirtual() && f.getType().isEditable());
 
         return Streams.concat(
                 editableVirtuals, otherEditablePathFragments, sortedProjectFiles.map(ContextFragment.class::cast));
@@ -532,6 +532,34 @@ public class Context {
         return id.hashCode();
     }
 
+    /**
+     * Retrieves the DISCARDED_CONTEXT fragment and parses it as a Map of description -> explanation.
+     * Returns an empty map if no DISCARDED_CONTEXT fragment exists or if parsing fails.
+     */
+    public Map<String, String> getDiscardedFragmentsNote() {
+        var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
+        var existingDiscarded = virtualFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
+                .filter(vf -> vf instanceof ContextFragment.StringFragment)
+                .map(vf -> (ContextFragment.StringFragment) vf)
+                .filter(sf -> discardedDescription.equals(sf.description()))
+                .findFirst();
+
+        if (existingDiscarded.isEmpty()) {
+            return Map.of();
+        }
+
+        var mapper = Json.getMapper();
+        try {
+            return mapper.readValue(
+                    existingDiscarded.get().text(),
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            logger.warn("Failed to parse DISCARDED_CONTEXT JSON", e);
+            return Map.of();
+        }
+    }
+
     public boolean workspaceContentEquals(Context other) {
         assert !this.containsDynamicFragments();
         assert !other.containsDynamicFragments();
@@ -545,6 +573,59 @@ public class Context {
 
     public boolean containsDynamicFragments() {
         return allFragments().anyMatch(ContextFragment::isDynamic);
+    }
+
+    /**
+     * Returns the processed output text from the latest build failure fragment in this Context. Empty string if there
+     * is no build failure recorded.
+     */
+    public String getBuildError() {
+        var desc = ContextFragment.BUILD_RESULTS.description();
+        return virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
+                .filter(sf -> desc.equals(sf.description()))
+                .map(cf -> cf.text())
+                .findFirst()
+                .orElse("");
+    }
+
+    /**
+     * Returns a new Context reflecting the latest build result. Behavior mirrors ContextManager.updateBuildFragment: -
+     * Always clears previous build fragments (legacy BUILD_LOG and the new BUILD_RESULTS StringFragment). - Adds a new
+     * "Latest Build Results" StringFragment only on failure; no fragment on success.
+     */
+    public Context withBuildResult(boolean success, String processedOutput) {
+        var desc = ContextFragment.BUILD_RESULTS.description();
+
+        var idsToDrop = virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
+                        || (f.getType() == ContextFragment.FragmentType.STRING
+                                && f instanceof ContextFragment.StringFragment sf
+                                && desc.equals(sf.description())))
+                .map(ContextFragment::id)
+                .toList();
+
+        var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
+
+        if (success) {
+            // Build succeeded; nothing to add after clearing old fragments
+            return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+        }
+
+        // Build failed; add a new StringFragment with the processed output
+        var sf = new ContextFragment.StringFragment(
+                getContextManager(), processedOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
+
+        var newFragments = new ArrayList<>(afterClear.fragments);
+        newFragments.add(sf);
+
+        return new Context(
+                newContextId(),
+                getContextManager(),
+                newFragments,
+                afterClear.taskHistory,
+                afterClear.parsedOutput,
+                CompletableFuture.completedFuture("Build results updated (failure)"));
     }
 
     private boolean isNewFileInGit(FrozenFragment ff) {

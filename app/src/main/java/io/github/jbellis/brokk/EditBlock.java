@@ -112,7 +112,6 @@ public class EditBlock {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
-        List<ProjectFile> newFiles = new ArrayList<>();
         // Track original file contents before any changes
         Map<ProjectFile, String> originalContentsThisBatch = new HashMap<>();
 
@@ -139,7 +138,6 @@ public class EditBlock {
                 file = contextManager.toFile(rawFileName);
                 try {
                     file.write(""); // Using ProjectFile.write handles directory creation internally
-                    newFiles.add(file);
                     logger.debug("Pre-created empty file: {}", file);
                 } catch (IOException ioException) {
                     io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
@@ -188,10 +186,9 @@ public class EditBlock {
                     replaceMostSimilarChunk(contextManager, originalContent, block.afterText(), "");
                     commentary =
                             """
-                                 The replacement text is already present in the file. If we no longer need to apply
-                                 this block, omit it from your reply.
-                                 """
-                                    .stripIndent();
+                    The replacement text is already present in the file. If we no longer need to apply
+                    this block, omit it from your reply.
+                    """;
                 } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
                     commentary = "";
                 }
@@ -201,8 +198,7 @@ public class EditBlock {
                             """
                               Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
                               Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
-                              """
-                                    .stripIndent();
+                              """;
                 }
 
                 logger.debug(
@@ -225,16 +221,6 @@ public class EditBlock {
             }
         }
 
-        // add new files to git and the Workspace
-        if (!newFiles.isEmpty()) {
-            try {
-                contextManager.getRepo().add(newFiles);
-                contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
-                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
-            }
-        }
-
         originalContentsThisBatch.keySet().retainAll(succeeded.values());
         return new EditResult(originalContentsThisBatch, failed);
     }
@@ -248,15 +234,15 @@ public class EditBlock {
             var beforeText = beforeText();
             var afterText = afterText();
             return """
-                   %s
-                   %s
-                   <<<<<<< SEARCH
-                   %s%s
-                   =======
-                   %s%s
-                   >>>>>>> REPLACE
-                   %s
-                   """
+            %s
+            %s
+            <<<<<<< SEARCH
+            %s%s
+            =======
+            %s%s
+            >>>>>>> REPLACE
+            %s
+            """
                     .formatted(
                             DEFAULT_FENCE.get(0),
                             rawFileName(),
@@ -747,12 +733,7 @@ public class EditBlock {
         var scp = scpOpt.get();
 
         if ("CLASS".equals(kind)) {
-            Optional<String> opt;
-            try {
-                opt = scp.getClassSource(fqName, true);
-            } catch (io.github.jbellis.brokk.analyzer.SymbolNotFoundException e) {
-                opt = Optional.empty();
-            }
+            Optional<String> opt = scp.getClassSource(fqName, true);
             if (opt.isEmpty()) {
                 var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                 var suggestions = analyzer.searchDefinitions(shortName).stream()

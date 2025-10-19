@@ -34,5 +34,7 @@ public final class RustTreeSitterNodeTypes {
     public static final String ATTRIBUTE_ITEM = "attribute_item";
     public static final String VISIBILITY_MODIFIER = "visibility_modifier";
 
+    public static final String IMPORT_DECLARATION = "use_declaration";
+
     private RustTreeSitterNodeTypes() {}
 }

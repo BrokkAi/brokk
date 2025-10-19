@@ -45,7 +45,6 @@ public final class QuickEditPrompts {
         ```
         </source>
         """
-                        .stripIndent()
                         .formatted(formatRelatedCode(relatedCode), fileContents));
 
         return List.of(
@@ -70,7 +69,6 @@ public final class QuickEditPrompts {
         Think about how to implement the goal, then return the replacement code fenced with triple backticks. Omit language or other markdown options.
         You MUST include the backtick fences, even if you want to replace the entire code with the empty string.
         """
-                .stripIndent()
                 .formatted(target, instructions);
     }
 
@@ -85,7 +83,6 @@ public final class QuickEditPrompts {
           %s
           </style_guide>
           """
-                        .stripIndent()
                         .formatted(instructions, styleGuide);
         return new SystemMessage(text);
     }
@@ -99,8 +96,7 @@ public final class QuickEditPrompts {
                 You will receive the original source file and the code to replace;
                 you must output the REPLACEMENT CODE fenced in triple backticks.
                 Always apply any relevant best practices or style guidelines to the snippet.
-                """
-                .stripIndent();
+                """;
     }
 
     public String fullReplaceIntro() {
@@ -109,8 +105,7 @@ public final class QuickEditPrompts {
                 You will receive a source file and other relevant context;
                 you must output the REPLACEMENT CODE for the ENTIRE FILE, fenced in triple backticks.
                 Always apply any relevant best practices or style guidelines to the snippet.
-                """
-                .stripIndent();
+                """;
     }
     /** Example conversation that demonstrates how the quick edit should be returned. */
     public List<ChatMessage> exampleMessages() {
@@ -136,8 +131,7 @@ public final class QuickEditPrompts {
             return result;
         }
         ```
-        """
-                        .stripIndent();
+        """;
         return List.of(new UserMessage(userTxt), new AiMessage(aiTxt));
     }
 }

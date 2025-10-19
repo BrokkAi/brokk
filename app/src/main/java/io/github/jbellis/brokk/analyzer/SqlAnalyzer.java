@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -14,11 +15,13 @@ import org.apache.logging.log4j.Logger;
 public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
-    // private final IProject project; // Unused field
+    private final IProject project;
     private final Map<ProjectFile, List<CodeUnit>> declarationsByFile;
-    final Map<CodeUnit, List<TreeSitterAnalyzer.Range>> rangesByCodeUnit; // Made package-private for testing
+    final Map<CodeUnit, List<Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
     private final Map<String, List<CodeUnit>> definitionsByFqName;
+    private final Set<Path> normalizedExcludedPaths;
+    private long lastAnalysisTimeNanos;
 
     // Regex to find "CREATE [OR REPLACE] [TEMPORARY] TABLE|VIEW [IF NOT EXISTS] schema.name"
     // Group 1: TABLE or VIEW
@@ -30,17 +33,22 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     public SqlAnalyzer(
             IProject projectInstance,
             Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
-        // this.project = project; // Unused field
+        this.project = projectInstance;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
         this.allDeclarationsList = new ArrayList<>();
         this.definitionsByFqName = new HashMap<>();
-
-        var normalizedExclusions = excludedFiles.stream()
+        this.normalizedExcludedPaths = excludedFiles.stream()
                 .map(p -> projectInstance.getRoot().resolve(p).toAbsolutePath().normalize())
                 .collect(Collectors.toSet());
+        this.lastAnalysisTimeNanos = System.nanoTime();
 
-        var filesToAnalyze = projectInstance.getAllFiles().stream()
+        analyzeSqlFiles(this.normalizedExcludedPaths);
+    }
+
+    private void analyzeSqlFiles(Set<Path> normalizedExclusions) {
+
+        var filesToAnalyze = project.getAllFiles().stream()
                 .filter(pf -> {
                     // Check extension
                     if (!pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql")) {
@@ -56,10 +64,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                 })
                 .toList();
 
-        logger.info(
-                "Found {} SQL files to analyze for project {}",
-                filesToAnalyze.size(),
-                projectInstance.getRoot()); // Use projectInstance
+        logger.info("Found {} SQL files to analyze for project {}", filesToAnalyze.size(), project.getRoot());
 
         for (var pf : filesToAnalyze) {
             try {
@@ -129,6 +134,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                 logger.warn("Failed to read or parse SQL file {}: {}", pf.absPath(), e.getMessage());
             }
         }
+        this.lastAnalysisTimeNanos = System.nanoTime();
     }
 
     private int countLines(String text, int charEndOffset) {
@@ -145,8 +151,8 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public boolean isEmpty() {
-        return allDeclarationsList.isEmpty();
+    public IProject getProject() {
+        return project;
     }
 
     @Override
@@ -160,21 +166,56 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<ProjectFile> getFileFor(String fqName) {
-        var cus = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
-        if (cus.size() == 1) {
-            return Optional.of(cus.get(0).source());
-        }
-        return Optional.empty(); // Ambiguous or not found
-    }
-
-    @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         var cus = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
         if (cus.size() == 1) {
             return Optional.of(cus.get(0));
         }
         return Optional.empty(); // Ambiguous or not found
+    }
+
+    @Override
+    public List<String> importStatementsOf(ProjectFile file) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        var declarations = declarationsByFile.get(file);
+        if (declarations == null || declarations.isEmpty()) {
+            logger.debug(
+                    "No declarations found for file {} when searching for enclosing range [{}..{})",
+                    file.absPath(),
+                    range.startByte(),
+                    range.endByte());
+            return Optional.empty();
+        }
+
+        var best = declarations.stream()
+                .flatMap(cu -> rangesByCodeUnit.getOrDefault(cu, List.of()).stream()
+                        .filter(range::isContainedWithin)
+                        .map(r -> Map.entry(cu, r)))
+                .min(Comparator.comparingInt(
+                        e -> e.getValue().endByte() - e.getValue().startByte()))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+
+        if (best != null) {
+            logger.debug(
+                    "Found enclosing SQL CodeUnit {} for range [{}..{}) in file {}",
+                    best.fqName(),
+                    range.startByte(),
+                    range.endByte(),
+                    file.absPath());
+        } else {
+            logger.debug(
+                    "No enclosing SQL CodeUnit for range [{}..{}) in file {}",
+                    range.startByte(),
+                    range.endByte(),
+                    file.absPath());
+        }
+
+        return Optional.ofNullable(best);
     }
 
     @Override
@@ -230,6 +271,85 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     @Override
     public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
         return List.copyOf(declarationsByFile.getOrDefault(file, Collections.emptyList()));
+    }
+
+    @Override
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) {
+            return this;
+        }
+
+        // Filter to only SQL files
+        var relevantFiles = changedFiles.stream()
+                .filter(pf -> pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql"))
+                .collect(Collectors.toSet());
+
+        if (relevantFiles.isEmpty()) {
+            return this;
+        }
+
+        // Create a new analyzer with the same configuration
+        var updatedAnalyzer = new SqlAnalyzer(
+                project,
+                normalizedExcludedPaths.stream()
+                        .map(p -> {
+                            // Denormalize back to relative path
+                            try {
+                                return project.getRoot().relativize(p);
+                            } catch (IllegalArgumentException e) {
+                                // If not relative to root, use as-is
+                                return p;
+                            }
+                        })
+                        .collect(Collectors.toSet()));
+
+        return updatedAnalyzer;
+    }
+
+    @Override
+    public IAnalyzer update() {
+        // Detect changes by checking file modification times
+        long mimeEpsilonNanos = 300_000_000; // 300ms tolerance
+
+        Set<ProjectFile> changedFiles = new HashSet<>();
+
+        // Check for modified or deleted files
+        var sqlFiles = project.getAllFiles().stream()
+                .filter(pf -> pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql"))
+                .collect(Collectors.toSet());
+
+        for (var file : sqlFiles) {
+            if (!Files.exists(file.absPath())) {
+                // File was deleted
+                changedFiles.add(file);
+                continue;
+            }
+
+            try {
+                var instant = Files.getLastModifiedTime(file.absPath()).toInstant();
+                long fileModTimeNanos = instant.getEpochSecond() * 1_000_000_000L + instant.getNano();
+
+                if (fileModTimeNanos > lastAnalysisTimeNanos - mimeEpsilonNanos) {
+                    changedFiles.add(file);
+                }
+            } catch (IOException e) {
+                logger.warn("Could not get modification time for {}: {}", file.absPath(), e.getMessage());
+                changedFiles.add(file); // Treat as potentially changed
+            }
+        }
+
+        // Also check for new files not yet analyzed
+        for (var file : sqlFiles) {
+            if (!declarationsByFile.containsKey(file) && Files.exists(file.absPath())) {
+                changedFiles.add(file);
+            }
+        }
+
+        if (changedFiles.isEmpty()) {
+            return this;
+        }
+
+        return update(changedFiles);
     }
 
     // Other IAnalyzer methods (CPG, advanced summarization, etc.)

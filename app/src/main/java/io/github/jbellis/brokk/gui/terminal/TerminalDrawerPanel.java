@@ -260,9 +260,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         assert SwingUtilities.isEventDispatchThread();
         tasksToggle.setSelected(true);
         terminalToggle.setSelected(false);
+
         if (activeTaskList == null) {
             activeTaskList = new TaskListPanel(chrome);
+        } else {
+            // Panel already exists (and may already be showing). Make sure it reloads from the manager
+            // so newly appended tasks are visible immediately.
+            activeTaskList.refreshFromManager();
         }
+
         drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
         drawerContentPanel.revalidate();
         drawerContentPanel.repaint();
@@ -412,30 +418,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         revalidate();
         repaint();
-    }
-
-    public void openTerminalAndPasteText(String text) {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> openTerminalAndPasteText(text));
-            return;
-        }
-
-        // Ensure the Terminal is selected so it is visible
-        terminalToggle.setSelected(true);
-        tasksToggle.setSelected(false);
-
-        openTerminalAsync()
-                .thenAccept(tp -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        tp.pasteText(text);
-                    } catch (Exception e) {
-                        logger.debug("Error pasting text into terminal", e);
-                    }
-                }))
-                .exceptionally(ex -> {
-                    logger.debug("Failed to open terminal and paste text", ex);
-                    return null;
-                });
     }
 
     // --- Persistence helpers and restore ---
@@ -594,17 +576,5 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 activeTerminal.updateTerminalFontSize();
             }
         });
-    }
-
-    public void disablePlay() {
-        if (activeTaskList != null) {
-            activeTaskList.disablePlay();
-        }
-    }
-
-    public void enablePlay() {
-        if (activeTaskList != null) {
-            activeTaskList.enablePlay();
-        }
     }
 }

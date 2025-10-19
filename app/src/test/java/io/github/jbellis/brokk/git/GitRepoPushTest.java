@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.NullProgressMonitor;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,11 +75,11 @@ public class GitRepoPushTest {
         config.save();
 
         // Verify the remote URL was changed
-        assertEquals("https://github.com/test/repo.git", localRepo.getRemoteUrl("origin"));
+        assertEquals("https://github.com/test/repo.git", localRepo.remote().getUrl("origin"));
 
         // Attempt to push without token should fail with GitHubAuthenticationException
         assertThrows(GitHubAuthenticationException.class, () -> {
-            localRepo.pushAndSetRemoteTracking("feature", "origin");
+            localRepo.remote().pushAndSetRemoteTracking("feature", "origin");
         });
     }
 
@@ -101,7 +103,7 @@ public class GitRepoPushTest {
         // The push will fail (invalid URL/credentials), but we verify it does NOT throw
         // GitHubAuthenticationException - it should be a different error (network/auth)
         var exception = assertThrows(Exception.class, () -> {
-            localRepo.pushAndSetRemoteTracking("feature", "origin");
+            localRepo.remote().pushAndSetRemoteTracking("feature", "origin");
         });
 
         // Verify it's NOT GitHubAuthenticationException - token was provided
@@ -125,12 +127,12 @@ public class GitRepoPushTest {
         config.save();
 
         // Verify the remote URL was changed
-        assertEquals("git@github.com:test/repo.git", localRepo.getRemoteUrl("origin"));
+        assertEquals("git@github.com:test/repo.git", localRepo.remote().getUrl("origin"));
 
         // The push will fail (no SSH keys/invalid URL), but it should NOT throw
         // GitHubAuthenticationException - SSH URLs use JGit's default handling
         var exception = assertThrows(Exception.class, () -> {
-            localRepo.pushAndSetRemoteTracking("feature", "origin");
+            localRepo.remote().pushAndSetRemoteTracking("feature", "origin");
         });
 
         // Verify it's NOT GitHubAuthenticationException
@@ -149,7 +151,7 @@ public class GitRepoPushTest {
         localGit.commit().setMessage("Add feature").call();
 
         // With file:// protocol (default from setUp), push should succeed
-        localRepo.pushAndSetRemoteTracking("feature", "origin");
+        localRepo.remote().pushAndSetRemoteTracking("feature", "origin");
 
         // Verify upstream tracking was set
         var repoConfig = localGit.getRepository().getConfig();
@@ -175,7 +177,7 @@ public class GitRepoPushTest {
 
         // push() should fail with GitHubAuthenticationException
         assertThrows(GitHubAuthenticationException.class, () -> {
-            localRepo.push("master");
+            localRepo.remote().push("master");
         });
     }
 
@@ -191,7 +193,7 @@ public class GitRepoPushTest {
 
         // pull() should fail with GitHubAuthenticationException
         assertThrows(GitHubAuthenticationException.class, () -> {
-            localRepo.pull();
+            localRepo.remote().pull();
         });
     }
 
@@ -201,7 +203,7 @@ public class GitRepoPushTest {
 
         // Attempt to clone GitHub HTTPS URL should fail with GitHubAuthenticationException
         assertThrows(GitHubAuthenticationException.class, () -> {
-            GitRepo.cloneRepo(() -> "", "https://github.com/test/repo.git", cloneDir, 0);
+            GitRepoFactory.cloneRepo(() -> "", "https://github.com/test/repo.git", cloneDir, 0);
         });
     }
 
@@ -217,7 +219,7 @@ public class GitRepoPushTest {
 
         // fetchAll() should fail with GitHubAuthenticationException
         assertThrows(GitHubAuthenticationException.class, () -> {
-            localRepo.fetchAll(org.eclipse.jgit.lib.NullProgressMonitor.INSTANCE);
+            localRepo.remote().fetchAll((ProgressMonitor) NullProgressMonitor.INSTANCE);
         });
     }
 }

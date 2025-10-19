@@ -84,6 +84,12 @@
     word-break: break-word;
   }
 
+  /* High contrast mode: add a subtle dotted border around the entire bubble */
+  :global(.theme-high-contrast) .message-bubble {
+    border: 1px dotted rgba(230, 230, 230, 0.3);
+    border-left: 4px solid var(--border-color-hex); /* Preserve the accent border */
+  }
+
   .header {
     display: flex;
     align-items: center;

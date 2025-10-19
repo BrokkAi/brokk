@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.mcp.McpConfig;
@@ -91,16 +92,14 @@ public final class MainProject extends AbstractProject {
 
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GPT_5)),
-            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO)));
+    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS =
+            Map.of("Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
+    private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -108,8 +107,7 @@ public final class MainProject extends AbstractProject {
             """
                                                                The commit message should be structured as follows: <type>: <description>
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
-                                                               """
-                    .stripIndent();
+                                                               """;
 
     @Nullable
     private static volatile Boolean isDataShareAllowedCache = null;
@@ -148,15 +146,11 @@ public final class MainProject extends AbstractProject {
             When reviewing the pull request, please address the following points:
             - Explain your understanding of what this PR is intended to do.
             - Does it accomplish its goals in the simplest way possible?
-            - Does it conform to the project coding standards?
             - What parts are the trickiest and how could they be simplified?
             - What additional tests, if any, would add the most value?
 
-            Conclude with a summary of:
-            - Blockers (serious functional or design issues)
-            - Additional areas for improvement, ordered by priority
-            """
-                    .stripIndent();
+            Conclude with a summary of serious functional or design issues ONLY.
+            """;
 
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {}
@@ -343,6 +337,10 @@ public final class MainProject extends AbstractProject {
             }
             saveProjectProperties();
         }
+        setBuildDetails(details);
+    }
+
+    public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
         }
@@ -419,16 +417,6 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal("Architect");
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal("Architect", config);
-    }
-
-    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -436,21 +424,6 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setCodeModelConfig(ModelConfig config) {
         setModelConfigInternal("Code", config);
-    }
-
-    @Override
-    public void setAskModelConfig(ModelConfig config) {
-        setModelConfigInternal("Ask", config);
-    }
-
-    @Override
-    public ModelConfig getSearchModelConfig() {
-        return getModelConfigInternal("Search");
-    }
-
-    @Override
-    public void setSearchModelConfig(ModelConfig config) {
-        setModelConfigInternal("Search", config);
     }
 
     @Override
@@ -733,7 +706,7 @@ public final class MainProject extends AbstractProject {
     public boolean isGitHubRepo() {
         if (!hasGit()) return false; // hasGit from AbstractProject
         var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
-        String remoteUrl = gitRepo.getRemoteUrl("origin");
+        String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
     }
@@ -1129,6 +1102,17 @@ public final class MainProject extends AbstractProject {
     public static void setCodeBlockWrapMode(boolean wrap) {
         var props = loadGlobalProperties();
         props.setProperty("wordWrap", String.valueOf(wrap));
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getExceptionReportingEnabled() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "false"));
+    }
+
+    public static void setExceptionReportingEnabled(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(EXCEPTION_REPORTING_ENABLED_KEY, String.valueOf(enabled));
         saveGlobalProperties(props);
     }
 
@@ -1557,7 +1541,7 @@ public final class MainProject extends AbstractProject {
         Path pathForRecentProjectsMap = projectDir;
         boolean isWorktree = false;
 
-        if (GitRepo.hasGitRepo(projectDir)) {
+        if (GitRepoFactory.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
@@ -1630,7 +1614,7 @@ public final class MainProject extends AbstractProject {
         Path mainProjectPathKey = projectDir;
         boolean isWorktree = false;
 
-        if (GitRepo.hasGitRepo(projectDir)) {
+        if (GitRepoFactory.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {

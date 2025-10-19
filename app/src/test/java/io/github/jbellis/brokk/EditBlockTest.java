@@ -2,7 +2,7 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.update.UpdateTestUtil;
@@ -725,7 +725,7 @@ class EditBlockTest {
                 """);
 
         var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
-        var analyzer = new JavaTreeSitterAnalyzer(project);
+        var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "A.java"));
         var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
@@ -766,7 +766,7 @@ class EditBlockTest {
                 """);
 
         var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
-        var analyzer = new JavaTreeSitterAnalyzer(project);
+        var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "B.java"));
         var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
@@ -808,7 +808,7 @@ class EditBlockTest {
                 """);
 
         var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
-        var analyzer = new JavaTreeSitterAnalyzer(project);
+        var analyzer = new JavaAnalyzer(project);
 
         var editable = Set.of(new ProjectFile(rootDir, "C.java"));
         var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);

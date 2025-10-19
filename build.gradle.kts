@@ -130,7 +130,7 @@ subprojects {
             targetExclude("**/build/**", "**/test/resources/**", "**/generated/**")
             // Use Palantir Java Format (opinionated formatter similar to Google Java Format,
             // but with improved blank-line and lambda indentation handling)
-            palantirJavaFormat(libs.versions.palantirJavaFormat.get()).formatJavadoc(true)
+            palantirJavaFormat(libs.versions.palantirJavaFormat.get())
             removeUnusedImports()
         }
     }

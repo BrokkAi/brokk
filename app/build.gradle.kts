@@ -70,7 +70,6 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(libs.jtokkit)
-    implementation(libs.jlama.core)
 
     // Console and logging
     implementation(libs.bundles.logging)
@@ -87,6 +86,7 @@ dependencies {
     implementation(libs.disklrucache)
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
+    implementation(libs.pcollections)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 
@@ -103,8 +103,6 @@ dependencies {
     // TreeSitter parsers
     implementation(libs.bundles.treesitter)
 
-    // Eclipse LSP
-    implementation(libs.bundles.eclipse.lsp)
     // Eclipse JDT Core for Java parse without classpath
     implementation(libs.eclipse.jdt.core)
 
@@ -214,13 +212,23 @@ val errorProneJvmArgs = listOf(
 val baselineJvmArgsProvider = object : CommandLineArgumentProvider {
     override fun asArguments(): Iterable<String> = listOf(
         "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",
         "-Dbrokk.devmode=true"
     )
 }
 
+val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> {
+        val port = (project.findProperty("debugPort") as String?) ?: "5005"
+        // Use "*" so it works on macOS 13+/JDK 21+ where "address=*:5005" is the recommended form.
+        return listOf("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:$port")
+    }
+}
+
 // Configure main source compilation with ErrorProne/NullAway
 tasks.named<JavaCompile>("compileJava") {
+    // Enable NullAway only during 'check' or 'analyze' tasks, or in CI
+    val runNullAway = project.hasProperty("runNullAway") || System.getenv("CI") == "true"
+
     options.isIncremental = true
     options.isFork = true
     options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
@@ -247,29 +255,32 @@ tasks.named<JavaCompile>("compileJava") {
         disable("EmptyBlockTag")
         disable("NonCanonicalType")
 
-        // Enable NullAway with comprehensive configuration
-        error("NullAway")
-
         // Exclude dev/ directory from all ErrorProne checks
         excludedPaths = ".*/src/main/java/(dev/|eu/).*"
 
-        // Core NullAway options
-        option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
-        option("NullAway:ExcludedFieldAnnotations",
-               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
-        option("NullAway:ExcludedClassAnnotations",
-               "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
-        option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
-        option("NullAway:JarInferStrictMode", "true")
-        option("NullAway:CheckOptionalEmptiness", "true")
-        option("NullAway:KnownInitializers",
-               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
-        option("NullAway:HandleTestAssertionLibraries", "true")
-        option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
-        option("RedundantNullCheck:CheckRequireNonNull", "true")
+        // Enable expensive NullAway analysis only for 'check' or 'analyze' tasks
+        if (runNullAway) {
+            error("NullAway")
+            enable("RedundantNullCheck")
 
-        // RedundantNullCheck
-        enable("RedundantNullCheck")
+            // Core NullAway options
+            option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
+            option("NullAway:ExcludedFieldAnnotations",
+                   "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
+            option("NullAway:ExcludedClassAnnotations",
+                   "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
+            option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
+            option("NullAway:CheckOptionalEmptiness", "true")
+            option("NullAway:KnownInitializers",
+                   "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
+            option("NullAway:HandleTestAssertionLibraries", "true")
+            option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+            option("RedundantNullCheck:CheckRequireNonNull", "true")
+        } else {
+            // Explicitly disable NullAway when not running analysis
+            disable("NullAway")
+            disable("RedundantNullCheck")
+        }
     }
 }
 
@@ -291,20 +302,37 @@ tasks.named<JavaCompile>("compileTestJava") {
 tasks.withType<JavaExec>().configureEach {
     // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
     jvmArgumentProviders.add(baselineJvmArgsProvider)
+    jvmArgumentProviders.add(jdwpDebugArgsProvider)
+}
+
+// Static analysis task without tests (fast, for git hooks)
+tasks.register("analyze") {
+    group = "verification"
+    description = "Run static analysis (NullAway + spotless) without tests"
+
+    // Enable NullAway for analyze task
+    project.extensions.extraProperties["runNullAway"] = true
+
+    dependsOn("compileJava", "spotlessCheck")
+}
+
+// Also enable NullAway for check task
+tasks.named("check") {
+    project.extensions.extraProperties["runNullAway"] = true
 }
 
 
 tasks.withType<Test> {
     useJUnitPlatform()
 
-    // Use a single forked JVM for all tests (for TreeSitter native library isolation)
-    // On Windows, use only 1 fork to avoid CI issues; on other platforms use 6
-    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else 6
+    // On Windows, use only 1 fork to avoid CI issues; on other platforms use half core count
+    // (half b/c spinning up JVMs is also slow so right now this is a good balance; as we add tests we will want to revisit)
+    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else maxOf(6, Runtime.getRuntime().availableProcessors() / 2)
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(
         "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",
+        "-Xmx1G",  // minimum heap size
         "-Dbrokk.devmode=true",
         "-XX:+HeapDumpOnOutOfMemoryError",
         "-XX:HeapDumpPath=./build/test-heap-dumps/"

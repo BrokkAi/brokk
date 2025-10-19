@@ -363,7 +363,7 @@ public class GitWorktreeTab extends JPanel {
             try {
                 IGitRepo repo = contextManager.getProject().getRepo();
                 if (repo instanceof GitRepo gitRepo) {
-                    var result = gitRepo.listWorktreesAndInvalid();
+                    var result = gitRepo.worktrees().listWorktreesAndInvalid();
                     var worktrees = result.worktrees();
                     var invalidPaths = result.invalidPaths();
 
@@ -386,7 +386,7 @@ public class GitWorktreeTab extends JPanel {
                         if (choice == JOptionPane.YES_OPTION) {
                             contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
                                 try {
-                                    gitRepo.pruneWorktrees();
+                                    gitRepo.worktrees().pruneWorktrees();
                                     chrome.showNotification(
                                             IConsoleIO.NotificationRole.INFO, "Successfully pruned stale worktrees.");
                                     SwingUtilities.invokeLater(this::loadWorktrees); // Reload after prune
@@ -1221,10 +1221,8 @@ public class GitWorktreeTab extends JPanel {
                                 JOptionPane.ERROR_MESSAGE));
                     }
                 }
-                SwingUtilities.invokeLater(() -> {
-                    loadWorktrees(); // Refresh this tab
-                    chrome.updateGitRepo(); // Refresh other Git-related UI in the Chrome
-                });
+                loadWorktrees(); // Refresh this tab
+                chrome.updateGitRepo(); // Refresh other Git-related UI in the Chrome
             }
             return null;
         });

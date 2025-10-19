@@ -31,8 +31,7 @@ public abstract class CodePrompts {
             You are diligent and tireless!
             You NEVER leave comments describing code without implementing it!
             You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
-            """
-                    .stripIndent();
+            """;
 
     public static final String OVEREAGER_REMINDER =
             """
@@ -41,8 +40,7 @@ public abstract class CodePrompts {
             Do not comment on your modifications, only on the resulting code in isolation.
             You must never output any comments about the progress or type of changes of your refactoring or generation.
             For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
-            """
-                    .stripIndent();
+            """;
 
     public static final String ARCHITECT_REMINDER =
             """
@@ -50,14 +48,14 @@ public abstract class CodePrompts {
             to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
             For example, if the user asks you a question, you should do your best to answer his question first,
             before immediately jumping into taking further action.
-            """
-                    .stripIndent();
+            """;
 
     public static final String GPT5_MARKDOWN_REMINDER =
             """
             <persistence>
             ## Markdown Formatting
-            Always format your entire response using GFM Markdown to **improve the readability** of your responses with:
+            When not writing SEARCH/REPLACE blocks,
+            format your response using GFM Markdown to **improve the readability** of your responses with:
             - **bold**
             - _italics_
             - `inline code` (for file, directory, function, class names and other symbols)
@@ -66,8 +64,7 @@ public abstract class CodePrompts {
             - prefer GFM tables over bulleted lists
             - header tags (start from ##).
             </persistence>
-            """
-                    .stripIndent();
+            """;
 
     /** Formats the most recent build error for the LLM retry prompt. */
     public static String buildFeedbackPrompt() {
@@ -80,6 +77,48 @@ public abstract class CodePrompts {
                 do your best to explain the problem but DO NOT provide any edits.
                 Otherwise, provide the edits as usual.
                 """;
+    }
+
+    public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
+        return instructionsFlags(
+                ctx.getContextManager().getProject(),
+                ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
+    }
+
+    public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
+        var flags = new HashSet<InstructionsFlags>();
+        var languages = project.getAnalyzerLanguages();
+
+        // we'll inefficiently read the files every time this method is called but at least we won't do it twice
+        var fileContents = editableFiles.stream()
+                .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
+
+        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
+        var unsupported = fileContents.keySet().stream()
+                .filter(f -> {
+                    var ext = f.extension();
+                    return ext.isEmpty()
+                            || languages.stream()
+                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
+                })
+                .collect(Collectors.toSet());
+        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
+        if (false) {
+            flags.add(InstructionsFlags.SYNTAX_AWARE);
+        } else {
+            IContextManager.logger.debug("Syntax-unsupported files are {}", unsupported);
+        }
+
+        // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
+        var hasMergeMarkers = fileContents.values().stream()
+                .filter(s -> s.contains("BRK_CONFLICT_BEGIN_") && s.contains("BRK_CONFLICT_END_"))
+                .collect(Collectors.toSet());
+        if (!hasMergeMarkers.isEmpty()) {
+            flags.add(InstructionsFlags.MERGE_AGENT_MARKERS);
+            IContextManager.logger.debug("Files with merge markers: {}", hasMergeMarkers);
+        }
+
+        return flags;
     }
 
     public String codeReminder(Service service, StreamingChatModel model) {
@@ -151,81 +190,31 @@ public abstract class CodePrompts {
     }
 
     public final List<ChatMessage> collectCodeMessages(
-            IContextManager cm,
             StreamingChatModel model,
+            Context ctx,
+            List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
             Set<ProjectFile> changedFiles)
             throws InterruptedException {
+        var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
-        Context ctx = cm.liveContext();
 
-        messages.add(systemMessage(cm, reminder));
+        messages.add(systemMessage(cm, ctx, reminder));
         // FIXME we're supposed to leave the unchanged files in their original position
         if (changedFiles.isEmpty()) {
             messages.addAll(getWorkspaceContentsMessages(ctx));
         } else {
-            messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx));
         }
+        messages.addAll(prologue);
 
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(List.of(), getWorkspaceEditableMessages(ctx)));
+            messages.addAll(getWorkspaceEditableMessages(ctx));
         }
-        messages.add(request);
-
-        return messages;
-    }
-
-    public final List<ChatMessage> getSingleFileCodeMessages(
-            IProject project,
-            List<ChatMessage> readOnlyMessages,
-            List<ChatMessage> taskMessages,
-            UserMessage request,
-            ProjectFile file) {
-        var messages = new ArrayList<ChatMessage>();
-
-        var systemPrompt =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .stripIndent()
-                        .formatted(systemIntro(""), project.getStyleGuide())
-                        .trim();
-        messages.add(new SystemMessage(systemPrompt));
-
-        messages.addAll(readOnlyMessages);
-        var content = file.read().orElseThrow();
-        String editableText =
-                """
-                                  <workspace_editable>
-                                  You are editing A SINGLE FILE in this Workspace.
-                                  This represents the current state of the file.
-
-                                  <file path="%s">
-                                  %s
-                                  </file>
-                                  </workspace_editable>
-                                  """
-                        .stripIndent()
-                        .formatted(file.toString(), content);
-        var editableUserMessage = new UserMessage(editableText);
-        messages.addAll(List.of(editableUserMessage, new AiMessage("Thank you for the editable context.")));
-
-        // Add *rules + examples* inline (no forged dialog). Leave <goal> blank here; the caller's `request` follows.
-        var flags = IContextManager.instructionsFlags(project, Set.of(file));
-        var rules = instructions("", flags, "");
-        messages.add(new UserMessage(rules));
-        messages.add(new AiMessage("Ok, I will follow these edit rules."));
-
-        messages.addAll(taskMessages);
         messages.add(request);
 
         return messages;
@@ -299,6 +288,41 @@ public abstract class CodePrompts {
         return workspaceBuilder.toString();
     }
 
+    public static String formatWorkspaceToc(IContextManager cm, Context ctx) {
+        var editableContents = ctx.getEditableToc();
+        var readOnlyContents = ctx.getReadOnlyToc();
+        var workspaceBuilder = new StringBuilder();
+        if (!editableContents.isBlank()) {
+            workspaceBuilder.append("<editable-toc>\n%s\n</editable-toc>".formatted(editableContents));
+        }
+        if (!readOnlyContents.isBlank()) {
+            workspaceBuilder.append("<readonly-toc>\n%s\n</readonly-toc>".formatted(readOnlyContents));
+        }
+        return workspaceBuilder.toString();
+    }
+
+    protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
+        var workspaceSummary = formatWorkspaceToc(cm, ctx);
+        var styleGuide = cm.getProject().getStyleGuide();
+
+        var text =
+                """
+          <instructions>
+          %s
+          </instructions>
+          <workspace-toc>
+          %s
+          </workspace-toc>
+          <style_guide>
+          %s
+          </style_guide>
+          """
+                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .trim();
+
+        return new SystemMessage(text);
+    }
+
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
         var styleGuide = cm.getProject().getStyleGuide();
@@ -315,7 +339,6 @@ public abstract class CodePrompts {
           %s
           </style_guide>
           """
-                        .stripIndent()
                         .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
                         .trim();
 
@@ -330,11 +353,10 @@ public abstract class CodePrompts {
 
         %s
         """
-                .stripIndent()
                 .formatted(reminder);
     }
 
-    public UserMessage codeRequest(IContextManager cm, String input, String reminder) {
+    public UserMessage codeRequest(Context ctx, String input, String reminder) {
         var instructions =
                 """
         <instructions>
@@ -365,7 +387,7 @@ public abstract class CodePrompts {
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions");
-        return new UserMessage(instructions + instructions(input, cm.instructionsFlags(), reminder));
+        return new UserMessage(instructions + instructions(input, instructionsFlags(ctx), reminder));
     }
 
     public UserMessage askRequest(String input) {
@@ -426,8 +448,7 @@ public abstract class CodePrompts {
                       Provide corrected SEARCH/REPLACE blocks for the failed edits only.
                       </instructions>
                       """
-                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail)
-                        .stripIndent();
+                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail);
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -452,8 +473,7 @@ public abstract class CodePrompts {
                                        </block>
                                        </failed_block>
                                        """
-                                        .formatted(f.reason(), f.block().repr(), commentaryText)
-                                        .stripIndent();
+                                        .formatted(f.reason(), f.block().repr(), commentaryText);
                             })
                             .collect(Collectors.joining("\n"));
 
@@ -480,8 +500,7 @@ public abstract class CodePrompts {
                           The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
                           </note>
                           """
-                            .formatted(succeededCount, pluralizeSuccess)
-                            .stripIndent();
+                            .formatted(succeededCount, pluralizeSuccess);
         }
 
         // Construct the full message for the LLM
@@ -491,8 +510,7 @@ public abstract class CodePrompts {
                %s
                %s
                """
-                .formatted(instructions, fileDetails, successNote)
-                .stripIndent();
+                .formatted(instructions, fileDetails, successNote);
     }
 
     /**
@@ -551,7 +569,6 @@ public abstract class CodePrompts {
                               %s
                               </workspace_readonly>
                               """
-                        .stripIndent()
                         .formatted(readOnlyTextFragments.toString().trim());
 
         // text and image content must be distinct
@@ -593,7 +610,6 @@ public abstract class CodePrompts {
                               %s
                               </workspace_editable>
                               """
-                        .stripIndent()
                         .formatted(editableTextFragments.toString().trim());
 
         var editableUserMessage = new UserMessage(editableText);
@@ -665,7 +681,6 @@ public abstract class CodePrompts {
                            %s
                            </workspace>
                            """
-                        .stripIndent()
                         .formatted(combinedText.toString().trim());
 
         // Add the workspace text as the first content
@@ -681,7 +696,7 @@ public abstract class CodePrompts {
      *     for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
     public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
-        var summaries = ContextFragment.getSummary(ctx.getAllFragmentsInDisplayOrder());
+        var summaries = ContextFragment.describe(ctx.getAllFragmentsInDisplayOrder());
         if (summaries.isEmpty()) {
             return List.of();
         }
@@ -692,7 +707,6 @@ public abstract class CodePrompts {
                              %s
                              </workspace-summary>
                              """
-                        .stripIndent()
                         .formatted(summaries)
                         .trim();
 
@@ -904,7 +918,6 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                 </file>
               </workspace_example>
               """
-                        .stripIndent()
                 : """
               ### Before: Current Workspace excerpt
 
@@ -932,8 +945,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                 }
                 </file>
               </workspace_example>
-              """
-                        .stripIndent();
+              """;
 
         parts.add(before);
 
@@ -954,8 +966,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
               >>>>>>> REPLACE
               ```
               """
-                        .formatted(ex++)
-                        .stripIndent());
+                        .formatted(ex++));
 
         // ---------- Syntax-aware examples (only if enabled) ----------
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
@@ -975,8 +986,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                   >>>>>>> REPLACE
                   ```
                   """
-                            .formatted(ex++)
-                            .stripIndent());
+                            .formatted(ex++));
 
             // BRK_CLASS: replace the entire class body by fully qualified name
             // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
@@ -1012,8 +1022,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                   >>>>>>> REPLACE
                   ```
                   """
-                            .formatted(ex++)
-                            .stripIndent());
+                            .formatted(ex++));
         }
 
         // ---------- Example: Full-file replacement using BRK_ENTIRE_FILE ----------
@@ -1051,8 +1060,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
               >>>>>>> REPLACE
               ```
               """
-                        .formatted(ex++)
-                        .stripIndent());
+                        .formatted(ex++));
 
         // ---------- Conflict-range fix (only if enabled) ----------
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
@@ -1081,8 +1089,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                   >>>>>>> REPLACE
                   ```
                   """
-                            .formatted(ex++)
-                            .stripIndent());
+                            .formatted(ex++));
         }
 
         return String.join("\n\n", parts).strip();

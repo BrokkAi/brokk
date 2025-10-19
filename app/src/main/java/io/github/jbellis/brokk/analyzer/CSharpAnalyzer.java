@@ -23,6 +23,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
             Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
             Set.of("attribute_list"),
+            IMPORT_DECLARATION,
             "name",
             "body",
             "parameters",
@@ -36,17 +37,18 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "",
             Set.of());
 
-    public CSharpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Languages.C_SHARP, excludedFiles);
-        log.debug(
-                "CSharpAnalyzer: Constructor called for project: {} with {} excluded files",
-                project,
-                excludedFiles.size());
+    public CSharpAnalyzer(IProject project) {
+        super(project, Languages.C_SHARP);
+        log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
     }
 
-    public CSharpAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
-        log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
+    private CSharpAnalyzer(IProject project, AnalyzerState prebuiltState) {
+        super(project, Languages.C_SHARP, prebuiltState);
+    }
+
+    @Override
+    protected IAnalyzer newSnapshot(AnalyzerState state) {
+        return new CSharpAnalyzer(getProject(), state);
     }
 
     @Override

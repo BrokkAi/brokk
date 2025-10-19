@@ -123,4 +123,13 @@ public class SerialByKeyExecutor {
     public int getActiveKeyCount() {
         return activeFutures.size();
     }
+
+    public CompletableFuture<Void> awaitCompletion(String key) {
+        CompletableFuture<?> future = activeFutures.get(key);
+        if (future == null) {
+            return CompletableFuture.completedFuture(null);
+        } else {
+            return future.thenApply(v -> null);
+        }
+    }
 }

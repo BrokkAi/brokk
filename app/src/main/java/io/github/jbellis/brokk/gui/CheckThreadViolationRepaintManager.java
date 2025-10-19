@@ -60,13 +60,12 @@ public class CheckThreadViolationRepaintManager extends RepaintManager {
         // 4) Everything else is a violation - log details before throwing
         logger.error(
                 """
-                Off-EDT paint detected
-                Thread   : {} (id={})
-                Component: {}  showing={}  displayable={}
-                Stacktrace:
-                {}
-                """
-                        .stripIndent(),
+        Off-EDT paint detected
+        Thread   : {} (id={})
+        Component: {}  showing={}  displayable={}
+        Stacktrace:
+        {}
+        """,
                 threadName,
                 Thread.currentThread().threadId(),
                 c.getClass().getName(),

@@ -246,8 +246,8 @@ public class SessionManagerTest {
 
         // Compare additional serialized top-level methods
         assertEquals(
-                expected.formatSummary(),
-                actual.formatSummary(),
+                expected.description(),
+                actual.description(),
                 "Fragment formatSummary mismatch for ID " + expected.id());
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 

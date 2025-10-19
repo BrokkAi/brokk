@@ -147,7 +147,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                %s
                </frozen>
                """
-                .stripIndent()
                 .formatted(id(), descriptionContent, originalType.name(), text());
     }
 

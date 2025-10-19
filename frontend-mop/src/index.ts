@@ -132,15 +132,18 @@ function clearChat(): void {
     onHistoryEvent({type: 'history-reset', epoch: 0});
 }
 
-function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
-    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
-    themeStore.set(dark);
+function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
+    console.info('setTheme executed: themeName=' + themeName + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
+
+    // Store dark mode status for backward compatibility with components that use themeStore
+    const isDark = themeName !== 'light';
+    themeStore.set(isDark);
+
     const html = document.querySelector('html')!;
 
-    // Handle theme classes
-    const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
-    html.classList.add(addTheme);
-    html.classList.remove(removeTheme);
+    // Handle theme classes - remove all theme classes first, then add the correct one
+    html.classList.remove('theme-dark', 'theme-light', 'theme-high-contrast');
+    html.classList.add('theme-' + themeName);
 
     // Set zoom if provided
     if (zoom !== undefined) {
@@ -163,7 +166,7 @@ function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean, zoo
     }
 
     // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
-    mainLog.info(`set theme dark: ${dark} dev mode: ${isDevMode}`);
+    mainLog.info(`set theme: ${themeName} dev mode: ${isDevMode}`);
     let isProduction: boolean;
     if (isDevMode !== undefined) {
         // Java explicitly told us dev mode status

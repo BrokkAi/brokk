@@ -37,7 +37,6 @@ public final class MOPWebViewHost extends JPanel {
     private final AtomicReference<WebView> webViewRef = new AtomicReference<>();
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
-    private volatile boolean darkTheme = true; // Default to dark theme
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
 
@@ -60,7 +59,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
+        record SetTheme(String themeName, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
 
         record SetZoom(double zoom) implements HostCommand {}
 
@@ -334,7 +333,8 @@ public final class MOPWebViewHost extends JPanel {
             }
             // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            setInitialTheme(darkTheme, isDevMode, MainProject.getCodeBlockWrapMode());
+            String themeName = MainProject.getTheme();
+            setInitialTheme(themeName, isDevMode, MainProject.getCodeBlockWrapMode());
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -350,12 +350,12 @@ public final class MOPWebViewHost extends JPanel {
      * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
      * reports it is ready.
      */
-    public void setInitialTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
-        darkTheme = isDark;
+    public void setInitialTheme(String themeName, boolean isDevMode, boolean wrapMode) {
+        boolean isDark = !io.github.jbellis.brokk.gui.GuiTheme.THEME_LIGHT.equals(themeName);
         double zoom = MainProject.getMopZoom();
         sendOrQueue(
-                new HostCommand.SetTheme(isDark, isDevMode, wrapMode, zoom),
-                bridge -> bridge.setTheme(isDark, isDevMode, wrapMode, zoom));
+                new HostCommand.SetTheme(themeName, isDevMode, wrapMode, zoom),
+                bridge -> bridge.setTheme(themeName, isDevMode, wrapMode, zoom));
         applyTheme(Theme.create(isDark));
     }
 
@@ -363,14 +363,14 @@ public final class MOPWebViewHost extends JPanel {
      * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
      * command is queued so that the frontend is updated once the bridge appears.
      */
-    public void setRuntimeTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
-        darkTheme = isDark;
+    public void setRuntimeTheme(String themeName, boolean isDevMode, boolean wrapMode) {
+        boolean isDark = !io.github.jbellis.brokk.gui.GuiTheme.THEME_LIGHT.equals(themeName);
         double zoom = MainProject.getMopZoom();
         var bridge = bridgeRef.get();
         if (bridge != null) {
-            bridge.setTheme(isDark, isDevMode, wrapMode, zoom);
+            bridge.setTheme(themeName, isDevMode, wrapMode, zoom);
         } else {
-            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode, wrapMode, zoom));
+            pendingCommands.add(new HostCommand.SetTheme(themeName, isDevMode, wrapMode, zoom));
         }
         applyTheme(Theme.create(isDark));
     }
@@ -595,7 +595,8 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode(), t.wrapMode(), t.zoom());
+                    case HostCommand.SetTheme t ->
+                        bridge.setTheme(t.themeName(), t.isDevMode(), t.wrapMode(), t.zoom());
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();

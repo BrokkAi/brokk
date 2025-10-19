@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
@@ -41,12 +42,15 @@ public class ProjectFilesPanel extends JPanel {
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
+    private final TestRunnerPanel testRunnerPanel;
+    private final JSplitPane splitPane;
 
-    public ProjectFilesPanel(Chrome chrome, ContextManager contextManager) {
+    public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, TestRunnerPanel testRunnerPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.project = contextManager.getProject();
+        this.testRunnerPanel = testRunnerPanel;
 
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -73,10 +77,17 @@ public class ProjectFilesPanel extends JPanel {
         searchBarPanel.add(refreshButton, BorderLayout.EAST);
 
         add(searchBarPanel, BorderLayout.NORTH);
-        JScrollPane treeScrollPane = new JScrollPane(projectTree);
-        add(treeScrollPane, BorderLayout.CENTER);
-
+        // JScrollPane treeScrollPane = new JScrollPane(projectTree);
+        // add(treeScrollPane, BorderLayout.CENTER);
+        var projectTreeScrollPane = new JScrollPane(projectTree);
         updateBorderTitle(); // Set initial title with branch name
+        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, projectTreeScrollPane, this.testRunnerPanel);
+        splitPane.setResizeWeight(0.7);
+        splitPane.setBorder(BorderFactory.createEmptyBorder());
+        splitPane.setOneTouchExpandable(false);
+        splitPane.setMinimumSize(new java.awt.Dimension(100, 200));
+        this.testRunnerPanel.setMinimumSize(new java.awt.Dimension(100, 200));
+        add(splitPane, BorderLayout.CENTER);
     }
 
     private void updateBorderTitle() {

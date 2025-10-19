@@ -38,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
  * Manages dynamically loaded models via LiteLLM. This is intended to be immutable -- we handle changes by wrapping this
  * in a ServiceWrapper that knows how to reload the Service.
  */
-public class Service {
+public class Service implements IExceptionReportingService {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
@@ -225,7 +225,6 @@ public class Service {
 
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
-    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_MINI = "gpt-5-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -826,8 +825,9 @@ public class Service {
             // o3mini is fine with this but gemini models are not.
             return false;
         }
-        // hack for o3-mini not being able to combine json schema with argument descriptions in the text body
-        if (location.contains("o3-mini")) {
+
+        // gpt-5 sucks at this
+        if (location.contains("gpt-5")) {
             return false;
         }
 
@@ -1040,22 +1040,10 @@ public class Service {
 
     /** Returns a model optimized for scanning tasks. */
     public StreamingChatModel getScanModel() {
-        // fall back to 2.0 if 2.5 is not available (user is on free tier)
-        var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GEMINI_2_0_FLASH;
-        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
-        if (model == null) {
-            logger.error("Failed to get scan model '{}'", modelName);
-            return new UnavailableStreamingModel();
-        }
-        return model;
-    }
-
-    /** Returns a model for the Wand button: prefer GPT-5 Mini; fall back to Gemini 2.0 Flash. */
-    public StreamingChatModel getWandModel() {
         var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
         var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {
-            logger.error("Failed to get wand model '{}'", modelName);
+            logger.error("Failed to get scan model '{}'", modelName);
             return new UnavailableStreamingModel();
         }
         return model;
@@ -1148,6 +1136,46 @@ public class Service {
                         + (response.body() != null ? response.body().string() : "(no body)"));
             }
             logger.debug("Feedback sent successfully");
+        }
+    }
+
+    /**
+     * Reports a client exception to the Brokk server for monitoring and debugging purposes.
+     *
+     * @param stacktrace The formatted stacktrace string
+     * @param clientVersion The client version (from BuildInfo.version)
+     * @return The JSON response from the server
+     * @throws IOException If the request fails
+     * @throws IllegalArgumentException if the Brokk key is invalid
+     */
+    @Override
+    public com.fasterxml.jackson.databind.JsonNode reportClientException(String stacktrace, String clientVersion)
+            throws IOException {
+        // Get the full Brokk key - this endpoint may expect the full key as Bearer token
+        String brokkKey = MainProject.getBrokkKey();
+
+        // Build JSON request body
+        var jsonBody = objectMapper.createObjectNode();
+        jsonBody.put("stacktrace", stacktrace);
+        jsonBody.put("client_version", clientVersion);
+
+        RequestBody body = RequestBody.create(jsonBody.toString(), MediaType.parse("application/json"));
+
+        Request request = new Request.Builder()
+                .url(MainProject.getServiceUrl() + "/api/client-exceptions/")
+                .header("Authorization", "Bearer " + brokkKey)
+                .post(body)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String errorBody = response.body() != null ? response.body().string() : "(no body)";
+                throw new IOException("Failed to report exception: " + response.code() + " - " + errorBody);
+            }
+
+            String responseBody = response.body() != null ? response.body().string() : "{}";
+            logger.debug("Exception reported successfully to server: {}", responseBody);
+            return objectMapper.readTree(responseBody);
         }
     }
 

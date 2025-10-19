@@ -144,7 +144,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         scrollPane.setRowHeaderView(customLineNumberList);
 
         // Apply initial theme (same approach as FilePanel:177)
-        GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
+        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(textArea));
     }
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
@@ -575,7 +576,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         // Apply theme to syntax highlighting
-        GuiTheme.loadRSyntaxTheme(guiTheme.isDarkTheme()).ifPresent(theme -> {
+        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {
             // Update syntax style first
             updateSyntaxStyle();
 
@@ -653,6 +655,23 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Get the JMHighlighter for external access (similar to FilePanel). */
     public JMHighlighter getHighlighter() {
         return jmHighlighter;
+    }
+
+    /**
+     * Expose the underlying RSyntaxTextArea for external callers (BrokkDiffPanel needs to adjust its font). This is a
+     * simple getter that returns the primary text area used by the unified diff view.
+     */
+    public org.fife.ui.rsyntaxtextarea.RSyntaxTextArea getTextArea() {
+        return textArea;
+    }
+
+    /**
+     * Expose the gutter (line number component) used by the unified view so callers can adjust gutter fonts/blame
+     * fonts. Returns null if the gutter wasn't created for some reason.
+     */
+    @Nullable
+    public DiffGutterComponent getGutterComponent() {
+        return customLineNumberList;
     }
 
     /**

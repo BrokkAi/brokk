@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
@@ -20,14 +20,24 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     private static final int LONG_LINE_THRESHOLD = 10000;
     private static final int LARGE_DOCUMENT_THRESHOLD = 1000000;
 
-    // Static painters for Search (currently theme-independent)
-    public static final JMHighlightPainter SEARCH;
-    public static final JMHighlightPainter CURRENT_SEARCH;
+    /**
+     * Lazy initialization holder for search painters.
+     * This pattern ensures ThemeColors is fully initialized before creating painters,
+     * avoiding class initialization ordering issues.
+     */
+    public static final class SearchPainters {
+        public static final JMHighlightPainter SEARCH = new JMHighlightPainter(ThemeColors.getSearchHighlight());
+        public static final JMHighlightPainter CURRENT_SEARCH =
+                new JMHighlightPainter(ThemeColors.getCurrentSearchHighlight());
 
-    static {
-        SEARCH = new JMHighlightPainter(Colors.SEARCH);
-        CURRENT_SEARCH = new JMHighlightPainter(Colors.CURRENT_SEARCH);
+        private SearchPainters() {
+            // Prevent instantiation
+        }
     }
+
+    // Compatibility accessors for existing code
+    public static final JMHighlightPainter SEARCH = SearchPainters.SEARCH;
+    public static final JMHighlightPainter CURRENT_SEARCH = SearchPainters.CURRENT_SEARCH;
 
     protected final Color color;
     protected final boolean paintFullLine;

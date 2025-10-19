@@ -1923,34 +1923,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
-        if (selectedFragments.isEmpty()) {
-            if (contextManager.topContext().isEmpty()) {
-                return;
-            }
-            contextManager.dropAll();
-            contextManager.setSelectedContext(contextManager.topContext());
-            return;
-        }
-
-        boolean hasHistory =
-                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
-
-        if (hasHistory) {
-            // 1) Clear task history if any HISTORY fragment is included
-            contextManager.clearHistory();
-
-            // 2) Drop only the non-HISTORY fragments, if any
-            var nonHistory = selectedFragments.stream()
-                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                    .toList();
-
-            if (!nonHistory.isEmpty()) {
-                contextManager.drop(nonHistory);
-            }
-        } else {
-            // 3) No HISTORY fragments in the selection: keep existing behavior
-            contextManager.drop(selectedFragments); // Use the new ID-based method
-        }
+        contextManager.dropWithHistorySemantics(selectedFragments);
     }
 
     private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) {
@@ -1968,8 +1941,7 @@ public class WorkspacePanel extends JPanel {
             chrome.toolError("No test files specified to run.");
             return;
         }
-
-        chrome.getContextManager().runTests(testFiles);
+        chrome.runTests(testFiles);
     }
 
     public void attachContextViaDialog() {
@@ -2090,7 +2062,7 @@ public class WorkspacePanel extends JPanel {
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(int inputTokens, Service service) {
         var instructionsPanel = chrome.getInstructionsPanel();
-        Service.ModelConfig config = instructionsPanel.getSelectedModel();
+        Service.ModelConfig config = instructionsPanel.getSelectedConfig();
 
         if (config.name().isBlank()) {
             return "";
@@ -2131,7 +2103,7 @@ public class WorkspacePanel extends JPanel {
                     // Check for context size warning against the selected model only
                     var service = contextManager.getService();
                     var instructionsPanel = chrome.getInstructionsPanel();
-                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedModel();
+                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedConfig();
 
                     boolean showRedWarning = false;
                     boolean showYellowWarning = false;

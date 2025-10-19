@@ -613,10 +613,10 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             // Use theme-aware git status colors for consistency, fallback to dark theme if null
             boolean isDark = theme == null || theme.isDarkTheme();
             return switch (status) {
-                case ADDED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_added"));
-                case DELETED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_deleted"));
-                case MODIFIED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_modified"));
-                case UNCHANGED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_unknown"));
+                case ADDED -> createStatusIcon(ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_ADDED));
+                case DELETED -> createStatusIcon(ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_DELETED));
+                case MODIFIED -> createStatusIcon(ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_MODIFIED));
+                case UNCHANGED -> createStatusIcon(ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_UNKNOWN));
             };
         }
 
@@ -625,10 +625,10 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             boolean isDark = theme == null || theme.isDarkTheme();
             Color color =
                     switch (status) {
-                        case ADDED -> ThemeColors.getColor(isDark, "git_status_added");
-                        case DELETED -> ThemeColors.getColor(isDark, "git_status_deleted");
-                        case MODIFIED -> ThemeColors.getColor(isDark, "git_status_modified");
-                        case UNCHANGED -> ThemeColors.getColor(isDark, "git_status_unknown");
+                        case ADDED -> ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_ADDED);
+                        case DELETED -> ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_DELETED);
+                        case MODIFIED -> ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_MODIFIED);
+                        case UNCHANGED -> ThemeColors.getColor(isDark, ThemeColors.GIT_STATUS_UNKNOWN);
                     };
             return createDirtyStatusIcon(color);
         }

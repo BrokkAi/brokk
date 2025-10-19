@@ -2,27 +2,29 @@ package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
 import com.github.mustachejava.util.DecoratedCollection;
+import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import eu.hansolo.fx.jdkmon.tools.Distro;
-import eu.hansolo.fx.jdkmon.tools.Finder;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -31,6 +33,7 @@ import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
 import io.github.jbellis.brokk.util.BuildToolConventions;
 import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.EnvironmentPython;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.StringReader;
@@ -39,15 +42,15 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.Comparator;
-import java.util.Locale;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * The BuildAgent class is responsible for executing a process to gather and report build details for a software
@@ -57,8 +60,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
-
-    public static final String JAVA_HOME_SENTINEL = "$JAVA_HOME";
 
     private final Llm llm;
     private final ToolRegistry toolRegistry;
@@ -166,6 +167,7 @@ public class BuildAgent {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");
+                ExceptionReporter.tryReportException(e);
                 return BuildDetails.EMPTY;
             }
 
@@ -244,45 +246,53 @@ public class BuildAgent {
     private List<ChatMessage> buildPrompt() {
         List<ChatMessage> messages = new ArrayList<>();
 
+        String wrapperScriptInstruction;
+        if (Environment.isWindows()) {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+        } else {
+            wrapperScriptInstruction =
+                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
+        }
+
         // System Prompt
         messages.add(new SystemMessage(
                 """
-                                       You are an agent tasked with finding build information for the *development* environment of a software project.
-                                       Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
-                                       Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
-                                       configurations unless they are the only ones available.
+                You are an agent tasked with finding build information for the *development* environment of a software project.
+                Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
+                Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
+                configurations unless they are the only ones available.
 
-                                       Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
-                                       as necessary, to determine the information needed by `reportBuildDetails`.
+                Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
+                as necessary, to determine the information needed by `reportBuildDetails`.
 
-                                       When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
-                                       Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
+                When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
+                Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
-                                       The lists are DecoratedCollection instances, so you get first/last/index/value fields.
-                                       Examples:
+                The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+                Examples:
 
-                                       | Build tool        | One-liner a user could write
-                                       | ----------------- | ------------------------------------------------------------------------
-                                       | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
-                                       | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
-                                       | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                                       | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
-                                       | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
-                                       | **pytest**        | `pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
-                                       | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
+                | Build tool        | One-liner a user could write
+                | ----------------- | ------------------------------------------------------------------------
+                | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
+                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
+                | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
+                | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
+                | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
+                | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
+                | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
 
-                                       Prefer the repository-local *wrapper script* when it exists in the project root (e.g. `./gradlew`, `./mvnw`).
-                                       Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
+                %s
+                Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
+                A baseline set of excluded directories has been established from build conventions and .gitignore.
+                When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
+                you identify that should be excluded from code intelligence, beyond this baseline.
 
-                                       A baseline set of excluded directories has been established from build conventions and .gitignore.
-                                       When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
-                                       you identify that should be excluded from code intelligence, beyond this baseline.
-
-                                       Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                                       The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
-                                       """
-                        .stripIndent()));
+                Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
+                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
+                """
+                        .formatted(wrapperScriptInstruction)));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -316,7 +326,8 @@ public class BuildAgent {
                 .map(Path::toString)
                 .collect(Collectors.toSet());
 
-        this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
+        this.reportedDetails = new BuildDetails(
+                buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, defaultEnvForProject());
         logger.debug(
                 "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
         return "Build details report received and processed.";
@@ -331,78 +342,32 @@ public class BuildAgent {
         return "Abort signal received and processed.";
     }
 
-    /**
-     * Detect a JDK to use for this project. - If JAVA_HOME is set and points to a JDK (has bin/javac), return the
-     * sentinel so it stays dynamic. - Otherwise, choose the most suitable JDK using Finder (by latest version/release
-     * date) and return its path. - If nothing is found, fall back to the sentinel.
-     */
-    public static @Nullable String detectJdk() {
-        var env = System.getenv("JAVA_HOME");
-        try {
-            if (env != null && !env.isBlank()) {
-                var home = Path.of(env);
-                if (isJdkHome(home)) {
-                    return JAVA_HOME_SENTINEL;
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Invalid JAVA_HOME '{}': {}", env, e.getMessage());
-        }
-
-        // Fallback: use Finder to locate installed JDKs and pick the most suitable one
-        try {
-            var finder = new Finder();
-            var distros = finder.getDistributions();
-            if (distros != null && !distros.isEmpty()) {
-                Comparator<Distro> distroComparator = Comparator.comparing(Distro::getVersionNumber)
-                        .thenComparing(
-                                d -> d.getReleaseDate().orElse(null), Comparator.nullsLast(Comparator.naturalOrder()));
-                var best = distros.stream().max(distroComparator).orElse(null);
-                if (best != null) {
-                    var p = best.getPath();
-                    if (p != null && !p.isBlank()) return p;
-                    var loc = best.getLocation();
-                    if (loc != null && !loc.isBlank()) return loc;
-                }
-            }
-        } catch (Throwable t) {
-            logger.warn("Failed to detect JDK via Finder", t);
-        }
-
-        // user will need to download something, leave it alone in the meantime
-        return null;
-    }
-
-    private static boolean isJdkHome(Path home) {
-        var bin = home.resolve("bin");
-        var javac = bin.resolve(exeName("javac"));
-        return Files.isRegularFile(javac);
-    }
-
-    private static String exeName(String base) {
-        var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        return os.contains("win") ? base + ".exe" : base;
-    }
-
     /** Holds semi-structured information about a project's build process */
     public record BuildDetails(
-            String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> excludedDirectories) {
+            String buildLintCommand,
+            String testAllCommand,
+            String testSomeCommand,
+            Set<String> excludedDirectories,
+            @JsonSetter(nulls = Nulls.AS_EMPTY) Map<String, String> environmentVariables) {
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
+        @VisibleForTesting
+        BuildDetails(
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand,
+                Set<String> excludedDirectories) {
+            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, java.util.Map.of());
+        }
+
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), java.util.Map.of());
     }
 
-    /**
-     * Asynchronously determines the best verification command based on the user goal, workspace summary, and stored
-     * BuildDetails. Runs on the ContextManager's background task executor. Determines the command by checking for
-     * relevant test files in the workspace and the availability of a specific test command in BuildDetails.
-     *
-     * @param cm The ContextManager instance.
-     * @return A CompletableFuture containing the suggested verification command string (either specific test command or
-     *     build/lint command), or null if BuildDetails are unavailable.
-     */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+    /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
+    public static @Nullable String determineVerificationCommand(Context ctx) {
+        var cm = ctx.getContextManager();
+
         // Retrieve build details from the project associated with the ContextManager
-        BuildDetails details = cm.getProject().loadBuildDetails();
+        BuildDetails details = cm.getProject().awaitBuildDetails();
 
         if (details.equals(BuildDetails.EMPTY)) {
             logger.warn("No build details available, cannot determine verification command.");
@@ -412,21 +377,20 @@ public class BuildAgent {
         // Check project setting for test scope
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
-            logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), details.testAllCommand());
+            String cmd = details.testAllCommand();
+            logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
+            return cmd;
         }
 
-        // Proceed with workspace-specific test determination
-        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
+        // Proceed with workspace-specific test determination (based on the provided Context)
+        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace (Context-based).");
 
         // Get ProjectFiles from editable and read-only fragments
-        var topContext = cm.topContext();
         var projectFilesFromEditableOrReadOnly =
-                topContext.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
+                ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = topContext
-                .virtualFragments()
+        var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
@@ -440,16 +404,21 @@ public class BuildAgent {
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.getSummary(cm.topContext().allFragments());
+            var summaries = ContextFragment.describe(ctx.allFragments());
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),
                     summaries,
-                    getBuildLintAllCommand(details));
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
+                    details.buildLintCommand());
+            return details.buildLintCommand();
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+    }
+
+    /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
+    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+        return determineVerificationCommand(cm.topContext());
     }
 
     /**
@@ -462,101 +431,231 @@ public class BuildAgent {
         return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
     }
 
-    private static String prefixWithJavaHomeIfNeeded(IProject project, String command) {
-        if (command.isBlank()) {
-            return command;
-        }
-        // Only prefix for Java projects
-        if (project.getBuildLanguage() != Languages.JAVA) {
-            return command;
-        }
-        var trimmed = command.stripLeading();
-        if (trimmed.startsWith("JAVA_HOME=")) {
-            return command;
-        }
-
-        String jdk = project.getJdk();
-        if (JAVA_HOME_SENTINEL.equals(jdk)) {
-            var env = System.getenv("JAVA_HOME");
-            jdk = (env == null || env.isBlank()) ? null : env;
-        }
-        if (jdk == null || jdk.isBlank()) {
-            return command;
-        }
-        return "JAVA_HOME=" + jdk + " " + command;
-    }
-
+    /**
+     * Determine and interpolate the "run some tests" command for the current workspace.
+     * Supports files-based, classes-based, fqclasses-based, and modules-based templates.
+     * If the template contains {{#modules}}, this will convert selected test files into
+     * dotted module labels relative to a detected module anchor:
+     *  1) Parent of any hardcoded *.py runner mentioned in the configured commands,
+     *  2) A top-level "tests/" directory if present,
+     *  3) The import root of each file established by walking up until no __init__.py.
+     */
     public static String getBuildLintSomeCommand(
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
-        // Determine if template is files-based or classes-based
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") == null
-                ? details.testSomeCommand()
-                : System.getenv("BRK_TESTSOME_CMD");
+
+        String testSomeTemplate = details.testSomeCommand();
+
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
+        boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
-        if (!isFilesBased && !isClassesBased) {
+        if (!isFilesBased && !isClassesBased && !isModulesBased) {
             logger.debug(
-                    "Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}",
-                    getBuildLintAllCommand(details));
-            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
+                    "Template lacks {{#files}}, {{#classes}}, or {{#modules}}; using build/lint: {}",
+                    details.buildLintCommand());
+            return details.buildLintCommand();
         }
+
+        final Path projectRoot = cm.getProject().getRoot();
+        String pythonVersion = getPythonVersionForProject(projectRoot);
 
         List<String> targetItems;
+
+        if (isModulesBased) {
+            Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
+            targetItems = workspaceTestFiles.stream()
+                    .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
+                    .filter(s -> !s.isBlank())
+                    .distinct()
+                    .sorted()
+                    .toList();
+
+            if (targetItems.isEmpty()) {
+                logger.debug("No modules derived; falling back to build/lint: {}", details.buildLintCommand());
+                return details.buildLintCommand();
+            }
+
+            logger.debug(
+                    "Using modules-based template with {} modules (anchor={})",
+                    targetItems.size(),
+                    anchor == null ? "<inferred import roots>" : anchor);
+            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
+        }
+
         if (isFilesBased) {
-            // Use file paths directly
             targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
             logger.debug("Using files-based template with {} files", targetItems.size());
-        } else { // isClassesBased
-            IAnalyzer analyzer;
-            try {
-                analyzer = cm.getAnalyzer();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new CancellationException("Interrupted while retrieving analyzer");
-            }
+            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
+        }
 
-            if (analyzer.isEmpty()) {
-                logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
-                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
-            }
+        IAnalyzer analyzer;
+        try {
+            analyzer = cm.getAnalyzer();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new java.util.concurrent.CancellationException("Interrupted while retrieving analyzer");
+        }
 
-            var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
-            if (isFqBased) {
-                targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            } else {
-                targetItems =
-                        codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
-            }
+        if (analyzer.isEmpty()) {
+            logger.warn("Analyzer is empty; falling back to build/lint: {}", details.buildLintCommand());
+            return details.buildLintCommand();
+        }
+
+        var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+        if (isFqBased) {
+            targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
             if (targetItems.isEmpty()) {
-                logger.debug(
-                        "No classes found in workspace test files for class-based template, using build/lint command: {}",
-                        details.buildLintCommand());
-                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
+                logger.debug("No fqclasses derived; falling back to build/lint: {}", details.buildLintCommand());
+                return details.buildLintCommand();
             }
-            logger.debug("Using classes-based template with {} classes", targetItems.size());
+            logger.debug("Using fqclasses-based template with {} entries", targetItems.size());
+            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
+        } else {
+            targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
+            if (targetItems.isEmpty()) {
+                logger.debug("No classes derived; falling back to build/lint: {}", details.buildLintCommand());
+                return details.buildLintCommand();
+            }
+            logger.debug("Using classes-based template with {} entries", targetItems.size());
+            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
         }
-
-        // Perform simple template interpolation
-        String listKey = isFilesBased ? "files" : (isFqBased ? "fqclasses" : "classes");
-        String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, listKey);
-        logger.debug("Interpolated test command: '{}'", interpolatedCommand);
-        return prefixWithJavaHomeIfNeeded(cm.getProject(), interpolatedCommand);
-    }
-
-    private static String getBuildLintAllCommand(BuildDetails details) {
-        if (System.getenv("BRK_TESTALL_CMD") != null) {
-            return System.getenv("BRK_TESTALL_CMD");
-        }
-        return details.buildLintCommand();
     }
 
     /**
-     * Interpolates a Mustache template with the given list of items. Supports {{files}} and {{classes}} variables with
-     * {{^-last}} separators.
+     * Try to detect a module anchor directory for dotted Python labels.
+     * Priority:
+     *  (1) If either configured command contains a path to a *.py runner that exists
+     *      under the project root, return its parent directory.
+     *  (2) If a top-level "tests" directory exists, return that.
+     *  (3) Otherwise, empty (callers will fall back to per-file import roots).
      */
-    private static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+    private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {
+        String testAll = details.testAllCommand();
+        String testSome = details.testSomeCommand();
+
+        Optional<Path> fromRunner = extractRunnerAnchorFromCommands(projectRoot, List.of(testAll, testSome));
+        if (fromRunner.isPresent()) return fromRunner;
+
+        Path tests = projectRoot.resolve("tests");
+        if (java.nio.file.Files.isDirectory(tests)) return Optional.of(tests);
+
+        return Optional.empty();
+    }
+
+    /**
+     * Parse the given commands for tokens that look like "something.py".
+     * If that file exists within the project, return its parent as the module anchor.
+     * This supports commands like:
+     *   "uv run tests/runtests.py {{#modules}}...{{/modules}}"
+     *   "python foo/bar/run_tests.py"
+     */
+    private static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
+        for (String cmd : commands) {
+            if (cmd.isBlank()) continue;
+
+            Iterable<String> tokens = Splitter.on(Pattern.compile("\\s+")).split(cmd);
+            for (String t : tokens) {
+                if (!t.endsWith(".py")) continue;
+
+                String cleaned = t.replaceAll("^[\"']|[\"']$", "");
+                Path candidate = projectRoot.resolve(cleaned).normalize();
+
+                if (!java.nio.file.Files.exists(candidate)) {
+                    // Try without projectRoot if the token is absolute
+                    Path p = Path.of(cleaned);
+                    if (java.nio.file.Files.exists(p)) candidate = p.normalize();
+                }
+
+                if (java.nio.file.Files.exists(candidate) && java.nio.file.Files.isRegularFile(candidate)) {
+                    Path parent = candidate.getParent();
+                    if (parent != null && java.nio.file.Files.isDirectory(parent)) {
+                        return Optional.of(parent);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Get the Python version for the project, or null if unable to determine. */
+    private static @Nullable String getPythonVersionForProject(Path projectRoot) {
+        try {
+            return new EnvironmentPython(projectRoot).getPythonVersion();
+        } catch (Exception e) {
+            logger.debug("Unable to determine Python version for project", e);
+            return null;
+        }
+    }
+
+    /**
+     * Convert a Python source path to a dotted module label.
+     * If anchor is non-null and the file lives under it, label is relative to anchor.
+     * Otherwise, derive a per-file import root by walking up while __init__.py exists.
+     * Handles:
+     *  - stripping ".py"
+     *  - mapping "__init__.py" to the package path
+     *  - normalizing separators and leading dots
+     */
+    private static String toPythonModuleLabel(Path projectRoot, @Nullable Path anchor, Path filePath) {
+        Path abs = projectRoot.resolve(filePath).normalize();
+
+        Path base = anchor;
+        if (base == null || !abs.startsWith(base)) {
+            base = inferImportRoot(abs).orElse(null);
+        }
+        if (base == null) return "";
+
+        Path rel;
+        try {
+            rel = base.relativize(abs);
+        } catch (IllegalArgumentException e) {
+            return "";
+        }
+
+        String s = rel.toString().replace('\\', '/');
+        if (s.endsWith(".py")) s = s.substring(0, s.length() - 3);
+        if (s.endsWith("/__init__")) s = s.substring(0, s.length() - "/__init__".length());
+        while (s.startsWith("/")) s = s.substring(1);
+        String dotted = s.replace('/', '.');
+        while (dotted.startsWith(".")) dotted = dotted.substring(1);
+        return dotted;
+    }
+
+    /**
+     * Infer the import root for a given Python file by walking up directories
+     * as long as they contain "__init__.py". Returns the first directory above
+     * the package chain (i.e., the path whose child is the top-level package).
+     */
+    private static Optional<Path> inferImportRoot(Path absFile) {
+        if (!java.nio.file.Files.isRegularFile(absFile)) return Optional.empty();
+        Path p = absFile.getParent();
+        Path lastWithInit = null;
+        while (p != null && java.nio.file.Files.isRegularFile(p.resolve("__init__.py"))) {
+            lastWithInit = p;
+            p = p.getParent();
+        }
+        return Optional.ofNullable(
+                Objects.requireNonNullElse(lastWithInit, absFile).getParent());
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
+     *
+     * Note: mustache.java's DecoratedCollection does not support the -last feature like Handlebars does,
+     * so we post-process to clean up trailing separators that result from the final iteration.
+     */
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+        return interpolateMustacheTemplate(template, items, listKey, null);
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {{files}}, {{classes}}, {{fqclasses}}, {{modules}}, and {{pyver}} variables.
+     */
+    public static String interpolateMustacheTemplate(
+            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
         if (template.isEmpty()) {
             return "";
         }
@@ -568,6 +667,7 @@ public class BuildAgent {
         Map<String, Object> context = new HashMap<>();
         // Mustache.java handles null or empty lists correctly for {{#section}} blocks.
         context.put(listKey, new DecoratedCollection<>(items));
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
         StringWriter writer = new StringWriter();
         // This can throw MustacheException, which will propagate as a RuntimeException
@@ -585,34 +685,54 @@ public class BuildAgent {
      * text.
      */
     public static String runVerification(IContextManager cm) throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runVerification(ctx);
+            } catch (InterruptedException e) {
+                // Preserve interrupt status and defer propagation until after pushContext returns
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
+    }
+
+    /**
+     * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
+     * are performed here; callers decide when to persist.
+     */
+    public static Context runVerification(Context ctx) throws InterruptedException {
+        var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        var verificationCommand = determineVerificationCommand(cm);
+        var verificationCommand = determineVerificationCommand(ctx);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
-            // Do not update BuildFragment; success/failure unknown and not a failure.
-            return "";
+            return ctx; // unchanged
         }
 
-        // Enforce single-build execution when requested
         boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
         if (noConcurrentBuilds) {
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
-            // The lock is implemented using a FileChannel/FileLock; keep the channel/lock inside the record and close
-            // it after execution.
             try (var ignored = lock) {
                 logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             } catch (Exception e) {
                 logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
         } else {
-            return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
         }
     }
 
@@ -673,32 +793,50 @@ public class BuildAgent {
         throw new IllegalArgumentException("Unable to parse git repo url " + url);
     }
 
-    /** @return the text of the new BuildFragment (may have been preprocessed by quickestModel) */
-    private static String runBuildAndUpdateFragmentInternal(IContextManager cm, String verificationCommand)
+    /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
+    private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
             throws InterruptedException {
+        var cm = ctx.getContextManager();
         var io = cm.getIo();
 
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
         String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
+            var details = cm.getProject().awaitBuildDetails();
+            var envVars = details.environmentVariables();
+            var execCfg = ExecutorConfig.fromProject(cm.getProject());
+
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT);
+                    Environment.UNLIMITED_TIMEOUT,
+                    execCfg,
+                    envVars);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
 
-            cm.updateBuildFragment(true, "Build succeeded.");
             logger.debug("Verification command successful. Output: {}", output);
-            return "";
+            return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
             io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
-            cm.updateBuildFragment(false, "Build output:\n" + processed);
-            return processed;
+            return ctx.withBuildResult(false, "Build output:\n" + processed);
         }
+    }
+
+    /**
+     * Provide default environment variables for the project when the agent reports details:
+     * - For Python projects: VIRTUAL_ENV=.venv
+     * - Otherwise: no defaults
+     */
+    private Map<String, String> defaultEnvForProject() {
+        var lang = project.getBuildLanguage();
+        if (lang == io.github.jbellis.brokk.analyzer.Languages.PYTHON) {
+            return java.util.Map.of("VIRTUAL_ENV", ".venv");
+        }
+        return java.util.Map.of();
     }
 }

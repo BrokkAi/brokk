@@ -7,9 +7,10 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.agents.NonTextResolutionMode;
+import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -19,10 +20,14 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
+import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.UiTools;
@@ -88,18 +93,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
-    public void runTests(Set<ProjectFile> testFiles) {
-        String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
-        if (cmd.isEmpty()) {
-            getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
-            return;
-        }
-        var io = getIo();
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.getTerminalDrawer().openTerminalAndPasteText(cmd));
-        }
-    }
-
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
         return createLoggingExecutorService(toWrap, Set.of());
     }
@@ -153,10 +146,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
     private final AbstractProject project;
 
+    // Cached exception reporter for this context
+    private final ExceptionReporter exceptionReporter;
+
     private final ToolRegistry toolRegistry;
 
     // Current session tracking
     private UUID currentSessionId;
+
+    // Domain model task list for the current session (non-null)
+    private volatile TaskList.TaskListData taskList = new TaskList.TaskListData(List.of());
 
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
@@ -164,7 +163,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
-    private final List<Runnable> modelReloadListeners = new CopyOnWriteArrayList<>();
+    private final List<Runnable> serviceReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -174,8 +173,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
 
-    // Model reload state to prevent concurrent reloads
-    private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
+    // Service reload state to prevent concurrent reloads
+    private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -206,13 +205,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
      * the EDT to allow UI updates.
      */
-    public void addModelReloadListener(Runnable listener) {
-        modelReloadListeners.add(listener);
+    public void addServiceReloadListener(Runnable listener) {
+        serviceReloadListeners.add(listener);
     }
 
-    /** Remove a previously registered model reload listener. */
-    public void removeModelReloadListener(Runnable listener) {
-        modelReloadListeners.remove(listener);
+    /** Remove a previously registered service reload listener. */
+    public void removeServiceReloadListener(Runnable listener) {
+        serviceReloadListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -230,6 +229,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.contextHistory = new ContextHistory(new Context(this, null));
         this.service = new ServiceWrapper();
         this.service.reinit(project);
+
+        // Initialize exception reporter with lazy service access
+        this.exceptionReporter = new ExceptionReporter(this.service::get);
 
         // set up global tools
         this.toolRegistry = new ToolRegistry(this);
@@ -299,6 +301,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // make it official
         updateActiveSession(currentSessionId);
 
+        // Load task list for the current session
+        loadTaskListForSession(currentSessionId);
+
         // Notify listeners and UI on EDT
         SwingUtilities.invokeLater(() -> {
             var tc = topContext();
@@ -354,7 +359,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, this.getIo());
+        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener);
 
         // Load saved context history or create a new one
         var contextTask =
@@ -620,10 +625,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return service.get();
     }
 
-    /** Returns the configured Architect model, falling back to the system model if unavailable. */
-    public StreamingChatModel getArchitectModel() {
-        var config = project.getArchitectModelConfig();
-        return getModelOrDefault(config, "Architect");
+    public ExceptionReporter getExceptionReporter() {
+        return exceptionReporter;
     }
 
     /** Returns the configured Code model, falling back to the system model if unavailable. */
@@ -632,19 +635,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return getModelOrDefault(config, "Code");
     }
 
-    /** Returns the configured Search model, falling back to the system model if unavailable. */
-    public StreamingChatModel getSearchModel() {
-        var config = project.getSearchModelConfig();
-        return getModelOrDefault(config, "Search");
-    }
-
-    private StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
+    public StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
         StreamingChatModel model = service.getModel(config);
         if (model != null) {
             return model;
         }
 
-        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH));
+        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT));
         if (model != null) {
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
@@ -702,16 +699,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var textFragments = textFiles.stream()
                 .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
                 .toList();
-        addPathFragments(textFragments);
+        if (!textFragments.isEmpty()) {
+            addPathFragments(textFragments);
+        }
 
         var binaryFragments = binaryFiles.stream()
                 .map(pf -> new ContextFragment.ImageFileFragment(pf, this))
                 .toList();
-        addPathFragments(binaryFragments);
+        if (!binaryFragments.isEmpty()) {
+            addPathFragments(binaryFragments);
+        }
     }
 
     /** Add the given files to editable. */
     public void addPathFragments(List<? extends PathFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return;
+        }
         pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
         String message = "Edit " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -735,6 +739,37 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Clear conversation history. */
     public void clearHistory() {
         pushContext(Context::clearHistory);
+    }
+
+    /**
+     * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
+     * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
+     * Else: drop the selected fragments as-is.
+     */
+    public void dropWithHistorySemantics(java.util.Collection<? extends ContextFragment> selectedFragments) {
+        if (selectedFragments.isEmpty()) {
+            if (topContext().isEmpty()) {
+                return;
+            }
+            dropAll();
+            setSelectedContext(topContext());
+            return;
+        }
+
+        boolean hasHistory =
+                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+
+        if (hasHistory) {
+            clearHistory();
+            var nonHistory = selectedFragments.stream()
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+            if (!nonHistory.isEmpty()) {
+                drop(nonHistory);
+            }
+        } else {
+            drop(selectedFragments);
+        }
     }
 
     /**
@@ -974,63 +1009,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Adds any virtual fragment directly to the live context. */
     public void addVirtualFragment(VirtualFragment fragment) {
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-    }
-
-    /**
-     * Update the Build fragment based on structured success/failure. Always clears previous BUILD_LOG fragments. Only
-     * adds a new fragment when the build failed.
-     */
-    @Override
-    public void updateBuildFragment(boolean success, String buildOutput) {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        pushContextQuietly(currentTopCtx -> {
-            // Collect build-related fragments to drop:
-            //  - Legacy: BuildFragment (BUILD_LOG)
-            //  - New: StringFragment with description "Latest Build Results"
-            var idsToDrop = currentTopCtx
-                    .virtualFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
-                            || (f.getType() == ContextFragment.FragmentType.STRING
-                                    && f instanceof ContextFragment.StringFragment sf
-                                    && desc.equals(sf.description())))
-                    .map(ContextFragment::id)
-                    .toList();
-
-            var modified = idsToDrop.isEmpty() ? currentTopCtx : currentTopCtx.removeFragmentsByIds(idsToDrop);
-
-            if (success) {
-                logger.debug(
-                        "Cleared {} previous build fragment(s); build succeeded so not adding new results.",
-                        idsToDrop.size());
-                return modified;
-            }
-
-            var sf = new ContextFragment.StringFragment(
-                    this, buildOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
-
-            logger.debug(
-                    "Cleared {} previous build fragment(s); added new build results StringFragment {}",
-                    idsToDrop.size(),
-                    sf.id());
-            return modified.addVirtualFragment(sf);
-        });
-    }
-
-    @Override
-    public String getProcessedBuildOutput() {
-        // Prefer new StringFragment with the BUILD_RESULTS description
-        var latestString = liveContext()
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
-                .filter(f -> f instanceof ContextFragment.StringFragment)
-                .map(f -> (ContextFragment.StringFragment) f)
-                .filter(sf -> sf.description().equals(ContextFragment.BUILD_RESULTS.description()))
-                .findFirst();
-
-        if (latestString.isPresent()) {
-            return latestString.get().text();
-        }
-        return "";
     }
 
     /**
@@ -1373,6 +1351,145 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return topContext().fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
     }
 
+    /** Returns the current session's domain-model task list. Always non-null. */
+    public TaskList.TaskListData getTaskList() {
+        return taskList;
+    }
+
+    /**
+     * Appends the given tasks (non-blank lines) to the current session's task list and persists it. Each appended task
+     * is created with done=false.
+     */
+    @Override
+    public void appendTasksToTaskList(List<String> tasks) {
+        var additions = tasks.stream()
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .map(s -> new TaskList.TaskItem(s, false))
+                .toList();
+        if (additions.isEmpty()) {
+            return;
+        }
+
+        var combined = new java.util.ArrayList<TaskList.TaskItem>();
+        combined.addAll(taskList.tasks());
+        combined.addAll(additions);
+
+        var newData = new TaskList.TaskListData(List.copyOf(combined));
+        this.taskList = newData;
+
+        // Persist via existing SessionManager API (UI DTO)
+        project.getSessionManager().writeTaskList(currentSessionId, newData);
+        if (io instanceof Chrome chrome) {
+            chrome.refreshTaskListUI();
+        }
+
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+    }
+
+    /**
+     * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
+     * should call after modifying the task list.
+     */
+    public void setTaskList(TaskList.TaskListData data) {
+        this.taskList = data;
+        project.getSessionManager().writeTaskList(currentSessionId, data).exceptionally(ex -> {
+            logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
+            return null;
+        });
+    }
+
+    // Load and cache the task list for a specific session ID; on error, set to empty
+    private void loadTaskListForSession(UUID sessionId) {
+        try {
+            this.taskList = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.error("Unable to load task list for session {}", sessionId, e);
+            this.taskList = new TaskList.TaskListData(List.of());
+        }
+    }
+
+    /**
+     * Execute a single task using ArchitectAgent with explicit options.
+     *
+     * @param task Task to execute (non-blank text).
+     * @param autoCommit whether to commit any modified files after a successful run
+     * @param autoCompress whether to compress conversation history after a successful run
+     * @return TaskResult from ArchitectAgent execution.
+     */
+    public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit, boolean autoCompress)
+            throws InterruptedException {
+        var planningModel = io.getInstructionsPanel().getSelectedModel();
+        var codeModel = getCodeModel();
+        return executeTask(task, planningModel, codeModel, autoCommit, autoCompress);
+    }
+
+    public TaskResult executeTask(
+            TaskList.TaskItem task,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            boolean autoCommit,
+            boolean autoCompress)
+            throws InterruptedException {
+        var prompt = task.text().strip();
+        if (prompt.isEmpty()) {
+            throw new IllegalArgumentException("Task text must be non-blank");
+        }
+
+        TaskResult result;
+        try (var scope = beginTask(prompt, false)) {
+            var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
+            result = agent.executeWithSearch(scope);
+        } finally {
+            // mirror panel behavior
+            checkBalanceAndNotify();
+        }
+
+        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+            if (autoCommit) {
+                new GitWorkflow(this).performAutoCommit(prompt);
+            }
+            if (autoCompress) {
+                compressHistory(); // synchronous
+            }
+            // Mark the task as done and persist the updated list
+            markTaskDoneAndPersist(task);
+        }
+
+        return result;
+    }
+
+    /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
+    private void markTaskDoneAndPersist(TaskList.TaskItem task) {
+        var existing = new ArrayList<>(taskList.tasks());
+        int idx = existing.indexOf(task);
+        if (idx < 0) {
+            // Fallback: find first matching by text (not done) if equals() does not match
+            for (int i = 0; i < existing.size(); i++) {
+                var it = existing.get(i);
+                if (!it.done() && it.text().equals(task.text())) {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+        if (idx >= 0) {
+            existing.set(idx, new TaskList.TaskItem(task.text(), true));
+            this.taskList = new TaskList.TaskListData(List.copyOf(existing));
+            project.getSessionManager()
+                    .writeTaskList(currentSessionId, this.taskList)
+                    .exceptionally(ex -> {
+                        logger.warn(
+                                "Failed to persist updated task list for session {}: {}",
+                                currentSessionId,
+                                ex.getMessage());
+                        return null;
+                    });
+        }
+    }
+
     private void captureGitState(Context frozenContext) {
         if (!project.hasGit()) {
             return;
@@ -1413,6 +1530,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextGenerator A function that takes the current live context and returns an updated context.
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
+    @SuppressWarnings("RedundantNullCheck") // called during Chrome init while instructionsPanel is null
     @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var oldLiveContext = liveContext();
@@ -1424,41 +1542,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window
-        if (MainProject.getHistoryAutoCompress()
+        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
+        // This does not run for headless tasks, I think this is not a problem b/c we still compress
+        // after each task; this is to protect users doing repeated manual Ask/Code.
+        // (null check here against IP is NOT redundant; this is called during Chrome init)
+        if (io instanceof Chrome
+                && io.getInstructionsPanel() != null
+                && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
             int tokenCount = Messages.getApproximateTokens(cf.format());
 
-            try {
-                var svc = getService();
-                var model = getCodeModel();
-                int maxInputTokens = svc.getMaxInputTokens(model);
-                double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
-                if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
-                    compressHistoryAsync();
-                }
-            } catch (ServiceWrapper.ServiceInitializationException e) {
-                // FIXME CI does not have a working Service so this errors out
+            var svc = getService();
+            var model = io.getInstructionsPanel().getSelectedModel();
+            int maxInputTokens = svc.getMaxInputTokens(model);
+            double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
+            if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
+                compressHistoryAsync();
             }
         }
         return newLiveContext;
-    }
-
-    /**
-     * Pushes context changes silently using a generator function. The generator is applied to the current
-     * `topContext()` (frozen context) instead of `liveContext()`. This creates a new context state without triggering
-     * history compression or other side effects.
-     *
-     * @param contextGenerator A function that takes the current top context and returns an updated context.
-     * @return The new top context, or the existing top context if no changes were made by the generator.
-     */
-    public Context pushContextQuietly(Function<Context, Context> contextGenerator) {
-        var newTopContext = contextHistory.pushQuietly(contextGenerator);
-        if (!topContext().equals(newTopContext)) {
-            contextPushed(newTopContext);
-        }
-        return newTopContext;
     }
 
     private void contextPushed(Context frozen) {
@@ -1631,7 +1734,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return BuildDetails.EMPTY;
             }
 
-            BuildAgent agent = new BuildAgent(project, getLlm(getSearchModel(), "Infer build details"), toolRegistry);
+            BuildAgent agent =
+                    new BuildAgent(project, getLlm(service.get().getScanModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
@@ -1668,29 +1772,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    public void reloadModelsAsync() {
-        if (isReloadingModels.compareAndSet(false, true)) {
+    public void reloadService() {
+        if (isReloadingService.compareAndSet(false, true)) {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
-            submitBackgroundTask("Reloading models", () -> {
+            submitBackgroundTask("Reloading service", () -> {
                 try {
                     service.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
                     SwingUtilities.invokeLater(() -> {
-                        for (var l : modelReloadListeners) {
+                        for (var l : serviceReloadListeners) {
                             try {
                                 l.run();
                             } catch (Exception e) {
-                                logger.warn("Model reload listener threw exception", e);
+                                logger.warn("Service reload listener threw exception", e);
                             }
                         }
                     });
                 } finally {
-                    isReloadingModels.set(false);
+                    isReloadingService.set(false);
                 }
                 return null;
             });
         } else {
-            logger.debug("Model reload already in progress, skipping request.");
+            logger.debug("Service reload already in progress, skipping request.");
         }
     }
 
@@ -1726,13 +1830,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
+        if (!project.hasGit()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
+            return;
+        }
+
         submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
-                var topClasses = AnalyzerUtil.combinedRankingFor(project, Map.of()).stream()
-                        .limit(10)
-                        .toList();
+                var topClasses =
+                        GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES)
+                                .stream()
+                                .limit(10)
+                                .toList();
 
                 if (topClasses.isEmpty()) {
                     io.showNotification(
@@ -1795,10 +1907,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                                         %s
                                         """
-                                        .stripIndent()
                                         .formatted(codeForLLM)));
 
-                var result = getLlm(getSearchModel(), "Generate style guide").sendRequest(messages);
+                var result = getLlm(service.get().getScanModel(), "Generate style guide")
+                        .sendRequest(messages);
                 if (result.error() != null) {
                     String message =
                             "Failed to generate style guide: " + result.error().getMessage();
@@ -1870,7 +1982,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+    public TaskScope beginTask(String input, boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
@@ -1882,19 +1994,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Backwards-compatible overload: defaults non-text handling to OFF. */
     public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, NonTextResolutionMode.OFF);
+        return beginTask(input, compressAtCommit, MergeAgent.NonTextResolutionMode.OFF);
     }
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
-        private final boolean compressAtCommit;
-        private final NonTextResolutionMode nonTextMode;
+        private final boolean compressResults;
+        private final MergeAgent.NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressResults, MergeAgent.NonTextResolutionMode nonTextMode) {
             io.blockLlmOutput(true);
-            this.compressAtCommit = compressAtCommit;
+            this.compressResults = compressResults;
             this.nonTextMode = nonTextMode;
             this.results = new ArrayList<>();
         }
@@ -1904,7 +2016,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             results.add(result);
         }
 
-        public NonTextResolutionMode nonTextMode() {
+        public MergeAgent.NonTextResolutionMode nonTextMode() {
             return nonTextMode;
         }
 
@@ -1923,7 +2035,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         addFiles(only.changedFiles());
                     }
                     // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(only, compressAtCommit);
+                    pushFinalHistory(only, compressResults);
                     return;
                 }
 
@@ -1961,7 +2073,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 var finalResult = new TaskResult(
                         ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
-                pushFinalHistory(finalResult, compressAtCommit);
+                pushFinalHistory(finalResult, compressResults);
             } finally {
                 io.blockLlmOutput(false);
             }
@@ -2097,6 +2209,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
+            // initialize empty task list and persist
+            this.taskList = new TaskList.TaskListData(List.of());
+            project.getSessionManager().writeTaskList(currentSessionId, this.taskList);
+
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(topContext());
@@ -2140,6 +2256,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // later
         var ch = new ContextHistory(ctx);
         sessionManager.saveHistory(ch, newSessionInfo.id());
+        // Initialize empty task list for the new session and persist
+        this.taskList = new TaskList.TaskListData(List.of());
+        sessionManager.writeTaskList(newSessionInfo.id(), this.taskList);
     }
 
     /**
@@ -2176,6 +2295,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 5. Save the new session's history (which now contains one entry).
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
+
+                    // Initialize empty task list for the new session and persist
+                    this.taskList = new TaskList.TaskListData(List.of());
+                    sessionManager.writeTaskList(this.currentSessionId, this.taskList);
 
                     // 6. Notify UI about the context change.
                     notifyContextListeners(topContext());
@@ -2253,6 +2376,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } else {
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
+
+            // Load task list for the switched session
+            loadTaskListForSession(sessionId);
         }
         notifyContextListeners(topContext());
         io.updateContextHistoryTable(topContext());
@@ -2389,31 +2515,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
+    public void createHeadless() {
+        createHeadless(BuildDetails.EMPTY);
+    }
+
     /**
-     * Allows injection of a custom {@link IConsoleIO} implementation, enabling head-less (CLI) operation where a GUI is
-     * not available.
-     *
-     * <p>This should be invoked immediately after constructing the {@code ContextManager} but before any tasks are
+     * This should be invoked immediately after constructing the {@code ContextManager} but before any tasks are
      * submitted, so that all logging and UI callbacks are routed to the desired sink.
      */
-    public void createHeadless() {
+    public void createHeadless(BuildDetails buildDetails) {
         this.io = new HeadlessConsole();
         this.userActions.setIo(this.io);
 
+        initializeCurrentSessionAndHistory(true);
+
+        ensureReviewGuide();
+        cleanupOldHistoryAsync();
+        // we deliberately don't infer style guide or build details here -- if they already exist, great;
+        // otherwise we leave them empty
+        var mp = project.getMainProject();
+        if (mp.loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+            mp.setBuildDetails(buildDetails);
+        }
+
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, null, this.io);
+        this.analyzerWrapper = new AnalyzerWrapper(project, null);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-
-        initializeCurrentSessionAndHistory(true);
-
-        ensureStyleGuide();
-        ensureReviewGuide();
-        ensureBuildDetailsAsync();
-        cleanupOldHistoryAsync();
 
         checkBalanceAndNotify();
     }
@@ -2440,18 +2571,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 if (balance < Service.MINIMUM_PAID_BALANCE) {
                     // Free-tier: reload models and warn once
-                    reloadModelsAsync();
+                    reloadService();
                     if (!freeTierNotified) {
                         freeTierNotified = true;
                         lowBalanceNotified = false; // reset low-balance flag
                         var msg =
                                 """
-                                  Brokk is running in the free tier. Only low-cost models are available.
+                        Brokk is running in the free tier. Only low-cost models are available.
 
-                                  To enable smarter models, subscribe or top-up at
-                                  %s
-                                  """
-                                        .stripIndent()
+                        To enable smarter models, subscribe or top-up at
+                        %s
+                        """
                                         .formatted(Service.TOP_UP_URL);
                         SwingUtilities.invokeLater(
                                 () -> io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));

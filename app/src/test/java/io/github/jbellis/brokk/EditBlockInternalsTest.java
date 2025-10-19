@@ -171,8 +171,7 @@ class EditBlockInternalsTest {
                 line1
                     line2
                     line3
-                """
-                        .stripIndent();
+                """;
         String search = """
                 line2
                     line3
@@ -186,8 +185,7 @@ class EditBlockInternalsTest {
                 line1
                     new_line2
                     new_line3
-                """
-                        .stripIndent();
+                """;
 
         String updated = replaceMostSimilarChunk(original, search, replace);
         assertEquals(expected, updated);
@@ -199,7 +197,7 @@ class EditBlockInternalsTest {
         String original = """
                 One
                   Two
-                """.stripIndent();
+                """;
 
         String updated = replaceMostSimilarChunk(original, "Two\n", "");
         assertEquals("One\n", updated);
@@ -259,18 +257,17 @@ class EditBlockInternalsTest {
                     line2
                     line3
                 line4
-                """
-                        .stripIndent();
+                """;
 
         // We'll omit some leading whitespace in the beforeText block
         String search = """
                 line2
                     line3
-                """.stripIndent();
+                """;
         String replace = """
                 NEW_line2
                     NEW_line3
-                """.stripIndent();
+                """;
 
         String updated = replaceMostSimilarChunk(original, search, replace);
 
@@ -280,8 +277,7 @@ class EditBlockInternalsTest {
                     NEW_line2
                     NEW_line3
                 line4
-                """
-                        .stripIndent();
+                """;
 
         assertEquals(expected, updated);
     }
@@ -298,8 +294,7 @@ class EditBlockInternalsTest {
                 line1
                     line2
                     line3
-                """
-                        .stripIndent();
+                """;
         // Insert a blank line in the beforeText, plus incomplete indentation
         String search = """
 
@@ -319,8 +314,7 @@ class EditBlockInternalsTest {
                 line1
                     replaced_line2
                     line3
-                """
-                        .stripIndent();
+                """;
 
         assertEquals(expected, updated);
     }
@@ -333,13 +327,14 @@ class EditBlockInternalsTest {
                 line1
                     line2
                     line3
-                """
-                        .stripIndent();
+                """;
         // Insert a blank line in the beforeText, plus incomplete indentation
         String search = """
+
                   line2
                 """;
         String replace = """
+
                   replaced_line2
                 """;
 
@@ -349,8 +344,8 @@ class EditBlockInternalsTest {
                 line1
                     replaced_line2
                     line3
-                """
-                        .stripIndent();
+                """;
+
         assertEquals(expected, updated);
     }
 
@@ -362,8 +357,7 @@ class EditBlockInternalsTest {
                 line1
                     a   b
                     line3
-                """
-                        .stripIndent();
+                """;
         // Insert a blank line in the beforeText, plus incomplete indentation
         String search = """
                   a b
@@ -378,8 +372,8 @@ class EditBlockInternalsTest {
                 line1
                     replaced_line2
                     line3
-                """
-                        .stripIndent();
+                """;
+
         assertEquals(expected, updated);
     }
 

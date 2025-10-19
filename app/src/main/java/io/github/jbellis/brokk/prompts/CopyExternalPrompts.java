@@ -44,7 +44,6 @@ public abstract class CopyExternalPrompts extends CodePrompts {
         *   DO NOT give multiple options for solving a problem; pick the best one every time!
 
         **Output Format Hint:** Structure your response by identifying the file, then the method/block, then providing the code for that method/block.
-       """
-                .stripIndent();
+       """;
     }
 }

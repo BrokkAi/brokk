@@ -47,9 +47,9 @@ import org.jetbrains.annotations.Nullable;
 /**
  * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
  * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
- * hidden state). - Summarizes very large tool outputs before recording them. - Forges getRelatedClasses for duplicate
- * requests (like SearchAgent). - Enters "beast mode" to finalize with existing info if interrupted or context is near
- * full. - Never writes code itself; it prepares the Workspace for a later Code Agent run.
+ * hidden state). - Summarizes very large tool outputs before recording them. - Enters "beast mode" to finalize with
+ * existing info if interrupted or context is near full. - Never writes code itself; it prepares the Workspace for a
+ * later Code Agent run.
  */
 public class SearchAgent {
     private static final Logger logger = LogManager.getLogger(SearchAgent.class);
@@ -190,8 +190,8 @@ public class SearchAgent {
                 continue;
             }
 
-            // Deferred-final behavior: do not short-circuit for final tools; they will be executed after non-final
-            // tools.
+            // Final tools are executed only when they are the sole requested action in a turn.
+            // This ensures research results are evaluated by the LLM before finalization.
 
             // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
             var sortedCalls = next.stream()
@@ -258,7 +258,7 @@ public class SearchAgent {
                 """
                         You are the Search Agent.
                         Your job:
-                          - find and organize code relevant to the user's question or implementation goal,
+                          - find and organize code relevant to the user's question or task,
                           - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
                           - never write code yourself.
 
@@ -299,14 +299,13 @@ public class SearchAgent {
         if (!ac.isBlank()) {
             messages.add(new UserMessage(
                     """
-                            <related_classes>
-                            These MAY be relevant. They are NOT in the Workspace yet.
-                            Add summaries or sources if needed; otherwise ignore them.
+        <related_classes>
+        These MAY be relevant. They are NOT in the Workspace yet.
+        Add summaries or sources if needed; otherwise ignore them.
 
-                            %s
-                            </related_classes>
-                            """
-                            .stripIndent()
+        %s
+        </related_classes>
+        """
                             .formatted(ac)));
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
@@ -326,7 +325,6 @@ public class SearchAgent {
                                 You MUST reduce Workspace size immediately before any further exploration.
                                 Replace full text with summaries and drop non-essential fragments first.
                                 """
-                                .stripIndent()
                                 .formatted(pct, workspaceTokens, minInputLimit);
             } else if (pct > 60.0) {
                 warning =
@@ -334,7 +332,6 @@ public class SearchAgent {
                                 NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
                                 Prefer summaries and prune aggressively before expanding further.
                                 """
-                                .stripIndent()
                                 .formatted(pct, workspaceTokens, minInputLimit);
             }
         }
@@ -353,8 +350,7 @@ public class SearchAgent {
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
                         - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
-                    """
-                            .stripIndent());
+                    """);
         }
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
             finals.add(
@@ -374,21 +370,27 @@ public class SearchAgent {
             testsGuidance =
                     """
                     Tests:
-                      - Code Agent will run the tests in the Workspace to validate its changes. These can be full files, if it also needs to edit or understand test implementation details, or simple summaries if they just need to be run for validation.
+                      - Code Agent will run the tests in the Workspace to validate its changes.
+                        These can be full files (if it also needs to edit or understand test implementation details),
+                        or simple summaries if they just need to be run for validation.
                       %s
                     """
-                            .stripIndent()
                             .formatted(toolHint);
         }
 
+        var terminalObjective = buildTerminalObjective();
+
         String directive =
                 """
-                        <goal>
+                        <%s>
                         %s
-                        </goal>
+                        </%s>
 
-                        Decide the next tool action(s) to make progress toward answering the question and preparing the Workspace
-                        for follow-on code changes.
+                        <search-objective>
+                        %s
+                        </search-objective>
+
+                        Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                         Pruning mandate:
                           - Before any new exploration, prune the Workspace.
@@ -400,14 +402,22 @@ public class SearchAgent {
                         Finalization options:
                         %s
 
-                        You can call multiple tools in a single turn. Provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
-                        You may include at most one final action. The final action will be executed after all non-final tools in the same turn. Do NOT write code.
-
+                        You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
+                        each with its own name and arguments (add summaries, drop fragments, etc).
+                        Final actions (answer, createTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
+                        If you include a final together with other tools, the final will be ignored for this turn.
+                        It is NOT your objective to write code.
 
                         %s
                         """
-                        .stripIndent()
-                        .formatted(goal, testsGuidance, finalsStr, warning);
+                        .formatted(
+                                terminalObjective.type,
+                                goal,
+                                terminalObjective.type(),
+                                terminalObjective.text(),
+                                testsGuidance,
+                                finalsStr,
+                                warning);
 
         // Beast mode directive
         if (beastMode) {
@@ -418,8 +428,7 @@ public class SearchAgent {
                     Finalize now using the best available information.
                     Prefer answer(String) for informational requests; for code-change requests, provide a concise createTaskList(List<String>) if feasible; otherwise use abortSearch with reasons.
                     </beast-mode>
-                    """
-                            .stripIndent();
+                    """;
         }
 
         messages.add(new UserMessage(directive));
@@ -451,7 +460,6 @@ public class SearchAgent {
         }
         if (analyzerWrapper.providesInterproceduralAnalysis()) {
             names.add("getUsages");
-            names.add("getRelatedClasses");
             names.add("getCallGraphTo");
             names.add("getCallGraphFrom");
         }
@@ -488,37 +496,90 @@ public class SearchAgent {
         return names;
     }
 
+    private record TerminalObjective(String type, String text) {}
+
+    private TerminalObjective buildTerminalObjective() {
+        boolean hasAnswer = allowedTerminals.contains(Terminal.ANSWER);
+        boolean hasTaskList = allowedTerminals.contains(Terminal.TASK_LIST);
+        boolean hasWorkspace = allowedTerminals.contains(Terminal.WORKSPACE);
+
+        if (hasAnswer && hasTaskList) {
+            assert !hasWorkspace;
+            return new TerminalObjective(
+                    "query",
+                    """
+                    Deliver either a written answer or a task list:
+                      - Prefer answer(String) when no code changes are needed.
+                      - Prefer createTaskList(List<String>) if code changes will be needed next.
+                    """);
+        }
+
+        if (hasWorkspace) {
+            assert !hasAnswer && !hasTaskList;
+            return new TerminalObjective(
+                    "task",
+                    """
+                    Deliver a curated Workspace containing everything required for the follow-on Code Agent
+                    to solve the given task.
+                    """);
+        }
+
+        throw new IllegalStateException();
+    }
+
+    private enum ToolCategory {
+        TERMINAL, // answer, createTaskList, workspaceComplete, abortSearch
+        WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
+        RESEARCH // everything else (blocks terminals)
+    }
+
+    private ToolCategory categorizeTool(String toolName) {
+        return switch (toolName) {
+            case "answer", "createTaskList", "workspaceComplete", "abortSearch" -> ToolCategory.TERMINAL;
+            case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
+            default -> ToolCategory.RESEARCH;
+        };
+    }
+
     private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response) {
         if (!response.hasToolExecutionRequests()) {
             return List.of();
         }
 
-        // Allow mixed plans: keep all non-terminals; keep only the FIRST final
-        ToolExecutionRequest firstFinal = null;
-        var nonTerminals = new ArrayList<ToolExecutionRequest>();
+        var terminals = new ArrayList<ToolExecutionRequest>();
+        var hygiene = new ArrayList<ToolExecutionRequest>();
+        var researchOrBlocking = new ArrayList<ToolExecutionRequest>();
+
         for (var r : response.toolExecutionRequests()) {
-            var name = r.name();
-            boolean isFinal = name.equals("answer")
-                    || name.equals("createTaskList")
-                    || name.equals("workspaceComplete")
-                    || name.equals("abortSearch");
-            if (isFinal) {
-                if (firstFinal == null) {
-                    firstFinal = r; // take the first final; ignore subsequent finals
-                }
-                continue;
+            switch (categorizeTool(r.name())) {
+                case TERMINAL -> terminals.add(r);
+                case WORKSPACE_HYGIENE -> hygiene.add(r);
+                case RESEARCH -> researchOrBlocking.add(r);
             }
-            nonTerminals.add(r);
         }
 
-        if (firstFinal != null) {
-            var combined = new ArrayList<ToolExecutionRequest>(nonTerminals);
-            combined.add(firstFinal); // ensure the final runs after non-terminals
-            return combined;
+        // Rule: Terminal actions can coexist with workspace hygiene, but not with research/blocking tools.
+        // This ensures research results are evaluated before finalization.
+        if (!researchOrBlocking.isEmpty()) {
+            if (!terminals.isEmpty()) {
+                logger.info(
+                        "Final tool requested alongside research/blocking tools; deferring final to a later turn. Finals present: {}",
+                        terminals.stream().map(ToolExecutionRequest::name).toList());
+            }
+            var result = new ArrayList<>(researchOrBlocking);
+            result.addAll(hygiene);
+            return result;
         }
 
-        // No final: return all non-terminal tool requests in the order provided
-        return nonTerminals;
+        // Only hygiene and/or terminals present: allow terminal with hygiene
+        if (!terminals.isEmpty()) {
+            var result = new ArrayList<>(hygiene);
+            result.add(terminals.get(0)); // Keep the first terminal
+            return result;
+        }
+
+        // Only hygiene: return it
+        return hygiene;
     }
 
     private int priority(String toolName) {
@@ -529,7 +590,6 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "getRelatedClasses" -> 5;
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
@@ -543,7 +603,7 @@ public class SearchAgent {
     // =======================
 
     private void addInitialContextToWorkspace() throws InterruptedException {
-        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal, true);
+        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(true);
@@ -559,7 +619,7 @@ public class SearchAgent {
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
         if (totalTokens > finalBudget) {
-            var summaries = ContextFragment.getSummary(recommendation.fragments());
+            var summaries = ContextFragment.describe(recommendation.fragments());
             cm.addVirtualFragment(new ContextFragment.StringFragment(
                     cm,
                     summaries,
@@ -679,7 +739,6 @@ public class SearchAgent {
         return Set.of(
                         "searchSymbols",
                         "getUsages",
-                        "getRelatedClasses",
                         "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
@@ -700,8 +759,7 @@ public class SearchAgent {
                         Your output will be given to the agent running the search, and replaces the raw result.
                         Thus, you must include every relevant class/method name and any
                         relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
-                        """
-                        .stripIndent());
+                        """);
 
         var user = new UserMessage(
                 """
@@ -715,7 +773,6 @@ public class SearchAgent {
                         %s
                         </tool>
                         """
-                        .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
         Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
         if (sr.error() != null) {

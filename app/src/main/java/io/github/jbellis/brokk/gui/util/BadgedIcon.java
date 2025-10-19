@@ -111,8 +111,8 @@ public class BadgedIcon implements Icon {
 
             // Use theme-managed badge colors
             boolean isDarkTheme = themeManager.isDarkTheme(); // Get current theme state
-            Color badgeBackgroundColor = ThemeColors.getColor(isDarkTheme, "git_badge_background");
-            Color textColor = ThemeColors.getColor(isDarkTheme, "git_badge_text");
+            Color badgeBackgroundColor = ThemeColors.getColor(isDarkTheme, ThemeColors.GIT_BADGE_BACKGROUND);
+            Color textColor = ThemeColors.getColor(isDarkTheme, ThemeColors.GIT_BADGE_TEXT);
 
             // Draw badge as solid circle with high-contrast background (VSCode style)
             g2.setColor(badgeBackgroundColor);

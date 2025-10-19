@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
@@ -482,10 +483,8 @@ public class BlitzForgeDialog extends JDialog {
         var tempLabel = new JLabel();
         var fm = tempLabel.getFontMetrics(tempLabel.getFont());
         var cm = chrome.getContextManager();
-        String architectModelName = service.nameOf(cm.getArchitectModel());
-        String askModelName = service.nameOf(cm.getSearchModel());
-        int maxWidth = fm.stringWidth("Model: " + architectModelName);
-        maxWidth = Math.max(maxWidth, fm.stringWidth("Model: " + askModelName));
+        String selectedModelName = service.nameOf(chrome.getInstructionsPanel().getSelectedModel());
+        int maxWidth = fm.stringWidth("Model: " + selectedModelName);
 
         // Use a GridBagLayout for the combo and label to allow the label to shrink
         // but set a minimum size based on calculated max width.
@@ -668,19 +667,12 @@ public class BlitzForgeDialog extends JDialog {
             }
 
             // Model label
-            if (agent) {
-                String modelName = cm.getService().nameOf(cm.getArchitectModel());
-                postProcessingModelLabel.setText("Model: " + modelName);
-            } else if (ask) {
-                String modelName = cm.getService().nameOf(cm.getSearchModel());
-                postProcessingModelLabel.setText("Model: " + modelName);
-            } else {
-                postProcessingModelLabel.setText(" ");
-            }
+            String modelName =
+                    cm.getService().nameOf(chrome.getInstructionsPanel().getSelectedModel());
+            postProcessingModelLabel.setText("Model: " + modelName);
         };
         runPostProcessCombo.addActionListener(postProcessListener);
-        postProcessListener.actionPerformed(
-                new java.awt.event.ActionEvent(runPostProcessCombo, java.awt.event.ActionEvent.ACTION_PERFORMED, ""));
+        postProcessListener.actionPerformed(new ActionEvent(runPostProcessCombo, ActionEvent.ACTION_PERFORMED, ""));
 
         // Add both panels
         combined.add(parallelProcessingPanel);
@@ -726,6 +718,7 @@ public class BlitzForgeDialog extends JDialog {
         JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
         tableModel = new javax.swing.table.DefaultTableModel(new String[] {"File"}, 0);
         selectedFilesTable = new JTable(tableModel);
+        selectedFilesTable.setFillsViewportHeight(true);
         selectedFilesTable.setToolTipText("Tip: You can paste a list of files here (Ctrl+V)");
         selectedFilesSorter = new TableRowSorter<>(tableModel);
         selectedFilesTable.setRowSorter(selectedFilesSorter);
@@ -735,6 +728,38 @@ public class BlitzForgeDialog extends JDialog {
         // Remove the LAF border so the table aligns with the uniform 5px scope inset
         tableScrollPane.setBorder(BorderFactory.createEmptyBorder());
         rightPanel.add(tableScrollPane, BorderLayout.CENTER);
+
+        BorderUtils.addFocusBorder(tableScrollPane, selectedFilesTable);
+
+        // Focus delegation: clicking on table/scrollpane/rightPanel focuses the table
+        MouseAdapter focusMouseListener = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                selectedFilesTable.requestFocusInWindow();
+            }
+        };
+        selectedFilesTable.addMouseListener(focusMouseListener);
+        tableScrollPane.addMouseListener(focusMouseListener);
+        tableScrollPane.getViewport().addMouseListener(focusMouseListener);
+        rightPanel.addMouseListener(focusMouseListener);
+
+        // Right-click context menu for paste
+        MouseAdapter tableContextMenu = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showTableContextMenu(selectedFilesTable, e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showTableContextMenu(selectedFilesTable, e);
+                }
+            }
+        };
+        selectedFilesTable.addMouseListener(tableContextMenu);
 
         // Bottom action bar: left (entire project + language), right (attach files, remove)
         // Left side
@@ -778,11 +803,15 @@ public class BlitzForgeDialog extends JDialog {
 
         rightPanel.add(bottomContainer, BorderLayout.SOUTH);
 
-        var pasteStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK);
-        selectedFilesTable.getInputMap(JComponent.WHEN_FOCUSED).put(pasteStroke, "paste-files");
+        int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        var pasteStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V, menuMask);
+        var pasteShiftInsert = KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, InputEvent.SHIFT_DOWN_MASK);
+        var tableInputMap = selectedFilesTable.getInputMap(JComponent.WHEN_FOCUSED);
+        tableInputMap.put(pasteStroke, "paste-files");
+        tableInputMap.put(pasteShiftInsert, "paste-files");
         selectedFilesTable.getActionMap().put("paste-files", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 try {
                     var content = (String)
                             Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
@@ -1066,6 +1095,22 @@ public class BlitzForgeDialog extends JDialog {
         }
     }
 
+    private void showTableContextMenu(JTable table, MouseEvent e) {
+        JPopupMenu popup = new JPopupMenu();
+        JMenuItem pasteItem = new JMenuItem("Paste");
+        pasteItem.addActionListener(ev -> {
+            try {
+                var content = (String)
+                        Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+                addRelPathsFromText(content);
+            } catch (Exception ex) {
+                logger.debug("Failed to paste files from clipboard via context menu", ex);
+            }
+        });
+        popup.add(pasteItem);
+        popup.show(table, e.getX(), e.getY());
+    }
+
     private void openAttachFilesDialog() {
         var dlg = new AttachContextDialog(chrome.getFrame(), chrome.getContextManager(), false);
         dlg.setLocationRelativeTo(this);
@@ -1096,7 +1141,7 @@ public class BlitzForgeDialog extends JDialog {
             return;
         }
 
-        var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
+        var perFileModelSelection = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
 
         // Refresh cost estimate and warn if it is more than half the balance
         updateCostEstimate();
@@ -1194,7 +1239,7 @@ public class BlitzForgeDialog extends JDialog {
         // Build the execution config for the engine
         var cm = chrome.getContextManager();
         var service = cm.getService();
-        StreamingChatModel model = requireNonNull(service.getModel(selectedFavorite.config()));
+        StreamingChatModel perFileModel = requireNonNull(service.getModel(perFileModelSelection.config()));
         var engineOutputMode =
                 switch (parallelOutputMode) {
                     case NONE -> BlitzForge.ParallelOutputMode.NONE;
@@ -1220,7 +1265,7 @@ public class BlitzForgeDialog extends JDialog {
 
         BlitzForge.RunConfig runCfg = new BlitzForge.RunConfig(
                 instructions,
-                model,
+                perFileModel,
                 () -> {
                     if (fRelatedKSupplier != null) {
                         ContextFragment.SkeletonFragment acFragment;
@@ -1232,13 +1277,12 @@ public class BlitzForgeDialog extends JDialog {
                         }
                         if (!acFragment.text().isBlank()) {
                             return """
-                                <related_classes>
-                                The user requested to include the top %d related classes.
+                            <related_classes>
+                            The user requested to include the top %d related classes.
 
-                                %s
-                                </related_classes>
-                                """
-                                    .stripIndent()
+                            %s
+                            </related_classes>
+                            """
                                     .formatted(fRelatedKSupplier, acFragment.text());
                         }
                     }
@@ -1286,6 +1330,12 @@ public class BlitzForgeDialog extends JDialog {
                         fContextFilter,
                         contextFilter);
                 scope.append(parallelResult);
+
+                // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
+                if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                    logger.debug("Parallel processing was interrupted; skipping post-processing.");
+                    return;
+                }
 
                 var mainIo = cm.getIo();
 
@@ -1354,13 +1404,18 @@ public class BlitzForgeDialog extends JDialog {
                             "Ask command has been invoked.",
                             "Post-processing",
                             javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                    postProcessResult = InstructionsPanel.executeAskCommand(cm, model, agentInstructions);
+                    postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
                 } else {
                     mainIo.systemNotify(
                             "Architect has been invoked.",
                             "Post-processing",
                             javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                    var agent = new ArchitectAgent(cm, cm.getArchitectModel(), model, agentInstructions, scope);
+                    var agent = new ArchitectAgent(
+                            cm,
+                            chrome.getInstructionsPanel().getSelectedModel(),
+                            perFileModel,
+                            agentInstructions,
+                            scope);
                     postProcessResult = agent.executeWithSearch(scope);
                 }
                 scope.append(postProcessResult);
@@ -1418,7 +1473,6 @@ public class BlitzForgeDialog extends JDialog {
                                 %s
                                 </related_classes>
                                 """
-                                        .stripIndent()
                                         .formatted(fRelatedK, acFragment.text());
                         readOnlyMessages.add(new UserMessage(msgText));
                     }
@@ -1443,7 +1497,6 @@ public class BlitzForgeDialog extends JDialog {
                                 %s
                                 </per_file_command_output>
                                 """
-                                        .stripIndent()
                                         .formatted(finalCommand, output);
                     } catch (Environment.SubprocessException ex) {
                         commandOutputText =
@@ -1454,7 +1507,6 @@ public class BlitzForgeDialog extends JDialog {
                                 %s
                                 </per_file_command_output>
                                 """
-                                        .stripIndent()
                                         .formatted(finalCommand, ex.getMessage(), ex.getOutput());
                         dialogIo.toolError(
                                 "Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(),
@@ -1483,7 +1535,7 @@ public class BlitzForgeDialog extends JDialog {
                 tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
             } else {
                 var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages, Set.of());
+                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
             }
 
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

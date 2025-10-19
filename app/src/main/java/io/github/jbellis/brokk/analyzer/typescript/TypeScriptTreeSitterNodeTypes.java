@@ -63,6 +63,7 @@ public final class TypeScriptTreeSitterNodeTypes {
     public static final String ENUM = "enum";
     public static final String NAMESPACE = "namespace";
     public static final String ABSTRACT_CLASS = "abstract class";
+    public static final String IMPORT_DECLARATION = "import_statement";
 
     private TypeScriptTreeSitterNodeTypes() {}
 }

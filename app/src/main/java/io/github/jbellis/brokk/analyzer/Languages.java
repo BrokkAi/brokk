@@ -36,7 +36,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CSharpAnalyzer(project, project.getExcludedDirectories());
+            return new CSharpAnalyzer(project);
         }
 
         @Override
@@ -90,7 +90,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new JavascriptAnalyzer(project, project.getExcludedDirectories());
+            return new JavascriptAnalyzer(project);
         }
 
         @Override
@@ -167,7 +167,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
+            return new CppAnalyzer(project);
         }
 
         @Override
@@ -220,7 +220,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new GoAnalyzer(project, project.getExcludedDirectories());
+            return new GoAnalyzer(project);
         }
 
         @Override
@@ -274,7 +274,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
+            return new CppAnalyzer(project);
         }
 
         @Override
@@ -376,7 +376,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new PhpAnalyzer(project, project.getExcludedDirectories());
+            return new PhpAnalyzer(project);
         }
 
         @Override
@@ -498,7 +498,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new TypescriptAnalyzer(project, project.getExcludedDirectories());
+            return new TypescriptAnalyzer(project);
         }
 
         @Override

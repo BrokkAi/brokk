@@ -105,8 +105,7 @@ public class TreeSitterAnalyzerRustTest {
                                          const ID: u32 = 1;
                                          fn area(&self) -> f64 { ... }
                                        }
-                                       """
-                        .stripIndent();
+                                       """;
         assertEquals(
                 normalizeSource.apply(expectedPointSkeleton),
                 normalizeSource.apply(pointSkeleton),
@@ -118,8 +117,7 @@ public class TreeSitterAnalyzerRustTest {
                                           pub trait Drawable {
                                             fn draw(&self);
                                           }
-                                          """
-                        .stripIndent();
+                                          """;
         assertEquals(
                 normalizeSource.apply(expectedDrawableSkeleton),
                 normalizeSource.apply(drawableSkeleton),
@@ -141,8 +139,7 @@ public class TreeSitterAnalyzerRustTest {
         String expectedDistanceSkeleton =
                 """
                                           pub fn distance(p: &Point, q: &Point) -> f64 { ... }
-                                          """
-                        .stripIndent();
+                                          """;
         assertEquals(
                 normalizeSource.apply(expectedDistanceSkeleton),
                 normalizeSource.apply(skeletonsInPointRs.get(distanceCU)),
@@ -161,8 +158,7 @@ public class TreeSitterAnalyzerRustTest {
                                          Rgb(u8, u8, u8)
                                          Named { name: String }
                                        }
-                                       """
-                        .stripIndent();
+                                       """;
         assertEquals(
                 normalizeSource.apply(expectedColorSkeleton),
                 normalizeSource.apply(colorSkeleton),
@@ -178,8 +174,7 @@ public class TreeSitterAnalyzerRustTest {
                                               const ID: u32;
                                               fn area(&self) -> f64;
                                             }
-                                            """
-                        .stripIndent();
+                                            """;
         assertEquals(
                 normalizeSource.apply(expectedShapeTraitSkeleton),
                 normalizeSource.apply(shapeTraitSkeleton),
@@ -547,19 +542,11 @@ public class TreeSitterAnalyzerRustTest {
         // The base `getClassSource` uses `getDefinition`, so it depends on which CU is returned for "Point".
         // Let's assume the `struct_item` is primary for `getClassSource("Point")`.
 
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("distance", true)); // function, not class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("_module_.ORIGIN", true)); // field, not class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("Color.Red", true)); // enum variant, not class
-        assertThrows(
-                SymbolNotFoundException.class,
-                () -> rsAnalyzer.getClassSource("Shape.ID", true)); // associated const, not class
-        assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("NonExistent", true));
+        assertTrue(rsAnalyzer.getClassSource("distance", true).isEmpty()); // function, not class
+        assertTrue(rsAnalyzer.getClassSource("_module_.ORIGIN", true).isEmpty()); // field, not class
+        assertTrue(rsAnalyzer.getClassSource("Color.Red", true).isEmpty()); // enum variant, not class
+        assertTrue(rsAnalyzer.getClassSource("Shape.ID", true).isEmpty()); // associated const, not class
+        assertTrue(rsAnalyzer.getClassSource("NonExistent", true).isEmpty());
     }
 
     @Test

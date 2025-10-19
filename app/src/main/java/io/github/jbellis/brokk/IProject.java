@@ -71,7 +71,8 @@ public interface IProject extends AutoCloseable {
     /**
      * Gets the structured build details inferred by the BuildAgent.
      *
-     * @return BuildDetails record, potentially BuildDetails.EMPTY if not found or on error.
+     * This should only called directly by awaitBuildDetails and CM::createHeadless!
+     * Everyone else should use awaitBuildDetails() instead.
      */
     default BuildAgent.BuildDetails loadBuildDetails() {
         return BuildAgent.BuildDetails.EMPTY;
@@ -117,15 +118,7 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default Service.ModelConfig getArchitectModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
     default Service.ModelConfig getCodeModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
-    default Service.ModelConfig getSearchModelConfig() {
         throw new UnsupportedOperationException();
     }
 
@@ -264,19 +257,7 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default void setArchitectModelConfig(Service.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
     default void setCodeModelConfig(Service.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setAskModelConfig(Service.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setSearchModelConfig(Service.ModelConfig modelConfig) {
         throw new UnsupportedOperationException();
     }
 
