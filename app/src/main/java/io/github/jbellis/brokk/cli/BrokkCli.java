@@ -24,6 +24,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.metrics.DefaultSearchMetrics;
+import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -163,7 +165,6 @@ public final class BrokkCli implements Callable<Integer> {
             names = "--disable-context-scan",
             description = "Skip the initial ContextAgent scan in --search-workspace mode.")
     private boolean disableContextScan = false;
-
 
     @CommandLine.Option(
             names = "--list-models",
@@ -373,8 +374,8 @@ public final class BrokkCli implements Callable<Integer> {
             var messages = searchResult.output().messages();
             int turns = countTurns(messages);
 
-            // Get found file from metrics (set by workspaceComplete tool)
-            String foundFile = metrics.getFoundFile() != null ? metrics.getFoundFile() : "";
+            // Found file will be inferred by the harness from metrics; emit empty here.
+            String foundFile = "";
 
             // Output enhanced JSON result with metrics
             var json = metrics.toJson(searchWorkspace, foundFile, turns, elapsedTime, success);
@@ -766,7 +767,6 @@ public final class BrokkCli implements Callable<Integer> {
         }
         return sb.toString();
     }
-
 
     private static int countTurns(List<ChatMessage> messages) {
         // Count AI messages as turns

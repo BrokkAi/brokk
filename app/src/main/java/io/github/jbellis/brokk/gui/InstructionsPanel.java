@@ -1934,7 +1934,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
                     false,
-                    io.github.jbellis.brokk.cli.SearchMetrics.noOp());
+                    io.github.jbellis.brokk.metrics.SearchMetrics.noOp());
             var result = agent.execute();
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;

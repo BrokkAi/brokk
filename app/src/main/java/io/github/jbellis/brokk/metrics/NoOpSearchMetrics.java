@@ -1,14 +1,14 @@
-package io.github.jbellis.brokk.cli;
+package io.github.jbellis.brokk.metrics;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.TaskResult;
 import java.util.HashMap;
 import java.util.Map;
-import org.jetbrains.annotations.Nullable;
+import java.util.Set;
 
 /**
- * Lightweight no-op SearchMetrics singleton.
+ * Lightweight no-op SearchMetrics singleton in a neutral package.
  */
 public enum NoOpSearchMetrics implements SearchMetrics {
     INSTANCE;
@@ -17,7 +17,7 @@ public enum NoOpSearchMetrics implements SearchMetrics {
     public void recordContextScan(int filesAdded, long timeMs, boolean skipped) {}
 
     @Override
-    public void startTurn(int turnNumber) {}
+    public void startTurn() {}
 
     @Override
     public void recordToolCall(String toolName) {}
@@ -26,18 +26,16 @@ public enum NoOpSearchMetrics implements SearchMetrics {
     public void recordFilesAdded(int count) {}
 
     @Override
-    public void endTurn(long turnTimeMs) {}
+    public void recordFilesAddedPaths(Set<String> paths) {}
+
+    @Override
+    public void endTurn() {}
 
     @Override
     public void recordFailure(TaskResult.StopReason reason, int workspaceSize) {}
 
     @Override
-    public void recordFoundFile(String file) {}
-
-    @Override
-    public @Nullable String getFoundFile() {
-        return null;
-    }
+    public void recordFinalWorkspaceFiles(Set<String> finalFiles) {}
 
     @Override
     public String toJson(String query, String foundFile, int turns, long elapsedMs, boolean success) {

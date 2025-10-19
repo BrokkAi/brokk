@@ -1,10 +1,12 @@
-package io.github.jbellis.brokk.cli;
+package io.github.jbellis.brokk.metrics;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.TaskResult;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -20,16 +22,18 @@ public class DefaultSearchMetrics implements SearchMetrics {
     private boolean contextScanSkipped = false;
 
     // Per-turn metrics
+    private int turnCounter = 0;
     private final List<TurnMetrics> turns = new ArrayList<>();
     private @Nullable TurnMetrics currentTurn = null;
+    private long turnStartTimeMs = 0;
 
     // Failure classification
     private @Nullable String failureType = null;
     private @Nullable String stopReason = null;
     private int finalWorkspaceSize = 0;
 
-    // Found file from workspaceComplete
-    private @Nullable String foundFile = null;
+    // Final workspace files snapshot (project-relative paths)
+    private @Nullable Set<String> finalWorkspaceFiles = null;
 
     @Override
     public synchronized void recordContextScan(int filesAdded, long timeMs, boolean skipped) {
@@ -39,11 +43,12 @@ public class DefaultSearchMetrics implements SearchMetrics {
     }
 
     @Override
-    public synchronized void startTurn(int turnNumber) {
+    public synchronized void startTurn() {
         if (currentTurn != null) {
             turns.add(currentTurn);
         }
-        currentTurn = new TurnMetrics(turnNumber);
+        currentTurn = new TurnMetrics(++turnCounter);
+        turnStartTimeMs = System.currentTimeMillis();
     }
 
     @Override
@@ -61,8 +66,16 @@ public class DefaultSearchMetrics implements SearchMetrics {
     }
 
     @Override
-    public synchronized void endTurn(long turnTimeMs) {
+    public synchronized void recordFilesAddedPaths(Set<String> paths) {
+        if (currentTurn != null && paths != null && !paths.isEmpty()) {
+            currentTurn.addFilePaths(paths);
+        }
+    }
+
+    @Override
+    public synchronized void endTurn() {
         if (currentTurn != null) {
+            long turnTimeMs = System.currentTimeMillis() - turnStartTimeMs;
             currentTurn.setTimeMs(turnTimeMs);
             turns.add(currentTurn);
             currentTurn = null;
@@ -92,13 +105,8 @@ public class DefaultSearchMetrics implements SearchMetrics {
     }
 
     @Override
-    public synchronized void recordFoundFile(String file) {
-        this.foundFile = file;
-    }
-
-    @Override
-    public synchronized @Nullable String getFoundFile() {
-        return foundFile;
+    public synchronized void recordFinalWorkspaceFiles(Set<String> finalFiles) {
+        this.finalWorkspaceFiles = (finalFiles == null) ? null : new HashSet<>(finalFiles);
     }
 
     /**
@@ -118,6 +126,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
                 new ArrayList<>(this.turns),
                 failureType,
                 stopReason,
+                finalWorkspaceFiles,
                 finalWorkspaceSize);
 
         try {
@@ -140,6 +149,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
             List<TurnMetrics> turns_detail,
             @Nullable String failure_type,
             @Nullable String stop_reason,
+            @Nullable Set<String> final_workspace_files,
             int final_workspace_size) {}
 
     /**
@@ -154,6 +164,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
         private final int turn;
         private final List<String> tool_calls = new ArrayList<>();
         private int files_added = 0;
+        private final Set<String> files_added_paths = new HashSet<>();
         private long time_ms = 0;
 
         public TurnMetrics(int turnNumber) {
@@ -166,6 +177,10 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
         public void addFiles(int count) {
             files_added += count;
+        }
+
+        public void addFilePaths(Set<String> paths) {
+            files_added_paths.addAll(paths);
         }
 
         public void setTimeMs(long timeMs) {
@@ -183,6 +198,10 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
         public int getFiles_added() {
             return files_added;
+        }
+
+        public Set<String> getFiles_added_paths() {
+            return files_added_paths;
         }
 
         public long getTime_ms() {

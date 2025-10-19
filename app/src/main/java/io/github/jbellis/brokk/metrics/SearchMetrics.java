@@ -1,31 +1,44 @@
-package io.github.jbellis.brokk.cli;
+package io.github.jbellis.brokk.metrics;
 
 import io.github.jbellis.brokk.TaskResult;
-import org.jetbrains.annotations.Nullable;
+import java.util.Set;
 
 /**
  * Interface for collecting SearchAgent metrics.
  *
  * Implementations must be thread-safe if concurrently accessed.
+ *
+ * This interface lives in a neutral package so agent code can depend on it
+ * without importing CLI-specific classes or implementations.
  */
 public interface SearchMetrics {
 
     void recordContextScan(int filesAdded, long timeMs, boolean skipped);
 
-    void startTurn(int turnNumber);
+    void startTurn();
 
     void recordToolCall(String toolName);
 
     void recordFilesAdded(int count);
 
-    void endTurn(long turnTimeMs);
+    /**
+     * Record the concrete project-relative file paths that were added to the Workspace during the current turn.
+     * The set should include only repo-backed files (project-relative paths). Implementations may ignore
+     * virtual/summary fragments or include them as empty/placeholder entries.
+     *
+     * Example: Set.of("src/main/java/com/acme/Foo.java", "src/test/java/com/acme/FooTest.java")
+     */
+    void recordFilesAddedPaths(Set<String> paths);
+
+    void endTurn();
 
     void recordFailure(TaskResult.StopReason reason, int workspaceSize);
 
-    void recordFoundFile(String file);
-
-    @Nullable
-    String getFoundFile();
+    /**
+     * Record the final snapshot of repo-backed files present in the Workspace at task completion.
+     * This allows external harnesses to cross-check and select a primary file from the actual final Workspace.
+     */
+    void recordFinalWorkspaceFiles(Set<String> finalFiles);
 
     /**
      * Serialize metrics along with the basic result fields into JSON.
@@ -40,9 +53,6 @@ public interface SearchMetrics {
 
     /**
      * Convenience factory for a no-op metrics instance.
-     *
-     * This replaces a previously exposed public NO_OP field. Callers should use
-     * SearchMetrics.noOp() when they need a metrics implementation that does nothing.
      */
     static SearchMetrics noOp() {
         return NoOpSearchMetrics.INSTANCE;
