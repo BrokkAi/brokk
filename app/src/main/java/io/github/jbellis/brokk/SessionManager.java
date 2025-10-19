@@ -58,7 +58,9 @@ public class SessionManager implements AutoCloseable {
         this.sessionsDir = sessionsDir;
         this.sessionExecutor = Executors.newFixedThreadPool(3, r -> {
             var t = Executors.defaultThreadFactory().newThread(r);
-            t.setDaemon(false);
+            // Use daemon threads to prevent blocking JVM shutdown (Issue #1474)
+            // Session I/O operations are background tasks that should not prevent application exit
+            t.setDaemon(true);
             t.setName("session-io-" + t.threadId());
             return t;
         });
