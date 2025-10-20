@@ -1498,19 +1498,19 @@ public interface ContextFragment {
     }
 
     enum SummaryType {
-        CODEUNIT_SKELETON, // Summary for a list of FQ symbols
-        FILE_SKELETONS // Summaries for all classes in a list of file paths/patterns
+        CODEUNIT_SKELETON, // Summary for a single symbol
+        FILE_SKELETONS // Summaries for all top-level declarations in a file
     }
 
-    class SkeletonFragment extends VirtualFragment { // Dynamic, uses nextId
-        private final List<String> targetIdentifiers; // FQ class names or file paths/patterns
-        private final SummaryType summaryType;
+    class SkeletonFragment extends VirtualFragment { // Dynamic composite wrapper around SummaryFragments
+        private final List<SummaryFragment> summaries;
 
         public SkeletonFragment(
                 IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
             super(contextManager); // Assigns dynamic numeric String ID
-            this.targetIdentifiers = List.copyOf(targetIdentifiers);
-            this.summaryType = summaryType;
+            this.summaries = targetIdentifiers.stream()
+                    .map(target -> new SummaryFragment(contextManager, target, summaryType))
+                    .toList();
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
@@ -1521,12 +1521,122 @@ public interface ContextFragment {
                 SummaryType summaryType) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
             assert !targetIdentifiers.isEmpty();
-            this.targetIdentifiers = List.copyOf(targetIdentifiers);
+            this.summaries = targetIdentifiers.stream()
+                    .map(target -> new SummaryFragment(contextManager, target, summaryType))
+                    .toList();
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.SKELETON;
+        }
+
+        @Override
+        public String text() {
+            return SummaryFragment.combinedText(summaries);
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return summaries.stream().flatMap(s -> s.sources().stream()).collect(Collectors.toSet());
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return summaries.stream().flatMap(s -> s.files().stream()).collect(Collectors.toSet());
+        }
+
+        @Override
+        public String repr() {
+            var targets = getTargetIdentifiers();
+            var summaryType = getSummaryType();
+            return switch (summaryType) {
+                case CODEUNIT_SKELETON ->
+                    "ClassSummaries([%s])"
+                            .formatted(targets.stream().map(s -> "'" + s + "'").collect(Collectors.joining(", ")));
+                case FILE_SKELETONS ->
+                    "FileSummaries([%s])"
+                            .formatted(targets.stream().map(s -> "'" + s + "'").collect(Collectors.joining(", ")));
+            };
+        }
+
+        @Override
+        public String description() {
+            var targets = getTargetIdentifiers();
+            return "Summary of %s".formatted(String.join(", ", targets));
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            // If it's an auto-context fragment itself, it shouldn't contribute to seeding a new auto-context.
+            // A heuristic: auto-context typically CLASS_SKELETON of many classes
+            return getSummaryType() != SummaryType.CODEUNIT_SKELETON;
+        }
+
+        @Override
+        public String format() {
+            var targets = getTargetIdentifiers();
+            var summaryType = getSummaryType();
+            return """
+                    <summary targets="%s" type="%s" fragmentid="%s">
+                    %s
+                    </summary>
+                    """
+                    .formatted(String.join(", ", targets), summaryType.name(), id(), text());
+        }
+
+        public List<String> getTargetIdentifiers() {
+            return summaries.stream().map(SummaryFragment::getTargetIdentifier).toList();
+        }
+
+        public SummaryType getSummaryType() {
+            // All wrapped SummaryFragments have the same type; return the first one's
+            return summaries.isEmpty()
+                    ? SummaryType.CODEUNIT_SKELETON
+                    : summaries.getFirst().getSummaryType();
+        }
+
+        @Override
+        public String syntaxStyle() {
+            // Skeletons are usually in the language of the summarized code.
+            // Default to Java or try to infer from a source CodeUnit if available.
+            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+        }
+
+        @Override
+        public String toString() {
+            return "SkeletonFragment('%s')".formatted(description());
+        }
+    }
+
+    class SummaryFragment extends VirtualFragment { // Dynamic, single-target, uses nextId
+        private final String targetIdentifier;
+        private final SummaryType summaryType;
+
+        public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
+            super(contextManager);
+            assert !targetIdentifier.isBlank();
+            this.targetIdentifier = targetIdentifier;
+            this.summaryType = summaryType;
+        }
+
+        // Constructor for DTOs/unfreezing where ID might be numeric (dynamic) or hash (if frozen)
+        public SummaryFragment(
+                String existingId, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
+            super(existingId, contextManager);
+            assert !targetIdentifier.isBlank();
+            this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
         }
 
         @Override
         public FragmentType getType() {
+            // Keep semantics aligned with Skeleton for downstream consumers
             return FragmentType.SKELETON;
         }
 
@@ -1536,21 +1646,14 @@ public interface ContextFragment {
             analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
                 switch (summaryType) {
                     case CODEUNIT_SKELETON -> {
-                        for (String className : targetIdentifiers) {
-                            analyzer.getDefinition(className).ifPresent(cu -> {
-                                skeletonProvider.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
-                            });
-                        }
+                        analyzer.getDefinition(targetIdentifier).ifPresent(cu -> {
+                            skeletonProvider.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
+                        });
                     }
                     case FILE_SKELETONS -> {
-                        // This assumes targetIdentifiers are file paths. Expansion of globs should happen before
-                        // fragment
-                        // creation.
-                        for (String filePath : targetIdentifiers) {
-                            IContextManager cm = getContextManager();
-                            ProjectFile projectFile = cm.toFile(filePath);
-                            skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
-                        }
+                        IContextManager cm = getContextManager();
+                        ProjectFile projectFile = cm.toFile(targetIdentifier);
+                        skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
                     }
                 }
             });
@@ -1561,26 +1664,9 @@ public interface ContextFragment {
         public String text() {
             Map<CodeUnit, String> skeletons = fetchSkeletons();
             if (skeletons.isEmpty()) {
-                return "No summaries found for: " + String.join(", ", targetIdentifiers);
+                return "No summary found for: " + targetIdentifier;
             }
-
-            // Group by package, then format
-            var skeletonsByPackage = skeletons.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> e.getKey().packageName().isEmpty()
-                                    ? "(default package)"
-                                    : e.getKey().packageName(),
-                            Collectors.toMap(
-                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
-
-            return skeletonsByPackage.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> {
-                        String packageHeader = "package " + pkgEntry.getKey() + ";";
-                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
-                        return packageHeader + "\n\n" + pkgCode;
-                    })
-                    .collect(Collectors.joining("\n\n"));
+            return combinedText(List.of(this));
         }
 
         @Override
@@ -1598,55 +1684,34 @@ public interface ContextFragment {
             return switch (summaryType) {
                 case CODEUNIT_SKELETON ->
                     sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
-                case FILE_SKELETONS ->
-                    targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
+                case FILE_SKELETONS -> Set.of(contextManager.toFile(targetIdentifier));
             };
         }
 
         @Override
         public String repr() {
             return switch (summaryType) {
-                case CODEUNIT_SKELETON ->
-                    "ClassSummaries([%s])"
-                            .formatted(targetIdentifiers.stream()
-                                    .map(s -> "'" + s + "'")
-                                    .collect(Collectors.joining(", ")));
-                case FILE_SKELETONS ->
-                    "FileSummaries([%s])"
-                            .formatted(targetIdentifiers.stream()
-                                    .map(s -> "'" + s + "'")
-                                    .collect(Collectors.joining(", ")));
+                case CODEUNIT_SKELETON -> "ClassSummary('%s')".formatted(targetIdentifier);
+                case FILE_SKELETONS -> "FileSummary('%s')".formatted(targetIdentifier);
             };
         }
 
         @Override
         public String description() {
-            return "Summary of %s".formatted(String.join(", ", targetIdentifiers));
+            return "Summary of %s".formatted(targetIdentifier);
         }
 
         @Override
-        public boolean isEligibleForAutoContext() {
-            // If it's an auto-context fragment itself, it shouldn't contribute to seeding a new auto-context.
-            // User-added summaries are fine.
-            // This needs a way to distinguish. For now, assume all are eligible if user-added.
-            // AutoContext itself isn't represented by a SkeletonFragment that users add via tools.
-            return summaryType
-                    != SummaryType
-                            .CODEUNIT_SKELETON; // A heuristic: auto-context typically CLASS_SKELETON of many classes
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_JAVA;
         }
 
-        @Override
-        public String format() {
-            return """
-                    <summary targets="%s" type="%s" fragmentid="%s">
-                    %s
-                    </summary>
-                    """
-                    .formatted(String.join(", ", targetIdentifiers), summaryType.name(), id(), text());
+        public String getTargetIdentifier() {
+            return targetIdentifier;
         }
 
         public List<String> getTargetIdentifiers() {
-            return targetIdentifiers;
+            return List.of(targetIdentifier);
         }
 
         public SummaryType getSummaryType() {
@@ -1654,15 +1719,45 @@ public interface ContextFragment {
         }
 
         @Override
-        public String syntaxStyle() {
-            // Skeletons are usually in the language of the summarized code.
-            // Default to Java or try to infer from a source CodeUnit if available.
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+        public String toString() {
+            return "SummaryFragment('%s')".formatted(description());
         }
 
-        @Override
-        public String toString() {
-            return "SkeletonFragment('%s')".formatted(description());
+        public static String combinedText(Collection<SummaryFragment> fragments) {
+            if (fragments.isEmpty()) {
+                return "No summaries available";
+            }
+
+            // Collect all skeletons from all fragments
+            Map<CodeUnit, String> allSkeletons = fragments.stream()
+                    .flatMap(f -> f.fetchSkeletons().entrySet().stream())
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            Map.Entry::getValue,
+                            (v1, v2) -> v1, // Keep first value if duplicates
+                            LinkedHashMap::new));
+
+            if (allSkeletons.isEmpty()) {
+                return "No summaries available";
+            }
+
+            // Group by package, then format
+            var skeletonsByPackage = allSkeletons.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> {
+                        String packageHeader = "package " + pkgEntry.getKey() + ";";
+                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
+                        return packageHeader + "\n\n" + pkgCode;
+                    })
+                    .collect(Collectors.joining("\n\n"));
         }
     }
 

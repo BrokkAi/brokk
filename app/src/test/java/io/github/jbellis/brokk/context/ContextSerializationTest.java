@@ -1192,4 +1192,85 @@ public class ContextSerializationTest {
             fail("Expected CodeFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }
     }
+
+    @Test
+    void testRoundTripSummaryFragment() throws Exception {
+        // Test CODEUNIT_SKELETON summary type
+        var fragment1 = new ContextFragment.SummaryFragment(
+                mockContextManager, "com.example.TargetClass", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+        var context1 =
+                new Context(mockContextManager, "Test SummaryFragment CODEUNIT_SKELETON").addVirtualFragment(fragment1);
+        ContextHistory originalHistory1 = new ContextHistory(context1);
+
+        Path zipFile1 = tempDir.resolve("test_summary_codeunit_history.zip");
+        HistoryIo.writeZip(originalHistory1, zipFile1);
+        ContextHistory loadedHistory1 = HistoryIo.readZip(zipFile1, mockContextManager);
+
+        assertContextsEqual(
+                originalHistory1.getHistory().get(0),
+                loadedHistory1.getHistory().get(0));
+
+        Context loadedCtx1 = loadedHistory1.getHistory().get(0);
+        var loadedRawFragment1 = loadedCtx1
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment1 instanceof ContextFragment.SummaryFragment loadedFragment) {
+            assertEquals("com.example.TargetClass", loadedFragment.getTargetIdentifier());
+            assertEquals(ContextFragment.SummaryType.CODEUNIT_SKELETON, loadedFragment.getSummaryType());
+        } else if (loadedRawFragment1 instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.SKELETON, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.SummaryFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            assertEquals("com.example.TargetClass", loadedFrozenFragment.meta().get("targetIdentifier"));
+            assertEquals(
+                    ContextFragment.SummaryType.CODEUNIT_SKELETON.name(),
+                    loadedFrozenFragment.meta().get("summaryType"));
+        } else {
+            fail("Expected SummaryFragment or FrozenFragment, got: " + loadedRawFragment1.getClass());
+        }
+
+        // Test FILE_SKELETONS summary type
+        var projectFile = new ProjectFile(tempDir, "src/SummaryTest.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class SummaryTest {}");
+
+        var fragment2 = new ContextFragment.SummaryFragment(
+                mockContextManager, projectFile.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+
+        var context2 =
+                new Context(mockContextManager, "Test SummaryFragment FILE_SKELETONS").addVirtualFragment(fragment2);
+        ContextHistory originalHistory2 = new ContextHistory(context2);
+
+        Path zipFile2 = tempDir.resolve("test_summary_file_history.zip");
+        HistoryIo.writeZip(originalHistory2, zipFile2);
+        ContextHistory loadedHistory2 = HistoryIo.readZip(zipFile2, mockContextManager);
+
+        assertContextsEqual(
+                originalHistory2.getHistory().get(0),
+                loadedHistory2.getHistory().get(0));
+
+        Context loadedCtx2 = loadedHistory2.getHistory().get(0);
+        var loadedRawFragment2 = loadedCtx2
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment2 instanceof ContextFragment.SummaryFragment loadedFragment) {
+            assertEquals(projectFile.toString(), loadedFragment.getTargetIdentifier());
+            assertEquals(ContextFragment.SummaryType.FILE_SKELETONS, loadedFragment.getSummaryType());
+        } else if (loadedRawFragment2 instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.SKELETON, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.SummaryFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            assertEquals(projectFile.toString(), loadedFrozenFragment.meta().get("targetIdentifier"));
+            assertEquals(
+                    ContextFragment.SummaryType.FILE_SKELETONS.name(),
+                    loadedFrozenFragment.meta().get("summaryType"));
+        } else {
+            fail("Expected SummaryFragment or FrozenFragment, got: " + loadedRawFragment2.getClass());
+        }
+    }
 }

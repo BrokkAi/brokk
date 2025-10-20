@@ -11,7 +11,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
-import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -124,10 +123,27 @@ public class Context {
             }
         });
 
+        // Convert legacy SkeletonFragments to individual SummaryFragments
+        var expandedFragments = new ArrayList<ContextFragment>();
+        for (var fragment : newFragments) {
+            if (fragment instanceof ContextFragment.SkeletonFragment skeleton) {
+                logger.debug(
+                        "Converting legacy SkeletonFragment id={} with {} target(s) to individual SummaryFragments",
+                        skeleton.id(),
+                        skeleton.getTargetIdentifiers().size());
+                for (String targetId : skeleton.getTargetIdentifiers()) {
+                    var summary = new ContextFragment.SummaryFragment(cm, targetId, skeleton.getSummaryType());
+                    expandedFragments.add(summary);
+                }
+            } else {
+                expandedFragments.add(fragment);
+            }
+        }
+
         return new Context(
                 frozen.id(),
                 cm,
-                List.copyOf(newFragments),
+                List.copyOf(expandedFragments),
                 frozen.getTaskHistory(),
                 frozen.getParsedOutput(),
                 frozen.action);
@@ -159,26 +175,47 @@ public class Context {
         return withFragments(newFragments, CompletableFuture.completedFuture(action));
     }
 
-    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        // Deduplicate among existing virtual fragments only
-        boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                ? fragments.stream()
-                        .filter(f -> f.getType().isVirtual())
-                        .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                : fragments.stream()
-                        .filter(f -> f.getType().isVirtual())
-                        .map(f -> (ContextFragment.VirtualFragment) f)
-                        .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
-
-        if (isDuplicate) {
+    public Context addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> toAdd) {
+        if (toAdd.isEmpty()) {
             return this;
         }
 
         var newFragments = new ArrayList<>(fragments);
-        newFragments.add(fragment);
+        var existingVirtuals = fragments.stream()
+                .filter(f -> f.getType().isVirtual())
+                .map(f -> (ContextFragment.VirtualFragment) f)
+                .toList();
 
-        String action = "Added " + fragment.shortDescription();
+        for (var fragment : toAdd) {
+            // Deduplicate among existing virtual fragments only
+            boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
+                    ? existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
+                            || newFragments.stream()
+                                    .filter(f -> f.getType().isVirtual())
+                                    .map(f -> (ContextFragment.VirtualFragment) f)
+                                    .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
+                    : existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()))
+                            || newFragments.stream()
+                                    .filter(f -> f.getType().isVirtual())
+                                    .map(f -> (ContextFragment.VirtualFragment) f)
+                                    .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+
+            if (!isDuplicate) {
+                newFragments.add(fragment);
+            }
+        }
+
+        if (newFragments.size() == fragments.size()) {
+            return this;
+        }
+
+        int addedCount = newFragments.size() - fragments.size();
+        String action = "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
         return withFragments(newFragments, CompletableFuture.completedFuture(action));
+    }
+
+    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
+        return addVirtualFragments(List.of(fragment));
     }
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
@@ -215,15 +252,16 @@ public class Context {
     }
 
     /**
-     * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
-     * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
+     * 1) Gather all classes from each fragment.
+     * 2) Compute related files and take up to topK.
+     * 3) Return a List of SummaryFragment for the top results.
      */
-    public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
+    public List<ContextFragment.SummaryFragment> buildAutoContext(int topK) throws InterruptedException {
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
         var relevantFiles = getMostRelevantFiles(topK);
         if (relevantFiles.isEmpty()) {
-            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            return List.of();
         }
 
         List<String> targetFqns = new ArrayList<>();
@@ -235,9 +273,14 @@ public class Context {
         }
 
         if (targetFqns.isEmpty()) {
-            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            return List.of();
         }
-        return new SkeletonFragment(contextManager, targetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+        return targetFqns.stream()
+                .limit(topK)
+                .map(fqn -> new ContextFragment.SummaryFragment(
+                        contextManager, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .toList();
     }
 
     // ---------------------------------------------------------
@@ -407,17 +450,11 @@ public class Context {
     public static Context createWithId(
             UUID id,
             IContextManager cm,
-            List<ContextFragment> editable,
-            List<ContextFragment> readonly,
-            List<ContextFragment.VirtualFragment> virtuals,
+            List<ContextFragment> fragments,
             List<TaskEntry> history,
             @Nullable ContextFragment.TaskFragment parsed,
             Future<String> action) {
-        var combined = Streams.concat(
-                        Streams.concat(editable.stream(), readonly.stream()),
-                        virtuals.stream().map(v -> (ContextFragment) v))
-                .toList();
-        return new Context(id, cm, combined, history, parsed, action);
+        return new Context(id, cm, fragments, history, parsed, action);
     }
 
     /**

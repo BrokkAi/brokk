@@ -11,7 +11,6 @@ import io.github.jbellis.brokk.context.ContentDtos.ContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.DiffContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.FullContentMetadataDto;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
-import io.github.jbellis.brokk.util.migrationv3.HistoryV3Migrator;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -36,7 +35,6 @@ public final class HistoryIo {
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    private static final String V1_FRAGMENTS_FILENAME = "fragments-v1.json";
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
     private static final String CONTENT_FILENAME = "content_metadata.json";
@@ -55,20 +53,15 @@ public final class HistoryIo {
             throw new FileNotFoundException(zip.toString());
         }
 
-        boolean isV1 = false;
         boolean isV3 = false;
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(V1_FRAGMENTS_FILENAME)) isV1 = true;
                 if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) isV3 = true;
             }
         }
 
         if (isV3) {
-            return readZipV3(zip, mgr);
-        } else if (isV1) {
-            HistoryV3Migrator.migrate(zip, mgr);
             return readZipV3(zip, mgr);
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");

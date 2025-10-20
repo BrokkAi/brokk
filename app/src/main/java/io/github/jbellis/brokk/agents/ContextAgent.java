@@ -179,8 +179,7 @@ public class ContextAgent {
                             fragment.description());
                 }
             } else if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-                var skeletonFragment = (ContextFragment.SkeletonFragment) fragment;
-                totalTokens += Messages.getApproximateTokens(skeletonFragment.text());
+                totalTokens += Messages.getApproximateTokens(fragment.text());
             } else {
                 logger.warn("Unhandled ContextFragment type for token calculation: {}", fragment.getClass());
             }
@@ -473,22 +472,22 @@ public class ContextAgent {
                 recommendedContentTokens,
                 totalRecommendedTokens);
 
-        var skeletonFragments = skeletonPerSummary(cm, recommendedSummaries);
+        var summaryFragments = summaryPerCodeUnit(cm, recommendedSummaries);
         var pathFragments = filteredFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
-                .toList();
+        var combinedFragments =
+                Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
 
         return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
     }
 
-    /** one SkeletonFragment per summary so ArchitectAgent can easily ask user which ones to include */
-    private static List<ContextFragment> skeletonPerSummary(
+    /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
+    private static List<ContextFragment> summaryPerCodeUnit(
             IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
         return relevantSummaries.keySet().stream()
-                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(
-                        contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .map(cu -> (ContextFragment) new ContextFragment.SummaryFragment(
+                        contextManager, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }
 

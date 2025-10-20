@@ -29,7 +29,6 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -288,8 +287,8 @@ public class SearchAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related classes (auto-context) like Architect
-        var auto = cm.liveContext().buildAutoContext(10);
-        var ac = auto.text();
+        var acList = cm.liveContext().buildAutoContext(10);
+        var ac = ContextFragment.SummaryFragment.combinedText(acList);
         if (!ac.isBlank()) {
             messages.add(new UserMessage(
                     """
@@ -623,10 +622,37 @@ public class SearchAgent {
                             .orElseThrow()
                             .syntaxStyle()));
         } else {
-            WorkspaceTools.addToWorkspace(cm, recommendation);
+            logger.debug("Recommended context fits within final budget.");
+            addToWorkspace(recommendation);
             io.llmOutput(
                     "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.",
                     ChatMessageType.CUSTOM);
+        }
+    }
+
+    public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
+        logger.debug("Recommended context fits within final budget.");
+        List<ContextFragment> selected = recommendationResult.fragments();
+        // Group selected fragments by type
+        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
+
+        // Process ProjectPathFragments
+        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
+                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .toList();
+        if (!pathFragments.isEmpty()) {
+            logger.debug(
+                    "Adding selected ProjectPathFragments: {}",
+                    pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
+            cm.addPathFragments(pathFragments);
+        }
+
+        // Process SkeletonFragments
+        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
+                .map(ContextFragment.SummaryFragment.class::cast)
+                .toList();
+        if (!skeletonFragments.isEmpty()) {
+            cm.addVirtualFragments(skeletonFragments);
         }
     }
 

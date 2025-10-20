@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -286,8 +285,8 @@ public final class CSharpAnalyzerTest {
         // Create SkeletonFragment and assert its properties
         // We pass null for IContextManager as it's not used by the description() method,
         // and we want to avoid complex mocking for this CSharpAnalyzer test.
-        var skeletonFragment = new ContextFragment.SkeletonFragment(
-                null, List.of(ifaceCU.fqName()), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var skeletonFragment = new ContextFragment.SummaryFragment(
+                null, ifaceCU.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         // Assert that the skels map (directly from analyzer) contains the interface
         assertTrue(

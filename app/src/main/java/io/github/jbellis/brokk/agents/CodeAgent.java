@@ -502,9 +502,7 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
         coder.setOutput(io);
 
-        // Use up to 5 related classes as context
-        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment
-        // directly
+        // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents = file.read().orElse("");

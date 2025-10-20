@@ -1009,8 +1009,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Adds any virtual fragment directly to the live context. */
+    public void addVirtualFragments(Collection<? extends VirtualFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return;
+        }
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
+    }
+
+    /** Adds any virtual fragment directly to the live context. */
     public void addVirtualFragment(VirtualFragment fragment) {
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        addVirtualFragments(List.of(fragment));
     }
 
     /**
@@ -1220,36 +1228,39 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return true if any summaries were successfully added, false otherwise.
      */
     public boolean addSummaries(Set<ProjectFile> files, Set<CodeUnit> classes) {
-        IAnalyzer analyzer;
-        analyzer = getAnalyzerUninterrupted();
+        IAnalyzer analyzer = getAnalyzerUninterrupted();
         if (analyzer.isEmpty()) {
             io.toolError("Code Intelligence is empty; nothing to add");
             return false;
         }
 
-        // Create SkeletonFragments based on input type (files or classes)
-        // The fragments will dynamically fetch content.
-
         boolean summariesAdded = false;
+
+        // Produce one SummaryFragment per file
         if (!files.isEmpty()) {
-            List<String> filePaths = files.stream().map(ProjectFile::toString).collect(Collectors.toList());
-            var fileSummaryFragment = new ContextFragment.SkeletonFragment(
-                    this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
-            addVirtualFragment(fileSummaryFragment);
+            for (var pf : files) {
+                var fragment = new ContextFragment.SummaryFragment(
+                        this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+                addVirtualFragment(fragment);
+            }
             String message = "Summarize " + joinFilesForOutput(files);
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
             summariesAdded = true;
         }
 
+        // Produce one SummaryFragment per class fqName
         if (!classes.isEmpty()) {
-            List<String> classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
-            var classSummaryFragment = new ContextFragment.SkeletonFragment(
-                    this, classFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass IContextManager
-            addVirtualFragment(classSummaryFragment);
+            var classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            for (var fqn : classFqns) {
+                var fragment =
+                        new ContextFragment.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                addVirtualFragment(fragment);
+            }
             String message = "Summarize " + joinClassesForOutput(classFqns);
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
             summariesAdded = true;
         }
+
         if (!summariesAdded) {
             io.toolError("No files or classes provided to summarize.");
             return false;

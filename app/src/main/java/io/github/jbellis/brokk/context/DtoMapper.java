@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.context;
 import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -85,15 +86,12 @@ public class DtoMapper {
         var actionFuture = CompletableFuture.completedFuture(dto.action());
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
-        return Context.createWithId(
-                ctxId,
-                mgr,
-                editableFragments,
-                readonlyFragments,
-                virtualFragments,
-                taskHistory,
-                parsedOutputFragment,
-                actionFuture);
+        var combined = Streams.concat(
+                        Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
+                        virtualFragments.stream().map(v -> (ContextFragment) v))
+                .toList();
+
+        return Context.createWithId(ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -229,6 +227,12 @@ public class DtoMapper {
                         mgr,
                         skeletonDto.targetIdentifiers(),
                         ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
+            case SummaryFragmentDto summaryDto ->
+                new ContextFragment.SummaryFragment(
+                        summaryDto.id(),
+                        mgr,
+                        summaryDto.targetIdentifier(),
+                        ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
             case UsageFragmentDto usageDto ->
                 new ContextFragment.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
@@ -418,6 +422,11 @@ public class DtoMapper {
                         skf.id(),
                         skf.getTargetIdentifiers(),
                         skf.getSummaryType().name());
+            case ContextFragment.SummaryFragment sumf ->
+                new SummaryFragmentDto(
+                        sumf.id(),
+                        sumf.getTargetIdentifier(),
+                        sumf.getSummaryType().name());
             case ContextFragment.UsageFragment uf ->
                 new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
             case ContextFragment.PasteTextFragment ptf -> {
