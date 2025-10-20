@@ -139,7 +139,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 borderColor = new Color(0xFFA500);
                 thickness = 3;
             }
-            
+
             var lineBorder = BorderFactory.createLineBorder(borderColor, thickness);
             var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
             var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
@@ -1004,8 +1004,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
-                                buildTokenUsageTooltip("Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
-                                128000, 0, TokenUsageBar.WarningLevel.NONE, config, 100);
+                                buildTokenUsageTooltip(
+                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                128000,
+                                0,
+                                TokenUsageBar.WarningLevel.NONE,
+                                config,
+                                100);
                     }
 
                     var fullText = new StringBuilder();
@@ -1027,7 +1032,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
-                    
+
                     int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
                     TokenUsageBar.WarningLevel warningLevel;
                     if (successRate == -1) {
@@ -1040,9 +1045,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     }
-                    
-                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
-                    return new TokenUsageBarComputation(tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
+
+                    String tooltipHtml =
+                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
+                    return new TokenUsageBarComputation(
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -1066,7 +1073,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
     }
 
-    private static record TokenUsageBarComputation(String toolTipHtml, int maxTokens, int approxTokens, TokenUsageBar.WarningLevel warningLevel, Service.ModelConfig config, int successRate) {}
+    private static record TokenUsageBarComputation(
+            String toolTipHtml,
+            int maxTokens,
+            int approxTokens,
+            TokenUsageBar.WarningLevel warningLevel,
+            Service.ModelConfig config,
+            int successRate) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1088,10 +1101,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     // Tooltip helpers for TokenUsageBar (HTML-wrapped, similar to chip tooltips)
-    private static String buildTokenUsageTooltip(String modelName, int maxTokens, String costPerRequest,
-                                                   TokenUsageBar.WarningLevel warningLevel, int successRate) {
+    private static String buildTokenUsageTooltip(
+            String modelName,
+            int maxTokens,
+            String costPerRequest,
+            TokenUsageBar.WarningLevel warningLevel,
+            int successRate) {
         StringBuilder body = new StringBuilder();
-        
+
         if (warningLevel != TokenUsageBar.WarningLevel.NONE) {
             body.append("<div style='color: ")
                     .append(warningLevel == TokenUsageBar.WarningLevel.RED ? "#FF4444" : "#FFA500")
@@ -1101,7 +1118,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     .append("</b> may perform poorly at this token count.</div>");
             body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
         }
-        
+
         body.append("<div><b>Context</b></div>");
         body.append("<div>Model: ").append(htmlEscape(modelName)).append("</div>");
         body.append("<div>Max input tokens: ")
@@ -1112,7 +1129,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     .append(htmlEscape(costPerRequest))
                     .append("</div>");
         }
-        
+
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
         body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
                 .append("Brokk Power Ranking</a></b></div>");
@@ -1127,7 +1144,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
                     .append("Based on benchmark data for model performance across token ranges.</div>");
         }
-        
+
         return wrapTooltipHtml(body.toString(), 420);
     }
 

@@ -35,6 +35,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private WarningLevel warningLevel = WarningLevel.NONE;
+
     @Nullable
     private Service.ModelConfig modelConfig = null;
 
@@ -171,13 +172,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
                     : "a very low success rate (&lt;30%)";
-            
+
             // Indicate if we're extrapolating beyond tested ranges
             String extrapolationNote = "";
             if (usedTokens > 131071) {
-                extrapolationNote = "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
+                extrapolationNote =
+                        "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
             } else if (usedTokens < 4096) {
-                extrapolationNote = "<br/><br/><i>Note: This success rate is extrapolated from the smallest tested range (&lt;4K tokens).</i>";
+                extrapolationNote =
+                        "<br/><br/><i>Note: This success rate is extrapolated from the smallest tested range (&lt;4K tokens).</i>";
             }
 
             return String.format(
@@ -243,11 +246,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             // Warning border based on model performance
             if (warningLevel != WarningLevel.NONE) {
                 g2d.setComposite(AlphaComposite.SrcOver);
-                Color borderColor = switch (warningLevel) {
-                    case YELLOW -> new Color(0xFFA500);
-                    case RED -> new Color(0xFF4444);
-                    default -> null;
-                };
+                Color borderColor =
+                        switch (warningLevel) {
+                            case YELLOW -> new Color(0xFFA500);
+                            case RED -> new Color(0xFF4444);
+                            default -> null;
+                        };
                 if (borderColor != null) {
                     g2d.setColor(borderColor);
                     g2d.setStroke(new BasicStroke(2.0f));

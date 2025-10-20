@@ -56,7 +56,8 @@ class ModelBenchmarkDataTest {
     void nothink_suffix_sets_disable_via_config_overload() {
         var config = new Service.ModelConfig("claude-4-1-opus-nothink", Service.ReasoningLevel.DEFAULT);
         int result = ModelBenchmarkData.getSuccessRate(config, 50000);
-        assertEquals(68, result, "claude-4-1-opus-nothink should strip suffix, use DISABLE reasoning, and return 68% @50k");
+        assertEquals(
+                68, result, "claude-4-1-opus-nothink should strip suffix, use DISABLE reasoning, and return 68% @50k");
     }
 
     @Test
