@@ -619,13 +619,34 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
-    private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
+    @SuppressWarnings("unchecked")
+    private JPopupMenu buildChipContextMenu(JPanel chip, ContextFragment singleFragment) {
         JPopupMenu menu = new JPopupMenu();
-        var scenario = new WorkspacePanel.SingleFragment(fragment);
-        var actions = scenario.getActions(chrome.getContextPanel());
-        for (var action : actions) {
-            menu.add(action);
+        
+        List<ContextFragment> fragments;
+        
+        // Check if this is a combined summary chip
+        if (Boolean.TRUE.equals(chip.getClientProperty("brokk.chip.isCombinedSummary"))) {
+            // Get the list of fragments from the chip
+            var obj = chip.getClientProperty("brokk.chip.summaryFragments");
+            fragments = (obj instanceof List<?> list) ? (List<ContextFragment>) list : List.of();
+        } else {
+            // Single fragment chip
+            fragments = singleFragment != null ? List.of(singleFragment) : List.of();
         }
+        
+        // Build the menu with individual removal options for each fragment
+        for (var fragment : fragments) {
+            var scenario = new WorkspacePanel.SingleFragment(fragment);
+            var actions = scenario.getActions(chrome.getContextPanel());
+            for (var action : actions) {
+                menu.add(action);
+            }
+            if (fragments.indexOf(fragment) < fragments.size() - 1) {
+                menu.addSeparator();
+            }
+        }
+        
         try {
             chrome.themeManager.registerPopupMenu(menu);
         } catch (Exception ex) {
@@ -709,7 +730,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -718,7 +739,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -755,7 +776,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -764,7 +785,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -839,7 +860,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -849,7 +870,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(fragment);
+                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -921,7 +942,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
+                    JPopupMenu menu = buildChipContextMenu(chip, null);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -930,7 +951,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
+                    JPopupMenu menu = buildChipContextMenu(chip, null);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -957,7 +978,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
+                    JPopupMenu menu = buildChipContextMenu(chip, null);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -966,7 +987,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
+                    JPopupMenu menu = buildChipContextMenu(chip, null);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1041,7 +1062,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
+                    JPopupMenu menu = buildChipContextMenu(chip, null);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -1051,7 +1072,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
+                    JPopupMenu menu = buildChipContextMenu(chip, null);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -1072,31 +1093,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return chip;
     }
 
-    /**
-     * Builds a context menu for the combined chip, with options to remove individual summaries.
-     */
-    private JPopupMenu buildCombinedChipContextMenu(List<ContextFragment> summaryFragments) {
-        JPopupMenu menu = new JPopupMenu();
-
-        // Add individual removal options for each summary
-        for (var fragment : summaryFragments) {
-            var scenario = new WorkspacePanel.SingleFragment(fragment);
-            var actions = scenario.getActions(chrome.getContextPanel());
-            for (var action : actions) {
-                menu.add(action);
-            }
-            if (summaryFragments.indexOf(fragment) < summaryFragments.size() - 1) {
-                menu.addSeparator();
-            }
-        }
-
-        try {
-            chrome.themeManager.registerPopupMenu(menu);
-        } catch (Exception ex) {
-            logger.debug("Failed to register combined summary popup menu with theme manager", ex);
-        }
-        return menu;
-    }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
