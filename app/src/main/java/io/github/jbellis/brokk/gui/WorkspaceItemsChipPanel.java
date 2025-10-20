@@ -681,15 +681,15 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
                 })
                 .toList();
-        
+
         if (files.isEmpty()) {
             return "Drop: no files";
         }
-        
+
         StringBuilder label = new StringBuilder("Drop: ");
         int charCount = 0;
         int filesAdded = 0;
-        
+
         for (String file : files) {
             if (filesAdded > 0) {
                 if (charCount + 2 + file.length() > 20) {
@@ -699,7 +699,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 label.append(", ");
                 charCount += 2;
             }
-            
+
             if (charCount + file.length() > 20) {
                 // Truncate this filename
                 int remaining = 20 - charCount;
@@ -710,17 +710,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 }
                 break;
             }
-            
+
             label.append(file);
             charCount += file.length();
             filesAdded++;
         }
-        
+
         // Add ellipsis if there are more files we didn't include
         if (filesAdded < files.size() && !label.toString().endsWith("...")) {
             label.append("...");
         }
-        
+
         return label.toString();
     }
 
@@ -731,10 +731,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         for (var action : actions) {
             menu.add(action);
         }
-        
+
         // Add separator
         menu.addSeparator();
-        
+
         // Add individual drop actions for each fragment
         for (var fragment : fragments) {
             String label = buildIndividualDropLabel(fragment);
@@ -742,7 +742,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             item.addActionListener(e -> executeCloseChip(fragment));
             menu.add(item);
         }
-        
+
         try {
             chrome.themeManager.registerPopupMenu(menu);
         } catch (Exception ex) {
