@@ -141,17 +141,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Add individual chips for EDIT fragments
         for (var fragment : editFragments) {
-            add(createChip(fragment));
+            add(createChip(List.of(fragment)));
         }
 
         // Add a single combined chip for all SUMMARY fragments (if any exist)
         if (!summaryFragments.isEmpty()) {
-            add(createCombinedSummaryChip(summaryFragments));
+            add(createChip(summaryFragments));
         }
 
         // Add individual chips for OTHER fragments
         for (var fragment : otherFragments) {
-            add(createChip(fragment));
+            add(createChip(List.of(fragment)));
         }
 
         // Re-layout this panel
@@ -655,7 +655,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
     }
 
-    private Component createChip(ContextFragment fragment) {
+    private Component createChip(List<ContextFragment> fragments) {
+        // Handle combined summary chips (multiple fragments) vs. single fragments
+        if (fragments.size() > 1) {
+            return createCombinedChip(fragments);
+        }
+
+        // Single fragment chip
+        ContextFragment fragment = fragments.getFirst();
+        return createSingleChip(fragment);
+    }
+
+    private Component createSingleChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
@@ -859,11 +870,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     /**
-     * Creates a combined chip representing multiple SUMMARY fragments.
-     * Displays "Summaries (N)" where N is the count of summary fragments.
-     * Stores all summary fragments for retrieval by context menu and close handlers.
+     * Creates a combined chip representing multiple fragments.
+     * Displays "Summaries (N)" where N is the count of fragments.
+     * Stores all fragments in client properties for retrieval by context menu and close handlers.
      */
-    private Component createCombinedSummaryChip(List<ContextFragment> summaryFragments) {
+    private Component createCombinedChip(List<ContextFragment> summaryFragments) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
@@ -903,7 +914,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -912,7 +923,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -939,7 +950,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -948,7 +959,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -956,7 +967,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                executeCloseCombinedSummaryChip(summaryFragments);
+                executeCloseCombinedChip(summaryFragments);
             }
         });
 
@@ -1023,7 +1034,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -1033,7 +1044,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    JPopupMenu menu = buildCombinedChipContextMenu(summaryFragments);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -1046,7 +1057,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
-                    executeCloseCombinedSummaryChip(summaryFragments);
+                    executeCloseCombinedChip(summaryFragments);
                 }
             }
         });
@@ -1055,9 +1066,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     /**
-     * Builds a context menu for the combined summary chip, with options to remove individual summaries.
+     * Builds a context menu for the combined chip, with options to remove individual summaries.
      */
-    private JPopupMenu buildCombinedSummaryContextMenu(List<ContextFragment> summaryFragments) {
+    private JPopupMenu buildCombinedChipContextMenu(List<ContextFragment> summaryFragments) {
         JPopupMenu menu = new JPopupMenu();
 
         // Add individual removal options for each summary
@@ -1081,9 +1092,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     /**
-     * Executes removal of all summaries in the combined chip.
+     * Executes removal of all fragments in the combined chip.
      */
-    private void executeCloseCombinedSummaryChip(List<ContextFragment> summaryFragments) {
+    private void executeCloseCombinedChip(List<ContextFragment> summaryFragments) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
         if (!onLatest) {
