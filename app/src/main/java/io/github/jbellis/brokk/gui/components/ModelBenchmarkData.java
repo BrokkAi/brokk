@@ -38,95 +38,79 @@ public class ModelBenchmarkData {
     private static final Map<ModelKey, Map<TokenRange, Integer>> BENCHMARK_DATA = new HashMap<>();
 
     static {
-        Map<TokenRange, Integer> rangeData;
+        addModel("gemini-2.5-pro", Service.ReasoningLevel.DEFAULT, 50, 71, 93, 94, 50);
+        addModel("gemini-2.5-pro", Service.ReasoningLevel.HIGH, 63, 100, 83, 70, 54);
+        addModel("gemini-2.5-flash", Service.ReasoningLevel.DEFAULT, 39, 63, 90, 59, 17);
+        addModel("gemini-2.5-flash", Service.ReasoningLevel.HIGH, 43, null, 65, 64, 33);
+        addModel("gemini-2.5-flash", Service.ReasoningLevel.DISABLE, null, 51, 81, 61, 21);
+        addModel("gemini-2.0-flash", Service.ReasoningLevel.DEFAULT, null, 32, 21, 8, null);
+        
+        addModel("gpt-5", Service.ReasoningLevel.DEFAULT, 63, 82, 93, 71, 50);
+        addModel("gpt-5", Service.ReasoningLevel.HIGH, 39, 82, 90, 77, 48);
+        addModel("gpt-5-mini", Service.ReasoningLevel.DEFAULT, null, 82, 90, 88, 34);
+        addModel("gpt-5-mini", Service.ReasoningLevel.HIGH, 43, 82, 93, 88, 46);
+        addModel("gpt-5-nano", Service.ReasoningLevel.DEFAULT, null, 75, 70, 27, 33);
+        addModel("gpt-5-nano", Service.ReasoningLevel.HIGH, null, 50, 80, null, 33);
+        addModel("gpt-5-codex", Service.ReasoningLevel.DEFAULT, null, null, 53, 50, 33);
+        
+        addModel("claude-4-sonnet", Service.ReasoningLevel.MEDIUM, 63, 63, 85, 51, 63);
+        addModel("claude-4-sonnet", Service.ReasoningLevel.HIGH, 63, 63, 93, 53, 75);
+        addModel("claude-4-sonnet", Service.ReasoningLevel.DISABLE, null, 57, 100, null, 52);
+        addModel("claude-4.5-sonnet", Service.ReasoningLevel.MEDIUM, 63, 63, 85, 67, 67);
+        addModel("claude-4.1-opus", Service.ReasoningLevel.MEDIUM, 63, 63, 85, 60, 54);
+        addModel("claude-4.1-opus", Service.ReasoningLevel.HIGH, 63, 63, 93, 84, 69);
+        addModel("claude-4.1-opus", Service.ReasoningLevel.DISABLE, 63, 63, 93, 68, 54);
+        addModel("claude-4.5-haiku", Service.ReasoningLevel.MEDIUM, 100, null, 85, 72, 50);
+        
+        addModel("o3", Service.ReasoningLevel.DEFAULT, 43, 75, 85, 75, 34);
+        addModel("o3", Service.ReasoningLevel.HIGH, null, 75, 100, 63, 33);
+        addModel("o4-mini", Service.ReasoningLevel.DEFAULT, null, 100, 90, 44, 33);
+        addModel("o4-mini", Service.ReasoningLevel.HIGH, 43, null, 100, 61, 33);
+        
+        addModel("deepseek-v3.1", Service.ReasoningLevel.DEFAULT, null, 32, 75, 44, 14);
+        addModel("deepseek-v3.1", Service.ReasoningLevel.DEFAULT, null, 32, 73, 26, 17);
+        addModel("deepseek-v3.2", Service.ReasoningLevel.DEFAULT, null, 57, 75, 70, 21);
+        addModel("deepseek-v3.2", Service.ReasoningLevel.DEFAULT, null, 57, 80, 76, 17);
+        addModel("deepseek-r1", Service.ReasoningLevel.DEFAULT, null, 63, 60, 17, null);
+        addModel("deepseek-v3", Service.ReasoningLevel.DEFAULT, null, null, 33, 17, null);
+        
+        addModel("glm-4.5", Service.ReasoningLevel.DEFAULT, 43, 82, 70, 52, null);
+        addModel("glm-4.5-air", Service.ReasoningLevel.DEFAULT, null, 57, 60, 31, 21);
+        addModel("glm-4.6", Service.ReasoningLevel.DEFAULT, 100, 82, 63, 72, 31);
+        
+        addModel("qwen-3-coder", Service.ReasoningLevel.DEFAULT, 30, 65, 73, 57, 32);
+        addModel("qwen-3-coder-30b", Service.ReasoningLevel.DEFAULT, null, 75, 69, 25, null);
+        addModel("qwen-3-coder-fp8", Service.ReasoningLevel.DEFAULT, null, 50, 53, 48, 21);
+        addModel("qwen-3-max", Service.ReasoningLevel.DEFAULT, null, 63, 74, 57, 21);
+        addModel("qwen-3-next", Service.ReasoningLevel.DEFAULT, null, null, 49, 33, null);
+        
+        addModel("grok-3", Service.ReasoningLevel.DEFAULT, null, 51, 73, 51, 17);
+        addModel("grok-3-mini", Service.ReasoningLevel.DEFAULT, null, 32, 39, 17, null);
+        addModel("grok-3-mini", Service.ReasoningLevel.HIGH, null, 32, 20, 17, null);
+        addModel("grok-4-fast", Service.ReasoningLevel.DEFAULT, 50, null, 73, 53, 33);
+        addModel("grok-code-fast-1", Service.ReasoningLevel.DEFAULT, null, null, 60, 33, 21);
+        
+        addModel("gpt-oss-120b", Service.ReasoningLevel.DEFAULT, null, 75, 63, 42, null);
+        addModel("gpt-oss-20b", Service.ReasoningLevel.DEFAULT, null, null, 48, null, null);
+        
+        addModel("kimi-k2", Service.ReasoningLevel.DEFAULT, null, null, 71, null, null);
+    }
 
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_32K_65K, 93);
-        rangeData.put(TokenRange.RANGE_65K_131K, 33);
-        BENCHMARK_DATA.put(new ModelKey("gemini-2.5-pro", Service.ReasoningLevel.DEFAULT), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_32K_65K, 81);
-        rangeData.put(TokenRange.RANGE_65K_131K, 25);
-        BENCHMARK_DATA.put(new ModelKey("gemini-2.5-pro", Service.ReasoningLevel.DISABLE), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        rangeData.put(TokenRange.RANGE_32K_65K, 84);
-        rangeData.put(TokenRange.RANGE_65K_131K, 25);
-        BENCHMARK_DATA.put(new ModelKey("gpt-5", Service.ReasoningLevel.DEFAULT), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        rangeData.put(TokenRange.RANGE_32K_65K, 68);
-        rangeData.put(TokenRange.RANGE_65K_131K, 0);
-        BENCHMARK_DATA.put(new ModelKey("gpt-5", Service.ReasoningLevel.DISABLE), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        rangeData.put(TokenRange.RANGE_32K_65K, 50);
-        rangeData.put(TokenRange.RANGE_65K_131K, 25);
-        BENCHMARK_DATA.put(new ModelKey("claude-4-sonnet", Service.ReasoningLevel.MEDIUM), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_32K_65K, 92);
-        rangeData.put(TokenRange.RANGE_65K_131K, 75);
-        BENCHMARK_DATA.put(new ModelKey("claude-4-sonnet", Service.ReasoningLevel.HIGH), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 100);
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        rangeData.put(TokenRange.RANGE_32K_65K, 87);
-        rangeData.put(TokenRange.RANGE_65K_131K, 33);
-        BENCHMARK_DATA.put(new ModelKey("claude-4-opus", Service.ReasoningLevel.MEDIUM), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 100);
-        rangeData.put(TokenRange.RANGE_16K_32K, 93);
-        rangeData.put(TokenRange.RANGE_32K_65K, 31);
-        rangeData.put(TokenRange.RANGE_65K_131K, 8);
-        BENCHMARK_DATA.put(new ModelKey("gemini-2.0-pro", Service.ReasoningLevel.DEFAULT), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 62);
-        rangeData.put(TokenRange.RANGE_16K_32K, 20);
-        rangeData.put(TokenRange.RANGE_32K_65K, 8);
-        BENCHMARK_DATA.put(new ModelKey("gemini-2.0-pro", Service.ReasoningLevel.DISABLE), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 100);
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        rangeData.put(TokenRange.RANGE_32K_65K, 62);
-        rangeData.put(TokenRange.RANGE_65K_131K, 25);
-        BENCHMARK_DATA.put(new ModelKey("gpt-4.1-turbo", Service.ReasoningLevel.DEFAULT), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 87);
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        rangeData.put(TokenRange.RANGE_32K_65K, 43);
-        rangeData.put(TokenRange.RANGE_65K_131K, 16);
-        BENCHMARK_DATA.put(new ModelKey("gpt-4.1-turbo", Service.ReasoningLevel.DISABLE), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 87);
-        rangeData.put(TokenRange.RANGE_16K_32K, 50);
-        rangeData.put(TokenRange.RANGE_32K_65K, 25);
-        BENCHMARK_DATA.put(new ModelKey("gemini-2.0-flash", Service.ReasoningLevel.DEFAULT), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_8K_16K, 87);
-        rangeData.put(TokenRange.RANGE_16K_32K, 80);
-        rangeData.put(TokenRange.RANGE_32K_65K, 18);
-        BENCHMARK_DATA.put(new ModelKey("claude-4-haiku", Service.ReasoningLevel.MEDIUM), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_4K_8K, 100);
-        rangeData.put(TokenRange.RANGE_8K_16K, 75);
-        BENCHMARK_DATA.put(new ModelKey("gpt-5-mini", Service.ReasoningLevel.DEFAULT), rangeData);
-
-        rangeData = new HashMap<>();
-        rangeData.put(TokenRange.RANGE_16K_32K, 100);
-        BENCHMARK_DATA.put(new ModelKey("mistral-large", Service.ReasoningLevel.DEFAULT), rangeData);
+    private static void addModel(String modelName, Service.ReasoningLevel reasoning, 
+                                  Integer rate4k8k, Integer rate8k16k, Integer rate16k32k, 
+                                  Integer rate32k65k, Integer rate65k131k) {
+        ModelKey key = new ModelKey(modelName, reasoning);
+        Map<TokenRange, Integer> rangeData = new HashMap<>();
+        
+        if (rate4k8k != null) rangeData.put(TokenRange.RANGE_4K_8K, rate4k8k);
+        if (rate8k16k != null) rangeData.put(TokenRange.RANGE_8K_16K, rate8k16k);
+        if (rate16k32k != null) rangeData.put(TokenRange.RANGE_16K_32K, rate16k32k);
+        if (rate32k65k != null) rangeData.put(TokenRange.RANGE_32K_65K, rate32k65k);
+        if (rate65k131k != null) rangeData.put(TokenRange.RANGE_65K_131K, rate65k131k);
+        
+        if (!rangeData.isEmpty()) {
+            BENCHMARK_DATA.put(key, rangeData);
+        }
     }
 
     public static int getSuccessRate(String modelName, Service.ReasoningLevel reasoningLevel, int tokenCount) {

@@ -108,6 +108,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
+        private TokenUsageBar.WarningLevel warningLevel = TokenUsageBar.WarningLevel.NONE;
 
         public ContextAreaContainer() {
             super(new BorderLayout());
@@ -118,6 +119,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 this.isDragOver = dragOver;
                 repaint();
             }
+        }
+
+        public void setWarningLevel(TokenUsageBar.WarningLevel level) {
+            if (this.warningLevel != level) {
+                this.warningLevel = level;
+                updateBorderColor();
+                repaint();
+            }
+        }
+
+        private void updateBorderColor() {
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (warningLevel == TokenUsageBar.WarningLevel.RED) {
+                borderColor = new Color(0xFF4444);
+            } else if (warningLevel == TokenUsageBar.WarningLevel.YELLOW) {
+                borderColor = new Color(0xFFA500);
+            }
+            
+            var lineBorder = BorderFactory.createLineBorder(borderColor);
+            var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+            var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+            setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         }
 
         @Override
@@ -745,6 +768,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
         titledContainer.setOpaque(true);
+        // Initialize border with default color (will be updated by setWarningLevel)
+        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
+        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+        titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
         titledContainer.setTransferHandler(transferHandler);
         var dropTargetListener = new DropTargetAdapter() {
@@ -796,10 +824,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         titledContainer.setDropTarget(
                 new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
-        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
-        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
-        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
-        titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         titledContainer.add(container, BorderLayout.CENTER);
 
         // Add mouse listener for right-click context menu in empty space
@@ -827,7 +851,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Insert beneath the command-input area (index 2)
         return titledContainer;
     }
 
@@ -1019,16 +1042,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     try {
                         if (stat == null) {
                             tokenUsageBar.setVisible(false);
+                            contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                             return;
                         }
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
-                        tokenUsageBar.setWarningLevel(stat.warningLevel, stat.config);
+                        contextAreaContainer.setWarningLevel(stat.warningLevel);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
                         tokenUsageBar.setVisible(false);
+                        contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                     }
                 }));
     }
