@@ -186,6 +186,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var toggleItem = new JMenuItem("Toggle Done");
         toggleItem.addActionListener(e -> toggleSelectedDone());
         popup.add(toggleItem);
+        var runItem = new JMenuItem("Run");
+        runItem.addActionListener(e -> {
+            int[] sel = list.getSelectedIndices();
+            if (sel.length > 0) {
+                runArchitectOnIndices(sel);
+            }
+        });
+        popup.add(runItem);
         var editItem = new JMenuItem("Edit");
         editItem.addActionListener(e -> editSelected());
         popup.add(editItem);
@@ -198,6 +206,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var copyItem = new JMenuItem("Copy");
         copyItem.addActionListener(e -> copySelectedTasks());
         popup.add(copyItem);
+        popup.add(new JSeparator());
         var deleteItem = new JMenuItem("Delete");
         deleteItem.addActionListener(e -> removeSelected());
         popup.add(deleteItem);
@@ -229,9 +238,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 toggleItem.setEnabled(!block);
                 editItem.setEnabled(!block);
                 boolean exactlyOne = sel.length == 1;
+                editItem.setEnabled(!block && exactlyOne);
                 splitItem.setEnabled(!block && exactlyOne && !queueActive);
                 combineItem.setEnabled(!block && sel.length >= 2);
                 deleteItem.setEnabled(!block);
+                runItem.setEnabled(!block && sel.length > 0);
                 popup.show(list, e.getX(), e.getY());
             }
 
