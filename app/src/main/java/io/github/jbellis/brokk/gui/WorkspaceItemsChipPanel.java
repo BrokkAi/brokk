@@ -635,6 +635,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void executeCloseChip(ContextFragment fragment) {
+        executeCloseChip(List.of(fragment));
+    }
+
+    private void executeCloseChip(List<ContextFragment> fragments) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
         if (!onLatest) {
@@ -645,13 +649,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Perform the removal via the ContextManager task queue to avoid
         // listener reentrancy and ensure proper processing of the drop.
         chrome.getContextManager().submitContextTask(() -> {
-            if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
-                // Centralized HISTORY-aware semantics
-                contextManager.dropWithHistorySemantics(List.of(fragment));
-            } else {
-                // Allow custom removal logic for non-history when provided
-                onRemoveFragment.accept(fragment);
+            // For single fragments with custom removal logic
+            if (fragments.size() == 1 && onRemoveFragment != null) {
+                ContextFragment fragment = fragments.getFirst();
+                if (fragment.getType() != ContextFragment.FragmentType.HISTORY) {
+                    onRemoveFragment.accept(fragment);
+                    return;
+                }
             }
+            // Centralized HISTORY-aware semantics for all other cases
+            contextManager.dropWithHistorySemantics(fragments);
         });
     }
 
@@ -967,7 +974,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                executeCloseCombinedChip(summaryFragments);
+                executeCloseChip(summaryFragments);
             }
         });
 
@@ -1057,7 +1064,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
-                    executeCloseCombinedChip(summaryFragments);
+                    executeCloseChip(summaryFragments);
                 }
             }
         });
@@ -1089,23 +1096,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             logger.debug("Failed to register combined summary popup menu with theme manager", ex);
         }
         return menu;
-    }
-
-    /**
-     * Executes removal of all fragments in the combined chip.
-     */
-    private void executeCloseCombinedChip(List<ContextFragment> summaryFragments) {
-        // Enforce latest-context gating (read-only when viewing historical context)
-        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-        if (!onLatest) {
-            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        // Perform the removal via the ContextManager task queue
-        chrome.getContextManager().submitContextTask(() -> {
-            contextManager.dropWithHistorySemantics(summaryFragments);
-        });
     }
 
     @Override
