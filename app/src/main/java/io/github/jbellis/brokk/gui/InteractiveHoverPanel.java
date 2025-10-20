@@ -84,20 +84,28 @@ public class InteractiveHoverPanel extends JPanel {
     private class HoverMouseListener extends MouseAdapter {
         @Override
         public void mouseMoved(MouseEvent e) {
-            // This is called for mouse motion over the panel, but not over children that consume the event
-            // (like TokenUsageBar). We use it to detect when the mouse is in an empty area over the
-            // chips panel and clear the hover state.
-            var p = SwingUtilities.convertPoint(InteractiveHoverPanel.this, e.getPoint(), chips);
-            if (chips.contains(p) && chips.getComponentAt(p) != chips) {
-                // Mouse is over a chip, its own listener will handle setting the hover.
-                return;
-            }
-
-            // If we're not over a chip, and not over the token bar (which would consume the event),
-            // we must be in an empty area.
-            if (!currentHover.isEmpty()) {
-                setHoverTarget(List.of());
-            }
+        // This listener is on InteractiveHoverPanel. We use it to clear the hover state
+        // when the mouse moves into an empty area of the panel, i.e., not over an
+        // interactive child component that manages its own hover state.
+        
+        // Check if mouse is over a chip. If so, let the chip's listener handle it.
+        var pChips = SwingUtilities.convertPoint(InteractiveHoverPanel.this, e.getPoint(), chips);
+        if (chips.contains(pChips) && chips.getComponentAt(pChips) != chips) {
+        return;
+        }
+        
+        // Check if mouse is over the token bar. If so, let its listener handle it.
+        // Note: This check might be redundant if TokenUsageBar consumes mouse motion events,
+        // preventing this listener from being called. It is included for robustness.
+        var pTokenBar = SwingUtilities.convertPoint(InteractiveHoverPanel.this, e.getPoint(), tokenBar);
+        if (tokenBar.contains(pTokenBar)) {
+        return;
+        }
+        
+        // If we reach here, the mouse is over an empty area. Clear any existing hover state.
+        if (!currentHover.isEmpty()) {
+        setHoverTarget(List.of());
+        }
         }
 
         @Override
