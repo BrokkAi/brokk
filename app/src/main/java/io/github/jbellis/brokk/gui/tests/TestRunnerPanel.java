@@ -144,7 +144,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         var leftToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         leftToolbar.setOpaque(false);
-        runAllButton.setIcon(Icons.FAST_FORWARD);
+        runAllButton.setIcon(Icons.PLAY);
         runAllButton.setMargin(new Insets(0, 0, 0, 0));
         runAllButton.setToolTipText(
                 "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
