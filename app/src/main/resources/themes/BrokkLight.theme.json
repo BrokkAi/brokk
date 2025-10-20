@@ -83,12 +83,12 @@
       "chip_summary_bg": "#E3F2FD",
       "chip_summary_fg": "#0D47A1",
       "chip_summary_border": "#90CAF9",
-      "chip_history_bg": "#F3E5F5",
-      "chip_history_fg": "#6A1B9A",
-      "chip_history_border": "#CE93D8",
-      "chip_other_bg": "#FFF3E0",
-      "chip_other_fg": "#E65100",
-      "chip_other_border": "#FFCC80"
+      "chip_history_bg": "#E8F5E9",
+      "chip_history_fg": "#1B5E20",
+      "chip_history_border": "#66BB6A",
+      "chip_other_bg": "#B3D9F2",
+      "chip_other_fg": "#004A99",
+      "chip_other_border": "#0078D4"
     }
   }
 }
