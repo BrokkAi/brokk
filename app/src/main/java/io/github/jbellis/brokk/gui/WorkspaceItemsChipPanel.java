@@ -126,7 +126,31 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         removeAll();
         chipById.clear();
 
+        // Group fragments by classification
+        var editFragments = new java.util.ArrayList<ContextFragment>();
+        var summaryFragments = new java.util.ArrayList<ContextFragment>();
+        var otherFragments = new java.util.ArrayList<ContextFragment>();
+
         for (var fragment : fragments) {
+            switch (classify(fragment)) {
+                case EDIT -> editFragments.add(fragment);
+                case SUMMARY -> summaryFragments.add(fragment);
+                case OTHER -> otherFragments.add(fragment);
+            }
+        }
+
+        // Add individual chips for EDIT fragments
+        for (var fragment : editFragments) {
+            add(createChip(fragment));
+        }
+
+        // Add a single combined chip for all SUMMARY fragments (if any exist)
+        if (!summaryFragments.isEmpty()) {
+            add(createCombinedSummaryChip(summaryFragments));
+        }
+
+        // Add individual chips for OTHER fragments
+        for (var fragment : otherFragments) {
             add(createChip(fragment));
         }
 
@@ -832,6 +856,245 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
 
         return chip;
+    }
+
+    /**
+     * Creates a combined chip representing multiple SUMMARY fragments.
+     * Displays "Summaries (N)" where N is the count of summary fragments.
+     * Stores all summary fragments for retrieval by context menu and close handlers.
+     */
+    private Component createCombinedSummaryChip(List<ContextFragment> summaryFragments) {
+        var chip = new RoundedChipPanel();
+        chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        chip.setOpaque(false);
+
+        String labelText = "Summaries (" + summaryFragments.size() + ")";
+        var label = new JLabel(labelText);
+
+        // Build a combined tooltip showing all summaries
+        StringBuilder tooltipBody = new StringBuilder();
+        tooltipBody.append("<div><b>Summary Fragments</b></div>");
+        tooltipBody.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+        tooltipBody.append("<ul style='margin:0;padding-left:16px'>");
+
+        for (var fragment : summaryFragments) {
+            var files = fragment.files().stream()
+                    .map(ProjectFile::toString)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            if (files.isEmpty()) {
+                tooltipBody.append("<li>")
+                        .append(StringEscapeUtils.escapeHtml4(fragment.description()))
+                        .append("</li>");
+            } else {
+                for (var f : files) {
+                    tooltipBody.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+                }
+            }
+        }
+
+        tooltipBody.append("</ul>");
+        tooltipBody.append("<br/><i>Right-click for individual removal options</i>");
+        label.setToolTipText(wrapTooltipHtml(tooltipBody.toString(), 420));
+        label.getAccessibleContext().setAccessibleDescription("Combined summaries for " + summaryFragments.size() + " items");
+
+        label.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+        });
+
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        var close = new MaterialButton("");
+        close.setFocusable(false);
+        close.setOpaque(false);
+        close.setContentAreaFilled(false);
+        close.setBorderPainted(false);
+        close.setFocusPainted(false);
+        close.setMargin(new Insets(0, 0, 0, 0));
+        close.setPreferredSize(new Dimension(14, 14));
+        close.setToolTipText("Remove all summaries");
+        try {
+            close.getAccessibleContext().setAccessibleName("Remove all summaries");
+        } catch (Exception ignored) {
+            // best-effort accessibility improvements
+        }
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                executeCloseCombinedSummaryChip(summaryFragments);
+            }
+        });
+
+        chip.add(label);
+
+        // Add a slim vertical divider between label and close button
+        var sep = new JPanel();
+        sep.putClientProperty("brokk.chip.separator", true);
+        sep.setOpaque(true);
+        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
+        sep.setMinimumSize(new Dimension(1, 10));
+        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
+        chip.add(sep);
+
+        chip.add(close);
+
+        chip.putClientProperty("brokk.chip.isCombinedSummary", true);
+        chip.putClientProperty("brokk.chip.summaryFragments", summaryFragments);
+        chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+
+        styleChip(chip, label, chrome.getTheme().isDarkTheme(), null);
+
+        // Hover handlers
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0) {
+                    if (onHover != null) {
+                        try {
+                            // For combined chips, fire hover for all contained fragments
+                            for (var fragment : summaryFragments) {
+                                onHover.accept(fragment, true);
+                            }
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
+                    if (onHover != null) {
+                        try {
+                            for (var fragment : summaryFragments) {
+                                onHover.accept(fragment, false);
+                            }
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+        };
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        close.addMouseListener(hoverAdapter);
+        sep.addMouseListener(hoverAdapter);
+
+        chip.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildCombinedSummaryContextMenu(summaryFragments);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                    return;
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.isConsumed()) return;
+                int clickX = e.getX();
+                int separatorEndX = sep.getX() + sep.getWidth();
+                if (clickX > separatorEndX) {
+                    executeCloseCombinedSummaryChip(summaryFragments);
+                }
+            }
+        });
+
+        return chip;
+    }
+
+    /**
+     * Builds a context menu for the combined summary chip, with options to remove individual summaries.
+     */
+    private JPopupMenu buildCombinedSummaryContextMenu(List<ContextFragment> summaryFragments) {
+        JPopupMenu menu = new JPopupMenu();
+
+        // Add individual removal options for each summary
+        for (var fragment : summaryFragments) {
+            var scenario = new WorkspacePanel.SingleFragment(fragment);
+            var actions = scenario.getActions(chrome.getContextPanel());
+            for (var action : actions) {
+                menu.add(action);
+            }
+            if (summaryFragments.indexOf(fragment) < summaryFragments.size() - 1) {
+                menu.addSeparator();
+            }
+        }
+
+        try {
+            chrome.themeManager.registerPopupMenu(menu);
+        } catch (Exception ex) {
+            logger.debug("Failed to register combined summary popup menu with theme manager", ex);
+        }
+        return menu;
+    }
+
+    /**
+     * Executes removal of all summaries in the combined chip.
+     */
+    private void executeCloseCombinedSummaryChip(List<ContextFragment> summaryFragments) {
+        // Enforce latest-context gating (read-only when viewing historical context)
+        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        if (!onLatest) {
+            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Perform the removal via the ContextManager task queue
+        chrome.getContextManager().submitContextTask(() -> {
+            contextManager.dropWithHistorySemantics(summaryFragments);
+        });
     }
 
     @Override
