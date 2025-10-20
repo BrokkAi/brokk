@@ -133,6 +133,10 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String lutzLitePrompt;
 
+    @CommandLine.Option(names = "--review", description = "Run a PR review for the given PR number or URL.")
+    @Nullable
+    private String reviewPrompt;
+
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
 
@@ -174,19 +178,19 @@ public final class BrokkCli implements Callable<Integer> {
     public Integer call() throws Exception {
         // --- Action Validation ---
         long actionCount = Stream.of(
-                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, lutzLitePrompt)
+                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, lutzLitePrompt, reviewPrompt)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --review, --merge, --build) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --review, --merge, --build) or --worktree is required.");
             return 1;
         }
 
@@ -198,6 +202,7 @@ public final class BrokkCli implements Callable<Integer> {
             searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
             lutzPrompt = maybeLoadFromFile(lutzPrompt);
             lutzLitePrompt = maybeLoadFromFile(lutzLitePrompt);
+            reviewPrompt = maybeLoadFromFile(reviewPrompt);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -271,7 +276,7 @@ public final class BrokkCli implements Callable<Integer> {
                 || deepScan
                 || merge;
         boolean needsCodeModel =
-                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
+                codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || reviewPrompt != null || merge;
 
         if (needsPlanModel && planModelName == null) {
             System.err.println("Error: This action requires --planmodel to be specified.");
@@ -401,6 +406,8 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = codePrompt;
         } else if (askPrompt != null) {
             scopeInput = requireNonNull(askPrompt);
+        } else if (reviewPrompt != null) {
+            scopeInput = requireNonNull(reviewPrompt);
         } else if (merge) {
             scopeInput = "Merge";
         } else if (searchAnswerPrompt != null) {
