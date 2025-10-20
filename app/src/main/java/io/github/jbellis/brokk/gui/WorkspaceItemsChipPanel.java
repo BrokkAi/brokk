@@ -673,6 +673,57 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return menu;
     }
 
+    private String buildIndividualDropLabel(ContextFragment fragment) {
+        var files = fragment.files().stream()
+                .map(pf -> {
+                    String path = pf.toString();
+                    int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                    return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                })
+                .toList();
+        
+        if (files.isEmpty()) {
+            return "Drop: no files";
+        }
+        
+        StringBuilder label = new StringBuilder("Drop: ");
+        int charCount = 0;
+        int filesAdded = 0;
+        
+        for (String file : files) {
+            if (filesAdded > 0) {
+                if (charCount + 2 + file.length() > 20) {
+                    label.append("...");
+                    break;
+                }
+                label.append(", ");
+                charCount += 2;
+            }
+            
+            if (charCount + file.length() > 20) {
+                // Truncate this filename
+                int remaining = 20 - charCount;
+                if (remaining > 3) {
+                    label.append(file, 0, remaining - 3).append("...");
+                } else {
+                    label.append("...");
+                }
+                break;
+            }
+            
+            label.append(file);
+            charCount += file.length();
+            filesAdded++;
+        }
+        
+        // Add ellipsis if there are more files we didn't include
+        if (filesAdded < files.size() && !label.toString().endsWith("...")) {
+            label.append("...");
+        }
+        
+        return label.toString();
+    }
+
     private JPopupMenu buildSyntheticChipContextMenu(List<ContextFragment> fragments) {
         JPopupMenu menu = new JPopupMenu();
         var scenario = new WorkspacePanel.MultiFragment(fragments);
@@ -680,6 +731,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         for (var action : actions) {
             menu.add(action);
         }
+        
+        // Add separator
+        menu.addSeparator();
+        
+        // Add individual drop actions for each fragment
+        for (var fragment : fragments) {
+            String label = buildIndividualDropLabel(fragment);
+            JMenuItem item = new JMenuItem(label);
+            item.addActionListener(e -> executeCloseChip(fragment));
+            menu.add(item);
+        }
+        
         try {
             chrome.themeManager.registerPopupMenu(menu);
         } catch (Exception ex) {
