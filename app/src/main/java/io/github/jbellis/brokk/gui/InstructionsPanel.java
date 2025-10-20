@@ -132,7 +132,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintChildren(Graphics g) {
-            super.paintChildren(g);
+            if (!isDragOver) {
+                super.paintChildren(g);
+            }
+
             if (isDragOver) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
@@ -181,12 +184,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return new Dimension(Integer.MAX_VALUE, pref.height);
         }
 
-        @Override
-        public boolean contains(int x, int y) {
-            // Treat the entire rectangular bounds of the component as the hit area for mouse events,
-            // which is important for drag-and-drop on a non-opaque component.
-            return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
-        }
     }
 
     /** Pick a readable text color (white or dark) against the given background color. */
@@ -801,7 +798,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
         var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
         var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
-        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+        var marginBorder = BorderFactory.createEmptyBorder(8, 8, 8, 8);
         titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         titledContainer.add(hoverPanel, BorderLayout.CENTER);
 
