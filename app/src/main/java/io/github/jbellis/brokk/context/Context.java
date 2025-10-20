@@ -228,7 +228,7 @@ public class Context {
 
         List<String> targetFqns = new ArrayList<>();
         for (var sourceFile : relevantFiles) {
-            targetFqns.addAll(analyzer.topLevelCodeUnitsOf(sourceFile).stream()
+            targetFqns.addAll(analyzer.getTopLevelDeclarations(sourceFile).stream()
                     .map(CodeUnit::fqName)
                     .toList());
             if (targetFqns.size() >= topK) break;

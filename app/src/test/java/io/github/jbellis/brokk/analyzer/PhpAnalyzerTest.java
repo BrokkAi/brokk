@@ -53,7 +53,7 @@ public class PhpAnalyzerTest {
     @Test
     void testGetDeclarationsInFile_Foo() {
         ProjectFile fooFile = new ProjectFile(testProject.getRoot(), "Foo.php");
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(fooFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(fooFile);
 
         Set<String> expectedFqNames = Set.of(
                 "My.Lib.Foo",
@@ -76,7 +76,7 @@ public class PhpAnalyzerTest {
     @Test
     void testGetDeclarationsInFile_NoNamespace() {
         ProjectFile noNsFile = new ProjectFile(testProject.getRoot(), "NoNamespace.php");
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(noNsFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(noNsFile);
         Set<String> expectedFqNames = Set.of(
                 "NoNsClass",
                 "NoNsClass.property", // Expecting no $ here after SCM fix

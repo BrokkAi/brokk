@@ -49,9 +49,9 @@ public class MultiAnalyzerTest {
     }
 
     @Test
-    public void testTopLevelCodeUnitsOfJavaFile() {
+    public void testGetTopLevelDeclarationsJavaFile() {
         var javaFile = new ProjectFile(tempDir, "TestClass.java");
-        var topLevelUnits = multiAnalyzer.topLevelCodeUnitsOf(javaFile);
+        var topLevelUnits = multiAnalyzer.getTopLevelDeclarations(javaFile);
 
         assertEquals(1, topLevelUnits.size(), "Should return one top-level class");
         assertEquals("TestClass", topLevelUnits.get(0).fqName());
@@ -59,17 +59,17 @@ public class MultiAnalyzerTest {
     }
 
     @Test
-    public void testTopLevelCodeUnitsOfUnsupportedLanguageReturnsEmpty() {
+    public void testGetTopLevelDeclarationsUnsupportedLanguageReturnsEmpty() {
         var pythonFile = new ProjectFile(tempDir, "test.py");
-        var topLevelUnits = multiAnalyzer.topLevelCodeUnitsOf(pythonFile);
+        var topLevelUnits = multiAnalyzer.getTopLevelDeclarations(pythonFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for unsupported language");
     }
 
     @Test
-    public void testTopLevelCodeUnitsOfNonExistentFile() {
+    public void testGetTopLevelDeclarationsNonExistentFile() {
         var nonExistentFile = new ProjectFile(tempDir, "NonExistent.java");
-        var topLevelUnits = multiAnalyzer.topLevelCodeUnitsOf(nonExistentFile);
+        var topLevelUnits = multiAnalyzer.getTopLevelDeclarations(nonExistentFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
     }

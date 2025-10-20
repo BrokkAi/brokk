@@ -198,7 +198,7 @@ public class BranchSelectorButton extends SplitButton {
                     try {
                         IGitRepo r = project.getRepo();
                         String branch = r.getCurrentBranch();
-                        if (branch == null || branch.isBlank()) {
+                        if (branch.isBlank()) {
                             chrome.toolError("Cannot create PR: No branch is currently selected.");
                             return;
                         }

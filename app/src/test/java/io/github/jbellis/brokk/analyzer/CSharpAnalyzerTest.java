@@ -29,7 +29,7 @@ public final class CSharpAnalyzerTest {
         ProjectFile fileA = new ProjectFile(project.getRoot(), "A.cs");
         var classA_CU = CodeUnit.cls(fileA, "TestNamespace", "A");
 
-        assertTrue(analyzer.getDeclarationsInFile(fileA).contains(classA_CU), "File A.cs should contain class A.");
+        assertTrue(analyzer.getDeclarations(fileA).contains(classA_CU), "File A.cs should contain class A.");
 
         var skelA = analyzer.getSkeletons(fileA);
         assertFalse(skelA.isEmpty(), "Skeletons map for file A.cs should not be empty.");
@@ -67,7 +67,7 @@ public final class CSharpAnalyzerTest {
                         || cu.identifier().startsWith("annotation"));
         assertFalse(hasAnnotationSignature, "No signatures from 'annotation' captures expected.");
 
-        Set<CodeUnit> declarationsInA_Cs = analyzer.getDeclarationsInFile(fileA);
+        Set<CodeUnit> declarationsInA_Cs = analyzer.getDeclarations(fileA);
         assertTrue(
                 declarationsInA_Cs.contains(classA_CU),
                 "getDeclarationsInFile mismatch for file A.cs. Expected to contain " + classA_CU + ". Found: "
@@ -107,7 +107,7 @@ public final class CSharpAnalyzerTest {
         assertTrue(skelMixed.containsKey(nsInterface), "Skeletons should contain NS1.INamespacedInterface.");
         assertTrue(skelMixed.containsKey(topLevelStruct), "Skeletons should contain TopLevelStruct.");
 
-        Set<CodeUnit> actualDeclarationsMixed = analyzer.getDeclarationsInFile(mixedScopeFile);
+        Set<CodeUnit> actualDeclarationsMixed = analyzer.getDeclarations(mixedScopeFile);
         assertTrue(
                 actualDeclarationsMixed.contains(topLevelClass),
                 "MixedScope.cs declarations missing TopLevelClass. Found: " + actualDeclarationsMixed);
@@ -140,7 +140,7 @@ public final class CSharpAnalyzerTest {
         assertTrue(skelNested.containsKey(outerClass), "Skeletons should contain Outer.OuterClass.");
         assertTrue(skelNested.containsKey(anotherClass), "Skeletons should contain AnotherTopLevelNs.AnotherClass.");
 
-        Set<CodeUnit> actualDeclarationsNested = analyzer.getDeclarationsInFile(nestedNamespacesFile);
+        Set<CodeUnit> actualDeclarationsNested = analyzer.getDeclarations(nestedNamespacesFile);
         assertTrue(
                 actualDeclarationsNested.contains(myNestedClass),
                 "NestedNamespaces.cs declarations missing MyNestedClass. Found: " + actualDeclarationsNested);
@@ -244,7 +244,7 @@ public final class CSharpAnalyzerTest {
         var messageCU = CodeUnit.cls(file, "ConsumerCentricityPermission.Core.ISA", "Message");
 
         // Basic assertions: declarations must be found
-        Set<CodeUnit> declarationsInFile = analyzer.getDeclarationsInFile(file);
+        Set<CodeUnit> declarationsInFile = analyzer.getDeclarations(file);
         assertTrue(declarationsInFile.contains(ifaceCU), "Interface CU missing. Found: " + declarationsInFile);
         assertTrue(
                 declarationsInFile.contains(validateCU),
@@ -351,7 +351,7 @@ public final class CSharpAnalyzerTest {
         // Main assertions - these would fail if byte/char conversion is wrong
         // since we'd get "onsumerCentricity..." (missing first 'C') and
         // "etTerminationRecordByIdHandler" (missing first 'G')
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(bomFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(bomFile);
 
         assertTrue(
                 declarations.contains(handlerClass),

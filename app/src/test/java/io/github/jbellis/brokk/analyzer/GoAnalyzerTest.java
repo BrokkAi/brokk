@@ -142,7 +142,7 @@ public class GoAnalyzerTest {
 
     @Test
     void testGetDeclarationsInFile_FunctionsAndTypes() {
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(declarationsGoFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(declarationsGoFile);
         assertNotNull(declarations, "Declarations set should not be null.");
 
         // Check if the analyzer processed the file at all. If topLevelDeclarations doesn't contain the file,
@@ -509,7 +509,7 @@ public class GoAnalyzerTest {
 
         // Filter to ensure we only use CUs actually found by the analyzer in that file for the test input
         // This makes the test robust to an evolving analyzer that might not find all initially listed CUs
-        Set<CodeUnit> actualCUsInFile = analyzer.getDeclarationsInFile(declarationsGoFile);
+        Set<CodeUnit> actualCUsInFile = analyzer.getDeclarations(declarationsGoFile);
         Set<CodeUnit> inputCUsForTest =
                 sourceCodeUnits.stream().filter(actualCUsInFile::contains).collect(Collectors.toSet());
 

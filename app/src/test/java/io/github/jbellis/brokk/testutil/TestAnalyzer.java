@@ -74,7 +74,7 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
+    public Set<CodeUnit> getDeclarations(ProjectFile file) {
         return Set.of(); // Return empty set for test purposes
     }
 

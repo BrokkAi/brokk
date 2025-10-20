@@ -343,7 +343,7 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDeclarationsInFile(file);
+            return analyzer.getDeclarations(file);
         }
 
         @Override

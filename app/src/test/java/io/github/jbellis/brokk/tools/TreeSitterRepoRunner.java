@@ -352,7 +352,7 @@ public class TreeSitterRepoRunner {
             var declarations = files.stream()
                     .map(file -> {
                         // This triggers actual TreeSitter parsing for each file
-                        var fileDeclarations = analyzer.getDeclarationsInFile(file);
+                        var fileDeclarations = analyzer.getDeclarations(file);
 
                         // Show detailed symbol information if requested
                         if (showDetails) {

@@ -232,14 +232,11 @@ public class ContextAgent {
         }
 
         // Group by analyzed (summarizable via SkeletonProvider) vs un-analyzed (need full content)
-        var skpOpt = analyzer.as(SkeletonProvider.class);
-        Map<CodeUnit, String> allSummaries = skpOpt.map(skp -> candidates.parallelStream()
-                        .map(skp::getSkeletons)
-                        .map(Map::entrySet)
-                        .flatMap(Set::stream)
-                        .filter(e -> !e.getValue().isEmpty())
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1)))
-                .orElseGet(Map::of);
+        Map<CodeUnit, String> allSummaries = candidates.parallelStream()
+                .flatMap(c -> analyzer.getTopLevelDeclarations(c).stream())
+                .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getSubDeclarations(cu).stream()
+                        .map(CodeUnit::shortName)
+                        .collect(Collectors.joining(", "))));
         Set<ProjectFile> analyzedFileSet =
                 allSummaries.keySet().stream().map(CodeUnit::source).collect(Collectors.toSet());
         List<ProjectFile> analyzedFiles =
