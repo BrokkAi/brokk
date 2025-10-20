@@ -158,6 +158,29 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     @Override
     public String getToolTipText(MouseEvent event) {
+        if (warningLevel != WarningLevel.NONE && modelConfig != null) {
+            String modelName = modelConfig.name();
+            if (modelName.contains("-nothink")) {
+                modelName = modelName.replace("-nothink", "");
+            }
+            modelName = StringEscapeUtils.escapeHtml4(modelName);
+
+            int usedTokens = computeUsedTokens();
+            int successRate = ModelBenchmarkData.getSuccessRate(modelConfig, usedTokens);
+
+            String reason = warningLevel == WarningLevel.YELLOW
+                    ? "a lower success rate (&lt;50%)"
+                    : "a very low success rate (&lt;30%)";
+
+            return String.format(
+                    "<html><body style='width: 300px'>"
+                            + "<b>Warning: Potential performance issue</b><br/><br/>"
+                            + "The model <b>%s</b> might perform poorly at this token count due to %s.<br/><br/>"
+                            + "Observed success rate from benchmarks: <b>%d%%</b>"
+                            + "</body></html>",
+                    modelName, reason, successRate);
+        }
+
         try {
             int width = getWidth();
             // Ensure segments correspond to current size
@@ -213,7 +236,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (borderColor != null) {
                     g2d.setColor(borderColor);
                     g2d.setStroke(new BasicStroke(2.0f));
-                    g2d.drawRoundRect(1, 1, width - 3, height - 3, ARC, ARC);
+                    g2d.drawRoundRect(1, 1, width - 2, height - 2, ARC, ARC);
                 }
             }
 
