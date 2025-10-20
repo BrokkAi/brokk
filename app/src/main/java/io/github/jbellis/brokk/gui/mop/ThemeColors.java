@@ -130,11 +130,10 @@ public class ThemeColors {
      * Gets a color for the specified theme and key by reading from UIManager.
      * Thread-safe: UIManager.getColor is thread-safe after initialization.
      *
-     * @param isDarkTheme ignored - theme colors are automatically loaded by FlatLaf
      * @param key the color key (without "Brokk." prefix)
      * @return the Color for the specified key
      */
-    public static Color getColor(boolean isDarkTheme, String key) {
+    public static Color getColor(String key) {
         // Read from UIManager using Brokk namespace
         String uiKey = "Brokk." + key;
         Color color = UIManager.getColor(uiKey);
@@ -145,6 +144,18 @@ public class ThemeColors {
         }
 
         return color;
+    }
+
+    /**
+     * Gets a color for the specified theme and key by reading from UIManager.
+     * Thread-safe: UIManager.getColor is thread-safe after initialization.
+     *
+     * @param isDarkTheme ignored - theme colors are automatically loaded by FlatLaf
+     * @param key the color key (without "Brokk." prefix)
+     * @return the Color for the specified key
+     */
+    public static Color getColor(boolean isDarkTheme, String key) {
+        return getColor(key);
     }
 
     /**
