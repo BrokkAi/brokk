@@ -1267,22 +1267,22 @@ public class BlitzForgeDialog extends JDialog {
                 perFileModel,
                 () -> {
                     if (fRelatedKSupplier != null) {
-                        ContextFragment.SkeletonFragment acFragment;
                         try {
-                            acFragment = cm.liveContext().buildAutoContext(fRelatedKSupplier);
+                            var acList = cm.liveContext().buildAutoContext(fRelatedKSupplier);
+                            var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                            if (!acText.isBlank()) {
+                                return """
+                                <related_classes>
+                                The user requested to include the top %d related classes.
+
+                                %s
+                                </related_classes>
+                                """
+                                        .formatted(fRelatedKSupplier, acText);
+                            }
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             return "";
-                        }
-                        if (!acFragment.text().isBlank()) {
-                            return """
-                            <related_classes>
-                            The user requested to include the top %d related classes.
-
-                            %s
-                            </related_classes>
-                            """
-                                    .formatted(fRelatedKSupplier, acFragment.text());
                         }
                     }
                     return "";
@@ -1458,8 +1458,9 @@ public class BlitzForgeDialog extends JDialog {
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
                 }
                 if (fRelatedK != null) {
-                    var acFragment = cm.liveContext().buildAutoContext(fRelatedK);
-                    if (!acFragment.text().isBlank()) {
+                    var acList = cm.liveContext().buildAutoContext(fRelatedK);
+                    var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                    if (!acText.isBlank()) {
                         var msgText =
                                 """
                                 <related_classes>
@@ -1468,7 +1469,7 @@ public class BlitzForgeDialog extends JDialog {
                                 %s
                                 </related_classes>
                                 """
-                                        .formatted(fRelatedK, acFragment.text());
+                                        .formatted(fRelatedK, acText);
                         readOnlyMessages.add(new UserMessage(msgText));
                     }
                 }

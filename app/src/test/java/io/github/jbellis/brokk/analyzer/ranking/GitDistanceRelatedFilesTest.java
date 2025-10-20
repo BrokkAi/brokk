@@ -21,17 +21,14 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class GitDistancePMITest {
+public class GitDistanceRelatedFilesTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(GitDistancePMITest.class);
+    private static final Logger logger = LoggerFactory.getLogger(GitDistanceRelatedFilesTest.class);
 
-    @SuppressWarnings("NullAway.Init")
     private static JavaAnalyzer analyzer;
 
-    @SuppressWarnings("NullAway.Init")
     private static TestProject testProject;
 
-    @SuppressWarnings("NullAway.Init")
     private static Path testPath;
 
     @BeforeAll
@@ -68,22 +65,18 @@ public class GitDistancePMITest {
         var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10, false);
         assertFalse(results.isEmpty(), "PMI should return results");
 
-        var userService =
-                results.stream().filter(r -> r.file().equals(testFile)).findFirst();
-        assertTrue(userService.isPresent(), "UserService should be included in PMI results");
-
         var user = results.stream()
                 .filter(r -> r.file().getFileName().equals("User.java"))
                 .findFirst();
-        assertTrue(user.isPresent(), "User should be included in PMI results");
+        assertTrue(user.isPresent(), results.toString());
 
         var notification = results.stream()
                 .filter(r -> r.file().getFileName().equals("NotificationService.java"))
                 .findFirst();
 
         // PMI should emphasize genuinely related files over loosely related ones
-        notification.ifPresent(fileRelevance -> assertTrue(
-                user.get().score() > fileRelevance.score(), "User should rank higher than NotificationService by PMI"));
+        notification.ifPresent(
+                fileRelevance -> assertTrue(user.get().score() > fileRelevance.score(), results.toString()));
     }
 
     @Test

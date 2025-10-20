@@ -373,6 +373,10 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     meta.put("targetIdentifiers", String.join(";", skelf.getTargetIdentifiers()));
                     meta.put("summaryType", skelf.getSummaryType().name());
                 }
+                case SummaryFragment sf -> {
+                    meta.put("targetIdentifier", sf.getTargetIdentifier());
+                    meta.put("summaryType", sf.getSummaryType().name());
+                }
                 case UsageFragment uf -> meta.put("targetIdentifier", uf.targetIdentifier());
                 case CallGraphFragment cgf -> {
                     meta.put("methodName", cgf.getMethodName());
@@ -493,9 +497,28 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 if (targetIdentifiersStr == null || summaryTypeStr == null) {
                     throw new IllegalArgumentException("Missing metadata for SkeletonFragment");
                 }
+                // Log legacy usage; readers should adapt into SummaryFragment(s) at higher layers where needed.
+                logger.info(
+                        "Unfreezing legacy SkeletonFragment id={} (targets='{}', summaryType={}); "
+                                + "consider migrating to SummaryFragment(s) in producers.",
+                        id(),
+                        targetIdentifiersStr,
+                        summaryTypeStr);
+
                 var targetIdentifiers = Arrays.asList(targetIdentifiersStr.split(";"));
+                assert !targetIdentifiers.isEmpty() : "SkeletonFragment must have at least one target identifier";
+
                 var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
                 yield new ContextFragment.SkeletonFragment(cm, targetIdentifiers, summaryType);
+            }
+            case "io.github.jbellis.brokk.context.ContextFragment$SummaryFragment" -> {
+                var targetIdentifier = meta.get("targetIdentifier");
+                var summaryTypeStr = meta.get("summaryType");
+                if (targetIdentifier == null || summaryTypeStr == null) {
+                    throw new IllegalArgumentException("Missing metadata for SummaryFragment");
+                }
+                var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
+                yield new ContextFragment.SummaryFragment(cm, targetIdentifier, summaryType);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment" -> {
                 var targetIdentifier = meta.get("targetIdentifier");

@@ -231,7 +231,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         if (file != null) {
             fileDeclarations = cm.submitBackgroundTask("Fetch Declarations", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
-                return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
+                return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarations(file);
             });
             analyzerCapabilities = cm.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
@@ -629,7 +629,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             // Submit the task to fetch symbols in the background
             symbolsFuture = cm.submitBackgroundTask("Fetch File Symbols", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
-                return analyzer.getSymbols(analyzer.getDeclarationsInFile(file));
+                return analyzer.getSymbols(analyzer.getDeclarations(file));
             });
         }
 

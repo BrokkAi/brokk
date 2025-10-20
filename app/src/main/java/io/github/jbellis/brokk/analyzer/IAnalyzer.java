@@ -25,9 +25,14 @@ public interface IAnalyzer {
         return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
     }
 
-    default List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+    default List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         throw new UnsupportedOperationException();
     }
+
+    default List<CodeUnit> getSubDeclarations(CodeUnit cu) {
+        throw new UnsupportedOperationException();
+    }
+
     /** Returns the set of languages this analyzer understands. */
     default Set<Language> languages() {
         return Set.of();
@@ -79,8 +84,8 @@ public interface IAnalyzer {
         return new CodeBaseMetrics((int) codeUnits.count(), declarations.size());
     }
 
-    /** Gets top-level declarations in a given file. */
-    default Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
+    /** Gets all declarations in a given file. */
+    default Set<CodeUnit> getDeclarations(ProjectFile file) {
         throw new UnsupportedOperationException();
     }
 

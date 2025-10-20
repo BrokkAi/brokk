@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.git;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.nio.file.Path;
@@ -28,24 +26,138 @@ public final class GitDistance {
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
 
     /**
-     * Point-wise Mutual Information (PMI) distance.
+     * Given seed files and weights, return related files from the most recent COMMITS_TO_PROCESS commits ranked by:
+     *   score(y) = sum_over_seeds [ weight(seed) * P(y|seed) * idf(y) ]
      *
-     * <p>p(X,Y) = |C(X) ∩ C(Y)| / |Commits| p(X) = |C(X)| / |Commits| PMI = log2( p(X,Y) / (p(X)·p(Y)) )
+     * where:
+     *   - P(y|seed) ≈ (sum over baseline commits containing {seed & y} of 1/numFilesChanged(commit))
+     *                 / (number of baseline commits containing seed)
+     *   - idf(y) = log( N / count(y) ), N = number of baseline commits in window,
+     *              count(y) = number of baseline commits where y changed
      *
-     * @return a sorted list of files with relevance scores. If no seed weights are given,an empty result.
+     * Notes:
+     *   - 'reversed' flips sort order only.
      */
     public static List<IAnalyzer.FileRelevance> getRelatedFiles(
             GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws InterruptedException {
 
-        if (seedWeights.isEmpty()) {
-            return List.of();
-        }
+        if (seedWeights.isEmpty()) return List.of();
 
         try {
-            return computePmiScores(repo, seedWeights, k, reversed);
+            return computeConditionalScores(repo, seedWeights, k, reversed);
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static List<IAnalyzer.FileRelevance> computeConditionalScores(
+            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed)
+            throws GitAPIException, InterruptedException {
+
+        // Baseline universe: recent commits on the current branch
+        var baselineCommits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
+        final int N = baselineCommits.size();
+        if (N == 0) return List.of();
+
+        // Canonicalize paths within this baseline window
+        var canonicalizer = repo.buildCanonicalizer(baselineCommits);
+
+        // Unweighted doc frequency per file: in how many baseline commits did file appear?
+        var fileDocFreq = new ConcurrentHashMap<ProjectFile, Integer>();
+
+        // For conditional numerator: joint mass across (seed -> target),
+        // where each commit contributes 1/numFilesChanged to *every* pair in that commit that involves a seed.
+        var jointMass = new ConcurrentHashMap<FileEdge, Double>();
+
+        // For conditional denominator: how many baseline commits contain the seed (unweighted)
+        var seedCommitCount = new ConcurrentHashMap<ProjectFile, Integer>();
+
+        try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
+            pool.submit(() -> baselineCommits.parallelStream().forEach(commit -> {
+                        List<IGitRepo.ModifiedFile> changed;
+                        try {
+                            changed = repo.listFilesChangedInCommit(commit.id());
+                        } catch (GitAPIException e) {
+                            throw new RuntimeException("Error processing commit: " + commit.id(), e);
+                        }
+                        if (changed.isEmpty()) return;
+
+                        // Canonicalize "as-of-commit" paths to current names; drop non-existing
+                        var changedFiles = changed.stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .map(pf -> canonicalizer.canonicalize(commit.id(), pf))
+                                .distinct()
+                                .filter(ProjectFile::exists)
+                                .toList();
+
+                        if (changedFiles.isEmpty()) return;
+
+                        // Unweighted docfreq for IDF
+                        for (var f : changedFiles) {
+                            fileDocFreq.merge(f, 1, Integer::sum);
+                        }
+
+                        // Seeds present in this commit
+                        var seedsInCommit = changedFiles.stream()
+                                .filter(seedWeights::containsKey)
+                                .collect(Collectors.toSet());
+                        if (seedsInCommit.isEmpty()) return;
+
+                        // Denominator for P(y|seed): count baseline commits containing the seed (unweighted)
+                        for (var seed : seedsInCommit) {
+                            seedCommitCount.merge(seed, 1, Integer::sum);
+                        }
+
+                        // Size-aware contribution: each commit contributes 1/|Δ| to any (seed, target) it contains
+                        final double commitPairMass = 1.0 / changedFiles.size();
+
+                        for (var seed : seedsInCommit) {
+                            for (var target : changedFiles) {
+                                if (target.equals(seed)) continue;
+                                jointMass.merge(new FileEdge(seed, target), commitPairMass, Double::sum);
+                            }
+                        }
+                    }))
+                    .get();
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Error computing conditional scores in parallel", e);
+        }
+
+        if (jointMass.isEmpty()) return List.of();
+
+        // Aggregate: score(y) = sum_seeds weight(seed) * P(y|seed) * idf(y)
+        var scores = new HashMap<ProjectFile, Double>();
+        for (var entry : jointMass.entrySet()) {
+            var seed = entry.getKey().src();
+            var target = entry.getKey().dst();
+            double joint = entry.getValue();
+
+            int seedsDenom = seedCommitCount.getOrDefault(seed, 0);
+            if (seedsDenom == 0) continue;
+
+            // Conditional probability estimate with size-aware numerator and unweighted denominator
+            double p_y_given_seed = joint / seedsDenom;
+
+            // IDF using unweighted doc frequency (avoid divide-by-zero via guard)
+            int dfTarget = Math.max(1, fileDocFreq.getOrDefault(target, 0));
+            double idfTarget = Math.log1p((double) N / (double) dfTarget);
+
+            double wSeed = seedWeights.getOrDefault(seed, 0.0);
+            if (wSeed == 0.0) continue;
+
+            double contribution = wSeed * p_y_given_seed * idfTarget;
+            if (Double.isFinite(contribution) && contribution != 0.0) {
+                scores.merge(target, contribution, Double::sum);
+            }
+        }
+
+        // Build and sort results
+        return scores.entrySet().stream()
+                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
+                .sorted((a, b) ->
+                        reversed ? Double.compare(a.score(), b.score()) : Double.compare(b.score(), a.score()))
+                .limit(k)
+                .toList();
     }
 
     @VisibleForTesting
@@ -164,95 +276,6 @@ public final class GitDistance {
         return scores;
     }
 
-    /**
-     * Compute PMI scores using a rename canonicalizer that is *scoped to the PMI sample*.
-     * Each changed file in a sampled commit is canonicalized by walking forward through
-     * renames that occur after that commit, eliminating leakage from historical names and
-     * avoiding path-recycling ambiguity.
-     */
-    private static List<IAnalyzer.FileRelevance> computePmiScores(
-            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed)
-            throws GitAPIException, InterruptedException {
-
-        // The PMI sample: commits that touched the seed files
-        var commits = repo.getFileHistories(seedWeights.keySet(), COMMITS_TO_PROCESS);
-        var totalCommits = commits.size();
-        if (totalCommits == 0) return List.of();
-
-        // Build a canonicalizer exactly for this sample window
-        var canonicalizer = repo.buildCanonicalizer(commits);
-
-        var fileCounts = new ConcurrentHashMap<ProjectFile, Integer>();
-        var jointCounts = new ConcurrentHashMap<FileEdge, Integer>();
-
-        try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
-            pool.submit(() -> commits.parallelStream().forEach(commit -> {
-                        List<IGitRepo.ModifiedFile> changedModifiedFiles;
-                        try {
-                            changedModifiedFiles = repo.listFilesChangedInCommit(commit.id());
-                        } catch (GitAPIException e) {
-                            throw new RuntimeException("Error processing commit: " + commit.id(), e);
-                        }
-                        if (changedModifiedFiles.isEmpty()) return;
-
-                        // Canonicalize "as-of-commit" paths to current names by walking forward from this commit
-                        var changedFiles = changedModifiedFiles.stream()
-                                .map(IGitRepo.ModifiedFile::file)
-                                .map(pf -> canonicalizer.canonicalize(commit.id(), pf))
-                                .distinct()
-                                .filter(ProjectFile::exists)
-                                .toList();
-
-                        // individual counts
-                        for (var f : changedFiles) {
-                            fileCounts.merge(f, 1, Integer::sum);
-                        }
-
-                        // joint counts
-                        var seedsInCommit = changedFiles.stream()
-                                .filter(seedWeights::containsKey)
-                                .collect(Collectors.toSet());
-                        if (seedsInCommit.isEmpty()) return;
-
-                        for (var seed : seedsInCommit) {
-                            for (var cu : changedFiles) {
-                                jointCounts.merge(new FileEdge(seed, cu), 1, Integer::sum);
-                            }
-                        }
-                    }))
-                    .get();
-        } catch (ExecutionException e) {
-            throw new RuntimeException("Error computing PMI scores in parallel", e);
-        }
-
-        if (jointCounts.isEmpty()) return List.of();
-
-        var scores = new HashMap<ProjectFile, Double>();
-        for (var entry : jointCounts.entrySet()) {
-            var seed = entry.getKey().src();
-            var target = entry.getKey().dst();
-            var joint = entry.getValue();
-
-            final var countSeed = requireNonNull(fileCounts.get(seed));
-            final int countTarget = requireNonNull(fileCounts.get(target));
-            if (countSeed == 0 || countTarget == 0 || joint == 0) continue;
-
-            double pmi = Math.log((double) joint * totalCommits / ((double) countSeed * countTarget)) / Math.log(2);
-
-            double weight = seedWeights.getOrDefault(seed, 0.0);
-            if (weight == 0.0) continue;
-
-            scores.merge(target, weight * pmi, Double::sum);
-        }
-
-        return scores.entrySet().stream()
-                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) ->
-                        reversed ? Double.compare(a.score(), b.score()) : Double.compare(b.score(), a.score()))
-                .limit(k)
-                .toList();
-    }
-
     public static void main(String[] args) throws GitAPIException, InterruptedException {
         if (args.length < 1 || args[0].isBlank()) {
             System.err.println("Usage: GitDistance <path-to-git-repo>");
@@ -263,7 +286,13 @@ public final class GitDistance {
         logger.info("Analyzing most important files for repository: {}", repoPath);
 
         var repo = new GitRepo(repoPath);
-        var results = getMostImportantFilesScored(repo, 20);
-        results.forEach(fr -> System.out.printf("%s\t%.6f%n", fr.file().getFileName(), fr.score()));
+        var important = getMostImportantFilesScored(repo, 20);
+        for (IAnalyzer.FileRelevance fr : important) {
+            var related = getRelatedFiles(repo, Map.of(fr.file(), 1.0), 5, false);
+            System.out.printf("%s\t%.6f%n", fr.file().getFileName(), fr.score());
+            for (IAnalyzer.FileRelevance r : related) {
+                System.out.printf("\t%s\t%.6f%n", r.file().getFileName(), r.score());
+            }
+        }
     }
 }

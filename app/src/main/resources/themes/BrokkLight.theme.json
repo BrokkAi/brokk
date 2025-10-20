@@ -75,7 +75,20 @@
       "diff_deleted": "#FADCDC",
 
       "search_highlight": "#FFFF00",
-      "search_current": "#FFA500"
+      "search_current": "#FFA500",
+
+      "chip_edit_bg": "#A8D8F7",
+      "chip_edit_fg": "#003D99",
+      "chip_edit_border": "#0078D4",
+      "chip_summary_bg": "#E3F2FD",
+      "chip_summary_fg": "#0D47A1",
+      "chip_summary_border": "#90CAF9",
+      "chip_history_bg": "#E8F5E9",
+      "chip_history_fg": "#1B5E20",
+      "chip_history_border": "#66BB6A",
+      "chip_other_bg": "#D4E9F8",
+      "chip_other_fg": "#004A99",
+      "chip_other_border": "#0078D4"
     }
   }
 }

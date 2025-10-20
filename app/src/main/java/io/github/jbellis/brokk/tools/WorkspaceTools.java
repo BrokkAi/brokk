@@ -5,7 +5,6 @@ import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.ExceptionReporter;
-import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -39,58 +38,6 @@ public class WorkspaceTools {
     // Changed constructor parameter type to concrete ContextManager
     public WorkspaceTools(ContextManager contextManager) {
         this.contextManager = contextManager;
-    }
-
-    public static void addToWorkspace(
-            ContextManager contextManager, ContextAgent.RecommendationResult recommendationResult) {
-        logger.debug("Recommended context fits within final budget.");
-        List<ContextFragment> selected = recommendationResult.fragments();
-        // Group selected fragments by type
-        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
-
-        // Process ProjectPathFragments
-        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragment.ProjectPathFragment.class::cast)
-                .toList();
-        if (!pathFragments.isEmpty()) {
-            logger.debug(
-                    "Adding selected ProjectPathFragments: {}",
-                    pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
-            contextManager.addPathFragments(pathFragments);
-        }
-
-        // Process SkeletonFragments
-        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragment.SkeletonFragment.class::cast)
-                .toList();
-
-        if (!skeletonFragments.isEmpty()) {
-            // For CLASS_SKELETON, collect all target FQNs.
-            // For FILE_SKELETONS, collect all target file paths.
-            // Create one fragment per type.
-            List<String> classTargetFqns = skeletonFragments.stream()
-                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
-                    .distinct()
-                    .toList();
-
-            List<String> fileTargetPaths = skeletonFragments.stream()
-                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
-                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
-                    .distinct()
-                    .toList();
-
-            if (!classTargetFqns.isEmpty()) {
-                logger.debug("Adding combined SkeletonFragment for classes: {}", classTargetFqns);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(
-                        contextManager, classTargetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON));
-            }
-            if (!fileTargetPaths.isEmpty()) {
-                logger.debug("Adding combined SkeletonFragment for files: {}", fileTargetPaths);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(
-                        contextManager, fileTargetPaths, ContextFragment.SummaryType.FILE_SKELETONS));
-            }
-        }
     }
 
     @Tool(
@@ -413,11 +360,12 @@ public class WorkspaceTools {
             return "Cannot add summary: class names list resolved to empty";
         }
 
-        var fragment = new ContextFragment.SkeletonFragment(
-                contextManager,
-                distinctClassNames,
-                ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass contextManager
-        contextManager.addVirtualFragment(fragment);
+        // Produce one SummaryFragment per class
+        for (String name : distinctClassNames) {
+            var fragment = new ContextFragment.SummaryFragment(
+                    contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            contextManager.addVirtualFragment(fragment);
+        }
 
         return "Added dynamic class summaries for: [%s]".formatted(String.join(", ", distinctClassNames));
     }
@@ -451,9 +399,12 @@ public class WorkspaceTools {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
-        var fragment = new ContextFragment.SkeletonFragment(
-                contextManager, resolvedFilePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass contextManager
-        contextManager.addVirtualFragment(fragment);
+        // Produce one SummaryFragment per resolved path
+        for (String path : resolvedFilePaths) {
+            var fragment = new ContextFragment.SummaryFragment(
+                    contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS);
+            contextManager.addVirtualFragment(fragment);
+        }
 
         return "Added dynamic file summaries for: [%s]"
                 .formatted(String.join(", ", resolvedFilePaths.stream().sorted().toList()));

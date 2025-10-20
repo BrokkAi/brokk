@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -589,7 +590,8 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Add auto-context as a separate message/ack pair
-        var topClassesRaw = cm.liveContext().buildAutoContext(10).text();
+        var acList = cm.liveContext().buildAutoContext(10);
+        var topClassesRaw = ContextFragment.SummaryFragment.combinedText(acList);
         if (!topClassesRaw.isBlank()) {
             var topClassesText =
                     """
