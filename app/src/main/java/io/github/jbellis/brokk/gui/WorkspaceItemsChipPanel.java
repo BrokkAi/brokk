@@ -6,16 +6,14 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +28,7 @@ import javax.swing.border.MatteBorder;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -130,12 +129,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chipById.clear();
 
         // Partition into summaries vs others
-        var summaries = fragments.stream()
-            .filter(f -> classify(f) == ChipKind.SUMMARY)
-            .toList();
-        var others = fragments.stream()
-            .filter(f -> classify(f) != ChipKind.SUMMARY)
-            .toList();
+        var summaries =
+                fragments.stream().filter(f -> classify(f) == ChipKind.SUMMARY).toList();
+        var others =
+                fragments.stream().filter(f -> classify(f) != ChipKind.SUMMARY).toList();
 
         // Add individual chips for non-summaries
         for (var fragment : others) {
@@ -691,7 +688,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return menu;
     }
 
-
     private void executeCloseChip(ContextFragment fragment) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
@@ -967,21 +963,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                             .distinct()
                             .count();
                     String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-                    
+
                     // Concatenate all summary text like the copy operation does
                     StringBuilder combinedText = new StringBuilder();
                     for (var summary : summaries) {
                         combinedText.append(summary.text()).append("\n\n");
                     }
-                    
+
                     // Display in a regular PreviewTextPanel like other text content
                     var previewPanel = new PreviewTextPanel(
-                        chrome.getContextManager(),
-                        null,
-                        combinedText.toString(),
-                        SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                        chrome.getTheme(),
-                        null);
+                            chrome.getContextManager(),
+                            null,
+                            combinedText.toString(),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            chrome.getTheme(),
+                            null);
                     chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
                 }
             }
@@ -1024,8 +1020,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                boolean onLatest = Objects.equals(
-                        contextManager.selectedContext(), contextManager.topContext());
+                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
                 if (!onLatest) {
                     chrome.systemNotify(
                             "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
@@ -1115,8 +1110,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
-                    boolean onLatest = Objects.equals(
-                            contextManager.selectedContext(), contextManager.topContext());
+                    boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
                     if (!onLatest) {
                         chrome.systemNotify(
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
@@ -1134,21 +1128,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                                 .distinct()
                                 .count();
                         String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-                        
+
                         // Concatenate all summary text like the copy operation does
                         StringBuilder combinedText = new StringBuilder();
                         for (var summary : summaries) {
                             combinedText.append(summary.text()).append("\n\n");
                         }
-                        
+
                         // Display in a regular PreviewTextPanel like other text content
                         var previewPanel = new PreviewTextPanel(
-                            chrome.getContextManager(),
-                            null,
-                            combinedText.toString(),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                            chrome.getTheme(),
-                            null);
+                                chrome.getContextManager(),
+                                null,
+                                combinedText.toString(),
+                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                                chrome.getTheme(),
+                                null);
                         chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
                     }
                 }
