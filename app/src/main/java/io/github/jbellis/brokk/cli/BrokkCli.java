@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -694,6 +695,33 @@ public final class BrokkCli implements Callable<Integer> {
                 input,
                 context,
                 matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
+    }
+
+    @SuppressWarnings("UnusedMethod")
+    private Optional<Integer> parsePrNumber(String input) {
+        if (input == null || input.isBlank()) {
+            return Optional.empty();
+        }
+
+        var trimmed = input.trim();
+
+        try {
+            return Optional.of(Integer.parseInt(trimmed));
+        } catch (NumberFormatException e) {
+            // Not a plain number, try extracting from URL
+        }
+
+        var pattern = Pattern.compile("/pull/(\\d+)", Pattern.CASE_INSENSITIVE);
+        var matcher = pattern.matcher(trimmed);
+        if (matcher.find()) {
+            try {
+                return Optional.of(Integer.parseInt(matcher.group(1)));
+            } catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
+
+        return Optional.empty();
     }
 
     /*
