@@ -863,13 +863,13 @@ public final class GitUiUtil {
                 String prBaseFetchRef =
                         String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
 
-                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                if (!repo.ensureShaIsLocal(prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
                             "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Diff Error");
                     return null;
                 }
-                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                if (!repo.ensureShaIsLocal(prBaseSha, prBaseFetchRef, "origin")) {
                     logger.warn(
                             "PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.",
                             repo.shortHash(prBaseSha),
@@ -961,63 +961,6 @@ public final class GitUiUtil {
         });
     }
 
-    /** Helper method to check if a commit is locally available. */
-    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
-        ObjectId objectId = null;
-        try {
-            objectId = repo.resolveToCommit(sha);
-            // Try to parse the commit to ensure its data is present
-            try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
-                revWalk.parseCommit(objectId);
-                return true; // Resolvable and parsable
-            }
-        } catch (MissingObjectException e) {
-            logger.debug(
-                    "Commit object for SHA {} (resolved to {}) is missing locally.",
-                    repo.shortHash(sha),
-                    objectId.name());
-            return false;
-        } catch (Exception e) {
-            logger.debug("Cannot resolve or parse SHA {}: {}", repo.shortHash(sha), e.getMessage());
-            return false;
-        }
-    }
-
-    /** Helper method to ensure a SHA is available locally by fetching if needed. */
-    private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
-        if (isCommitLocallyAvailable(repo, sha)) {
-            return true;
-        }
-
-        // If not available or missing, try to fetch
-        logger.debug(
-                "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
-        try {
-            var fetchCommand = repo.getGit().fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
-            repo.applyGitHubAuthentication(fetchCommand, repo.remote().getUrl(remoteName));
-            fetchCommand.call();
-            // After fetch, verify again
-            if (isCommitLocallyAvailable(repo, sha)) {
-                logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
-                return true;
-            } else {
-                logger.warn(
-                        "Failed to make SHA {} fully available locally even after fetching {} from {}",
-                        repo.shortHash(sha),
-                        refSpec,
-                        remoteName);
-                return false;
-            }
-        } catch (Exception e) {
-            // Includes GitAPIException, IOException, etc.
-            logger.warn(
-                    "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
-                    repo.shortHash(sha),
-                    e.getMessage(),
-                    e);
-            return false;
-        }
-    }
 
     /**
      * Builds a concise commit label such as<br>

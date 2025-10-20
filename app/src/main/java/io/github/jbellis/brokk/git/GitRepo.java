@@ -32,6 +32,7 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
@@ -2080,6 +2081,74 @@ public class GitRepo implements Closeable, IGitRepo {
         var idB = resolveToCommit(revB);
         var mb = computeMergeBase(idA, idB);
         return mb == null ? null : mb.getName();
+    }
+
+    /**
+     * Checks if a commit's data is fully available and parsable in the local repository.
+     *
+     * @param sha The commit SHA to check.
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise.
+     */
+    public boolean isCommitLocallyAvailable(String sha) {
+        ObjectId objectId = null;
+        try {
+            objectId = resolveToCommit(sha);
+            try (var revWalk = new RevWalk(repository)) {
+                revWalk.parseCommit(objectId);
+                return true;
+            }
+        } catch (MissingObjectException e) {
+            logger.debug(
+                    "Commit object for SHA {} (resolved to {}) is missing locally.",
+                    shortHash(sha),
+                    objectId.name());
+            return false;
+        } catch (Exception e) {
+            logger.debug("Cannot resolve or parse SHA {}: {}", shortHash(sha), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Ensures a commit SHA is available locally and is fully parsable, fetching the specified refSpec from the remote
+     * if necessary.
+     *
+     * @param sha The commit SHA that must be present and parsable locally.
+     * @param refSpec The refSpec to fetch if the SHA is missing or not parsable (e.g.,
+     *     "+refs/pull/123/head:refs/remotes/origin/pr/123/head").
+     * @param remoteName Which remote to fetch from (e.g., "origin").
+     * @return true if the SHA is now locally available and parsable, false otherwise.
+     */
+    public boolean ensureShaIsLocal(String sha, String refSpec, String remoteName) {
+        if (isCommitLocallyAvailable(sha)) {
+            return true;
+        }
+
+        logger.debug("SHA {} not fully available locally - fetching {} from {}", shortHash(sha), refSpec, remoteName);
+        try {
+            var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
+            applyGitHubAuthentication(fetchCommand, remote().getUrl(remoteName));
+            fetchCommand.call();
+
+            if (isCommitLocallyAvailable(sha)) {
+                logger.debug("Successfully fetched and verified SHA {}", shortHash(sha));
+                return true;
+            } else {
+                logger.warn(
+                        "Failed to make SHA {} fully available locally even after fetching {} from {}",
+                        shortHash(sha),
+                        refSpec,
+                        remoteName);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.warn(
+                    "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
+                    shortHash(sha),
+                    e.getMessage(),
+                    e);
+            return false;
+        }
     }
 
     /** Returns true if the given commit is reachable from the specified base ref (e.g., "HEAD" or a branch name). */
