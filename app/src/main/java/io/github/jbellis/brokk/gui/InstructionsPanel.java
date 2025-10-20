@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.components.ModelBenchmarkData;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
@@ -976,8 +977,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getContextManager()
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
-                        return new TokenUsageBarComputation(
-                                buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0);
+                    return new TokenUsageBarComputation(
+                    buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0, TokenUsageBar.WarningLevel.NONE, config);
                     }
 
                     var fullText = new StringBuilder();
@@ -994,13 +995,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     int approxTokens = Messages.getApproximateTokens(fullText.toString());
                     int maxTokens = service.getMaxInputTokens(model);
                     if (maxTokens <= 0) {
-                        // Fallback to a generous default when service does not provide a limit
-                        maxTokens = 128_000;
+                    // Fallback to a generous default when service does not provide a limit
+                    maxTokens = 128_000;
                     }
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
                     String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
-                    return new TokenUsageBarComputation(tooltipHtml, maxTokens, approxTokens);
+                    
+                    int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
+                    TokenUsageBar.WarningLevel warningLevel;
+                    if (successRate < 30) {
+                    warningLevel = TokenUsageBar.WarningLevel.RED;
+                    } else if (successRate < 50) {
+                    warningLevel = TokenUsageBar.WarningLevel.YELLOW;
+                    } else {
+                    warningLevel = TokenUsageBar.WarningLevel.NONE;
+                    }
+                    
+                    return new TokenUsageBarComputation(tooltipHtml, maxTokens, approxTokens, warningLevel, config);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -1011,6 +1023,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+                        tokenUsageBar.setWarningLevel(stat.warningLevel, stat.config);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -1019,7 +1032,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
     }
 
-    private static record TokenUsageBarComputation(String toolTipHtml, int maxTokens, int approxTokens) {}
+    private static record TokenUsageBarComputation(String toolTipHtml, int maxTokens, int approxTokens, TokenUsageBar.WarningLevel warningLevel, Service.ModelConfig config) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
