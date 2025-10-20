@@ -6,10 +6,11 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
-import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -29,7 +30,6 @@ import javax.swing.border.MatteBorder;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -129,32 +129,22 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         removeAll();
         chipById.clear();
 
-        // Group fragments by classification
-        var editFragments = new java.util.ArrayList<ContextFragment>();
-        var summaryFragments = new java.util.ArrayList<ContextFragment>();
-        var otherFragments = new java.util.ArrayList<ContextFragment>();
+        // Partition into summaries vs others
+        var summaries = fragments.stream()
+            .filter(f -> classify(f) == ChipKind.SUMMARY)
+            .toList();
+        var others = fragments.stream()
+            .filter(f -> classify(f) != ChipKind.SUMMARY)
+            .toList();
 
-        for (var fragment : fragments) {
-            switch (classify(fragment)) {
-                case EDIT -> editFragments.add(fragment);
-                case SUMMARY -> summaryFragments.add(fragment);
-                case OTHER -> otherFragments.add(fragment);
-            }
+        // Add individual chips for non-summaries
+        for (var fragment : others) {
+            add(createChip(fragment));
         }
 
-        // Add individual chips for EDIT fragments
-        for (var fragment : editFragments) {
-            add(createChip(List.of(fragment)));
-        }
-
-        // Add a single combined chip for all SUMMARY fragments (if any exist)
-        if (!summaryFragments.isEmpty()) {
-            add(createChip(summaryFragments));
-        }
-
-        // Add individual chips for OTHER fragments
-        for (var fragment : otherFragments) {
-            add(createChip(List.of(fragment)));
+        // Add synthetic summary chip if we have summaries
+        if (!summaries.isEmpty()) {
+            add(createSyntheticSummaryChip(summaries));
         }
 
         // Re-layout this panel
@@ -396,6 +386,52 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return "";
     }
 
+    private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
+        var allFiles = summaries.stream()
+                .flatMap(f -> f.files().stream())
+                .map(ProjectFile::toString)
+                .distinct()
+                .sorted()
+                .toList();
+
+        StringBuilder body = new StringBuilder();
+
+        // Aggregate metrics (LOC + tokens) across all summaries
+        int totalLoc = 0;
+        int totalTokens = 0;
+        try {
+            for (var summary : summaries) {
+                String text = summary.text();
+                totalLoc += text.split("\\r?\\n", -1).length;
+                totalTokens += Messages.getApproximateTokens(text);
+            }
+            body.append("<div>")
+                    .append(formatCount(totalLoc))
+                    .append(" LOC \u2022 ~")
+                    .append(formatCount(totalTokens))
+                    .append(" tokens</div><br/>");
+        } catch (Exception e) {
+            logger.error(e);
+        }
+
+        // Header and divider
+        body.append("<div><b>Summaries</b></div>");
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+
+        if (allFiles.isEmpty()) {
+            body.append("Multiple summaries");
+        } else {
+            body.append("<ul style='margin:0;padding-left:16px'>");
+            for (var f : allFiles) {
+                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+            }
+            body.append("</ul>");
+        }
+
+        body.append("<br/><i>Click to preview all contents</i>");
+        return wrapTooltipHtml(body.toString(), 420);
+    }
+
     private static String buildSummaryTooltip(ContextFragment fragment) {
         var files = fragment.files().stream()
                 .map(ProjectFile::toString)
@@ -497,16 +533,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
-        ChipKind kind;
-        if (fragment == null) {
-            // For combined chips, check if it's a combined summary chip
-            if (Boolean.TRUE.equals(chip.getClientProperty("brokk.chip.isCombinedSummary"))) {
-                kind = ChipKind.SUMMARY;
-            } else {
-                kind = ChipKind.OTHER;
-            }
-        } else {
-            kind = classify(fragment);
+        ChipKind kind = (ChipKind) chip.getClientProperty("brokk.chip.kind");
+        if (kind == null) {
+            kind = fragment == null ? ChipKind.OTHER : classify(fragment);
         }
 
         Color bg;
@@ -632,34 +661,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
-    @SuppressWarnings("unchecked")
-    private JPopupMenu buildChipContextMenu(JPanel chip, ContextFragment singleFragment) {
+    private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
         JPopupMenu menu = new JPopupMenu();
-        
-        List<ContextFragment> fragments;
-        
-        // Check if this is a combined summary chip
-        if (Boolean.TRUE.equals(chip.getClientProperty("brokk.chip.isCombinedSummary"))) {
-            // Get the list of fragments from the chip
-            var obj = chip.getClientProperty("brokk.chip.summaryFragments");
-            fragments = (obj instanceof List<?> list) ? (List<ContextFragment>) list : List.of();
-        } else {
-            // Single fragment chip
-            fragments = singleFragment != null ? List.of(singleFragment) : List.of();
+        var scenario = new WorkspacePanel.SingleFragment(fragment);
+        var actions = scenario.getActions(chrome.getContextPanel());
+        for (var action : actions) {
+            menu.add(action);
         }
-        
-        // Build the menu with individual removal options for each fragment
-        for (var fragment : fragments) {
-            var scenario = new WorkspacePanel.SingleFragment(fragment);
-            var actions = scenario.getActions(chrome.getContextPanel());
-            for (var action : actions) {
-                menu.add(action);
-            }
-            if (fragments.indexOf(fragment) < fragments.size() - 1) {
-                menu.addSeparator();
-            }
-        }
-        
         try {
             chrome.themeManager.registerPopupMenu(menu);
         } catch (Exception ex) {
@@ -668,11 +676,23 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return menu;
     }
 
-    private void executeCloseChip(ContextFragment fragment) {
-        executeCloseChip(List.of(fragment));
+    private JPopupMenu buildSyntheticChipContextMenu(List<ContextFragment> fragments) {
+        JPopupMenu menu = new JPopupMenu();
+        var scenario = new WorkspacePanel.MultiFragment(fragments);
+        var actions = scenario.getActions(chrome.getContextPanel());
+        for (var action : actions) {
+            menu.add(action);
+        }
+        try {
+            chrome.themeManager.registerPopupMenu(menu);
+        } catch (Exception ex) {
+            logger.debug("Failed to register chip popup menu with theme manager", ex);
+        }
+        return menu;
     }
 
-    private void executeCloseChip(List<ContextFragment> fragments) {
+
+    private void executeCloseChip(ContextFragment fragment) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
         if (!onLatest) {
@@ -683,53 +703,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Perform the removal via the ContextManager task queue to avoid
         // listener reentrancy and ensure proper processing of the drop.
         chrome.getContextManager().submitContextTask(() -> {
-            // For single fragments with custom removal logic
-            if (fragments.size() == 1 && onRemoveFragment != null) {
-                ContextFragment fragment = fragments.getFirst();
-                if (fragment.getType() != ContextFragment.FragmentType.HISTORY) {
-                    onRemoveFragment.accept(fragment);
-                    return;
-                }
+            if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
+                // Centralized HISTORY-aware semantics
+                contextManager.dropWithHistorySemantics(List.of(fragment));
+            } else {
+                // Allow custom removal logic for non-history when provided
+                onRemoveFragment.accept(fragment);
             }
-            // Centralized HISTORY-aware semantics for all other cases
-            contextManager.dropWithHistorySemantics(fragments);
         });
     }
 
-    private void openCombinedSummaryPreview(List<ContextFragment> summaryFragments) {
-        try {
-            // Concatenate all summary texts together
-            String combinedText = summaryFragments.stream()
-                    .map(ContextFragment::text)
-                    .collect(java.util.stream.Collectors.joining("\n\n"));
-            
-            var previewPanel = new PreviewTextPanel(
-                    contextManager,
-                    null,
-                    combinedText,
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    chrome.getTheme(),
-                    null);
-            
-            chrome.showPreviewFrame(contextManager, "Preview: Summaries", previewPanel);
-        } catch (Exception ex) {
-            logger.error("Failed to open combined summary preview", ex);
-            chrome.toolError("Error opening preview: " + ex.getMessage());
-        }
-    }
-
-    private Component createChip(List<ContextFragment> fragments) {
-        // Handle combined summary chips (multiple fragments) vs. single fragments
-        if (fragments.size() > 1) {
-            return createCombinedChip(fragments);
-        }
-
-        // Single fragment chip
-        ContextFragment fragment = fragments.getFirst();
-        return createSingleChip(fragment);
-    }
-
-    private Component createSingleChip(ContextFragment fragment) {
+    private Component createChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
@@ -765,7 +749,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -774,7 +758,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -811,7 +795,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -820,7 +804,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -895,7 +879,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -905,7 +889,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, fragment);
+                    JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                     return;
@@ -932,58 +916,34 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return chip;
     }
 
-    /**
-     * Creates a combined chip representing multiple fragments.
-     * Displays "Summaries (N)" where N is the count of fragments.
-     * Stores all fragments in client properties for retrieval by context menu and close handlers.
-     */
-    private Component createCombinedChip(List<ContextFragment> summaryFragments) {
+    private Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Count total distinct files across all summary fragments
-        int totalFiles = (int) summaryFragments.stream()
+        // Label: aggregate count
+        int totalFiles = (int) summaries.stream()
                 .flatMap(f -> f.files().stream())
                 .map(ProjectFile::toString)
                 .distinct()
                 .count();
-        String labelText = "Summaries (" + (totalFiles > 0 ? totalFiles : summaryFragments.size()) + ")";
+        String labelText = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         var label = new JLabel(labelText);
 
-        // Build a combined tooltip showing all summaries
-        StringBuilder tooltipBody = new StringBuilder();
-        tooltipBody.append("<div><b>Summary Fragments</b></div>");
-        tooltipBody.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
-        tooltipBody.append("<ul style='margin:0;padding-left:16px'>");
-
-        for (var fragment : summaryFragments) {
-            var files = fragment.files().stream()
-                    .map(ProjectFile::toString)
-                    .distinct()
-                    .sorted()
-                    .toList();
-            if (files.isEmpty()) {
-                tooltipBody.append("<li>")
-                        .append(StringEscapeUtils.escapeHtml4(fragment.description()))
-                        .append("</li>");
-            } else {
-                for (var f : files) {
-                    tooltipBody.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
-                }
-            }
+        // Aggregated tooltip
+        try {
+            label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+        } catch (Exception ex) {
+            logger.debug("Failed to set synthetic chip tooltip", ex);
         }
 
-        tooltipBody.append("</ul>");
-        tooltipBody.append("<br/><i>Right-click for individual removal options</i>");
-        label.setToolTipText(wrapTooltipHtml(tooltipBody.toString(), 420));
-        label.getAccessibleContext().setAccessibleDescription("Combined summaries for " + summaryFragments.size() + " items");
-
+        // Click to preview all summaries
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, null);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -992,7 +952,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, null);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1001,10 +961,28 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    if (!summaryFragments.isEmpty()) {
-                        openCombinedSummaryPreview(summaryFragments);
+                    int totalFiles = (int) summaries.stream()
+                            .flatMap(f -> f.files().stream())
+                            .map(ProjectFile::toString)
+                            .distinct()
+                            .count();
+                    String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+                    
+                    // Concatenate all summary text like the copy operation does
+                    StringBuilder combinedText = new StringBuilder();
+                    for (var summary : summaries) {
+                        combinedText.append(summary.text()).append("\n\n");
                     }
-                    e.consume();
+                    
+                    // Display in a regular PreviewTextPanel like other text content
+                    var previewPanel = new PreviewTextPanel(
+                        chrome.getContextManager(),
+                        null,
+                        combinedText.toString(),
+                        SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                        chrome.getTheme(),
+                        null);
+                    chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
                 }
             }
         });
@@ -1019,17 +997,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         close.setFocusPainted(false);
         close.setMargin(new Insets(0, 0, 0, 0));
         close.setPreferredSize(new Dimension(14, 14));
-        close.setToolTipText("Remove all summaries");
+        close.setToolTipText("Remove all summaries from Workspace");
         try {
             close.getAccessibleContext().setAccessibleName("Remove all summaries");
-        } catch (Exception ignored) {
-            // best-effort accessibility improvements
+        } catch (Exception e) {
+            logger.error(e);
         }
         close.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, null);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1038,7 +1016,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, null);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1046,7 +1024,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                executeCloseChip(summaryFragments);
+                boolean onLatest = Objects.equals(
+                        contextManager.selectedContext(), contextManager.topContext());
+                if (!onLatest) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+
+                contextManager.submitContextTask(() -> {
+                    contextManager.dropWithHistorySemantics(summaries);
+                });
             }
         });
 
@@ -1063,25 +1051,20 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.add(close);
 
-        chip.putClientProperty("brokk.chip.isCombinedSummary", true);
-        chip.putClientProperty("brokk.chip.summaryFragments", summaryFragments);
         chip.putClientProperty("brokk.chip.closeButton", close);
         chip.putClientProperty("brokk.chip.label", label);
-
+        chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
         styleChip(chip, label, chrome.getTheme().isDarkTheme(), null);
 
-        // Hover handlers
+        // Hover handlers for the synthetic chip
         final int[] hoverCounter = {0};
         MouseAdapter hoverAdapter = new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
-                if (hoverCounter[0]++ == 0) {
-                    if (onHover != null) {
+                if (hoverCounter[0]++ == 0 && onHover != null) {
+                    for (var summary : summaries) {
                         try {
-                            // For combined chips, fire hover for all contained fragments
-                            for (var fragment : summaryFragments) {
-                                onHover.accept(fragment, true);
-                            }
+                            onHover.accept(summary, true);
                         } catch (Exception ex) {
                             logger.trace("onHover callback threw", ex);
                         }
@@ -1091,12 +1074,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseExited(MouseEvent e) {
-                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
-                    if (onHover != null) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
+                    for (var summary : summaries) {
                         try {
-                            for (var fragment : summaryFragments) {
-                                onHover.accept(fragment, false);
-                            }
+                            onHover.accept(summary, false);
                         } catch (Exception ex) {
                             logger.trace("onHover callback threw", ex);
                         }
@@ -1113,20 +1094,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, null);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
-                    return;
                 }
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    JPopupMenu menu = buildChipContextMenu(chip, null);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
-                    return;
                 }
             }
 
@@ -1136,13 +1115,41 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
-                    executeCloseChip(summaryFragments);
+                    boolean onLatest = Objects.equals(
+                            contextManager.selectedContext(), contextManager.topContext());
+                    if (!onLatest) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
+
+                    contextManager.submitContextTask(() -> {
+                        contextManager.dropWithHistorySemantics(summaries);
+                    });
                 } else {
-                    // Open preview on left-click anywhere on the chip (excluding close button)
                     if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                        if (!summaryFragments.isEmpty()) {
-                            openCombinedSummaryPreview(summaryFragments);
+                        int totalFiles = (int) summaries.stream()
+                                .flatMap(f -> f.files().stream())
+                                .map(ProjectFile::toString)
+                                .distinct()
+                                .count();
+                        String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+                        
+                        // Concatenate all summary text like the copy operation does
+                        StringBuilder combinedText = new StringBuilder();
+                        for (var summary : summaries) {
+                            combinedText.append(summary.text()).append("\n\n");
                         }
+                        
+                        // Display in a regular PreviewTextPanel like other text content
+                        var previewPanel = new PreviewTextPanel(
+                            chrome.getContextManager(),
+                            null,
+                            combinedText.toString(),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            chrome.getTheme(),
+                            null);
+                        chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
                     }
                 }
             }
@@ -1150,7 +1157,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         return chip;
     }
-
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
