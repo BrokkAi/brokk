@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -101,7 +102,7 @@ public class Completions {
         }
 
         boolean hasGlob = trimmed.indexOf('*') >= 0 || trimmed.indexOf('?') >= 0;
-        var sepChar = java.io.File.separatorChar;
+        var sepChar = File.separatorChar;
         var root = project.getRoot().toAbsolutePath().normalize();
 
         if (!hasGlob) {
@@ -144,7 +145,7 @@ public class Completions {
             } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
                 baseDir = Path.of(Character.toString(trimmed.charAt(0)) + ":\\");
             } else {
-                baseDir = Path.of(java.io.File.separator);
+                baseDir = Path.of(File.separator);
             }
         } else {
             var baseRel = basePrefix.replace('/', sepChar).replace('\\', sepChar);

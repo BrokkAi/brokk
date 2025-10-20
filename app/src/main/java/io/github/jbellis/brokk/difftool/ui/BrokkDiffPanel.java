@@ -28,6 +28,7 @@ import io.github.jbellis.brokk.util.ContentDiffUtils;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
+import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -35,6 +36,9 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -488,7 +492,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (!file.exists() || !file.isFile()) {
                 return "";
             }
-            return java.nio.file.Files.readString(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
         } else {
             throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
         }
@@ -611,7 +615,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         label.setFont(largerFont);
 
         // Add some padding
-        label.setBorder(javax.swing.BorderFactory.createEmptyBorder(50, 20, 50, 20));
+        label.setBorder(BorderFactory.createEmptyBorder(50, 20, 50, 20));
 
         return label;
     }
@@ -632,7 +636,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         label.setForeground(UIManager.getColor("Label.disabledForeground"));
 
         // Add some padding (same as loading label)
-        label.setBorder(javax.swing.BorderFactory.createEmptyBorder(50, 20, 50, 20));
+        label.setBorder(BorderFactory.createEmptyBorder(50, 20, 50, 20));
 
         // Set the actual error message as tooltip for full details
         label.setToolTipText(errorMessage);
@@ -775,10 +779,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 int dotIndex = detectedFilename.lastIndexOf('.');
                 if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
                     var extension = detectedFilename.substring(dotIndex + 1);
-                    syntaxStyle = io.github.jbellis.brokk.util.SyntaxDetector.fromExtension(extension);
+                    syntaxStyle = SyntaxDetector.fromExtension(extension);
                 } else {
                     // If no extension or malformed, SyntaxDetector might still identify some common filenames
-                    syntaxStyle = io.github.jbellis.brokk.util.SyntaxDetector.fromExtension(detectedFilename);
+                    syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
                 }
             }
 
@@ -2408,8 +2412,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     /**
      * Resolves file path from panel for blame, converting relative paths to absolute. Returns null if path unavailable.
      */
-    private @Nullable java.nio.file.Path resolveTargetPath(IDiffPanel panel) {
-        java.nio.file.Path targetPath = null;
+    private @Nullable Path resolveTargetPath(IDiffPanel panel) {
+        Path targetPath = null;
 
         try {
             if (panel instanceof BufferDiffPanel bp) {
@@ -2419,7 +2423,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     if (bd != null) {
                         String name = bd.getName();
                         if (!name.isBlank()) {
-                            targetPath = java.nio.file.Paths.get(name);
+                            targetPath = Paths.get(name);
                         } else {
                             logger.debug("Document has no name/path for blame");
                             return null;
@@ -2434,7 +2438,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         var doc = rightNode.getDocument();
                         String name = doc.getName();
                         if (!name.isBlank()) {
-                            targetPath = java.nio.file.Paths.get(name);
+                            targetPath = Paths.get(name);
                         } else {
                             logger.debug("Document has no name/path for blame");
                             return null;
@@ -2548,7 +2552,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             rightRevision = rightStringSource.revisionSha();
         }
 
-        final java.nio.file.Path finalTargetPath = targetPath;
+        final Path finalTargetPath = targetPath;
 
         // Request blame for right side (use revision if available, otherwise working tree)
         CompletableFuture<Map<Integer, BlameService.BlameInfo>> rightBlameFuture;
@@ -2588,7 +2592,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 blameErrorNotified = false;
             }
 
-            javax.swing.SwingUtilities.invokeLater(() -> {
+            SwingUtilities.invokeLater(() -> {
                 if (!rightMap.isEmpty() || !leftMap.isEmpty()) {
                     menuShowBlame.setText("Show Git Blame");
                 }
@@ -2619,7 +2623,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /** Clears cache and refreshes blame after file save. */
-    public void refreshBlameAfterSave(java.nio.file.Path filePath) {
+    public void refreshBlameAfterSave(Path filePath) {
         var service = blameService;
         if (service == null) {
             return;
@@ -2647,7 +2651,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void refreshBlamePanelAsync(BlameService service, FilePanel panel, java.nio.file.Path filePath) {
+    private void refreshBlamePanelAsync(BlameService service, FilePanel panel, Path filePath) {
         service.requestBlame(filePath).thenAccept(blameMap -> {
             SwingUtilities.invokeLater(() -> {
                 panel.getGutterComponent().setBlameLines(blameMap);

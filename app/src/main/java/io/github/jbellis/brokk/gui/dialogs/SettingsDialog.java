@@ -6,9 +6,12 @@ import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import javax.swing.*;
@@ -46,7 +49,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         cancelButton = new MaterialButton("Cancel");
         applyButton = new MaterialButton("Apply");
 
-        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
+        SwingUtil.applyPrimaryButtonStyle(okButton);
 
         // Global Settings Panel
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
@@ -89,10 +92,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         getRootPane()
                 .getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), "cancel");
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancel");
         getRootPane().getActionMap().put("cancel", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 cancelButton.doClick();
             }
         });
@@ -284,7 +287,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         contentPanel.add(tempProjectPanelForRetention, BorderLayout.CENTER);
 
         var okButtonDialog = new MaterialButton("OK");
-        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButtonDialog);
+        SwingUtil.applyPrimaryButtonStyle(okButtonDialog);
         var cancelButtonDialog = new MaterialButton("Cancel");
         var buttonPanelDialog = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanelDialog.add(okButtonDialog);

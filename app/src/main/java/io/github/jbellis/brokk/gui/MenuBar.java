@@ -14,9 +14,12 @@ import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.Desktop;
+import java.awt.desktop.PreferencesEvent;
 import java.awt.desktop.PreferencesHandler;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
@@ -90,7 +93,7 @@ public class MenuBar {
         // Also ensure Cmd+, opens Settings as a fallback by registering a key binding.
         boolean isMac = Environment.instance.isMacOs();
         // Accelerator uses current binding; action also available via Chrome root pane binding
-        settingsItem.setAccelerator(io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        settingsItem.setAccelerator(GlobalUiSettings.getKeybinding(
                 "global.openSettings",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx())));
@@ -430,8 +433,7 @@ public class MenuBar {
                     windowMenu.add(pullRequestsItem);
                 }
 
-                if (chrome.getProject().getIssuesProvider().type()
-                                != io.github.jbellis.brokk.issues.IssueProviderType.NONE
+                if (chrome.getProject().getIssuesProvider().type() != IssueProviderType.NONE
                         && chrome.getProject().hasGit()) {
                     var issuesItem = new JMenuItem("Issues");
                     issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
@@ -532,7 +534,7 @@ public class MenuBar {
 
         var joinDiscordItem = new JMenuItem("Join Discord");
         joinDiscordItem.addActionListener(e -> {
-            io.github.jbellis.brokk.util.Environment.openInBrowser("https://discord.gg/QjhQDK8kAj", chrome.getFrame());
+            Environment.openInBrowser("https://discord.gg/QjhQDK8kAj", chrome.getFrame());
         });
         helpMenu.add(joinDiscordItem);
 
@@ -572,7 +574,7 @@ public class MenuBar {
             if (Desktop.isDesktopSupported()) {
                 Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
                     @Override
-                    public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
+                    public void handlePreferences(PreferencesEvent e) {
                         SwingUtilities.invokeLater(() -> {
                             // Find the focused Chrome window, or fallback to any active window
                             var targetChrome = Brokk.getActiveWindow();

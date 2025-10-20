@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +27,7 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
     private final AtomicInteger llmLineCount = new AtomicInteger(0);
 
     private final Map<ProjectFile, String> failures = new ConcurrentHashMap<>();
-    private final Set<ProjectFile> changedFiles = java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Set<ProjectFile> changedFiles = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public BlitzForgeProgressHeadless(IConsoleIO io) {
         this.io = io;

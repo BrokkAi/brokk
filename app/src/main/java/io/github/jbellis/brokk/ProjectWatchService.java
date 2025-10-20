@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -180,12 +181,12 @@ public class ProjectWatchService implements IWatchService {
                         });
                 // Success: If the walk completes without exception, break the retry loop.
                 return;
-            } catch (IOException | java.io.UncheckedIOException e) {
+            } catch (IOException | UncheckedIOException e) {
                 // Determine the root cause, handling the case where the UncheckedIOException wraps another exception.
-                Throwable cause = (e instanceof java.io.UncheckedIOException uioe) ? uioe.getCause() : e;
+                Throwable cause = (e instanceof UncheckedIOException uioe) ? uioe.getCause() : e;
 
                 // Retry only if it's a NoSuchFileException and we have attempts left.
-                if (cause instanceof java.nio.file.NoSuchFileException && attempt < 3) {
+                if (cause instanceof NoSuchFileException && attempt < 3) {
                     logger.warn(
                             "Attempt {} failed to walk directory {} due to NoSuchFileException. Retrying in 10ms...",
                             attempt,
@@ -223,9 +224,9 @@ public class ProjectWatchService implements IWatchService {
                     }
                 });
                 return;
-            } catch (IOException | java.io.UncheckedIOException e) {
-                Throwable cause = (e instanceof java.io.UncheckedIOException uioe) ? uioe.getCause() : e;
-                if (cause instanceof java.nio.file.NoSuchFileException && attempt < 3) {
+            } catch (IOException | UncheckedIOException e) {
+                Throwable cause = (e instanceof UncheckedIOException uioe) ? uioe.getCause() : e;
+                if (cause instanceof NoSuchFileException && attempt < 3) {
                     logger.warn(
                             "Attempt {} failed to walk git metadata directory {} due to NoSuchFileException. Retrying in 10ms...",
                             attempt,

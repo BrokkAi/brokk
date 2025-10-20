@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo.Canonicalizer;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -28,12 +29,12 @@ public class GitCanonicalizerTest {
         var gitDir = tempDir.resolve(".git");
         if (Files.exists(gitDir)) {
             try (var walk = Files.walk(gitDir)) {
-                walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             }
         }
         if (Files.exists(tempDir)) {
             try (var walk = Files.walk(tempDir)) {
-                walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             }
         }
     }

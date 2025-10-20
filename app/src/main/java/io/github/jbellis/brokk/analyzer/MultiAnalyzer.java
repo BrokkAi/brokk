@@ -161,8 +161,7 @@ public class MultiAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        var lang = Languages.fromExtension(
-                com.google.common.io.Files.getFileExtension(file.absPath().toString()));
+        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate != null) {
             return delegate.getDeclarationsInFile(file);

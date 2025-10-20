@@ -13,7 +13,7 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class TestAnalyzer implements io.github.jbellis.brokk.analyzer.IAnalyzer, SkeletonProvider, LintingProvider {
+public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvider {
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());

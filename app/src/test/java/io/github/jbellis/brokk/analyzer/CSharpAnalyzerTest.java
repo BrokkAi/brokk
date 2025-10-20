@@ -9,11 +9,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 public final class CSharpAnalyzerTest {
-    private static final java.util.function.Function<String, String> normalizeSource =
+    private static final Function<String, String> normalizeSource =
             (String s) -> s.lines().map(String::strip).collect(Collectors.joining("\n"));
 
     @Test
@@ -53,7 +54,7 @@ public final class CSharpAnalyzerTest {
                   public A() { … }
                 }
                 """;
-        java.util.function.Function<String, String> normalize =
+        Function<String, String> normalize =
                 (String s) -> s.lines().map(String::strip).collect(Collectors.joining("\n"));
         assertEquals(
                 normalize.apply(expectedClassASkeleton), normalize.apply(classASkeleton), "Class A skeleton mismatch.");

@@ -8,6 +8,7 @@ import com.vladsch.flexmark.util.data.MutableDataSet;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Locale;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -36,7 +37,7 @@ public class HtmlToMarkdown {
 
     // Very simple check: if it has <html> or <body> or typical markup tags, assume HTML
     private static boolean looksLikeHtml(String input) {
-        String lower = input.toLowerCase(java.util.Locale.ROOT);
+        String lower = input.toLowerCase(Locale.ROOT);
         return lower.contains("<html")
                 || lower.contains("<body")
                 || lower.contains("<div")

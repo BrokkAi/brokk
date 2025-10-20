@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import javax.swing.*;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
@@ -86,9 +88,9 @@ public final class AutoScroller {
                 logger.trace("[AutoScroller] Mouse wheel event detected, autoFollow=false");
             });
             // Add mouse listener for thumb drag start
-            bar.addMouseListener(new java.awt.event.MouseAdapter() {
+            bar.addMouseListener(new MouseAdapter() {
                 @Override
-                public void mousePressed(java.awt.event.MouseEvent e) {
+                public void mousePressed(MouseEvent e) {
                     autoFollow = false;
                     logger.trace("[AutoScroller] Mouse drag on scrollbar detected, autoFollow=false");
                 }

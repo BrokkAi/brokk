@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui.unified;
 
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.ui.AbstractDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo;
@@ -12,6 +13,8 @@ import io.github.jbellis.brokk.difftool.ui.JMHighlighter;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import java.awt.BorderLayout;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -144,7 +147,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         scrollPane.setRowHeaderView(customLineNumberList);
 
         // Apply initial theme (same approach as FilePanel:177)
-        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(textArea));
     }
 
@@ -537,9 +540,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         // Add resize listener for proper text area and scroll pane layout updates
-        addComponentListener(new java.awt.event.ComponentAdapter() {
+        addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     // Force revalidation of scroll pane and text area
                     scrollPane.revalidate();
@@ -576,7 +579,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         // Apply theme to syntax highlighting
-        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {
             // Update syntax style first
             updateSyntaxStyle();
@@ -661,7 +664,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
      * Expose the underlying RSyntaxTextArea for external callers (BrokkDiffPanel needs to adjust its font). This is a
      * simple getter that returns the primary text area used by the unified diff view.
      */
-    public org.fife.ui.rsyntaxtextarea.RSyntaxTextArea getTextArea() {
+    public RSyntaxTextArea getTextArea() {
         return textArea;
     }
 

@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Base64;
+import java.util.Locale;
 import javax.imageio.ImageIO;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -71,7 +72,7 @@ public class ImageUtil {
             if (response.isSuccessful()) {
                 String contentType = response.header("Content-Type");
                 if (contentType != null) {
-                    String lowerContentType = contentType.toLowerCase(java.util.Locale.ROOT);
+                    String lowerContentType = contentType.toLowerCase(Locale.ROOT);
                     logger.debug("HEAD request to {} - Content-Type: {}", uri, contentType);
                     if (lowerContentType.startsWith("image/")
                             || lowerContentType.equals("application/octet-stream")
@@ -115,7 +116,7 @@ public class ImageUtil {
             if (response.isSuccessful()) { // isSuccessful covers 200-299
                 String contentType = response.header("Content-Type");
                 if (contentType != null) {
-                    String lowerContentType = contentType.toLowerCase(java.util.Locale.ROOT);
+                    String lowerContentType = contentType.toLowerCase(Locale.ROOT);
                     logger.debug("Range GET request to {} - Content-Type: {}", uri, contentType);
                     return lowerContentType.startsWith("image/")
                             || lowerContentType.equals("application/octet-stream")

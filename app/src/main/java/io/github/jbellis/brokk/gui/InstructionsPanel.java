@@ -28,8 +28,10 @@ import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -40,6 +42,9 @@ import java.awt.dnd.DropTargetDragEvent;
 import java.awt.dnd.DropTargetDropEvent;
 import java.awt.dnd.DropTargetEvent;
 import java.awt.event.ActionEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -54,6 +59,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -261,8 +267,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
-        KeyStroke toggleKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        KeyStroke toggleKs = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
         String tooltipText =
                 """
                 <html>
@@ -278,7 +283,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeModeLabel.setToolTipText(tooltipText);
         answerModeLabel.setToolTipText(tooltipText);
         // Keep tooltips visible longer (30 seconds) so users have time to read the HTML content.
-        javax.swing.ToolTipManager.sharedInstance().setDismissDelay(30_000);
+        ToolTipManager.sharedInstance().setDismissDelay(30_000);
         var switchIcon = new SwitchIcon();
         modeSwitch.setIcon(switchIcon);
         modeSwitch.setSelectedIcon(switchIcon);
@@ -294,8 +299,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setText("");
 
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
-        KeyStroke toggleSearchKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
+        KeyStroke toggleSearchKs = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
         searchProjectCheckBox = new JCheckBox("Search");
         searchProjectCheckBox.setFocusable(true);
@@ -306,7 +310,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "<li><b>unchecked:</b> Asks using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+        KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
                 toggleSearchKs,
                 "ToggleSearchFirst",
@@ -318,9 +322,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
 
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+        KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
+                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
                 "attachContext",
                 () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
 
@@ -377,7 +381,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton = new ThemeAwareRoundedButton(
                 () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
-        KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke submitKs = GlobalUiSettings.getKeybinding(
                 "instructions.submit",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -456,8 +460,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionCompletionProvider = new InstructionsCompletionProvider();
         instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
         instructionAutoCompletion.setAutoActivationEnabled(false);
-        instructionAutoCompletion.setTriggerKey(
-                KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        instructionAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
         instructionAutoCompletion.install(instructionsArea);
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
@@ -494,7 +497,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
         // otherwise, use the default JTextArea paste behaviour.
         var pasteKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_V, java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         area.getInputMap().put(pasteKeyStroke, "smartPaste");
         area.getActionMap().put("smartPaste", new AbstractAction() {
             @Override
@@ -530,7 +533,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -551,7 +554,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Override Shift+Tab key to shift focus backward
-        var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK);
         area.getInputMap().put(shiftTabKeyStroke, "transferFocusBackward");
         area.getActionMap().put("transferFocusBackward", new AbstractAction() {
             @Override
@@ -859,11 +862,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         boolean askMode = modeSwitch.isSelected();
 
         // Base and dimmed colors (theme-aware via UIManager)
-        java.awt.Color base = UIManager.getColor("Label.foreground");
+        Color base = UIManager.getColor("Label.foreground");
         if (base == null) base = codeModeLabel.getForeground();
 
         boolean isDark = UIManager.getBoolean("laf.dark");
-        java.awt.Color dim = isDark
+        Color dim = isDark
                 ? darkenColor(base, 0.6f) // darken for dark theme
                 : lightenColor(base, 0.4f); // lighten for light theme
 
@@ -881,7 +884,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    private static java.awt.Color lightenColor(java.awt.Color base, float amount) {
+    private static Color lightenColor(Color base, float amount) {
         amount = Math.max(0f, Math.min(1f, amount));
         int r = Math.round(base.getRed() + (255 - base.getRed()) * amount);
         int g = Math.round(base.getGreen() + (255 - base.getGreen()) * amount);
@@ -889,10 +892,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         r = Math.max(0, Math.min(255, r));
         g = Math.max(0, Math.min(255, g));
         b = Math.max(0, Math.min(255, b));
-        return new java.awt.Color(r, g, b);
+        return new Color(r, g, b);
     }
 
-    private static java.awt.Color darkenColor(java.awt.Color base, float factor) {
+    private static Color darkenColor(Color base, float factor) {
         factor = Math.max(0f, Math.min(1f, factor));
         int r = Math.round(base.getRed() * factor);
         int g = Math.round(base.getGreen() * factor);
@@ -900,7 +903,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         r = Math.max(0, Math.min(255, r));
         g = Math.max(0, Math.min(255, g));
         b = Math.max(0, Math.min(255, b));
-        return new java.awt.Color(r, g, b);
+        return new Color(r, g, b);
     }
 
     private JPanel buildModeIndicatorPanel() {
@@ -1166,7 +1169,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             int modifiers = ks.getModifiers();
             int keyCode = ks.getKeyCode();
-            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String modText = InputEvent.getModifiersExText(modifiers);
             String keyText = KeyEvent.getKeyText(keyCode);
             if (modText == null || modText.isBlank()) return keyText;
             return modText + "+" + keyText;
@@ -1185,14 +1188,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Visually highlight Code/Ask group when the switch gains focus
-        modeSwitch.addFocusListener(new java.awt.event.FocusAdapter() {
+        modeSwitch.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
+            public void focusGained(FocusEvent e) {
                 actionGroupPanel.setAccentColor(new Color(0x1F6FEB));
             }
 
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 // Restore mode accent
                 refreshModeIndicator();
             }
@@ -1266,14 +1269,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMargin(new Insets(4, 10, 4, 10));
 
         // Repaint when focus changes so focus border is visible
-        actionButton.addFocusListener(new java.awt.event.FocusAdapter() {
+        actionButton.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
+            public void focusGained(FocusEvent e) {
                 actionButton.repaint();
             }
 
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 actionButton.repaint();
             }
         });
@@ -1960,7 +1963,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             // Action button reflects current running state
-            KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
                     "instructions.submit",
                     KeyStroke.getKeyStroke(
                             KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -2459,7 +2462,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         private Component findComponentInHierarchy(
-                Container container, java.util.function.Predicate<Component> predicate, Component fallback) {
+                Container container, Predicate<Component> predicate, Component fallback) {
             for (Component comp : container.getComponents()) {
                 if (predicate.test(comp)) {
                     return comp;

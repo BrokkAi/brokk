@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -82,19 +84,19 @@ public class CommitDialog extends JDialog {
         setLocationRelativeTo(owner);
 
         // Enable commit button when text area is enabled and not empty (after LLM or manual input)
-        commitMessageArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 checkCommitButtonState();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 checkCommitButtonState();
             }
 
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 checkCommitButtonState();
             }
         });

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.util.Decompiler;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Stream;
+import java.util.zip.ZipFile;
+import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class JavaLanguage implements Language {
@@ -187,13 +190,13 @@ public class JavaLanguage implements Language {
             Chrome chrome, DependencyCandidate pkg, @Nullable DependenciesPanel.DependencyLifecycleListener lifecycle) {
         var depName = pkg.displayName();
         if (lifecycle != null) {
-            javax.swing.SwingUtilities.invokeLater(() -> lifecycle.dependencyImportStarted(depName));
+            SwingUtilities.invokeLater(() -> lifecycle.dependencyImportStarted(depName));
         }
-        io.github.jbellis.brokk.util.Decompiler.decompileJar(
+        Decompiler.decompileJar(
                 chrome,
                 pkg.sourcePath(),
                 chrome.getContextManager()::submitBackgroundTask,
-                () -> javax.swing.SwingUtilities.invokeLater(() -> {
+                () -> SwingUtilities.invokeLater(() -> {
                     if (lifecycle != null) lifecycle.dependencyImportFinished(depName);
                 }));
         return true;
@@ -207,7 +210,7 @@ public class JavaLanguage implements Language {
     }
 
     private long countJarFiles(Path jarPath) {
-        try (var zip = new java.util.zip.ZipFile(jarPath.toFile())) {
+        try (var zip = new ZipFile(jarPath.toFile())) {
             return zip.stream()
                     .filter(e -> !e.isDirectory())
                     .map(e -> e.getName().toLowerCase(Locale.ROOT))

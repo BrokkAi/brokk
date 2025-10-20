@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -180,8 +181,8 @@ class SerialByKeyExecutorTest {
         });
 
         // Verify future1 completed exceptionally
-        var ex = assertThrows(java.util.concurrent.ExecutionException.class, () -> future1.get(5, TimeUnit.SECONDS));
-        assertInstanceOf(java.lang.RuntimeException.class, ex.getCause());
+        var ex = assertThrows(ExecutionException.class, () -> future1.get(5, TimeUnit.SECONDS));
+        assertInstanceOf(RuntimeException.class, ex.getCause());
         assertEquals(testException, ex.getCause());
 
         // Wait for future2 and verify its result

@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Repository;
 
 /**
  * Helper class extracted from GitRepo to encapsulate worktree operations.
@@ -32,8 +33,8 @@ public class GitRepoWorktrees {
     private static final Logger logger = LogManager.getLogger(GitRepoWorktrees.class);
 
     private final GitRepo repo;
-    private final org.eclipse.jgit.lib.Repository repository;
-    private final java.nio.file.Path projectRoot;
+    private final Repository repository;
+    private final Path projectRoot;
 
     public GitRepoWorktrees(GitRepo repo) {
         this.repo = repo;

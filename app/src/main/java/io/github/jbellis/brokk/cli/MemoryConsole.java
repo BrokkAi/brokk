@@ -9,6 +9,7 @@ import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public abstract class MemoryConsole implements IConsoleIO {
@@ -35,7 +36,7 @@ public abstract class MemoryConsole implements IConsoleIO {
             case AiMessage am -> new AiMessage(newText, am.toolExecutionRequests());
             case UserMessage um -> UserMessage.from(newText);
             case CustomMessage cm -> {
-                var attributes = new java.util.HashMap<>(cm.attributes());
+                var attributes = new HashMap<>(cm.attributes());
                 attributes.put("text", newText);
                 yield new CustomMessage(attributes);
             }

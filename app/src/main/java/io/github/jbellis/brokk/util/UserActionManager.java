@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.IConsoleIO;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -33,7 +35,8 @@ public class UserActionManager {
 
     public UserActionManager(IConsoleIO io) {
         this.io = io;
-        this.userExecutor = createLoggingExecutor(Executors.newSingleThreadExecutor());
+        var threadFactory = ExecutorServiceUtil.createNamedThreadFactory("UserActionManager");
+        this.userExecutor = createLoggingExecutor(Executors.newSingleThreadExecutor(threadFactory));
     }
 
     public void setIo(IConsoleIO io) {
@@ -55,7 +58,7 @@ public class UserActionManager {
     public void cancelActiveAction() {
         var t = cancelableThread.get();
         if (t != null && t.isAlive()) {
-            logger.debug("Interrupting cancelable user action thread {}", t.getName());
+            logger.debug("Interrupting cancelable user action thread " + t.getName());
             t.interrupt();
         }
     }
@@ -138,8 +141,8 @@ public class UserActionManager {
     }
 
     private String getStackTraceAsString(Throwable throwable) {
-        var sw = new java.io.StringWriter();
-        var pw = new java.io.PrintWriter(sw);
+        var sw = new StringWriter();
+        var pw = new PrintWriter(sw);
         throwable.printStackTrace(pw);
         return sw.toString();
     }

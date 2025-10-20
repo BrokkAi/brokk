@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
@@ -66,7 +67,7 @@ class PythonAnalyzerUpdateTest {
 
         // delete file – symbols should disappear
         var pyFile = analyzer.getFileFor("mod.foo").orElseThrow();
-        java.nio.file.Files.deleteIfExists(pyFile.absPath());
+        Files.deleteIfExists(pyFile.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("mod.foo").isEmpty());
     }

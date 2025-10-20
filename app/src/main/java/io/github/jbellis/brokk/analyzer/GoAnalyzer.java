@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import java.util.Map;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -30,7 +31,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             "parameters", // parametersFieldName
             "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
             "type_parameters", // typeParametersFieldName (Go generics)
-            java.util.Map.of(
+            Map.of(
                     "function.definition", SkeletonType.FUNCTION_LIKE,
                     "type.definition", SkeletonType.CLASS_LIKE,
                     "variable.definition", SkeletonType.FIELD_LIKE,

@@ -60,7 +60,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
     }
 
     /**
-     * Registers an action with {@link io.github.jbellis.brokk.util.LowMemoryWatcher} and becomes the parent object
+     * Registers an action with {@link LowMemoryWatcher} and becomes the parent object
      * holding the strong reference to it in order for it not to be garbage collected.
      *
      * @param runnable the action to run on a low-memory event.

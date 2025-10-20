@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class ConflictAnnotatorTest {
@@ -117,7 +118,7 @@ class ConflictAnnotatorTest {
             var cf = new MergeAgent.FileConflict(ourFile, oursContent, theirFile, theirsContent, baseFile, baseContent);
 
             // Use a stateful annotator instance for this test invocation
-            var mc = new MergeAgent.MergeConflict(state, main2Sha, feature2Sha, base1Sha, java.util.Set.of(cf));
+            var mc = new MergeAgent.MergeConflict(state, main2Sha, feature2Sha, base1Sha, Set.of(cf));
             var annotator = new ConflictAnnotator(repo, mc);
 
             // Verify diff3-style annotate output and annotations
@@ -222,7 +223,7 @@ class ConflictAnnotatorTest {
                     ourFile, "Main modification", theirFile, "Feature modification", baseFile, "Original content");
 
             // Use a stateful annotator instance for this test invocation
-            var mc = new MergeAgent.MergeConflict(state, mainSha, featureSha, baseSha, java.util.Set.of(cf));
+            var mc = new MergeAgent.MergeConflict(state, mainSha, featureSha, baseSha, Set.of(cf));
             var annotator = new ConflictAnnotator(repo, mc);
 
             // Verify diff3-style annotate output and annotations
@@ -277,7 +278,7 @@ class ConflictAnnotatorTest {
                     ourFile, "Main modification", theirFile, "Feature modification", baseFile, "Original content");
 
             // Use a stateful annotator instance for this test invocation
-            var mc = new MergeAgent.MergeConflict(state, mainSha, featureSha, baseSha, java.util.Set.of(cf));
+            var mc = new MergeAgent.MergeConflict(state, mainSha, featureSha, baseSha, Set.of(cf));
             var annotator = new ConflictAnnotator(repo, mc);
 
             // Verify diff3-style annotate output and annotations
@@ -323,7 +324,7 @@ class ConflictAnnotatorTest {
             var cf = new MergeAgent.FileConflict(ourFile, "C", theirFile, "A", baseFile, "B");
 
             // Use a stateful annotator instance for this test invocation
-            var mc = new MergeAgent.MergeConflict(state, commitCSha, commitASha, commitBSha, java.util.Set.of(cf));
+            var mc = new MergeAgent.MergeConflict(state, commitCSha, commitASha, commitBSha, Set.of(cf));
             var annotator = new ConflictAnnotator(repo, mc);
 
             // Verify diff3-style annotate output and annotations
@@ -403,7 +404,7 @@ class ConflictAnnotatorTest {
 
             var cf = new MergeAgent.FileConflict(ourFile, oursContent, theirFile, theirsContent, baseFile, baseContent);
 
-            var mc = new MergeAgent.MergeConflict(state, oursSha, theirsSha, baseSha, java.util.Set.of(cf));
+            var mc = new MergeAgent.MergeConflict(state, oursSha, theirsSha, baseSha, Set.of(cf));
             var annotator = new ConflictAnnotator(repo, mc);
 
             var mergedPreview = annotator.annotate(cf);

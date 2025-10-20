@@ -12,6 +12,8 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ConflictInspectorTest {
@@ -25,14 +27,14 @@ class ConflictInspectorTest {
             String oursHeaderShort,
             String baseHeaderShort,
             String theirsHeaderShort,
-            java.util.List<AnnotatedLine> ours,
-            java.util.List<AnnotatedLine> base,
-            java.util.List<AnnotatedLine> theirs) {}
+            List<AnnotatedLine> ours,
+            List<AnnotatedLine> base,
+            List<AnnotatedLine> theirs) {}
 
     private static ParsedAnnotated parseAnnotated(String annotated) {
-        var ours = new java.util.ArrayList<AnnotatedLine>();
-        var base = new java.util.ArrayList<AnnotatedLine>();
-        var theirs = new java.util.ArrayList<AnnotatedLine>();
+        var ours = new ArrayList<AnnotatedLine>();
+        var base = new ArrayList<AnnotatedLine>();
+        var theirs = new ArrayList<AnnotatedLine>();
         String oursHeader = null, baseHeader = null, theirsHeader = null;
 
         enum Section {

@@ -9,6 +9,7 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Point;
 import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.event.AWTEventListener;
 import java.awt.event.MouseEvent;
 import java.util.Collection;
@@ -157,7 +158,7 @@ public class InteractiveHoverPanel extends JPanel {
         @Nullable
         private Component findComponentAt(Point screenLocation) {
             // To reliably find the component, we must check all visible windows of this application.
-            for (var window : java.awt.Window.getWindows()) {
+            for (var window : Window.getWindows()) {
                 if (window.isShowing() && window.getBounds().contains(screenLocation)) {
                     // Convert screen coordinates to window coordinates
                     Point windowLocation = new Point(screenLocation);

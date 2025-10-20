@@ -1,10 +1,13 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.util.Icons;
+import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Supplier;
@@ -160,11 +163,11 @@ public class SplitButton extends JComponent {
     }
 
     // Delegate action listeners to the left (main) button to preserve JButton-like API
-    public void addActionListener(java.awt.event.ActionListener l) {
+    public void addActionListener(ActionListener l) {
         actionButton.addActionListener(l);
     }
 
-    public void removeActionListener(java.awt.event.ActionListener l) {
+    public void removeActionListener(ActionListener l) {
         actionButton.removeActionListener(l);
     }
 
@@ -231,7 +234,7 @@ public class SplitButton extends JComponent {
         }
 
         @Override
-        public void paintIcon(java.awt.Component c, java.awt.Graphics g, int x, int y) {
+        public void paintIcon(Component c, Graphics g, int x, int y) {
             var g2 = (Graphics2D) g.create();
             try {
                 g2.translate(x, y);

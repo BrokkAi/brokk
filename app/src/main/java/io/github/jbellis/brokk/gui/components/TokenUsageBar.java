@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.WordUtils;
@@ -193,7 +194,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     public void setFragments(List<ContextFragment> fragments) {
         this.fragments = List.copyOf(fragments);
         // Invalidate token cache entries for removed ids to keep memory bounded
-        var validIds = this.fragments.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
+        var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
         repaint();
     }

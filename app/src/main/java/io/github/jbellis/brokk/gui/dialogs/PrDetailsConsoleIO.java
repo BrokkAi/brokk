@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IConsoleIO;
 import java.util.List;
 import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Custom IConsoleIO implementation for streaming PR generation with tool calling. Shows thinking/reasoning tokens while
@@ -14,7 +16,7 @@ public class PrDetailsConsoleIO implements IConsoleIO {
     private final JTextArea descriptionArea;
     private final IConsoleIO errorReporter;
 
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     private Timer thinkingAnimationTimer;
 
     private int dotCount = 0;
@@ -59,11 +61,7 @@ public class PrDetailsConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(
-            String token,
-            dev.langchain4j.data.message.ChatMessageType type,
-            boolean isNewMessage,
-            boolean isReasoning) {
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
 
         if (!isReasoning && lastWasReasoning && !hasStartedContent) {
             // Transition from reasoning to content: clear the reasoning tokens

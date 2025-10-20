@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.difftool.scroll;
 
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
+import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
@@ -277,7 +278,7 @@ public class ScrollSynchronizer {
      * Enhanced line mapping with O(log n) performance and improved accuracy. Delegates to LineMapper for all
      * algorithmic operations.
      */
-    private int approximateLineMapping(com.github.difflib.patch.Patch<String> patch, int line, boolean fromOriginal) {
+    private int approximateLineMapping(Patch<String> patch, int line, boolean fromOriginal) {
         return lineMapper.mapLine(patch, line, fromOriginal);
     }
 
@@ -594,7 +595,7 @@ public class ScrollSynchronizer {
      * Initialize the adaptive throttling strategy with file complexity metrics. This is called when a patch is first
      * encountered to set up optimal throttling.
      */
-    private void initializeAdaptiveStrategyIfNeeded(com.github.difflib.patch.Patch<String> patch) {
+    private void initializeAdaptiveStrategyIfNeeded(Patch<String> patch) {
         if (!PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
             return;
         }
@@ -641,7 +642,7 @@ public class ScrollSynchronizer {
      */
     public AutoCloseable programmaticSection() {
         setProgrammaticScrollMode(true);
-        return () -> javax.swing.SwingUtilities.invokeLater(() -> setProgrammaticScrollMode(false));
+        return () -> SwingUtilities.invokeLater(() -> setProgrammaticScrollMode(false));
     }
 
     /** Check if a programmatic scroll operation is currently in progress. */

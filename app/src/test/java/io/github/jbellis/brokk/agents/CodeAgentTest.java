@@ -344,7 +344,7 @@ class CodeAgentTest {
         contextManager.getProject().setBuildDetails(bd);
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
-        var attempt = new java.util.concurrent.atomic.AtomicInteger(0);
+        var attempt = new AtomicInteger(0);
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             int currentAttempt = attempt.getAndIncrement();
             // Log the attempt to help diagnose mock behavior using a more visible marker

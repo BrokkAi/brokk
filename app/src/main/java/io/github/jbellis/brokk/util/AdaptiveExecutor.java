@@ -2,10 +2,13 @@ package io.github.jbellis.brokk.util;
 
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.Service;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,11 +32,11 @@ public final class AdaptiveExecutor {
 
     private AdaptiveExecutor() {}
 
-    public static class RateLimitedExecutor extends java.util.concurrent.ThreadPoolExecutor {
+    public static class RateLimitedExecutor extends ThreadPoolExecutor {
         private final TokenRateLimiter rateLimiter;
 
         public RateLimitedExecutor(int poolSize, int tokensPerMinute) {
-            super(poolSize, poolSize, 0L, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>());
+            super(poolSize, poolSize, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
             this.rateLimiter = new TokenRateLimiter(tokensPerMinute);
         }
 
@@ -56,7 +59,7 @@ public final class AdaptiveExecutor {
         }
 
         @Override
-        protected <T> RunnableFuture<T> newTaskFor(java.util.concurrent.Callable<T> callable) {
+        protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
             if (callable instanceof TokenAware ta) {
                 return new TokenAwareFutureTask<>(callable, ta.tokens());
             }
@@ -74,7 +77,7 @@ public final class AdaptiveExecutor {
         private static final class TokenAwareFutureTask<V> extends FutureTask<V> implements TokenAware {
             private final int tokens;
 
-            private TokenAwareFutureTask(java.util.concurrent.Callable<V> callable, int tokens) {
+            private TokenAwareFutureTask(Callable<V> callable, int tokens) {
                 super(callable);
                 this.tokens = tokens;
             }

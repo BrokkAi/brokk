@@ -2,8 +2,10 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.SplitButton;
+import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.util.List;
 import javax.swing.*;
@@ -187,6 +189,41 @@ public class BranchSelectorButton extends SplitButton {
                         () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
             });
             menu.add(refresh);
+
+            // Append "Create Pull Request..." action
+            menu.addSeparator();
+            JMenuItem createPr = new JMenuItem("Create Pull Request...");
+            createPr.addActionListener(ev -> {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        IGitRepo r = project.getRepo();
+                        String branch = r.getCurrentBranch();
+                        if (branch == null || branch.isBlank()) {
+                            chrome.toolError("Cannot create PR: No branch is currently selected.");
+                            return;
+                        }
+                        if (GitWorkflow.isSyntheticBranchName(branch)) {
+                            chrome.toolError(
+                                    "Select a local branch before creating a PR. Synthetic views are not supported.");
+                            return;
+                        }
+                        boolean isRemote = false;
+                        if (r instanceof GitRepo gitRepo) {
+                            isRemote = gitRepo.isRemoteBranch(branch) && !gitRepo.isLocalBranch(branch);
+                        }
+                        if (isRemote) {
+                            chrome.toolError(
+                                    "Select a local branch before creating a PR. Remote branches are not supported.");
+                            return;
+                        }
+                        CreatePullRequestDialog.show(chrome.getFrame(), chrome, cm, branch);
+                    } catch (Exception ex) {
+                        logger.error("Error opening Create Pull Request dialog", ex);
+                        chrome.toolError("Failed to open Create Pull Request dialog: " + ex.getMessage());
+                    }
+                });
+            });
+            menu.add(createPr);
         }
 
         return menu;

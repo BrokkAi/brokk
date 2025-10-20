@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1454,7 +1455,7 @@ public final class MainProject extends AbstractProject {
         var allLoadedEntries = new HashMap<Path, ProjectPersistentInfo>();
         var props = loadProjectsProperties();
         for (String key : props.stringPropertyNames()) {
-            if (!key.contains(java.io.File.separator) || key.endsWith("_activeSession")) {
+            if (!key.contains(File.separator) || key.endsWith("_activeSession")) {
                 continue;
             }
             String propertyValue = props.getProperty(key);
@@ -1519,7 +1520,7 @@ public final class MainProject extends AbstractProject {
                 .collect(Collectors.toSet());
 
         List<String> keysToRemove = props.stringPropertyNames().stream()
-                .filter(key -> key.contains(java.io.File.separator) && !key.endsWith("_activeSession"))
+                .filter(key -> key.contains(File.separator) && !key.endsWith("_activeSession"))
                 .filter(key -> !pathsToKeep.contains(key))
                 .toList();
         keysToRemove.forEach(props::remove);

@@ -22,6 +22,7 @@ import org.eclipse.jgit.diff.RawText;
 import org.eclipse.jgit.diff.RawTextComparator;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.merge.MergeAlgorithm;
+import org.eclipse.jgit.merge.MergeChunk;
 import org.eclipse.jgit.merge.MergeResult;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.jetbrains.annotations.Nullable;
@@ -140,8 +141,8 @@ public final class ConflictAnnotator {
         MergeResult<RawText> result = ma.merge(RawTextComparator.DEFAULT, baseRaw, ourRaw, theirRaw);
         // The MergeResult is iterable but does not have a size() method directly.
         // Collect chunks into a list for easier indexed traversal and then get the size.
-        var chunkList = new ArrayList<org.eclipse.jgit.merge.MergeChunk>();
-        for (org.eclipse.jgit.merge.MergeChunk c : result) {
+        var chunkList = new ArrayList<MergeChunk>();
+        for (MergeChunk c : result) {
             chunkList.add(c);
         }
         logger.debug("JGit merge algorithm completed. Result has {} chunks.", chunkList.size());
@@ -155,7 +156,7 @@ public final class ConflictAnnotator {
 
         for (int i = 0; i < chunkList.size(); i++) {
             var chunk = chunkList.get(i);
-            if (chunk.getConflictState() == org.eclipse.jgit.merge.MergeChunk.ConflictState.NO_CONFLICT) {
+            if (chunk.getConflictState() == MergeChunk.ConflictState.NO_CONFLICT) {
                 // Non-conflicting: take content from the sequence indicated by the chunk
                 var seq = sequences.get(chunk.getSequenceIndex());
                 for (int ln = chunk.getBegin(); ln < chunk.getEnd(); ln++) {
@@ -170,8 +171,7 @@ public final class ConflictAnnotator {
                 var theirLines = new ArrayList<LineInfo>();
 
                 while (j < chunkList.size()
-                        && chunkList.get(j).getConflictState()
-                                != org.eclipse.jgit.merge.MergeChunk.ConflictState.NO_CONFLICT) {
+                        && chunkList.get(j).getConflictState() != MergeChunk.ConflictState.NO_CONFLICT) {
                     var c = chunkList.get(j);
                     var seq = sequences.get(c.getSequenceIndex());
                     for (int ln = c.getBegin(); ln < c.getEnd(); ln++) {

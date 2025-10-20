@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -36,12 +37,18 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.EnvironmentPython;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
+import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -356,10 +363,10 @@ public class BuildAgent {
                 String testAllCommand,
                 String testSomeCommand,
                 Set<String> excludedDirectories) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, java.util.Map.of());
+            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Map.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), java.util.Map.of());
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
@@ -494,7 +501,7 @@ public class BuildAgent {
             analyzer = cm.getAnalyzer();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new java.util.concurrent.CancellationException("Interrupted while retrieving analyzer");
+            throw new CancellationException("Interrupted while retrieving analyzer");
         }
 
         if (analyzer.isEmpty()) {
@@ -538,7 +545,7 @@ public class BuildAgent {
         if (fromRunner.isPresent()) return fromRunner;
 
         Path tests = projectRoot.resolve("tests");
-        if (java.nio.file.Files.isDirectory(tests)) return Optional.of(tests);
+        if (Files.isDirectory(tests)) return Optional.of(tests);
 
         return Optional.empty();
     }
@@ -561,15 +568,15 @@ public class BuildAgent {
                 String cleaned = t.replaceAll("^[\"']|[\"']$", "");
                 Path candidate = projectRoot.resolve(cleaned).normalize();
 
-                if (!java.nio.file.Files.exists(candidate)) {
+                if (!Files.exists(candidate)) {
                     // Try without projectRoot if the token is absolute
                     Path p = Path.of(cleaned);
-                    if (java.nio.file.Files.exists(p)) candidate = p.normalize();
+                    if (Files.exists(p)) candidate = p.normalize();
                 }
 
-                if (java.nio.file.Files.exists(candidate) && java.nio.file.Files.isRegularFile(candidate)) {
+                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
                     Path parent = candidate.getParent();
-                    if (parent != null && java.nio.file.Files.isDirectory(parent)) {
+                    if (parent != null && Files.isDirectory(parent)) {
                         return Optional.of(parent);
                     }
                 }
@@ -628,10 +635,10 @@ public class BuildAgent {
      * the package chain (i.e., the path whose child is the top-level package).
      */
     private static Optional<Path> inferImportRoot(Path absFile) {
-        if (!java.nio.file.Files.isRegularFile(absFile)) return Optional.empty();
+        if (!Files.isRegularFile(absFile)) return Optional.empty();
         Path p = absFile.getParent();
         Path lastWithInit = null;
-        while (p != null && java.nio.file.Files.isRegularFile(p.resolve("__init__.py"))) {
+        while (p != null && Files.isRegularFile(p.resolve("__init__.py"))) {
             lastWithInit = p;
             p = p.getParent();
         }
@@ -737,9 +744,7 @@ public class BuildAgent {
     }
 
     /** Holder for lock resources, AutoCloseable so try-with-resources releases it. */
-    private record BuildLock(
-            java.nio.channels.FileChannel channel, java.nio.channels.FileLock lock, java.nio.file.Path lockFile)
-            implements AutoCloseable {
+    private record BuildLock(FileChannel channel, FileLock lock, Path lockFile) implements AutoCloseable {
         @Override
         public void close() {
             try {
@@ -757,24 +762,23 @@ public class BuildAgent {
 
     /** Attempts to acquire an inter-process build lock. Returns a non-null BuildLock on success, or null on failure. */
     private static @Nullable BuildLock acquireBuildLock(IContextManager cm) {
-        java.nio.file.Path lockDir = java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
+        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
         try {
-            java.nio.file.Files.createDirectories(lockDir);
-        } catch (java.io.IOException e) {
+            Files.createDirectories(lockDir);
+        } catch (IOException e) {
             logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
             return null;
         }
 
         var repoNameForLock = getOriginRepositoryName(cm);
-        java.nio.file.Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
+        Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
 
         try {
-            var channel = java.nio.channels.FileChannel.open(
-                    lockFile, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+            var channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             var lock = channel.lock();
             logger.debug("Acquired build lock {}", lockFile);
             return new BuildLock(channel, lock, lockFile);
-        } catch (java.io.IOException ioe) {
+        } catch (IOException ioe) {
             logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
             return null;
         }
@@ -834,9 +838,9 @@ public class BuildAgent {
      */
     private Map<String, String> defaultEnvForProject() {
         var lang = project.getBuildLanguage();
-        if (lang == io.github.jbellis.brokk.analyzer.Languages.PYTHON) {
-            return java.util.Map.of("VIRTUAL_ENV", ".venv");
+        if (lang == Languages.PYTHON) {
+            return Map.of("VIRTUAL_ENV", ".venv");
         }
-        return java.util.Map.of();
+        return Map.of();
     }
 }

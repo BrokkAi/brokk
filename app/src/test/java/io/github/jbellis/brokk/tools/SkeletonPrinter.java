@@ -450,7 +450,7 @@ public class SkeletonPrinter {
             Field sourceRangesField = TreeSitterAnalyzer.class.getDeclaredField("sourceRanges");
             sourceRangesField.setAccessible(true);
             @SuppressWarnings("unchecked")
-            var sourceRanges = (java.util.Map<CodeUnit, java.util.List<Object>>) sourceRangesField.get(analyzer);
+            var sourceRanges = (Map<CodeUnit, List<Object>>) sourceRangesField.get(analyzer);
 
             var ranges = sourceRanges.get(cu);
             if (ranges != null && !ranges.isEmpty()) {

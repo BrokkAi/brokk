@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.context;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -185,7 +186,7 @@ public class Context {
     }
 
     /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
-    public List<ProjectFile> getMostRelevantFiles(int topK) {
+    public List<ProjectFile> getMostRelevantFiles(int topK) throws InterruptedException {
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
                 .flatMap(f -> f.files().stream())
@@ -411,7 +412,7 @@ public class Context {
             List<ContextFragment.VirtualFragment> virtuals,
             List<TaskEntry> history,
             @Nullable ContextFragment.TaskFragment parsed,
-            java.util.concurrent.Future<String> action) {
+            Future<String> action) {
         var combined = Streams.concat(
                         Streams.concat(editable.stream(), readonly.stream()),
                         virtuals.stream().map(v -> (ContextFragment) v))
@@ -551,9 +552,7 @@ public class Context {
 
         var mapper = Json.getMapper();
         try {
-            return mapper.readValue(
-                    existingDiscarded.get().text(),
-                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
+            return mapper.readValue(existingDiscarded.get().text(), new TypeReference<Map<String, String>>() {});
         } catch (Exception e) {
             logger.warn("Failed to parse DISCARDED_CONTEXT JSON", e);
             return Map.of();

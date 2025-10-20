@@ -7,6 +7,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -53,7 +54,7 @@ public class GeminiThinkingTest {
                 .baseUrl(baseUrl)
                 .apiKey("dummy-key") // LiteLLM manages the actual keys
                 .modelName(modelName)
-                .timeout(java.time.Duration.ofSeconds(120))
+                .timeout(Duration.ofSeconds(120))
                 .build();
 
         var latch = new CountDownLatch(1);

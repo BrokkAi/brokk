@@ -4,15 +4,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.Ref;
+import org.eclipse.jgit.lib.RepositoryState;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -227,14 +231,14 @@ public class GitRepoTest {
 
         // 2. Lock the worktree using the git command line
         try {
-            io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
+            Environment.instance.runShellCommand(
                     String.format(
                             "git worktree lock %s",
                             worktreePath.toAbsolutePath().normalize()),
                     repo.getGitTopLevel(),
                     output -> {},
-                    io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT);
-        } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
+                    Environment.UNLIMITED_TIMEOUT);
+        } catch (Environment.SubprocessException | InterruptedException e) {
             fail("Failed to lock worktree: " + e.getMessage());
         }
 
@@ -409,7 +413,7 @@ public class GitRepoTest {
         Path wtPath2 = tempDir.resolve("worktree2");
         repo.addWorktree(wtBranch2, wtPath2);
 
-        java.util.Set<String> branchesInWorktrees = repo.getBranchesInWorktrees();
+        Set<String> branchesInWorktrees = repo.getBranchesInWorktrees();
 
         assertTrue(
                 branchesInWorktrees.contains(mainBranchInitial),
@@ -430,14 +434,14 @@ public class GitRepoTest {
         // Create a worktree in a detached HEAD state (no branch associated)
         Path detachedWorktreePath = tempDir.resolve("detached-worktree");
         try {
-            io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
+            Environment.instance.runShellCommand(
                     String.format(
                             "git worktree add --detach %s",
                             detachedWorktreePath.toAbsolutePath().normalize()),
                     repo.getGitTopLevel(),
                     output -> {},
-                    io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT);
-        } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
+                    Environment.UNLIMITED_TIMEOUT);
+        } catch (Environment.SubprocessException | InterruptedException e) {
             fail("Failed to create detached HEAD worktree: " + e.getMessage());
         }
 
@@ -599,12 +603,9 @@ public class GitRepoTest {
                 repo.getCurrentBranch(),
                 repo.getGit().getRepository().getBranch(),
                 "Repository should remain on original branch");
-        org.eclipse.jgit.lib.RepositoryState stateMerge =
-                repo.getGit().getRepository().getRepositoryState();
+        RepositoryState stateMerge = repo.getGit().getRepository().getRepositoryState();
         assertEquals(
-                org.eclipse.jgit.lib.RepositoryState.SAFE,
-                stateMerge,
-                "Repository should not be in a merging state after conflict check");
+                RepositoryState.SAFE, stateMerge, "Repository should not be in a merging state after conflict check");
     }
 
     @Test
@@ -618,7 +619,7 @@ public class GitRepoTest {
                 repo.getGit().getRepository().getBranch(),
                 "Repository should remain on original branch");
         assertEquals(
-                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                RepositoryState.SAFE,
                 repo.getGit().getRepository().getRepositoryState(),
                 "Repository should not be in a rebasing state");
     }
@@ -636,7 +637,7 @@ public class GitRepoTest {
                 repo.getGit().getRepository().getBranch(),
                 "Repository should remain on original branch");
         assertEquals(
-                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                RepositoryState.SAFE,
                 repo.getGit().getRepository().getRepositoryState(),
                 "Repository should not be in a rebasing state");
     }
@@ -650,11 +651,10 @@ public class GitRepoTest {
                 repo.getCurrentBranch(),
                 repo.getGit().getRepository().getBranch(),
                 "Repository should remain on original branch");
-        org.eclipse.jgit.lib.RepositoryState stateSquashNoConflict =
-                repo.getGit().getRepository().getRepositoryState();
+        RepositoryState stateSquashNoConflict = repo.getGit().getRepository().getRepositoryState();
         assertFalse(
-                stateSquashNoConflict == org.eclipse.jgit.lib.RepositoryState.MERGING
-                        || stateSquashNoConflict == org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED,
+                stateSquashNoConflict == RepositoryState.MERGING
+                        || stateSquashNoConflict == RepositoryState.MERGING_RESOLVED,
                 "Repository should not be in merging state after squash no conflict");
     }
 
@@ -669,7 +669,7 @@ public class GitRepoTest {
                 repo.getGit().getRepository().getBranch(),
                 "Repository should remain on original branch");
         assertEquals(
-                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                RepositoryState.SAFE,
                 repo.getGit().getRepository().getRepositoryState(),
                 "Repository should not be in a merging state after squash conflict check");
     }
@@ -889,7 +889,7 @@ public class GitRepoTest {
                 "Newly created branch '" + finalBranchName + "' should exist.");
 
         // Verify the start point of the new branch
-        org.eclipse.jgit.lib.Ref branchRef = repo.getGit().getRepository().findRef(finalBranchName);
+        Ref branchRef = repo.getGit().getRepository().findRef(finalBranchName);
         assertNotNull(branchRef, "Branch ref should not be null for '" + finalBranchName + "'.");
         assertEquals(
                 initialCommitId,
@@ -905,7 +905,7 @@ public class GitRepoTest {
         assertTrue(
                 repo.listLocalBranches().contains(finalBranchName2),
                 "Second branch '" + finalBranchName2 + "' with same input (but sanitized uniquely) should exist.");
-        org.eclipse.jgit.lib.Ref branchRef2 = repo.getGit().getRepository().findRef(finalBranchName2);
+        Ref branchRef2 = repo.getGit().getRepository().findRef(finalBranchName2);
         assertNotNull(branchRef2);
         assertEquals(initialCommitId, branchRef2.getObjectId().getName());
     }

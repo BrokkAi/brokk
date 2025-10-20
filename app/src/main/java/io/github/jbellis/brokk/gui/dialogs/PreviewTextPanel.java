@@ -40,8 +40,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,10 +55,10 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea} with syntax highlighting,
+ * Displays text (typically code) using an {@link RSyntaxTextArea} with syntax highlighting,
  * search, and AI-assisted editing via "Quick Edit".
  *
- * <p>Supports editing {@link io.github.jbellis.brokk.analyzer.ProjectFile} content and capturing revisions.
+ * <p>Supports editing {@link ProjectFile} content and capturing revisions.
  */
 public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
@@ -302,9 +305,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             menu.add(quickEditAction);
 
             // Listener to enable/disable actions and add dynamic "Capture usages" items
-            menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            menu.addPopupMenuListener(new PopupMenuListener() {
                 @Override
-                public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                     var textSelected = getSelectedText() != null;
 
                     // Enable Quick Edit only if text is selected and it's a project file
@@ -530,14 +533,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 }
 
                 @Override
-                public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
                     // Clear dynamic items when the menu closes
                     dynamicMenuItems.forEach(menu::remove);
                     dynamicMenuItems.clear();
                 }
 
                 @Override
-                public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                public void popupMenuCanceled(PopupMenuEvent e) {
                     // Clear dynamic items if the menu is canceled
                     dynamicMenuItems.forEach(menu::remove);
                     dynamicMenuItems.clear();
@@ -591,8 +594,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 BorderFactory.createTitledBorder(
                         BorderFactory.createEtchedBorder(),
                         "Instructions",
-                        javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                        javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
                         new Font(Font.DIALOG, Font.BOLD, 12)),
                 new EmptyBorder(5, 5, 5, 5)));
 
@@ -766,8 +769,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         systemScrollPane.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "System Messages",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
         systemArea.setText("Request sent");
         systemScrollPane.setPreferredSize(new Dimension(400, 200));
@@ -956,7 +959,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 } finally {
                     textArea.endAtomicEdit();
                 }
-            } catch (javax.swing.text.BadLocationException ex) {
+            } catch (BadLocationException ex) {
                 logger.error("Error applying quick edit change", ex);
                 // Fallback to direct text replacement
                 textArea.setText(textArea.getText().replace(selectedText.stripLeading(), snippet.stripLeading()));
@@ -1183,7 +1186,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     centerX = Math.min(centerX, maxX);
                     centerY = Math.min(centerY, maxY);
 
-                    viewport.setViewPosition(new java.awt.Point((int) centerX, (int) centerY));
+                    viewport.setViewPosition(new Point((int) centerX, (int) centerY));
                 }
             } catch (Exception e) {
                 // If centering fails, fall back to basic scrolling

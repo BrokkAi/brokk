@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import javax.swing.*;
@@ -69,7 +70,7 @@ public class MaterialLoadingButton extends MaterialButton {
             super.setEnabled(true); // Re-enable the button
 
             // Restore themed primary styling after loading completes so callers don't need to reapply.
-            io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(this);
+            SwingUtil.applyPrimaryButtonStyle(this);
         }
     }
 

@@ -4,7 +4,9 @@ import static java.util.Objects.requireNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Patch;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -1134,7 +1136,7 @@ public class CodeAgent {
      *
      * <p>Task 3: {@code nextRequest} is now {@code @Nullable}. We deliberately null it out in
      * {@link #requestPhase(ConversationState, EditState, StreamingResult, Metrics)} after sending, to prevent stale
-     * reuse. Callers that need to send a request must {@link java.util.Objects#requireNonNull(Object) requireNonNull}
+     * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
      * it first.
      */
     record ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
@@ -1309,8 +1311,7 @@ public class CodeAgent {
                 var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
 
                 try {
-                    com.github.difflib.patch.Patch<String> patch =
-                            com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
+                    Patch<String> patch = DiffUtils.diff(originalLines, revisedLines);
 
                     // 1) Build minimal windows per delta in original line space
                     record Window(int start, int end) {

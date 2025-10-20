@@ -6,6 +6,7 @@ import javax.swing.event.UndoableEditListener;
 import javax.swing.undo.CompoundEdit;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.UndoableEdit;
+import org.jetbrains.annotations.Nullable;
 
 public abstract class AbstractContentPanel extends JPanel implements JMeldContentPanelIF {
     private MyUndoManager undoManager = new MyUndoManager();
@@ -48,7 +49,7 @@ public abstract class AbstractContentPanel extends JPanel implements JMeldConten
     public void doDown() {}
 
     public class MyUndoManager extends UndoManager implements UndoableEditListener {
-        @org.jetbrains.annotations.Nullable
+        @Nullable
         CompoundEdit activeEdit;
 
         private MyUndoManager() {

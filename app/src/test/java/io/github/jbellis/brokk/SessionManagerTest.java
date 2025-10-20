@@ -20,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -47,7 +48,7 @@ public class SessionManagerTest {
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
         if (Files.exists(sessionsDir)) {
             try (var stream = Files.walk(sessionsDir)) {
-                stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                stream.sorted(Comparator.reverseOrder()).forEach(path -> {
                     try {
                         Files.delete(path);
                     } catch (IOException e) {
@@ -181,10 +182,10 @@ public class SessionManagerTest {
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
         // Compare editable files
         var expectedEditable = expected.fileFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
+                .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
         var actualEditable = actual.fileFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
+                .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
         assertEquals(expectedEditable.size(), actualEditable.size(), "Editable files count mismatch");
         for (int i = 0; i < expectedEditable.size(); i++) {
@@ -193,10 +194,10 @@ public class SessionManagerTest {
 
         // Compare virtual fragments
         var expectedVirtuals = expected.virtualFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
+                .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
         var actualVirtuals = actual.virtualFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
+                .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
         assertEquals(expectedVirtuals.size(), actualVirtuals.size(), "Virtual fragments count mismatch");
         for (int i = 0; i < expectedVirtuals.size(); i++) {

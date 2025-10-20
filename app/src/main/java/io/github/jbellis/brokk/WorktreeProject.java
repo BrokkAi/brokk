@@ -139,12 +139,12 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+    public IssueProvider getIssuesProvider() {
         return parent.getIssuesProvider();
     }
 
     @Override
-    public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+    public void setIssuesProvider(IssueProvider provider) {
         parent.setIssuesProvider(provider);
     }
 

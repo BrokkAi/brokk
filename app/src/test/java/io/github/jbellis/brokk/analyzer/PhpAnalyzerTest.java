@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.IProject;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -207,7 +208,7 @@ public class PhpAnalyzerTest {
                 return $this->value;
             }"""; // Keep original indentation from test file
         // Normalize both by stripping leading/trailing whitespace from each line and rejoining
-        java.util.function.Function<String, String> normalize =
+        Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
         assertEquals(normalize.apply(expectedSource), normalize.apply(sourceOpt.get()));
 

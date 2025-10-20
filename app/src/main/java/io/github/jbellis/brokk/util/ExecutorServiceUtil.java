@@ -5,6 +5,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,5 +74,15 @@ public final class ExecutorServiceUtil {
             }
         };
         return Executors.newThreadPerTaskExecutor(factory);
+    }
+
+    public static ThreadFactory createNamedThreadFactory(String prefix) {
+        var counter = new AtomicInteger(0);
+        return r -> {
+            var thread = new Thread(r);
+            thread.setName(prefix + "-" + counter.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 }

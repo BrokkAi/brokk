@@ -5,12 +5,15 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import java.awt.event.AdjustmentListener;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 import javax.swing.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,7 +28,7 @@ class ScrollSynchronizerTest {
     // Helper methods to create real deltas using DiffUtils
     private Patch<String> createInsertPatch(int insertPosition, String... insertedLines) {
         var original = createNumberedLines(10); // Start with 10 lines
-        var revised = new java.util.ArrayList<>(original);
+        var revised = new ArrayList<>(original);
 
         // Insert the new lines at the specified position
         for (int i = 0; i < insertedLines.length; i++) {
@@ -37,7 +40,7 @@ class ScrollSynchronizerTest {
 
     private Patch<String> createDeletePatch(int deletePosition, int deleteCount) {
         var original = createNumberedLines(20); // Start with more lines for delete
-        var revised = new java.util.ArrayList<>(original);
+        var revised = new ArrayList<>(original);
 
         // Remove lines starting at deletePosition
         for (int i = 0; i < deleteCount && deletePosition < revised.size(); i++) {
@@ -49,7 +52,7 @@ class ScrollSynchronizerTest {
 
     private Patch<String> createChangePatch(int changePosition, int changeCount, String... newLines) {
         var original = createNumberedLines(15);
-        var revised = new java.util.ArrayList<>(original);
+        var revised = new ArrayList<>(original);
 
         // Remove the old lines
         for (int i = 0; i < changeCount && changePosition < revised.size(); i++) {
@@ -66,7 +69,7 @@ class ScrollSynchronizerTest {
 
     private Patch<String> createMultiDeltaPatch() {
         var original = createNumberedLines(30);
-        var revised = new java.util.ArrayList<>(original);
+        var revised = new ArrayList<>(original);
 
         // Insert 2 lines at position 5
         revised.add(5, "inserted1");
@@ -85,7 +88,7 @@ class ScrollSynchronizerTest {
     }
 
     private List<String> createNumberedLines(int count) {
-        return java.util.stream.IntStream.range(0, count)
+        return IntStream.range(0, count)
                 .mapToObj(i -> "line_" + String.format("%02d", i))
                 .toList();
     }
@@ -361,17 +364,13 @@ class ScrollSynchronizerTest {
         var synchronizer = new ScrollSynchronizer(null, null, null, true);
 
         // This should not throw NoSuchMethodException
-        var singleParamMethod = ScrollSynchronizer.class.getMethod(
-                "scrollToLine", io.github.jbellis.brokk.difftool.ui.FilePanel.class, int.class);
+        var singleParamMethod = ScrollSynchronizer.class.getMethod("scrollToLine", FilePanel.class, int.class);
         assertNotNull(
                 singleParamMethod, "Single-parameter scrollToLine method should exist for backward compatibility");
 
         // Test that the two-parameter method exists
         var twoParamMethod = ScrollSynchronizer.class.getMethod(
-                "scrollToLine",
-                io.github.jbellis.brokk.difftool.ui.FilePanel.class,
-                int.class,
-                ScrollSynchronizer.ScrollMode.class);
+                "scrollToLine", FilePanel.class, int.class, ScrollSynchronizer.ScrollMode.class);
         assertNotNull(twoParamMethod, "Two-parameter scrollToLine method should exist");
     }
 

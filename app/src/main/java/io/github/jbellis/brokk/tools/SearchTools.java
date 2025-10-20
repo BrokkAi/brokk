@@ -27,10 +27,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -729,9 +731,9 @@ public class SearchTools {
         var io = contextManager.getIo();
         contextManager.appendTasksToTaskList(tasks);
 
-        var lines = java.util.stream.IntStream.range(0, tasks.size())
+        var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(java.util.stream.Collectors.joining("\n"));
+                .collect(Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
         io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
         return formattedTaskList;
@@ -746,7 +748,7 @@ public class SearchTools {
 
         final var description = ContextFragment.SEARCH_NOTES.description();
         final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
-        final var appendedFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final var appendedFlag = new AtomicBoolean(false);
 
         contextManager.pushContext(ctx -> {
             var existing = ctx.virtualFragments()
@@ -760,7 +762,7 @@ public class SearchTools {
                 String prevText = prev.text();
                 String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
 
-                var next = ctx.removeFragmentsByIds(java.util.List.of(prev.id()));
+                var next = ctx.removeFragmentsByIds(List.of(prev.id()));
                 var newFrag = new ContextFragment.StringFragment(contextManager, combined, description, syntax);
                 logger.debug(
                         "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",

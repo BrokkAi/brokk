@@ -2,6 +2,8 @@ package io.github.jbellis.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -10,13 +12,13 @@ public class NonTextGrouperTest {
 
     // Helper method to create a FileConflict for testing
     private MergeAgent.FileConflict createFileConflict(String ourFile, String theirFile, String baseFile) {
-        var root = java.nio.file.Path.of("").toAbsolutePath().getRoot();
+        var root = Path.of("").toAbsolutePath().getRoot();
         return new MergeAgent.FileConflict(
-                ourFile != null ? new io.github.jbellis.brokk.analyzer.ProjectFile(root, ourFile) : null,
+                ourFile != null ? new ProjectFile(root, ourFile) : null,
                 null,
-                theirFile != null ? new io.github.jbellis.brokk.analyzer.ProjectFile(root, theirFile) : null,
+                theirFile != null ? new ProjectFile(root, theirFile) : null,
                 null,
-                baseFile != null ? new io.github.jbellis.brokk.analyzer.ProjectFile(root, baseFile) : null,
+                baseFile != null ? new ProjectFile(root, baseFile) : null,
                 null);
     }
 

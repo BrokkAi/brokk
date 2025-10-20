@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import io.github.jbellis.brokk.gui.WorkspacePanel;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -63,8 +64,7 @@ public final class ContextMenuUtils {
             @SuppressWarnings("unchecked")
             var directList = (List<FileReferenceData>) cellValue;
             fileRefs = directList;
-        } else if (cellValue
-                instanceof io.github.jbellis.brokk.gui.WorkspacePanel.DescriptionWithReferences descWithRefs) {
+        } else if (cellValue instanceof WorkspacePanel.DescriptionWithReferences descWithRefs) {
             // WorkspacePanel case - extract from DescriptionWithReferences record
             fileRefs = descWithRefs.fileReferences();
         } else {
@@ -95,10 +95,10 @@ public final class ContextMenuUtils {
             } else if (hasOverflow) {
                 hiddenFiles = afl.getHiddenFiles();
             }
-        } else if (renderer instanceof javax.swing.JPanel panel) {
+        } else if (renderer instanceof JPanel panel) {
             // WorkspacePanel case - AdaptiveFileReferenceList is inside a JPanel
             TableUtils.FileReferenceList.AdaptiveFileReferenceList foundAfl = null;
-            for (java.awt.Component c : panel.getComponents()) {
+            for (Component c : panel.getComponents()) {
                 if (c instanceof TableUtils.FileReferenceList.AdaptiveFileReferenceList afl) {
                     foundAfl = afl;
                     break;

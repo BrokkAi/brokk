@@ -4,6 +4,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,18 +126,18 @@ public final class TableUtils {
         // Add listeners directly to each badge component
         for (Component c : fullList.getComponents()) {
             if (c instanceof JLabel) {
-                c.addMouseListener(new java.awt.event.MouseAdapter() {
+                c.addMouseListener(new MouseAdapter() {
                     @Override
-                    public void mousePressed(java.awt.event.MouseEvent e) {
+                    public void mousePressed(MouseEvent e) {
                         maybeShowPopupForBadge(e);
                     }
 
                     @Override
-                    public void mouseReleased(java.awt.event.MouseEvent e) {
+                    public void mouseReleased(MouseEvent e) {
                         maybeShowPopupForBadge(e);
                     }
 
-                    private void maybeShowPopupForBadge(java.awt.event.MouseEvent e) {
+                    private void maybeShowPopupForBadge(MouseEvent e) {
                         boolean rightClick = SwingUtilities.isRightMouseButton(e);
                         boolean popupKey = e.isPopupTrigger();
 

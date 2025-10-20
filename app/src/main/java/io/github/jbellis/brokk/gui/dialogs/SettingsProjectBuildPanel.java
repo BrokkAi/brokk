@@ -1,11 +1,13 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import com.google.common.io.Files;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.util.Environment;
@@ -883,11 +885,9 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private List<Language> findLanguagesInProject() {
         Set<Language> langs = new HashSet<>();
-        Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan =
-                project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
         for (var pf : filesToScan) {
-            String extension =
-                    com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+            String extension = Files.getFileExtension(pf.absPath().toString());
             if (!extension.isEmpty()) {
                 var lang = Languages.fromExtension(extension);
                 if (lang != Languages.NONE) {

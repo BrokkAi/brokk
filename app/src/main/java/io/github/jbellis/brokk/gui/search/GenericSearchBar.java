@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.search;
 import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -164,9 +166,9 @@ public class GenericSearchBar extends JPanel {
     public void addNotify() {
         super.addNotify();
         // Register resize listener after component is added to hierarchy
-        addComponentListener(new java.awt.event.ComponentAdapter() {
+        addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 handleResize();
             }
         });

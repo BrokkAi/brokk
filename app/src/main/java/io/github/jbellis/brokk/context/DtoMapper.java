@@ -3,11 +3,15 @@ package io.github.jbellis.brokk.context;
 import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
@@ -17,11 +21,13 @@ import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -349,7 +355,7 @@ public class DtoMapper {
             case ContextFragment.ImageFileFragment imf -> {
                 var file = imf.file();
                 String absPath = file.absPath().toString();
-                String fileName = file.getFileName().toLowerCase(java.util.Locale.ROOT);
+                String fileName = file.getFileName().toLowerCase(Locale.ROOT);
                 String mediaType = null;
                 if (fileName.endsWith(".png")) mediaType = "image/png";
                 else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
@@ -450,7 +456,7 @@ public class DtoMapper {
     private static String getFutureDescription(Future<String> future, String prefix) {
         String description;
         try {
-            String fullDescription = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            String fullDescription = future.get(10, TimeUnit.SECONDS);
             description =
                     fullDescription.startsWith(prefix) ? fullDescription.substring(prefix.length()) : fullDescription;
         } catch (Exception e) {
@@ -461,7 +467,7 @@ public class DtoMapper {
 
     private static String getFutureSyntaxStyle(Future<String> future) {
         try {
-            return future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            return future.get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
         }
@@ -488,7 +494,7 @@ public class DtoMapper {
 
     private static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
         String contentId = writer.writeContent(Messages.getRepr(message), null);
-        return new ChatMessageDto(message.type().name().toLowerCase(java.util.Locale.ROOT), contentId);
+        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto) {
@@ -497,10 +503,10 @@ public class DtoMapper {
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
         String content = reader.readContent(dto.contentId());
-        return switch (dto.role().toLowerCase(java.util.Locale.ROOT)) {
-            case "user" -> dev.langchain4j.data.message.UserMessage.from(content);
-            case "ai" -> dev.langchain4j.data.message.AiMessage.from(content);
-            case "system", "custom" -> dev.langchain4j.data.message.SystemMessage.from(content);
+        return switch (dto.role().toLowerCase(Locale.ROOT)) {
+            case "user" -> UserMessage.from(content);
+            case "ai" -> AiMessage.from(content);
+            case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
     }
@@ -543,7 +549,7 @@ public class DtoMapper {
     private static CodeUnit fromCodeUnitDto(CodeUnitDto dto) {
         ProjectFileDto pfd = dto.sourceFile();
         ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
-        var kind = io.github.jbellis.brokk.analyzer.CodeUnitType.valueOf(dto.kind());
+        var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }
 

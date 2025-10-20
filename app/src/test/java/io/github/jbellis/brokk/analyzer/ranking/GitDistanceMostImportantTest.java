@@ -81,14 +81,14 @@ public class GitDistanceMostImportantTest {
     }
 
     @Test
-    public void testSortByImportanceEmpty() {
+    public void testSortByImportanceEmpty() throws InterruptedException {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var results = GitDistance.sortByImportance(List.of(), testRepo);
         assertTrue(results.isEmpty(), "Empty input should yield empty results");
     }
 
     @Test
-    public void testSortByImportanceSubset() {
+    public void testSortByImportanceSubset() throws InterruptedException {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var user = new ProjectFile(testProject.getRoot(), "User.java");
         var userRepo = new ProjectFile(testProject.getRoot(), "UserRepository.java");
@@ -106,7 +106,7 @@ public class GitDistanceMostImportantTest {
     }
 
     @Test
-    public void testSortByImportanceAllFiles() {
+    public void testSortByImportanceAllFiles() throws InterruptedException {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var allFiles = testRepo.getTrackedFiles().stream()
                 .sorted(Comparator.comparing(BrokkFile::getFileName))

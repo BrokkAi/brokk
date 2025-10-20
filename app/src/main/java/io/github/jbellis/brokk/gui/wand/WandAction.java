@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.wand;
 
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.ContextManager;
@@ -132,11 +133,7 @@ public class WandAction {
         }
 
         @Override
-        public void llmOutput(
-                String token,
-                dev.langchain4j.data.message.ChatMessageType type,
-                boolean isNewMessage,
-                boolean isReasoning) {
+        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
             if (!isReasoning && lastWasReasoning && !hasStartedContent) {
                 // Transition from reasoning to content: clear the area first
                 SwingUtilities.invokeLater(() -> instructionsArea.setText(""));

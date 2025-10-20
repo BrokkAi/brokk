@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -643,7 +644,7 @@ public class SessionManager implements AutoCloseable {
         if (!Files.exists(wsPropsPath)) {
             return Optional.empty();
         }
-        var props = new java.util.Properties();
+        var props = new Properties();
         try (var reader = Files.newBufferedReader(wsPropsPath)) {
             props.load(reader);
         } catch (IOException e) {
@@ -656,7 +657,7 @@ public class SessionManager implements AutoCloseable {
         }
         UUID sessionId;
         try {
-            sessionId = java.util.UUID.fromString(sessionIdStr.trim());
+            sessionId = UUID.fromString(sessionIdStr.trim());
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid session UUID '{}' in workspace properties at {}", sessionIdStr, wsPropsPath);
             return Optional.empty();

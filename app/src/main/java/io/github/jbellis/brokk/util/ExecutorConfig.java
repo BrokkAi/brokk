@@ -4,8 +4,10 @@ import io.github.jbellis.brokk.IProject;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import org.jetbrains.annotations.Nullable;
 
 /** Configuration for a custom command executor (shell, interpreter, etc.) */
@@ -72,7 +74,7 @@ public record ExecutorConfig(String executable, List<String> args) {
         }
 
         // Use manual path separation to avoid errorprone warnings
-        java.util.List<String> pathDirsList = new java.util.ArrayList<>();
+        List<String> pathDirsList = new ArrayList<>();
         int start = 0;
         int pos;
         while ((pos = pathEnv.indexOf(File.pathSeparator, start)) != -1) {
@@ -85,7 +87,7 @@ public record ExecutorConfig(String executable, List<String> args) {
             pathDirsList.add(pathEnv.substring(start));
         }
         String[] pathDirs = pathDirsList.toArray(new String[0]);
-        String osName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
+        String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
         boolean isWindows = osName.contains("windows");
 
         for (String pathDir : pathDirs) {
@@ -101,7 +103,7 @@ public record ExecutorConfig(String executable, List<String> args) {
                     if (Files.exists(exePath) && Files.isExecutable(exePath)) {
                         return true;
                     }
-                    if (!executable.toLowerCase(java.util.Locale.ROOT).endsWith(".exe")) {
+                    if (!executable.toLowerCase(Locale.ROOT).endsWith(".exe")) {
                         Path exePathWithExt = dirPath.resolve(executable + ".exe");
                         if (Files.exists(exePathWithExt) && Files.isExecutable(exePathWithExt)) {
                             return true;
@@ -124,7 +126,7 @@ public record ExecutorConfig(String executable, List<String> args) {
 
     /** Get platform-appropriate default arguments for a given executor */
     private static List<String> getDefaultArgsForExecutor(String executable) {
-        String displayName = getDisplayNameFromExecutable(executable).toLowerCase(java.util.Locale.ROOT);
+        String displayName = getDisplayNameFromExecutable(executable).toLowerCase(Locale.ROOT);
 
         // PowerShell needs -Command, not -c
         if (displayName.equals("powershell.exe") || displayName.equals("powershell")) {
@@ -157,7 +159,7 @@ public record ExecutorConfig(String executable, List<String> args) {
 
     /** Get shell language name for markdown code blocks */
     public String getShellLanguage() {
-        String displayName = getDisplayName().toLowerCase(java.util.Locale.ROOT);
+        String displayName = getDisplayName().toLowerCase(Locale.ROOT);
 
         // Map common executables to appropriate markdown language identifiers
         if (displayName.equals("cmd.exe") || displayName.equals("cmd")) {
@@ -196,7 +198,7 @@ public record ExecutorConfig(String executable, List<String> args) {
 
     /** Get system default shell language based on OS */
     private static String getSystemDefaultShellLanguage() {
-        String osName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
+        String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
         if (osName.contains("windows")) {
             return "cmd";
         } else {

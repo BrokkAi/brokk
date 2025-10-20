@@ -4,6 +4,7 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
@@ -16,6 +17,11 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.util.SyntaxDetector;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -363,10 +369,10 @@ public final class GitUiUtil {
     }
 
     /** Format commit date to show e.g. "HH:MM:SS today" if it is today's date. */
-    public static String formatRelativeDate(java.time.Instant commitInstant, java.time.LocalDate today) {
+    public static String formatRelativeDate(Instant commitInstant, LocalDate today) {
         try {
-            var now = java.time.Instant.now();
-            var duration = java.time.Duration.between(commitInstant, now);
+            var now = Instant.now();
+            var duration = Duration.between(commitInstant, now);
             // 1) seconds ago
             long seconds = duration.toSeconds();
             if (seconds < 60) {
@@ -382,8 +388,7 @@ public final class GitUiUtil {
 
             // 2) hours ago (same calendar day)
             long hours = duration.toHours();
-            var commitDate =
-                    commitInstant.atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+            var commitDate = commitInstant.atZone(ZoneId.systemDefault()).toLocalDate();
             if (hours < 24 && commitDate.equals(today)) {
                 long n = Math.max(1, hours);
                 return n + " hour" + (n == 1 ? "" : "s") + " ago";
@@ -394,14 +399,14 @@ public final class GitUiUtil {
                 return "Yesterday";
             }
 
-            var zdt = commitInstant.atZone(java.time.ZoneId.systemDefault());
+            var zdt = commitInstant.atZone(ZoneId.systemDefault());
             if (zdt.getYear() == today.getYear()) {
                 // 4) older, same year: "d MMM" (e.g., 7 Apr)
-                return zdt.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
+                return zdt.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
             }
 
             // 5) previous years: "MMM yy" (e.g., Apr 23)
-            return zdt.format(java.time.format.DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()));
+            return zdt.format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()));
         } catch (Exception e) {
             logger.debug("Could not format date: {}", commitInstant, e);
             return commitInstant.toString();
@@ -472,8 +477,7 @@ public final class GitUiUtil {
      * @param compareBranchName The name of the branch to compare against the base.
      */
     /** Open a BrokkDiffPanel showing all file changes in the specified commit. */
-    public static void openCommitDiffPanel(
-            ContextManager cm, Chrome chrome, io.github.jbellis.brokk.git.ICommitInfo commitInfo) {
+    public static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -522,10 +526,7 @@ public final class GitUiUtil {
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
     public static void openCommitDiffPanel(
-            ContextManager cm,
-            Chrome chrome,
-            io.github.jbellis.brokk.git.ICommitInfo commitInfo,
-            String targetFileName) {
+            ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -574,8 +575,7 @@ public final class GitUiUtil {
         });
     }
 
-    private static String getFileContentOrEmpty(
-            io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
+    private static String getFileContentOrEmpty(IGitRepo repo, String commitId, ProjectFile file) {
         try {
             return repo.getFileContent(commitId, file);
         } catch (Exception e) {
@@ -716,7 +716,7 @@ public final class GitUiUtil {
     public static List<ProjectFile> filterTextFiles(List<GitRepo.ModifiedFile> modifiedFiles) {
         return modifiedFiles.stream()
                 .map(GitRepo.ModifiedFile::file)
-                .filter(io.github.jbellis.brokk.analyzer.BrokkFile::isText)
+                .filter(BrokkFile::isText)
                 .collect(Collectors.toList());
     }
 

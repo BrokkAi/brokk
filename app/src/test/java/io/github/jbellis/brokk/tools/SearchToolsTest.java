@@ -2,12 +2,16 @@ package io.github.jbellis.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,16 +32,16 @@ public class SearchToolsTest {
     private GitRepo repo;
     private SearchTools searchTools;
     /** mutable set returned from the project-proxy’s getAllFiles() */
-    private java.util.Set<ProjectFile> mockProjectFiles;
+    private Set<ProjectFile> mockProjectFiles;
 
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
-        mockProjectFiles = new java.util.HashSet<>();
+        mockProjectFiles = new HashSet<>();
         try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
             // initial commit
             Path readme = projectRoot.resolve("README.md");
-            java.nio.file.Files.writeString(readme, "Initial commit file");
+            Files.writeString(readme, "Initial commit file");
             git.add().addFilepattern("README.md").call();
             git.commit().setMessage("Initial commit").setSign(false).call();
 
@@ -55,7 +59,7 @@ public class SearchToolsTest {
          * Create a minimal IContextManager mock/stub that only needs to return
          * the project root path for the SearchTools we are testing.
          */
-        Class<?>[] projectInterfaces = io.github.jbellis.brokk.AbstractProject.class.getInterfaces();
+        Class<?>[] projectInterfaces = AbstractProject.class.getInterfaces();
         if (projectInterfaces.length == 0) {
             throw new IllegalStateException("AbstractProject implements no interfaces to proxy");
         }
@@ -106,15 +110,14 @@ public class SearchToolsTest {
     @Test
     void testSearchSubstrings_invalidRegexFallback() throws Exception {
         // 1. Create a text file whose contents include the substring "[["
-        java.nio.file.Path txt = projectRoot.resolve("substring_test.txt");
-        java.nio.file.Files.writeString(txt, "some content with [[ pattern");
+        Path txt = projectRoot.resolve("substring_test.txt");
+        Files.writeString(txt, "some content with [[ pattern");
 
         // 2. Add to mock project file list so SearchTools sees it
         mockProjectFiles.add(new ProjectFile(projectRoot, "substring_test.txt"));
 
         // 3. Invoke searchSubstrings with an invalid regex
-        String result =
-                searchTools.searchSubstrings(java.util.List.of("[["), "testing invalid regex fallback for substrings");
+        String result = searchTools.searchSubstrings(List.of("[["), "testing invalid regex fallback for substrings");
 
         // 4. Verify fallback occurred and file is reported
         assertTrue(result.contains("substring_test.txt"), "Result should reference the test file");
@@ -123,15 +126,14 @@ public class SearchToolsTest {
     @Test
     void testSearchFilenames_invalidRegexFallback() throws Exception {
         // 1. Create a file whose *name* contains the substring "[["
-        java.nio.file.Path filePath = projectRoot.resolve("filename_[[-test.txt");
-        java.nio.file.Files.writeString(filePath, "dummy");
+        Path filePath = projectRoot.resolve("filename_[[-test.txt");
+        Files.writeString(filePath, "dummy");
 
         // 2. Add to mock project file list
         mockProjectFiles.add(new ProjectFile(projectRoot, "filename_[[-test.txt"));
 
         // 3. Search with invalid regex
-        String result =
-                searchTools.searchFilenames(java.util.List.of("[["), "testing invalid regex fallback for filenames");
+        String result = searchTools.searchFilenames(List.of("[["), "testing invalid regex fallback for filenames");
 
         // 4. Ensure the file name appears in the output
         assertTrue(result.contains("filename_[[-test.txt"), "Result should reference the test filename");
@@ -152,32 +154,32 @@ public class SearchToolsTest {
 
         // 3. Test cases
         // A. Full path with forward slashes
-        String resultNix = searchTools.searchFilenames(java.util.List.of(relativePathNix), "test nix path");
+        String resultNix = searchTools.searchFilenames(List.of(relativePathNix), "test nix path");
         assertTrue(
                 resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
                 "Should find file with forward-slash path");
 
         // B. File name only
-        String resultName = searchTools.searchFilenames(java.util.List.of("MOP.svelte"), "test file name");
+        String resultName = searchTools.searchFilenames(List.of("MOP.svelte"), "test file name");
         assertTrue(
                 resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
                 "Should find file with file name only");
 
         // C. Partial path
-        String resultPartial = searchTools.searchFilenames(java.util.List.of("src/MOP"), "test partial path");
+        String resultPartial = searchTools.searchFilenames(List.of("src/MOP"), "test partial path");
         assertTrue(
                 resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
                 "Should find file with partial path");
 
         // D. Full path with backslashes (Windows-style)
-        String resultWin = searchTools.searchFilenames(java.util.List.of(relativePathWin), "test windows path");
+        String resultWin = searchTools.searchFilenames(List.of(relativePathWin), "test windows path");
         assertTrue(
                 resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
                 "Should find file with back-slash path pattern");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
         String regexPattern = "frontend-mop/.*\\\\.svelte";
-        String resultRegex = searchTools.searchFilenames(java.util.List.of(regexPattern), "test regex path");
+        String resultRegex = searchTools.searchFilenames(List.of(regexPattern), "test regex path");
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");

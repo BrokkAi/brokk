@@ -20,7 +20,9 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import javafx.application.Platform;
 import javax.swing.*;
 import javax.swing.border.Border;
 import org.apache.logging.log4j.LogManager;
@@ -166,16 +169,16 @@ public class Brokk {
         // Initialize JavaFX platform to prevent deadlocks during MOPWebViewHost creation
         // See: https://docs.oracle.com/javase/8/javafx/interoperability-tutorial/swing-fx-interoperability.htm
         try {
-            javafx.application.Platform.startup(() -> {});
+            Platform.startup(() -> {});
             // Prevent JavaFX thread from dying when JFXPanels are removed/hidden
-            javafx.application.Platform.setImplicitExit(false);
+            Platform.setImplicitExit(false);
             logger.debug("JavaFX platform initialized at startup");
         } catch (IllegalStateException e) {
             var message = e.getMessage();
             if (message != null && message.contains("Toolkit already initialized")) {
                 logger.debug("JavaFX platform already initialized");
                 // Still set implicit exit to false even if already initialized
-                javafx.application.Platform.setImplicitExit(false);
+                Platform.setImplicitExit(false);
             } else {
                 logger.warn("Failed to initialize JavaFX platform: {}", message);
             }
@@ -394,8 +397,8 @@ public class Brokk {
                 try {
                     Desktop.getDesktop().setOpenFileHandler(e -> {
                         List<Path> pathsToOpen = e.getFiles().stream()
-                                .filter(java.io.File::isDirectory)
-                                .map(java.io.File::toPath)
+                                .filter(File::isDirectory)
+                                .map(File::toPath)
                                 .toList();
 
                         if (!pathsToOpen.isEmpty()) {
@@ -532,16 +535,16 @@ public class Brokk {
 
         openProjectWindows.put(projectPath, io);
 
-        io.getFrame().addWindowListener(new java.awt.event.WindowAdapter() {
+        io.getFrame().addWindowListener(new WindowAdapter() {
             @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
+            public void windowClosing(WindowEvent e) {
                 // Worktree-specific closing dialog removed.
                 // Standard window closing procedure will be followed.
                 performWindowClose(projectPath);
             }
 
             @Override
-            public void windowClosed(java.awt.event.WindowEvent e) {
+            public void windowClosed(WindowEvent e) {
                 // This now only handles cleanup after the window is actually closed
                 // The main logic has moved to windowClosing
             }

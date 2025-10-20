@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.util;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -182,7 +183,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     }
 
     /** Returns all cached values, excluding reserved (not yet loaded) entries. */
-    public java.util.Collection<V> nonNullValues() {
+    public Collection<V> nonNullValues() {
         // Since we no longer store nulls, all cache values are non-null
         return new ArrayList<>(cache.values());
     }
@@ -327,7 +328,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
      * Helper method to dispose items outside of locks to prevent blocking. This allows other cache operations to
      * proceed while disposal is happening.
      */
-    private void disposeDeferred(java.util.Collection<V> items) {
+    private void disposeDeferred(Collection<V> items) {
         for (var item : items) {
             try {
                 item.dispose();

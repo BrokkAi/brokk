@@ -3,8 +3,11 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import javax.net.ssl.SSLHandshakeException;
 import javax.swing.*;
@@ -21,7 +24,7 @@ public class BrokkKeyDialog extends JDialog {
 
     private BrokkKeyDialog(@Nullable Frame owner, @Nullable String initialKey) {
         super(owner, "Enter Brokk Key", true);
-        io.github.jbellis.brokk.gui.Chrome.applyIcon(this);
+        Chrome.applyIcon(this);
 
         if (initialKey != null && !initialKey.isEmpty()) {
             keyField.setText(initialKey);
@@ -29,9 +32,9 @@ public class BrokkKeyDialog extends JDialog {
 
         initComponents();
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
-        addWindowListener(new java.awt.event.WindowAdapter() {
+        addWindowListener(new WindowAdapter() {
             @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
+            public void windowClosing(WindowEvent e) {
                 cancel();
             }
         });

@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -21,7 +23,7 @@ public class TreeSitterAnalyzerRustTest {
 
     // Helper to normalize multiline strings for comparison (strips leading/trailing whitespace from each line and
     // joins)
-    private static final java.util.function.Function<String, String> normalizeSource =
+    private static final Function<String, String> normalizeSource =
             s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
     @BeforeAll
@@ -655,7 +657,7 @@ public class TreeSitterAnalyzerRustTest {
         Set<String> combinedSymbols = rsAnalyzer.getSymbols(combinedSources);
 
         // Initialize as a mutable set
-        Set<String> expectedCombined = new java.util.HashSet<>();
+        Set<String> expectedCombined = new HashSet<>();
 
         // The expectedCombined should be the union of all individual symbol sets.
         expectedCombined.addAll(expectedPointSymbols);
@@ -672,8 +674,7 @@ public class TreeSitterAnalyzerRustTest {
     @Test
     void testDeterminePackageName_RustSpecificLayouts() throws IOException {
         // Helper to call determinePackageName, as its other params are not used by RustAnalyzer's impl
-        java.util.function.Function<ProjectFile, String> getPkgName =
-                (pf) -> rsAnalyzer.determinePackageName(pf, null, null, "");
+        Function<ProjectFile, String> getPkgName = (pf) -> rsAnalyzer.determinePackageName(pf, null, null, "");
 
         // 1. File at project root (like Point.rs)
         ProjectFile pointFile = new ProjectFile(rsTestProject.getRoot(), "Point.rs");

@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.util.List;
+import java.util.Locale;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -387,7 +388,7 @@ public class MergeDialogUtil {
                 } else {
                     conflictStatusLabel.setText(String.format(
                             "No conflicts detected with '%s' for %s.",
-                            selectedTargetBranch, selectedMergeMode.toString().toLowerCase(java.util.Locale.ROOT)));
+                            selectedTargetBranch, selectedMergeMode.toString().toLowerCase(Locale.ROOT)));
                     conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green for no conflicts
                     if (okButton != null) {
                         okButton.setEnabled(true);

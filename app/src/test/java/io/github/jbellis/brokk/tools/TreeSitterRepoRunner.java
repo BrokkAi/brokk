@@ -1079,9 +1079,7 @@ public class TreeSitterRepoRunner {
                     reason);
 
             Files.writeString(
-                    file,
-                    header + resultLine,
-                    fileExists ? java.nio.file.StandardOpenOption.APPEND : java.nio.file.StandardOpenOption.CREATE);
+                    file, header + resultLine, fileExists ? StandardOpenOption.APPEND : StandardOpenOption.CREATE);
         }
 
         void saveToFile(Path file) throws IOException {

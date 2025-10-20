@@ -20,6 +20,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
@@ -33,6 +34,7 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -331,7 +333,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param ex the TransportException to check
      * @return true if the exception indicates a GitHub permission error
      */
-    public static boolean isGitHubPermissionDenied(org.eclipse.jgit.api.errors.TransportException ex) {
+    public static boolean isGitHubPermissionDenied(TransportException ex) {
         // Check main exception message
         if (checkMessageForPermissionDenial(ex.getMessage())) {
             return true;
@@ -360,7 +362,7 @@ public class GitRepo implements Closeable, IGitRepo {
             return false;
         }
 
-        var lower = msg.toLowerCase(java.util.Locale.ROOT);
+        var lower = msg.toLowerCase(Locale.ROOT);
 
         // GitHub HTTPS: token permission errors
         if (lower.contains("git-receive-pack not permitted")) {
@@ -656,8 +658,8 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param remoteUrl The remote URL to check
      * @throws GitHubAuthenticationException if GitHub HTTPS URL is detected but no token is configured
      */
-    public <T, C extends org.eclipse.jgit.api.TransportCommand<C, T>> void applyGitHubAuthentication(
-            C command, @Nullable String remoteUrl) throws GitHubAuthenticationException {
+    public <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
+            throws GitHubAuthenticationException {
         // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
         if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
             return;
@@ -1168,9 +1170,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     if (!getCurrentBranch().equals(tempRebaseBranchName)) {
                         checkout(tempRebaseBranchName);
                     }
-                    git.rebase()
-                            .setOperation(org.eclipse.jgit.api.RebaseCommand.Operation.ABORT)
-                            .call();
+                    git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
                 } catch (GitAPIException abortEx) {
                     logger.error("Failed to abort rebase for {}", tempRebaseBranchName, abortEx);
                 }
@@ -1251,10 +1251,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Perform a soft reset to a specific commit */
     public void softReset(String commitId) throws GitAPIException {
-        git.reset()
-                .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
-                .setRef(commitId)
-                .call();
+        git.reset().setMode(ResetCommand.ResetType.SOFT).setRef(commitId).call();
         invalidateCaches();
     }
 
@@ -1610,10 +1607,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
             // 6. Soft reset to undo the temporary commit, leaving its changes staged
             logger.debug("Soft resetting to restore staged changes of files not stashed");
-            git.reset()
-                    .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
-                    .setRef("HEAD~1")
-                    .call();
+            git.reset().setMode(ResetCommand.ResetType.SOFT).setRef("HEAD~1").call();
 
             // 7. Unstage any files from the temporary commit that were not originally staged
             var unstagedFilesToKeep = filesToKeep.stream()
@@ -1832,8 +1826,7 @@ public class GitRepo implements Closeable, IGitRepo {
         for (var f : files) results.put(f, new ArrayList<>(Math.min(maxResults, 32)));
 
         try (var revWalk = new RevWalk(repository);
-                var df = new org.eclipse.jgit.diff.DiffFormatter(
-                        org.eclipse.jgit.util.io.DisabledOutputStream.INSTANCE)) {
+                var df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
 
             var headId = resolveToCommit("HEAD");
             var head = revWalk.parseCommit(headId);
@@ -2452,11 +2445,10 @@ public class GitRepo implements Closeable, IGitRepo {
     // Add near other small helper types/records
     public static final class Canonicalizer {
         private final Map<String, Integer> indexByCommit; // commitId -> index in window (0 = newest)
-        private final java.util.NavigableMap<Integer, List<RenameEdge>>
-                renamesByIndex; // commitIndex -> renames at that commit
+        private final NavigableMap<Integer, List<RenameEdge>> renamesByIndex; // commitIndex -> renames at that commit
 
         private Canonicalizer(
-                Map<String, Integer> indexByCommit, java.util.NavigableMap<Integer, List<RenameEdge>> renamesByIndex) {
+                Map<String, Integer> indexByCommit, NavigableMap<Integer, List<RenameEdge>> renamesByIndex) {
             this.indexByCommit = indexByCommit;
             this.renamesByIndex = renamesByIndex;
         }
@@ -2500,18 +2492,17 @@ public class GitRepo implements Closeable, IGitRepo {
      * by walking forward through renames that occur AFTER X in this window, avoiding path-recycling
      * ambiguities.
      */
-    public Canonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException {
+    public Canonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException, InterruptedException {
         if (commits.isEmpty()) {
-            return new Canonicalizer(Map.of(), new java.util.TreeMap<>());
+            return new Canonicalizer(Map.of(), new TreeMap<>());
         }
 
-        var remaining = commits.stream().map(CommitInfo::id).collect(Collectors.toCollection(java.util.HashSet::new));
+        var remaining = commits.stream().map(CommitInfo::id).collect(Collectors.toCollection(HashSet::new));
         var indexByCommit = new HashMap<String, Integer>();
         var renamesByIndex = new HashMap<Integer, List<Canonicalizer.RenameEdge>>();
 
         try (var revWalk = new RevWalk(repository);
-                var df = new org.eclipse.jgit.diff.DiffFormatter(
-                        org.eclipse.jgit.util.io.DisabledOutputStream.INSTANCE)) {
+                var df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
             df.setRepository(repository);
             df.setDetectRenames(true);
 
@@ -2524,6 +2515,9 @@ public class GitRepo implements Closeable, IGitRepo {
             int idx = -1;
             boolean foundAllCommits = false;
             for (var commit : revWalk) {
+                if (Thread.interrupted()) {
+                    throw new InterruptedException();
+                }
                 idx++;
                 var commitId = commit.getName();
                 indexByCommit.put(commitId, idx);
@@ -2537,7 +2531,7 @@ public class GitRepo implements Closeable, IGitRepo {
                         throw new GitWrappedIOException(e);
                     }
 
-                    List<org.eclipse.jgit.diff.DiffEntry> diffs;
+                    List<DiffEntry> diffs;
                     try {
                         diffs = df.scan(parent.getTree(), commit.getTree());
                     } catch (IOException e) {
@@ -2546,7 +2540,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
                     List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
                     for (var de : diffs) {
-                        if (de.getChangeType() != org.eclipse.jgit.diff.DiffEntry.ChangeType.RENAME) continue;
+                        if (de.getChangeType() != DiffEntry.ChangeType.RENAME) continue;
 
                         var oldOpt = toProjectFile(de.getOldPath());
                         var newOpt = toProjectFile(de.getNewPath());

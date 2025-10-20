@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.UUID;
@@ -37,15 +38,13 @@ class SessionManagerTaskListIoTest {
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
         try {
             if (Files.exists(sessionsDir)) {
-                Files.walk(sessionsDir)
-                        .sorted(java.util.Comparator.reverseOrder())
-                        .forEach(path -> {
-                            try {
-                                Files.delete(path);
-                            } catch (Exception e) {
-                                // Log, but continue
-                            }
-                        });
+                Files.walk(sessionsDir).sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.delete(path);
+                    } catch (Exception e) {
+                        // Log, but continue
+                    }
+                });
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to clean sessions directory", e);

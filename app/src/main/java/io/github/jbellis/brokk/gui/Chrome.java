@@ -41,6 +41,7 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -1200,7 +1201,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Alt/Cmd+2 for Dependencies
-        KeyStroke switchToDependencies = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke switchToDependencies = GlobalUiSettings.getKeybinding(
                 "panel.switchToDependencies", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
         bindKey(rootPane, switchToDependencies, "switchToDependencies");
         rootPane.getActionMap().put("switchToDependencies", new AbstractAction() {
@@ -1649,9 +1650,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // Add listener to save bounds using the "preview" key
             final JFrame finalFrameForBounds = previewFrame;
-            previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
+            previewFrame.addComponentListener(new ComponentAdapter() {
                 @Override
-                public void componentMoved(java.awt.event.ComponentEvent e) {
+                public void componentMoved(ComponentEvent e) {
                     if (isDependencies) {
                         dependenciesDialogBounds = finalFrameForBounds.getBounds();
                     } else {
@@ -1660,7 +1661,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 @Override
-                public void componentResized(java.awt.event.ComponentEvent e) {
+                public void componentResized(ComponentEvent e) {
                     if (isDependencies) {
                         dependenciesDialogBounds = finalFrameForBounds.getBounds();
                     } else {
@@ -1738,7 +1739,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
         actionMap.put("closeWindow", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 // Simulate window closing event to trigger the WindowListener logic
                 finalFrameForESC.dispatchEvent(new WindowEvent(finalFrameForESC, WindowEvent.WINDOW_CLOSING));
             }
@@ -2031,7 +2032,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         boolean persistPerProject = GlobalUiSettings.isPersistPerProjectBounds();
 
         // Per-project first (only if enabled)
-        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : java.util.Optional.<Rectangle>empty();
+        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : Optional.<Rectangle>empty();
         if (boundsOpt.isPresent()) {
             var bounds = boundsOpt.get();
             frame.setSize(bounds.width, bounds.height);
@@ -2089,9 +2090,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Listener to save bounds on move/resize:
         // - always save globally (for cascade fallback)
         // - save per-project only if enabled
-        frame.addComponentListener(new java.awt.event.ComponentAdapter() {
+        frame.addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 GlobalUiSettings.saveMainWindowBounds(frame);
                 if (GlobalUiSettings.isPersistPerProjectBounds()) {
                     getProject().saveMainWindowBounds(frame);
@@ -2099,7 +2100,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
+            public void componentMoved(ComponentEvent e) {
                 GlobalUiSettings.saveMainWindowBounds(frame);
                 if (GlobalUiSettings.isPersistPerProjectBounds()) {
                     getProject().saveMainWindowBounds(frame);
@@ -2353,8 +2354,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void updateContextHistoryTable(
-            @org.jetbrains.annotations.Nullable Context contextToSelect) { // contextToSelect can be null
+    public void updateContextHistoryTable(@Nullable Context contextToSelect) { // contextToSelect can be null
         historyOutputPanel.updateHistoryTable(contextToSelect);
     }
 
@@ -2528,15 +2528,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var closeFg = UIManager.getColor("Button.close.foreground");
         closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
 
-        closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
+        closeButton.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
+            public void mouseEntered(MouseEvent e) {
                 closeButton.setForeground(Color.RED);
                 closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             }
 
             @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
+            public void mouseExited(MouseEvent e) {
                 var closeFg = UIManager.getColor("Button.close.foreground");
                 closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
@@ -2639,7 +2639,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return globalToggleMicAction;
     }
 
-    private boolean isFocusInContextArea(@org.jetbrains.annotations.Nullable Component focusOwner) {
+    private boolean isFocusInContextArea(@Nullable Component focusOwner) {
         if (focusOwner == null) return false;
         // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
         boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
@@ -2784,9 +2784,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (lastRelevantFocusOwner == null) {
                 // leave it false
             } else if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                canPasteNow = java.awt.Toolkit.getDefaultToolkit()
-                        .getSystemClipboard()
-                        .isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor);
+                canPasteNow =
+                        Toolkit.getDefaultToolkit().getSystemClipboard().isDataFlavorAvailable(DataFlavor.stringFlavor);
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
                 // ContextPanel's doPasteAction checks clipboard content type
                 canPasteNow = true;
@@ -3113,7 +3112,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setToolTipText(tooltip);
 
         // If this is a themed icon wrapper, ask it to ensure its delegate is resolved (non-blocking).
-        if (icon instanceof io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon themedIcon) {
+        if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
             try {
                 themedIcon.ensureResolved();
             } catch (Exception ex) {
@@ -3292,7 +3291,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             return;
         }
         int dividerSize = mainVerticalSplitPane.getDividerSize();
-        java.awt.Component bottom = mainVerticalSplitPane.getBottomComponent();
+        Component bottom = mainVerticalSplitPane.getBottomComponent();
         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
 
         int target = Math.max(0, desiredBottomPx);

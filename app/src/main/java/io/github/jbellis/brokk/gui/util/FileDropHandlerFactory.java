@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.datatransfer.DataFlavor;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.swing.JOptionPane;
@@ -68,7 +69,7 @@ public final class FileDropHandlerFactory {
                             })
                             .map(projectRoot::relativize)
                             .map(rel -> new ProjectFile(projectRoot, rel))
-                            .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+                            .collect(Collectors.toCollection(LinkedHashSet::new));
 
                     if (projectFiles.isEmpty()) {
                         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No project files found in drop");

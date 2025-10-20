@@ -6,14 +6,17 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.mcp.McpConfig;
+import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -150,35 +153,35 @@ public interface IProject extends AutoCloseable {
 
     default void setJdk(@Nullable String jdkHome) {}
 
-    default java.awt.Rectangle getPreviewWindowBounds() {
+    default Rectangle getPreviewWindowBounds() {
         throw new UnsupportedOperationException();
     }
 
-    default void savePreviewWindowBounds(javax.swing.JFrame frame) {
+    default void savePreviewWindowBounds(JFrame frame) {
         throw new UnsupportedOperationException();
     }
 
-    default java.awt.Rectangle getDiffWindowBounds() {
+    default Rectangle getDiffWindowBounds() {
         throw new UnsupportedOperationException();
     }
 
-    default void saveDiffWindowBounds(javax.swing.JFrame frame) {
+    default void saveDiffWindowBounds(JFrame frame) {
         throw new UnsupportedOperationException();
     }
 
-    default java.awt.Rectangle getOutputWindowBounds() {
+    default Rectangle getOutputWindowBounds() {
         throw new UnsupportedOperationException();
     }
 
-    default void saveOutputWindowBounds(javax.swing.JFrame frame) {
+    default void saveOutputWindowBounds(JFrame frame) {
         throw new UnsupportedOperationException();
     }
 
-    default java.util.Optional<java.awt.Rectangle> getMainWindowBounds() {
+    default Optional<Rectangle> getMainWindowBounds() {
         throw new UnsupportedOperationException();
     }
 
-    default void saveMainWindowBounds(javax.swing.JFrame frame) {
+    default void saveMainWindowBounds(JFrame frame) {
         throw new UnsupportedOperationException();
     }
 
@@ -239,11 +242,11 @@ public interface IProject extends AutoCloseable {
     }
 
     /* Blitz-history: (parallel instructions, post-processing instructions) */
-    default java.util.List<java.util.List<String>> loadBlitzHistory() {
-        return java.util.List.of();
+    default List<List<String>> loadBlitzHistory() {
+        return List.of();
     }
 
-    default java.util.List<java.util.List<String>> addToBlitzHistory(
+    default List<List<String>> addToBlitzHistory(
             String parallelInstructions, String postProcessingInstructions, int maxItems) {
         throw new UnsupportedOperationException();
     }
@@ -311,12 +314,11 @@ public interface IProject extends AutoCloseable {
     }
 
     // New methods for the IssueProvider record
-    default io.github.jbellis.brokk.IssueProvider
-            getIssuesProvider() { // Method name clash is intentional record migration
+    default IssueProvider getIssuesProvider() { // Method name clash is intentional record migration
         throw new UnsupportedOperationException();
     }
 
-    default void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+    default void setIssuesProvider(IssueProvider provider) {
         throw new UnsupportedOperationException();
     }
 
@@ -365,7 +367,7 @@ public interface IProject extends AutoCloseable {
     record Dependency(ProjectFile root, Language language) {
         private static final Logger logger = LogManager.getLogger(Dependency.class);
 
-        public java.util.Set<ProjectFile> files() {
+        public Set<ProjectFile> files() {
             try (var pathStream = Files.walk(root.absPath())) {
                 var masterRoot = root.getRoot();
                 return pathStream
@@ -374,7 +376,7 @@ public interface IProject extends AutoCloseable {
                         .collect(Collectors.toSet());
             } catch (IOException e) {
                 logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
-                return java.util.Set.of();
+                return Set.of();
             }
         }
     }

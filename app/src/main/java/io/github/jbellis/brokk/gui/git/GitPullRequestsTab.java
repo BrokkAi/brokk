@@ -2,9 +2,12 @@ package io.github.jbellis.brokk.gui.git;
 
 import static java.util.Objects.requireNonNull;
 
+import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.IGitRepo.ModificationType;
@@ -14,6 +17,7 @@ import io.github.jbellis.brokk.gui.FilterBox;
 import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.components.PullRequestHeaderCellRenderer;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -22,7 +26,9 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,7 +43,12 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.TransportException;
+import org.eclipse.jgit.errors.MissingObjectException;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.transport.URIish;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHIssueComment;
@@ -67,7 +78,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prTableModel;
     private JTable prCommitsTable;
     private DefaultTableModel prCommitsTableModel;
-    private io.github.jbellis.brokk.gui.components.MaterialButton viewPrDiffButton;
+    private MaterialButton viewPrDiffButton;
 
     // Context Menu Items for prTable
     private JMenuItem checkoutPrMenuItem;
@@ -89,8 +100,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
-    private List<org.kohsuke.github.GHPullRequest> allPrsFromApi = new ArrayList<>();
-    private List<org.kohsuke.github.GHPullRequest> displayedPrs = new ArrayList<>();
+    private List<GHPullRequest> allPrsFromApi = new ArrayList<>();
+    private List<GHPullRequest> displayedPrs = new ArrayList<>();
     private final Map<Integer, String> ciStatusCache = new ConcurrentHashMap<>();
     private final Map<Integer, List<ICommitInfo>> prCommitsCache = new ConcurrentHashMap<>();
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
@@ -113,16 +124,15 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * @return true if the commit is resolvable and its object data is parsable, false otherwise.
      */
     private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
-        org.eclipse.jgit.lib.ObjectId objectId = null;
+        ObjectId objectId = null;
         try {
             objectId = repo.resolveToCommit(sha);
             // Try to parse the commit to ensure its data is present
-            try (org.eclipse.jgit.revwalk.RevWalk revWalk =
-                    new org.eclipse.jgit.revwalk.RevWalk(repo.getGit().getRepository())) {
+            try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
                 revWalk.parseCommit(objectId);
                 return true; // Resolvable and parsable
             }
-        } catch (org.eclipse.jgit.errors.MissingObjectException e) {
+        } catch (MissingObjectException e) {
             logger.debug(
                     "Commit object for SHA {} (resolved to {}) is missing locally.",
                     repo.shortHash(sha),
@@ -313,9 +323,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
 
         // custom renderer similar to IssueHeader list style
-        prTable.getColumnModel()
-                .getColumn(PR_COL_TITLE)
-                .setCellRenderer(new io.github.jbellis.brokk.gui.components.PullRequestHeaderCellRenderer());
+        prTable.getColumnModel().getColumn(PR_COL_TITLE).setCellRenderer(new PullRequestHeaderCellRenderer());
 
         JScrollPane prTableScrollPane = new JScrollPane(prTable);
 
@@ -335,7 +343,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
         prButtonPanel.setLayout(new BoxLayout(prButtonPanel, BoxLayout.X_AXIS));
 
-        viewPrDiffButton = new io.github.jbellis.brokk.gui.components.MaterialButton();
+        viewPrDiffButton = new MaterialButton();
         viewPrDiffButton.setIcon(Icons.DIFFERENCE);
         viewPrDiffButton.setText(""); // icon-only
         viewPrDiffButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
@@ -949,7 +957,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         setReloadUiEnabled(false);
 
         var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
-            List<org.kohsuke.github.GHPullRequest> fetchedPrs;
+            List<GHPullRequest> fetchedPrs;
             try {
                 var project = contextManager.getProject();
                 GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
@@ -985,7 +993,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
 
             // Process fetched PRs on EDT
-            List<org.kohsuke.github.GHPullRequest> finalFetchedPrs = fetchedPrs;
+            List<GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
                 allPrsFromApi = new ArrayList<>(finalFetchedPrs);
                 prCommitsCache.clear(); // Clear commits cache for new PR list
@@ -1011,7 +1019,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return assigneeChoices;
     }
 
-    private void populateDynamicFilterChoices(List<org.kohsuke.github.GHPullRequest> prs) {
+    private void populateDynamicFilterChoices(List<GHPullRequest> prs) {
         // Author Filter
         Map<String, Integer> authorCounts = new HashMap<>();
         for (var pr : prs) {
@@ -1122,7 +1130,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Update table model
         prTableModel.setRowCount(0);
-        var today = LocalDate.now(java.time.ZoneId.systemDefault());
+        var today = LocalDate.now(ZoneId.systemDefault());
         if (displayedPrs.isEmpty()) {
             prTableModel.addRow(new Object[] {"", "No matching PRs found", "", "", ""});
             disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
@@ -1133,7 +1141,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         try {
                             return pr.getUpdatedAt();
                         } catch (IOException e) {
-                            return Date.from(java.time.Instant.EPOCH); // Oldest on error
+                            return Date.from(Instant.EPOCH); // Oldest on error
                         }
                     },
                     Comparator.nullsLast(Comparator.reverseOrder())));
@@ -1645,43 +1653,42 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     return null;
                 }
 
-                var builder = new io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel.Builder(
-                                chrome.getTheme(), contextManager)
+                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                         .setMultipleCommitsContext(true) // Indicate this is a multiple commits context
                         .setRootTitle(PrTitleFormatter.formatPrRoot(pr));
 
                 for (var mf : modifiedFiles) {
                     var projectFile = mf.file();
                     var status = mf.status();
-                    io.github.jbellis.brokk.difftool.ui.BufferSource leftSource, rightSource;
+                    BufferSource leftSource, rightSource;
 
                     if (status == ModificationType.DELETED) {
                         // Deleted: left side has content from base, right side is empty (but still track head SHA for
                         // blame)
-                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                        leftSource = new BufferSource.StringSource(
                                 repo.getFileContent(prBaseSha, projectFile),
                                 prBaseSha,
                                 projectFile.toString(),
                                 prBaseSha);
-                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                        rightSource = new BufferSource.StringSource(
                                 "", prHeadSha + " (Deleted)", projectFile.toString(), prHeadSha);
                     } else if (status == ModificationType.NEW) {
                         // New: left side is empty (but still track base SHA for blame), right side has content from
                         // head
-                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                        leftSource = new BufferSource.StringSource(
                                 "", prBaseSha + " (New)", projectFile.toString(), prBaseSha);
-                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                        rightSource = new BufferSource.StringSource(
                                 repo.getFileContent(prHeadSha, projectFile),
                                 prHeadSha,
                                 projectFile.toString(),
                                 prHeadSha);
                     } else { // modified or conflict
-                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                        leftSource = new BufferSource.StringSource(
                                 repo.getFileContent(prBaseSha, projectFile),
                                 prBaseSha,
                                 projectFile.toString(),
                                 prBaseSha);
-                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                        rightSource = new BufferSource.StringSource(
                                 repo.getFileContent(prHeadSha, projectFile),
                                 prHeadSha,
                                 projectFile.toString(),
@@ -1702,17 +1709,16 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     // Unused method removed
     // private String getLocalSyncStatus(GHPullRequest pr, String prHeadSha) { ... }
 
-    private String getCiStatus(org.kohsuke.github.GHPullRequest pr) throws IOException {
+    private String getCiStatus(GHPullRequest pr) throws IOException {
         // This method is now called from a background thread within updatePrList.
         // The IOException is declared because pr.getMergeableState() can throw it.
         var state = pr.getMergeableState(); // returns String like "clean", "dirty", "blocked", "unknown", "draft" etc.
         if (state == null) return "";
-        return switch (com.google.common.base.Ascii.toLowerCase(state)) {
+        return switch (Ascii.toLowerCase(state)) {
             case "clean" -> "clean";
             case "blocked", "dirty" -> "blocked";
             case "unstable", "behind" -> "unstable";
-            default ->
-                com.google.common.base.Ascii.toLowerCase(state); // return other states like "draft", "unknown" as is
+            default -> Ascii.toLowerCase(state); // return other states like "draft", "unknown" as is
         };
     }
 
@@ -1837,7 +1843,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             return;
         }
 
-        org.kohsuke.github.GHPullRequest selectedPrObject = displayedPrs.get(selectedRow);
+        GHPullRequest selectedPrObject = displayedPrs.get(selectedRow);
         final int prNumber = selectedPrObject.getNumber();
 
         Optional<String> existingLocalBranchOpt = existsLocalPrBranch(selectedPrObject);
@@ -1880,7 +1886,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * Checks out a PR as a new local branch. Handles PRs from the main repository or forks, adding remotes if
      * necessary.
      */
-    private void checkoutPrAsNewBranch(org.kohsuke.github.GHPullRequest pr) {
+    private void checkoutPrAsNewBranch(GHPullRequest pr) {
         final int prNumber = pr.getNumber();
         logger.info("Starting checkout of PR #{} as a new local branch", prNumber);
         contextManager.submitExclusiveAction(() -> {
@@ -1917,10 +1923,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 .getGit()
                                 .remoteAdd()
                                 .setName(remoteName)
-                                .setUri(new org.eclipse.jgit.transport.URIish(prRepoUrl + ".git"))
+                                .setUri(new URIish(prRepoUrl + ".git"))
                                 .call();
                         logger.info("Added remote '{}' for URL '{}'", remoteName, prRepoUrl);
-                    } catch (org.eclipse.jgit.api.errors.TransportException e) {
+                    } catch (TransportException e) {
                         if (e.getMessage() != null
                                 && e.getMessage().contains("remote " + remoteName + " already exists")) {
                             logger.info("Remote {} already exists.", remoteName);
@@ -1930,7 +1936,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         }
                     }
 
-                    var refSpec = new org.eclipse.jgit.transport.RefSpec(
+                    var refSpec = new RefSpec(
                             "+refs/heads/" + prBranchName + ":refs/remotes/" + remoteName + "/" + prBranchName);
                     logger.info("Fetching from remote '{}' with refspec '{}'", remoteName, refSpec);
                     getRepo()
@@ -1990,7 +1996,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
             return;
         }
-        org.kohsuke.github.GHPullRequest pr = displayedPrs.get(selectedRow);
+        GHPullRequest pr = displayedPrs.get(selectedRow);
         String url = pr.getHtmlUrl().toString();
         Environment.openInBrowser(url, SwingUtilities.getWindowAncestor(chrome.getFrame()));
     }

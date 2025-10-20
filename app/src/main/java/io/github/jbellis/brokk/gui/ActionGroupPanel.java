@@ -8,6 +8,8 @@ import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.JCheckBox;
@@ -30,14 +32,14 @@ public class ActionGroupPanel extends JPanel {
     private final JCheckBox modeSwitch;
     private boolean hovering = false;
 
-    private final java.awt.event.MouseAdapter hoverListener = new java.awt.event.MouseAdapter() {
+    private final MouseAdapter hoverListener = new MouseAdapter() {
         @Override
-        public void mouseEntered(java.awt.event.MouseEvent e) {
+        public void mouseEntered(MouseEvent e) {
             setHovering(true);
         }
 
         @Override
-        public void mouseExited(java.awt.event.MouseEvent e) {
+        public void mouseExited(MouseEvent e) {
             // Only clear hover if we truly left the panel (not just moved over a child)
             var panel = ActionGroupPanel.this;
             var source = (Component) e.getSource();
@@ -48,7 +50,7 @@ public class ActionGroupPanel extends JPanel {
         }
 
         @Override
-        public void mouseClicked(java.awt.event.MouseEvent e) {
+        public void mouseClicked(MouseEvent e) {
             if (e.getSource() != modeSwitch) {
                 modeSwitch.doClick();
             }
@@ -60,9 +62,9 @@ public class ActionGroupPanel extends JPanel {
         this.modeSwitch = modeSwitch;
 
         // Initial border using UI border color
-        java.awt.Color borderColor = UIManager.getColor("Component.borderColor");
+        Color borderColor = UIManager.getColor("Component.borderColor");
         if (borderColor == null) {
-            borderColor = java.awt.Color.GRAY;
+            borderColor = Color.GRAY;
         }
         setBorder(BorderFactory.createCompoundBorder(
                 new RoundedLineBorder(borderColor, 1, -1), BorderFactory.createEmptyBorder(2, 6, 2, 6)));

@@ -196,7 +196,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private DefaultMutableTreeNode findOrCreateDirectoryNodeWithCollapsing(
-            DefaultMutableTreeNode root, java.util.List<String> parts) {
+            DefaultMutableTreeNode root, List<String> parts) {
         if (parts.isEmpty()) {
             return root;
         }
@@ -266,7 +266,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return null;
     }
 
-    private int findCommonPrefixLength(java.util.List<String> list1, java.util.List<String> list2) {
+    private int findCommonPrefixLength(List<String> list1, List<String> list2) {
         int commonLength = 0;
         int maxLength = Math.min(list1.size(), list2.size());
 
@@ -310,8 +310,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return commonNode;
     }
 
-    private DefaultMutableTreeNode createCollapsedChain(
-            DefaultMutableTreeNode parent, java.util.List<String> segments) {
+    private DefaultMutableTreeNode createCollapsedChain(DefaultMutableTreeNode parent, List<String> segments) {
         if (segments.isEmpty()) {
             return parent;
         }
@@ -336,7 +335,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
-    private CollapsedDirectoryNode createCollapsedNode(java.util.List<String> segments) {
+    private CollapsedDirectoryNode createCollapsedNode(List<String> segments) {
         if (segments.size() == 1) {
             return new CollapsedDirectoryNode(segments.get(0));
         } else {
@@ -714,10 +713,10 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
     private static class CollapsedDirectoryNode extends DefaultMutableTreeNode {
         private final String compoundPath;
-        private final java.util.List<String> segments;
+        private final List<String> segments;
         private final boolean isCollapsed;
 
-        public CollapsedDirectoryNode(String compoundPath, java.util.List<String> segments, boolean isCollapsed) {
+        public CollapsedDirectoryNode(String compoundPath, List<String> segments, boolean isCollapsed) {
             super(compoundPath);
             this.compoundPath = compoundPath;
             this.segments = new ArrayList<>(segments);
@@ -728,7 +727,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             this(singleSegment, List.of(singleSegment), false);
         }
 
-        public java.util.List<String> getSegments() {
+        public List<String> getSegments() {
             return segments;
         }
 

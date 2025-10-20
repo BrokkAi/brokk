@@ -1,12 +1,14 @@
 package io.github.jbellis.brokk.util;
 
 import com.google.common.base.Splitter;
+import java.awt.Frame;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Properties;
+import javax.swing.KeyStroke;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -108,23 +110,23 @@ public final class GlobalUiSettings {
     }
 
     // --- Keybinding persistence ---
-    public static javax.swing.KeyStroke getKeybinding(String id, javax.swing.KeyStroke fallback) {
+    public static KeyStroke getKeybinding(String id, KeyStroke fallback) {
         var props = loadProps();
         var raw = props.getProperty(KEYBIND_PREFIX + id);
         if (raw == null || raw.isBlank()) return fallback;
         try {
-            var parts = com.google.common.base.Splitter.on(',').splitToList(raw);
+            var parts = Splitter.on(',').splitToList(raw);
             if (parts.size() != 2) return fallback;
             int keyCode = Integer.parseInt(parts.get(0));
             int modifiers = Integer.parseInt(parts.get(1));
-            var ks = javax.swing.KeyStroke.getKeyStroke(keyCode, modifiers);
+            var ks = KeyStroke.getKeyStroke(keyCode, modifiers);
             return ks != null ? ks : fallback;
         } catch (Exception e) {
             return fallback;
         }
     }
 
-    public static void saveKeybinding(String id, javax.swing.KeyStroke stroke) {
+    public static void saveKeybinding(String id, KeyStroke stroke) {
         var props = loadProps();
         int keyCode = stroke.getKeyCode();
         int modifiers = stroke.getModifiers();
@@ -153,7 +155,7 @@ public final class GlobalUiSettings {
         }
     }
 
-    public static void saveMainWindowBounds(java.awt.Frame frame) {
+    public static void saveMainWindowBounds(Frame frame) {
         var props = loadProps();
         String value = "%d,%d,%d,%d".formatted(frame.getX(), frame.getY(), frame.getWidth(), frame.getHeight());
         props.setProperty(KEY_MAIN_BOUNDS, value);

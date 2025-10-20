@@ -25,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -589,7 +590,7 @@ public interface ContextFragment {
                             new IOException("Cannot read image file (permission denied): " + file.absPath()));
                 }
 
-                Image result = javax.imageio.ImageIO.read(imageFile);
+                Image result = ImageIO.read(imageFile);
                 if (result == null) {
                     // ImageIO.read() returns null if no registered ImageReader can read the file
                     // This can happen for unsupported formats, corrupted files, or non-image files
@@ -852,7 +853,7 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             // SearchFragment sources are pre-computed
-            return sources().stream().map(CodeUnit::source).collect(java.util.stream.Collectors.toSet());
+            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
     }
 
@@ -1136,7 +1137,7 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             // StacktraceFragment sources are pre-computed
-            return sources().stream().map(CodeUnit::source).collect(java.util.stream.Collectors.toSet());
+            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
 
         @Override

@@ -1,2 +1,4 @@
-@org.jspecify.annotations.NullMarked
+@NullMarked
 package io.github.jbellis.brokk.tools;
+
+import org.jspecify.annotations.NullMarked;

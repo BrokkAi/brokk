@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Ascii;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -46,10 +47,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -154,8 +160,8 @@ public class Llm {
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
-        var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
+        var timestamp =
+                LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
 
         // Create the specific directory for this task with uniqueness check
@@ -190,7 +196,7 @@ public class Llm {
     }
 
     private static String logFileTimestamp() {
-        return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
+        return LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
     }
 
     /**
@@ -685,7 +691,7 @@ public class Llm {
         if (this.tagRetain) {
             // this is the only place we add metadata so we can just overwrite what's there
             logger.trace("Adding 'retain' metadata tag to LLM request.");
-            Map<String, String> newMetadata = new java.util.HashMap<>();
+            Map<String, String> newMetadata = new HashMap<>();
             newMetadata.put("tags", "retain");
             builder.metadata(newMetadata);
         }
@@ -1122,7 +1128,7 @@ public class Llm {
             // Extract text between fences, removing potential language identifier and trimming whitespace
             String fencedText = rawText.substring(firstFence + 3, lastFence).strip();
             // Handle optional language identifier like "json"
-            if (com.google.common.base.Ascii.toLowerCase(fencedText).startsWith("json")) {
+            if (Ascii.toLowerCase(fencedText).startsWith("json")) {
                 fencedText = fencedText.substring(4).stripLeading();
             }
 
@@ -1389,8 +1395,7 @@ public class Llm {
                         message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                     } else {
                         double cost = pricing.estimateCost(uncached, cached, output);
-                        java.text.DecimalFormat df =
-                                (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+                        DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                         df.applyPattern("#,##0.0000");
                         String costStr = df.format(cost);
                         message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";

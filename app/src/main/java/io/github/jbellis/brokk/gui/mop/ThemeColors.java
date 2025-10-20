@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.mop;
 
 import java.awt.Color;
+import java.util.HashMap;
 import java.util.Map;
 import javax.swing.UIManager;
 import org.apache.logging.log4j.LogManager;
@@ -178,7 +179,7 @@ public class ThemeColors {
      */
     public static Map<String, Color> getAllColors(boolean isDarkTheme) {
         // Build a map of all Brokk.* colors from UIManager
-        var colors = new java.util.HashMap<String, Color>();
+        var colors = new HashMap<String, Color>();
         var defaults = UIManager.getDefaults();
 
         defaults.keySet().stream()

@@ -3,6 +3,8 @@ package io.github.jbellis.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -205,8 +207,8 @@ class ExceptionReporterIntegrationTest {
     }
 
     private String formatStackTrace(Throwable throwable) {
-        java.io.StringWriter sw = new java.io.StringWriter();
-        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
         throwable.printStackTrace(pw);
         return sw.toString();
     }

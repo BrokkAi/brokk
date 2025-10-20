@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.BorderLayout;
 import java.awt.Frame;
 import java.awt.GridLayout;
+import java.awt.Point;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.JDialog;
@@ -77,7 +78,7 @@ public final class DropActionDialog extends JDialog {
      * Shows the dialog (on EDT) at the given screen location and returns the chosen ContextAction, or null if canceled.
      */
     public static @Nullable WorkspacePanel.ContextAction show(
-            Frame owner, boolean allowSummarize, @Nullable java.awt.Point screenLocation) {
+            Frame owner, boolean allowSummarize, @Nullable Point screenLocation) {
         if (!SwingUtilities.isEventDispatchThread()) {
             final WorkspacePanel.ContextAction[] out = new WorkspacePanel.ContextAction[1];
             SwingUtilities.invokeLater(() -> {
