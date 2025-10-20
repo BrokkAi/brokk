@@ -635,10 +635,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             requestCommandInputFocus();
         });
 
-        var container = new JPanel(new BorderLayout(H_GLUE, 0));
-        container.setOpaque(false);
-        container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-
         // Sizer panel computes rows (1..5) based on current width and chip widths.
         var chipsSizer = new JPanel(new BorderLayout()) {
             private int computeRowsForWidth(int contentWidth) {
@@ -704,8 +700,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chipsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         chipsSizer.add(chipsScrollPane, BorderLayout.CENTER);
 
-        container.add(chipsSizer, BorderLayout.CENTER);
-
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
@@ -745,7 +739,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextRightPanel.add(attachButton);
         bottomLinePanel.add(contextRightPanel, BorderLayout.EAST);
 
-        container.add(bottomLinePanel, BorderLayout.SOUTH);
+        // The InteractiveHoverPanel now manages its own layout and hover logic
+        var hoverPanel =
+                new InteractiveHoverPanel(chipsSizer, bottomLinePanel, workspaceItemsChipPanel, tokenUsageBar);
+        hoverPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
+        hoverPanel.install();
 
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
@@ -805,7 +803,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
         var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
         titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
-        titledContainer.add(container, BorderLayout.CENTER);
+        titledContainer.add(hoverPanel, BorderLayout.CENTER);
 
         // Add mouse listener for right-click context menu in empty space
         titledContainer.addMouseListener(new MouseAdapter() {
@@ -831,10 +829,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 tokenUsageBarPopupMenu.show(titledContainer, e.getX(), e.getY());
             }
         });
-
-        // Cross-highlight Chips <-> TokenUsageBar segments
-        var hoverPanel = new InteractiveHoverPanel(titledContainer, workspaceItemsChipPanel, tokenUsageBar);
-        hoverPanel.install();
 
         // Insert beneath the command-input area (index 2)
         return titledContainer;

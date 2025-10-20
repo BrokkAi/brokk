@@ -1,33 +1,44 @@
 package io.github.jbellis.brokk.gui;
 
+import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
+
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.TokenUsageBar;
+import java.awt.BorderLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Collection;
 import java.util.List;
 import javax.swing.JComponent;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
-public final class InteractiveHoverPanel {
-    private final JComponent hostContainer;
+public class InteractiveHoverPanel extends JPanel {
     private final WorkspaceItemsChipPanel chips;
     private final TokenUsageBar tokenBar;
     private final HoverMouseListener mouseListener = new HoverMouseListener();
     private volatile Collection<ContextFragment> currentHover = List.of();
 
-    public InteractiveHoverPanel(JComponent hostContainer, WorkspaceItemsChipPanel chips, TokenUsageBar tokenBar) {
-        this.hostContainer = hostContainer;
+    public InteractiveHoverPanel(
+            JComponent chipContainer,
+            JComponent tokenBarContainer,
+            WorkspaceItemsChipPanel chips,
+            TokenUsageBar tokenBar) {
+        super(new BorderLayout(H_GLUE, 0));
+        setOpaque(false);
         this.chips = chips;
         this.tokenBar = tokenBar;
+
+        add(chipContainer, BorderLayout.CENTER);
+        add(tokenBarContainer, BorderLayout.SOUTH);
     }
 
     public void install() {
         SwingUtilities.invokeLater(() -> {
-            hostContainer.addMouseListener(mouseListener);
+            addMouseListener(mouseListener);
             chips.setOnHover((frag, entered) -> {
                 if (entered && frag != null) {
                     setHoverTarget(List.of(frag));
@@ -45,7 +56,7 @@ public final class InteractiveHoverPanel {
 
     public void dispose() {
         SwingUtilities.invokeLater(() -> {
-            hostContainer.removeMouseListener(mouseListener);
+            removeMouseListener(mouseListener);
             chips.setOnHover(null);
             tokenBar.setOnHoverFragments(null);
             setHoverTarget(List.of());
@@ -72,7 +83,7 @@ public final class InteractiveHoverPanel {
         public void mouseExited(MouseEvent e) {
             // If the mouse exits the host container, clear the hover state.
             // This prevents flicker when moving between chips and the token bar.
-            if (!hostContainer.contains(e.getPoint())) {
+            if (!contains(e.getPoint())) {
                 setHoverTarget(List.of());
             }
         }
