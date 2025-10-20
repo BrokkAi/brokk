@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.McpToolTable;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.JDeploySettingsUtil;
 import io.github.jbellis.brokk.mcp.HttpMcpServer;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
@@ -100,6 +101,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JComboBox<String> uiScaleCombo; // Hidden on macOS
 
+    // JVM memory settings controls (General tab)
+    private JRadioButton memoryAutoRadio = new JRadioButton("Automatic (recommended)");
+    private JRadioButton memoryManualRadio = new JRadioButton("Manual:");
+    private JSpinner memorySpinner = new JSpinner();
+
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
@@ -133,6 +139,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void initComponents() {
         // globalSubTabbedPane is already initialized
+
+        // General Tab
+        var generalPanel = createGeneralPanel();
+        globalSubTabbedPane.addTab("General", null, generalPanel, "General settings");
 
         // Service Tab
         var servicePanel = createServicePanel();
@@ -528,6 +538,91 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     public JTabbedPane getGlobalSubTabbedPane() {
         return globalSubTabbedPane;
+    }
+
+    private JPanel createGeneralPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
+
+        // Title
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("JVM Memory Allocation:"), gbc);
+
+        // Radio group
+        var memoryGroup = new ButtonGroup();
+        memoryGroup.add(memoryAutoRadio);
+        memoryGroup.add(memoryManualRadio);
+
+        // Auto option
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        var autoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        autoPanel.add(memoryAutoRadio);
+        panel.add(autoPanel, gbc);
+
+        // Manual option with spinner
+        var spinnerModel = new SpinnerNumberModel(4096, 512, 16384, 128);
+        try {
+            long maxBytes = Runtime.getRuntime().maxMemory();
+            int detectedMb;
+            if (maxBytes <= 0 || maxBytes == Long.MAX_VALUE) {
+                detectedMb = 4096; // fallback when not detectable
+            } else {
+                detectedMb = (int) Math.round(maxBytes / 1024.0 / 1024.0);
+                if (detectedMb < 512) detectedMb = 512;
+                if (detectedMb > 16384) detectedMb = 16384;
+                // Snap to nearest 128MB for nicer alignment with step size
+                detectedMb = ((detectedMb + 64) / 128) * 128;
+            }
+            spinnerModel.setValue(detectedMb);
+        } catch (Exception ignored) {
+            spinnerModel.setValue(4096);
+        }
+        memorySpinner.setModel(spinnerModel);
+        memorySpinner.setEditor(new JSpinner.NumberEditor(memorySpinner, "#0"));
+
+        var manualPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        manualPanel.add(memoryManualRadio);
+        manualPanel.add(Box.createHorizontalStrut(5));
+        manualPanel.add(memorySpinner);
+        manualPanel.add(Box.createHorizontalStrut(5));
+        manualPanel.add(new JLabel("MB"));
+
+        gbc.gridy = row++;
+        panel.add(manualPanel, gbc);
+
+        // Listeners to enable/disable spinner
+        memoryAutoRadio.addActionListener(e -> memorySpinner.setEnabled(false));
+        memoryManualRadio.addActionListener(e -> memorySpinner.setEnabled(true));
+
+        // Default selection
+        memoryAutoRadio.setSelected(true);
+        memorySpinner.setEnabled(false);
+
+        // Restart note
+        var restartLabel = new JLabel("Restart required after changing memory settings");
+        restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
+        gbc.gridy = row++;
+        gbc.insets = new Insets(0, 25, 2, 5);
+        panel.add(restartLabel, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5);
+
+        // Filler
+        gbc.gridy = row;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.VERTICAL;
+        panel.add(Box.createVerticalGlue(), gbc);
+
+        return panel;
     }
 
     private JPanel createServicePanel() {
@@ -1089,6 +1184,36 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     public void loadSettings() {
+        // General Tab - JVM Memory
+        try {
+            var mem = MainProject.getJvmMemorySettings();
+            if (mem.automatic()) {
+                memoryAutoRadio.setSelected(true);
+                memorySpinner.setEnabled(false);
+            } else {
+                memoryManualRadio.setSelected(true);
+                memorySpinner.setEnabled(true);
+                try {
+                    int v = mem.manualMb();
+                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
+                    int min = ((Number) model.getMinimum()).intValue();
+                    int max = ((Number) model.getMaximum()).intValue();
+                    if (v < min) v = min;
+                    if (v > max) v = max;
+                    int step = model.getStepSize().intValue();
+                    if (step > 0) {
+                        int rem = v % step;
+                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
+                    }
+                    memorySpinner.setValue(v);
+                } catch (Exception ignore) {
+                    // leave spinner as-is
+                }
+            }
+        } catch (Exception ignore) {
+            // Use defaults if there is any problem reading settings
+        }
+
         // Service Tab
         brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
@@ -1257,6 +1382,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
         int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
+
+        // General Tab - JVM Memory
+        try {
+            boolean automatic = memoryAutoRadio.isSelected();
+            int mb = ((Number) memorySpinner.getValue()).intValue();
+            var jvmSettings = new MainProject.JvmMemorySettings(automatic, mb);
+            MainProject.setJvmMemorySettings(jvmSettings);
+            JDeploySettingsUtil.updateJvmMemorySettings(jvmSettings);
+            logger.debug(
+                    "Applied JVM memory settings: mode={}, mb={}",
+                    automatic ? "auto" : "manual",
+                    automatic ? "n/a" : mb);
+        } catch (Exception e) {
+            logger.warn("Failed to persist JVM memory settings", e);
+        }
 
         // Appearance Tab
         // Get theme from the selected radio button's client property

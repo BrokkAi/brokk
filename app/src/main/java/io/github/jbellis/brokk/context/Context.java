@@ -205,11 +205,11 @@ public class Context {
             return List.of();
         }
 
-        var gitDistanceResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
+        var gitDistanceResults =
+                GitDistance.getRelatedFiles((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
         return gitDistanceResults.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
-                .limit(topK)
                 .toList();
     }
 

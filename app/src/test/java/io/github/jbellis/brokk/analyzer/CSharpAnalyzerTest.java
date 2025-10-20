@@ -45,15 +45,14 @@ public final class CSharpAnalyzerTest {
 
         String expectedClassASkeleton =
                 """
-        public class A {
-          public int MyField;
-          public string MyProperty { get; set; }
-          public void MethodA() { … }
-          public void MethodA(int param) { … }
-          public A() { … }
-        }
-        """
-                        .stripIndent();
+                public class A {
+                  public int MyField;
+                  public string MyProperty { get; set; }
+                  public void MethodA() { … }
+                  public void MethodA(int param) { … }
+                  public A() { … }
+                }
+                """;
         java.util.function.Function<String, String> normalize =
                 (String s) -> s.lines().map(String::strip).collect(Collectors.joining("\n"));
         assertEquals(
@@ -168,12 +167,12 @@ public final class CSharpAnalyzerTest {
         assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.<init> should be present.");
         String expectedConstructorSource =
                 """
-        // Constructor
-        public A()
-        {
-            MyField = 0;
-            MyProperty = "default";
-        }""";
+                // Constructor
+                public A()
+                {
+                    MyField = 0;
+                    MyProperty = "default";
+                }""";
         assertEquals(
                 normalizeSource.apply(expectedConstructorSource),
                 normalizeSource.apply(constructorSourceOpt.get()),
@@ -185,19 +184,19 @@ public final class CSharpAnalyzerTest {
 
         String expectedMethodAOverload1Source =
                 """
-        // Method
-        public void MethodA()
-        {
-            // Method body
-        }""";
+                // Method
+                public void MethodA()
+                {
+                    // Method body
+                }""";
         String expectedMethodAOverload2Source =
                 """
-        // Overloaded Method
-        public void MethodA(int param)
-        {
-            // Overloaded method body
-            int x = param + 1;
-        }""";
+                // Overloaded Method
+                public void MethodA(int param)
+                {
+                    // Overloaded method body
+                    int x = param + 1;
+                }""";
         String expectedCombinedMethodASource = normalizeSource.apply(expectedMethodAOverload1Source) + "\n\n"
                 + normalizeSource.apply(expectedMethodAOverload2Source);
 
@@ -218,7 +217,8 @@ public final class CSharpAnalyzerTest {
                 "Source for Outer.Inner.MyNestedClass.NestedMethod should be present.");
         String expectedNestedMethodSource =
                 """
-        public void NestedMethod() {}"""; // This is the exact content from NestedNamespaces.cs
+                public void NestedMethod() {}"""; // This is the exact content from
+        // NestedNamespaces.cs
         assertEquals(
                 normalizeSource.apply(expectedNestedMethodSource),
                 normalizeSource.apply(nestedMethodSourceOpt.get()),
@@ -263,12 +263,12 @@ public final class CSharpAnalyzerTest {
         // Verify the text of the interface skeleton
         String expectedIfaceSkeleton =
                 """
-        public interface IAssetRegistrySA {
-          public Task<Message> ValidateExistenceAsync(Guid assetId) { … }
-          public Task<bool> CanConnectAsync() { … }
-          public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId) { … }
-        }
-        """;
+                public interface IAssetRegistrySA {
+                  public Task<Message> ValidateExistenceAsync(Guid assetId) { … }
+                  public Task<bool> CanConnectAsync() { … }
+                  public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId) { … }
+                }
+                """;
         assertEquals(
                 normalizeSource.apply(expectedIfaceSkeleton),
                 normalizeSource.apply(skels.get(ifaceCU)),

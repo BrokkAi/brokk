@@ -88,7 +88,7 @@ public class TreeSitterRepoRunner {
                         "https://github.com/spring-projects/spring-framework.git",
                         "main",
                         Map.of("java", List.of("**/*.java")),
-                        List.of("**/test/**", "build/**", "**/target/**")));
+                        List.of("**/test/**", "build/**", "**/testData/**")));
         projects.put(
                 "kafka",
                 new ProjectConfig(
@@ -1061,8 +1061,6 @@ public class TreeSitterRepoRunner {
                                     "TIME(sec)",
                                     "MEMORY(MB)",
                                     "MB/FILE",
-                                    "FAILED",
-                                    "REASON",
                                     "-".repeat(100));
 
             var status = result.failed ? "YES" : "NO";
@@ -1111,9 +1109,7 @@ public class TreeSitterRepoRunner {
                                     Runtime.getRuntime().maxMemory() / (1024 * 1024),
                                     Runtime.getRuntime().availableProcessors(),
                                     resultsJson,
-                                    formatFailuresJson())
-                            .stripIndent();
-
+                                    formatFailuresJson());
             Files.writeString(file, json);
         }
 
@@ -1256,8 +1252,7 @@ public class TreeSitterRepoRunner {
                                     failedSection,
                                     totalSuccessful,
                                     totalFailed,
-                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed))
-                            .stripIndent();
+                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed));
 
             Files.writeString(file, summary);
         }

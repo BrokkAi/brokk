@@ -116,15 +116,14 @@ public final class MergeOneFile {
         this.currentSessionMessages = new ArrayList<>();
         var sys = new SystemMessage(
                 """
-                You are a merge assistant resolving conflicts in ONE file. You can:
-                  - Inspect class skeletons / sources / method bodies (if available)
-                  - Read raw file contents (fallback)
-                  - Explain single commits to understand intent
-                When you have enough context, call `callCodeAgent` with concrete instructions; it will perform the edit.
-                Do NOT output the final merged file directly; always delegate to CodeAgent.
-                Keep changes minimal and strictly related to resolving conflicts and restoring compilation/tests.
-                """
-                        .stripIndent());
+        You are a merge assistant resolving conflicts in ONE file. You can:
+        - Inspect class skeletons / sources / method bodies (if available)
+        - Read raw file contents (fallback)
+        - Explain single commits to understand intent
+        When you have enough context, call `callCodeAgent` with concrete instructions; it will perform the edit.
+        Do NOT output the final merged file directly; always delegate to CodeAgent.
+        Keep changes minimal and strictly related to resolving conflicts and restoring compilation/tests.
+        """);
         var header = buildMergeHeader(file, conflict.ourCommits(), conflict.theirCommits());
         var conflicted = readFileAsCodeBlock(file);
         var firstUser = new UserMessage(
@@ -142,7 +141,6 @@ public final class MergeOneFile {
 
                 Remember, when making tool calls you can call multiple tools per turn, this will improve your performance.
                 """
-                        .stripIndent()
                         .formatted(header, file.toString(), conflicted));
         currentSessionMessages.add(sys);
         currentSessionMessages.add(firstUser);
@@ -379,7 +377,6 @@ public final class MergeOneFile {
                 theirs: %s
                 </merge_context>
                 """
-                        .stripIndent()
                         .formatted(type, file, oursShort, baseShort, theirsShort);
 
         // Append one-line commit info for relevant OUR/THEIR commits from this file's blame
@@ -437,7 +434,6 @@ public final class MergeOneFile {
                %s
                </failure>
                """
-                .stripIndent()
                 .formatted(file, details);
     }
 
@@ -451,8 +447,7 @@ public final class MergeOneFile {
                On your next call to callCodeAgent, use a full-file replacement strategy:
                provide clear, concise instructions to replace the entire file content with the correct,
                fully-resolved version (no conflict markers). Keep changes minimal and only resolve the conflicts.
-               """
-                .stripIndent();
+               """;
     }
 
     /**

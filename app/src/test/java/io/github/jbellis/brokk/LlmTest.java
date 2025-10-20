@@ -219,7 +219,7 @@ public class LlmTest {
         assertInstanceOf(UserMessage.class, result1.get(1));
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
-                Messages.getText(result1.get(1)).stripIndent());
+                Messages.getText(result1.get(1)));
         assertEquals(user2.name(), ((UserMessage) result1.get(1)).name()); // Name preserved
 
         // Case 2: Multiple TERMs followed by UserMessage
@@ -230,7 +230,7 @@ public class LlmTest {
         assertInstanceOf(UserMessage.class, result2.get(1));
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n\nFollow-up based on results",
-                Messages.getText(result2.get(1)).stripIndent());
+                Messages.getText(result2.get(1)));
 
         // Case 3: TERM followed by non-UserMessage (AiMessage)
         var messages3 = List.of(user1, term1, ai1, user2);
@@ -238,9 +238,7 @@ public class LlmTest {
         assertEquals(4, result3.size());
         assertEquals(user1, result3.get(0));
         assertInstanceOf(UserMessage.class, result3.get(1));
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n",
-                Messages.getText(result3.get(1)).stripIndent());
+        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n", Messages.getText(result3.get(1)));
         assertEquals(ai1, result3.get(2));
         assertEquals(user2, result3.get(3));
 
@@ -251,10 +249,8 @@ public class LlmTest {
         assertEquals(user1, result4.get(0));
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
-                Messages.getText(result4.get(1)).stripIndent());
-        assertEquals(
-                "<toolcall id=\"t4\" name=\"toolD\">\nResult D\n</toolcall>\n",
-                Messages.getText(result4.get(2)).stripIndent());
+                Messages.getText(result4.get(1)));
+        assertEquals("<toolcall id=\"t4\" name=\"toolD\">\nResult D\n</toolcall>\n", Messages.getText(result4.get(2)));
 
         // Case 5: Multiple combinations and other messages, including combining multiple terms
         var messages5 = List.of(user1, term1, term2, user2, ai1, term3, term4, user3);
@@ -265,30 +261,28 @@ public class LlmTest {
         assertEquals(user1, result5.get(0));
         var expectedText5_1 =
                 """
-                <toolcall id="t1" name="toolA">
-                Result A
-                </toolcall>
+        <toolcall id="t1" name="toolA">
+        Result A
+        </toolcall>
 
-                <toolcall id="t2" name="toolB">
-                Result B
-                </toolcall>
+        <toolcall id="t2" name="toolB">
+        Result B
+        </toolcall>
 
-                Follow-up based on results"""
-                        .stripIndent();
+        Follow-up based on results""";
         assertEquals(expectedText5_1, Messages.getText(result5.get(1)));
         assertEquals(ai1, result5.get(2));
         var expectedText5_3 =
                 """
-                <toolcall id="t3" name="toolC">
-                Result C
-                </toolcall>
+        <toolcall id="t3" name="toolC">
+        Result C
+        </toolcall>
 
-                <toolcall id="t4" name="toolD">
-                Result D
-                </toolcall>
+        <toolcall id="t4" name="toolD">
+        Result D
+        </toolcall>
 
-                Another follow-up"""
-                        .stripIndent();
+        Another follow-up""";
         assertEquals(expectedText5_3, Messages.getText(result5.get(3)));
 
         // Case 6: No TERMs
@@ -304,7 +298,7 @@ public class LlmTest {
         assertInstanceOf(UserMessage.class, result7.getFirst());
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n",
-                Messages.getText(result7.getFirst()).stripIndent());
+                Messages.getText(result7.getFirst()));
 
         // Case 8: TERM at the beginning followed by UserMessage
         var messages8 = List.of(term1, user1);
@@ -313,7 +307,7 @@ public class LlmTest {
         assertInstanceOf(UserMessage.class, result8.getFirst());
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nInitial request",
-                Messages.getText(result8.getFirst()).stripIndent());
+                Messages.getText(result8.getFirst()));
 
         // Case 9: TERM followed by AiMessage with native tool calls; ensure tool calls are stringified and not retained
         var toolReq9 = ToolExecutionRequest.builder()
@@ -326,9 +320,7 @@ public class LlmTest {
         var result9 = Llm.emulateToolExecutionResults(messages9);
         assertEquals(4, result9.size());
         assertEquals(user1, result9.get(0));
-        assertEquals(
-                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n",
-                Messages.getText(result9.get(1)).stripIndent());
+        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n", Messages.getText(result9.get(1)));
         assertInstanceOf(AiMessage.class, result9.get(2));
         var ai9 = (AiMessage) result9.get(2);
         assertFalse(ai9.hasToolExecutionRequests(), "AI message should not contain native tool requests");

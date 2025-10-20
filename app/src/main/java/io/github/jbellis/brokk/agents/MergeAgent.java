@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo.ModifiedFile;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -692,8 +693,12 @@ public class MergeAgent {
         List<ProjectFile> theirsChanged;
 
         if (baseCommitId != null) {
-            oursChanged = repo.listFilesChangedBetweenCommits(conflict.ourCommitId(), baseCommitId);
-            theirsChanged = repo.listFilesChangedBetweenCommits(otherCommitId, baseCommitId);
+            oursChanged = repo.listFilesChangedBetweenCommits(conflict.ourCommitId(), baseCommitId).stream()
+                    .map(ModifiedFile::file)
+                    .collect(Collectors.toList());
+            theirsChanged = repo.listFilesChangedBetweenCommits(otherCommitId, baseCommitId).stream()
+                    .map(ModifiedFile::file)
+                    .collect(Collectors.toList());
         } else {
             oursChanged = changedFilesFromParent(repo, conflict.ourCommitId());
             theirsChanged = changedFilesFromParent(repo, otherCommitId);
@@ -718,7 +723,9 @@ public class MergeAgent {
                 return List.of();
             }
             var parent = commit.getParent(0);
-            return repo.listFilesChangedBetweenCommits(commitId, parent.getName());
+            return repo.listFilesChangedBetweenCommits(commitId, parent.getName()).stream()
+                    .map(ModifiedFile::file)
+                    .collect(Collectors.toList());
         } catch (IOException e) {
             logger.warn("Failed to compute changed files for {} against its parent: {}", commitId, e.toString());
             return List.of();

@@ -352,6 +352,28 @@ tasks.withType<Test> {
     val failedTests = mutableListOf<String>()
     val testOutputs = mutableMapOf<String, String>()
 
+    // Helper function to format exception with full cause chain
+    fun formatExceptionWithCauses(e: Throwable?): String {
+        if (e == null) return "Unknown error"
+        val sb = StringBuilder()
+        var current: Throwable? = e
+        var isFirst = true
+        while (current != null) {
+            if (!isFirst) {
+                sb.append("\n   Caused by: ")
+            } else {
+                isFirst = false
+            }
+            sb.append(current.message ?: current.javaClass.name)
+            sb.append("\n")
+            current.stackTrace.forEach { frame ->
+                sb.append("      at $frame\n")
+            }
+            current = current.cause
+        }
+        return sb.toString().trimEnd()
+    }
+
     // Capture test output for failed tests
     addTestOutputListener(object : TestOutputListener {
         override fun onOutput(testDescriptor: TestDescriptor, outputEvent: TestOutputEvent) {
@@ -367,10 +389,9 @@ tasks.withType<Test> {
     afterTest(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
         if (result.resultType == TestResult.ResultType.FAILURE) {
             val testKey = "${desc.className}.${desc.name}"
-            val errorMessage = result.exception?.message ?: "Unknown error"
-            val stackTrace = result.exception?.stackTrace?.joinToString("\n") { "      at $it" } ?: ""
+            val exceptionDetails = formatExceptionWithCauses(result.exception)
             val output = testOutputs[testKey]?.let { "\n   Output:\n$it" } ?: ""
-            failedTests.add("❌ $testKey\n   Error: $errorMessage\n$stackTrace$output")
+            failedTests.add("❌ $testKey\n   $exceptionDetails$output")
         }
     }))
 

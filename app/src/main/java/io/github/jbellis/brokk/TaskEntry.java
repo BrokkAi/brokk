@@ -61,7 +61,6 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
               %s
               </task>
               """
-                    .stripIndent()
                     .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
@@ -71,7 +70,6 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
           %s
           </task>
           """
-                .stripIndent()
                 .formatted(sequence, logText.indent(2).stripTrailing());
     }
 
@@ -85,7 +83,6 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
                       %s
                       </message>
                       """
-                                    .stripIndent()
                                     .formatted(
                                             message.type().name().toLowerCase(Locale.ROOT),
                                             text.indent(2).stripTrailing());

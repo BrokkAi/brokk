@@ -819,14 +819,13 @@ public class GitCommitTab extends JPanel {
         var conflictCount = conflict.files().size();
         var message =
                 """
-                Merge conflicts detected:
-                  - Mode: %s
-                  - Other: %s
-                  - Files with conflicts: %d
+Merge conflicts detected:
+  - Mode: %s
+  - Other: %s
+  - Files with conflicts: %d
 
-                Would you like to resolve these conflicts with the Merge Agent?
-                """
-                        .stripIndent()
+Would you like to resolve these conflicts with the Merge Agent?
+"""
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea
@@ -908,7 +907,6 @@ public class GitCommitTab extends JPanel {
 
                 Would you like to resolve these conflicts with the Merge Agent?
                 """
-                        .stripIndent()
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea

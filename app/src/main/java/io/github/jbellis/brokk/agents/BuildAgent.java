@@ -258,42 +258,41 @@ public class BuildAgent {
         // System Prompt
         messages.add(new SystemMessage(
                 """
-                                       You are an agent tasked with finding build information for the *development* environment of a software project.
-                                       Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
-                                       Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
-                                       configurations unless they are the only ones available.
+                You are an agent tasked with finding build information for the *development* environment of a software project.
+                Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
+                Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
+                configurations unless they are the only ones available.
 
-                                       Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
-                                       as necessary, to determine the information needed by `reportBuildDetails`.
+                Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
+                as necessary, to determine the information needed by `reportBuildDetails`.
 
-                                       When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
-                                       Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
+                When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
+                Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
 
-                                       The lists are DecoratedCollection instances, so you get first/last/index/value fields.
-                                       Examples:
+                The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+                Examples:
 
-                                       | Build tool        | One-liner a user could write
-                                       | ----------------- | ------------------------------------------------------------------------
-                                       | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
-                                       | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
-                                       | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                                       | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
-                                       | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
-                                       | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
-                                       | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
+                | Build tool        | One-liner a user could write
+                | ----------------- | ------------------------------------------------------------------------
+                | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
+                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
+                | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
+                | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
+                | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
+                | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
+                | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
 
-                                       %s
-                                       Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
+                %s
+                Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
-                                       A baseline set of excluded directories has been established from build conventions and .gitignore.
-                                       When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
-                                       you identify that should be excluded from code intelligence, beyond this baseline.
+                A baseline set of excluded directories has been established from build conventions and .gitignore.
+                When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
+                you identify that should be excluded from code intelligence, beyond this baseline.
 
-                                       Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                                       The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
-                                       """
-                        .formatted(wrapperScriptInstruction)
-                        .stripIndent()));
+                Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
+                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
+                """
+                        .formatted(wrapperScriptInstruction)));
 
         // Add existing history
         messages.addAll(chatHistory);

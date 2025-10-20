@@ -71,8 +71,7 @@ public final class RelevanceClassifier {
                            given a user-provided filter description.
                            Conclude with %s if the text is relevant, or %s if it is not.
                            """
-                        .formatted(RELEVANT_MARKER, IRRELEVANT_MARKER)
-                        .stripIndent();
+                        .formatted(RELEVANT_MARKER, IRRELEVANT_MARKER);
 
         var userPrompt =
                 """
@@ -87,8 +86,7 @@ public final class RelevanceClassifier {
                          Is the candidate text relevant, as determined by the filter?  Respond with exactly one
                          of the markers %s or %s.
                          """
-                        .formatted(filterDescription, candidateText, RELEVANT_MARKER, IRRELEVANT_MARKER)
-                        .stripIndent();
+                        .formatted(filterDescription, candidateText, RELEVANT_MARKER, IRRELEVANT_MARKER);
 
         return classifyRelevant(llm, systemPrompt, userPrompt);
     }
@@ -144,8 +142,7 @@ public final class RelevanceClassifier {
                            given a user-provided filter description.
                            Respond with only a single number between 0.0 and 1.0 (inclusive),
                            where 0.0 means not relevant and 1.0 means highly relevant.
-                           """
-                        .stripIndent();
+                           """;
 
         var userPrompt =
                 """
@@ -159,8 +156,7 @@ public final class RelevanceClassifier {
 
                          Output only a single number in [0.0, 1.0].
                          """
-                        .formatted(filterDescription, candidateText)
-                        .stripIndent();
+                        .formatted(filterDescription, candidateText);
 
         return scoreRelevance(llm, systemPrompt, userPrompt);
     }

@@ -272,15 +272,17 @@ public class ContextAgent {
 
         Thread t2 = Thread.ofVirtual().start(() -> {
             try {
-                results[1] = processGroup(
-                        GroupType.UNANALYZED,
-                        unAnalyzedFiles,
-                        Map.of(),
-                        workspaceRepresentation,
-                        allowSkipPruning,
-                        evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                results[1] = new RecommendationResult(true, List.of(), "No unanalyzed files", null);
+                // TODO add this back when we are blocking excluded files from getAllFiles
+                //                results[1] = processGroup(
+                //                        GroupType.UNANALYZED,
+                //                        unAnalyzedFiles,
+                //                        Map.of(),
+                //                        workspaceRepresentation,
+                //                        allowSkipPruning,
+                //                        evalBudgetRemaining,
+                //                        pruneBudgetRemaining,
+                //                        existingFiles);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -702,8 +704,7 @@ public class ContextAgent {
 
                 IMPORTANT: The provided section contains only one of those categories; do not assume the other category is present.
                 Analyze the provided information and determine which items are most relevant to achieving the goal.
-                """
-                        .stripIndent();
+                """;
 
         var finalSystemMessage = new SystemMessage(deepPromptTemplate);
         var userMessageText = new StringBuilder();

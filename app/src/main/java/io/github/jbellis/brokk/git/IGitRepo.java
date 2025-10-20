@@ -13,7 +13,14 @@ import org.jetbrains.annotations.Nullable;
 
 public interface IGitRepo {
 
-    record ModifiedFile(ProjectFile file, String status) {}
+    enum ModificationType {
+        NEW,
+        MODIFIED,
+        DELETED,
+        CONFLICT
+    }
+
+    record ModifiedFile(ProjectFile file, ModificationType status) {}
 
     /** Information about a Git worktree. Branch will be null if worktree is in a detached HEAD state. */
     record WorktreeInfo(Path path, @Nullable String branch, String commitId) {}
@@ -85,12 +92,12 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default List<ProjectFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId)
+    default List<ModifiedFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId)
             throws GitAPIException {
         throw new UnsupportedOperationException();
     }
 
-    default List<ProjectFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+    default List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
             throws GitAPIException {
         throw new UnsupportedOperationException();
     }

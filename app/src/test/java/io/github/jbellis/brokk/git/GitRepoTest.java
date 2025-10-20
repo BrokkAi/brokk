@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
@@ -1256,6 +1257,138 @@ public class GitRepoTest {
             if (threeParamClone != null) {
                 GitTestCleanupUtil.cleanupGitResources(threeParamClone);
             }
+        }
+    }
+
+    @Test
+    void testListFilesChangedInCommit_WithRename() throws Exception {
+        // Create and commit a file
+        Path file1 = projectRoot.resolve("oldname.txt");
+        Files.writeString(file1, "Initial content");
+        repo.getGit().add().addFilepattern("oldname.txt").call();
+        repo.getGit().commit().setMessage("Add oldname.txt").setSign(false).call();
+        String beforeRenameCommit = repo.getCurrentCommitId();
+
+        // Rename the file
+        Path file2 = projectRoot.resolve("newname.txt");
+        Files.move(file1, file2);
+        repo.getGit().rm().addFilepattern("oldname.txt").call();
+        repo.getGit().add().addFilepattern("newname.txt").call();
+        repo.getGit()
+                .commit()
+                .setMessage("Rename oldname.txt to newname.txt")
+                .setSign(false)
+                .call();
+        String renameCommit = repo.getCurrentCommitId();
+
+        // Get files changed in the rename commit
+        var changedFiles = repo.listFilesChangedInCommit(renameCommit);
+
+        // Should only have one file (newname.txt with MODIFIED status, not both old and new)
+        assertEquals(1, changedFiles.size(), "Rename should result in a single file entry");
+
+        var modifiedFile = changedFiles.get(0);
+        assertEquals("newname.txt", modifiedFile.file().getFileName(), "Changed file should be the new name");
+        // For renames, we report as MODIFIED since it's semantically a change to the codebase
+        assertEquals(
+                IGitRepo.ModificationType.MODIFIED, modifiedFile.status(), "Rename should be reported as MODIFIED");
+
+        // Verify old name is NOT in the result
+        var oldNameInResult =
+                changedFiles.stream().anyMatch(f -> f.file().getFileName().equals("oldname.txt"));
+        assertFalse(oldNameInResult, "Old file name should not appear in changed files list");
+    }
+
+    @Test
+    void testListFilesChangedInCommit_MultipleRenames() throws Exception {
+        // Create multiple files
+        Path fileA = projectRoot.resolve("fileA.txt");
+        Path fileB = projectRoot.resolve("fileB.txt");
+        Files.writeString(fileA, "Content A");
+        Files.writeString(fileB, "Content B");
+        repo.getGit()
+                .add()
+                .addFilepattern("fileA.txt")
+                .addFilepattern("fileB.txt")
+                .call();
+        repo.getGit().commit().setMessage("Add fileA and fileB").setSign(false).call();
+
+        // Rename both files in a single commit
+        Path fileA2 = projectRoot.resolve("renamedA.txt");
+        Path fileB2 = projectRoot.resolve("renamedB.txt");
+        Files.move(fileA, fileA2);
+        Files.move(fileB, fileB2);
+        repo.getGit()
+                .rm()
+                .addFilepattern("fileA.txt")
+                .addFilepattern("fileB.txt")
+                .call();
+        repo.getGit()
+                .add()
+                .addFilepattern("renamedA.txt")
+                .addFilepattern("renamedB.txt")
+                .call();
+        repo.getGit().commit().setMessage("Rename both files").setSign(false).call();
+        String renameCommit = repo.getCurrentCommitId();
+
+        // Get files changed in the rename commit
+        var changedFiles = repo.listFilesChangedInCommit(renameCommit);
+
+        // Should have two files
+        assertEquals(2, changedFiles.size(), "Should have two renamed files");
+
+        var fileNames = changedFiles.stream().map(f -> f.file().getFileName()).collect(Collectors.toSet());
+        assertTrue(fileNames.contains("renamedA.txt"), "Should contain renamedA.txt");
+        assertTrue(fileNames.contains("renamedB.txt"), "Should contain renamedB.txt");
+
+        // Should not contain old names
+        assertFalse(fileNames.contains("fileA.txt"), "Should not contain old fileA.txt");
+        assertFalse(fileNames.contains("fileB.txt"), "Should not contain old fileB.txt");
+    }
+
+    @Test
+    void testListFilesChangedBetweenCommits_WithRename() throws Exception {
+        // Create initial file
+        Path file1 = projectRoot.resolve("original.txt");
+        Files.writeString(file1, "Original content");
+        repo.getGit().add().addFilepattern("original.txt").call();
+        repo.getGit().commit().setMessage("Initial commit").setSign(false).call();
+        String firstCommit = repo.getCurrentCommitId();
+
+        // Rename and modify in same commit
+        Path file2 = projectRoot.resolve("renamed.txt");
+        Files.move(file1, file2);
+        Files.writeString(file2, "Modified content");
+        repo.getGit().rm().addFilepattern("original.txt").call();
+        repo.getGit().add().addFilepattern("renamed.txt").call();
+        repo.getGit().commit().setMessage("Rename and modify").setSign(false).call();
+        String secondCommit = repo.getCurrentCommitId();
+
+        // Get files changed between commits
+        var changedFiles = repo.listFilesChangedBetweenCommits(secondCommit, firstCommit);
+
+        // JGit's rename detection is heuristic. When a small file is renamed and modified in the same commit,
+        // it may emit either a single RENAME/MODIFIED for the new path, or an ADD(new) + DELETE(old).
+        // The code under test already treats true RENAME as MODIFIED(newPath). Accept either outcome here.
+        var namesToStatus = changedFiles.stream()
+                .collect(Collectors.toMap(mf -> mf.file().getFileName(), IGitRepo.ModifiedFile::status));
+
+        assertTrue(namesToStatus.containsKey("renamed.txt"), "renamed.txt must be present");
+        var renamedStatus = namesToStatus.get("renamed.txt");
+        assertTrue(
+                renamedStatus == IGitRepo.ModificationType.MODIFIED || renamedStatus == IGitRepo.ModificationType.NEW,
+                "renamed.txt should be MODIFIED (rename detected) or NEW (add+delete fallback)");
+
+        if (namesToStatus.containsKey("original.txt")) {
+            // If the old name appears, it must be a deletion (add+delete case)
+            assertEquals(
+                    IGitRepo.ModificationType.DELETED,
+                    namesToStatus.get("original.txt"),
+                    "original.txt, if present, must appear only as DELETED");
+            assertEquals(2, changedFiles.size(), "Expect exactly two entries when rename detection emits add+delete");
+        } else {
+            // Rename detection succeeded: only the new name should be present
+            assertEquals(1, changedFiles.size(), "Expect a single entry when rename detection succeeds");
         }
     }
 

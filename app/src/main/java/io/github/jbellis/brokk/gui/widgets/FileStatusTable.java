@@ -115,7 +115,7 @@ public final class FileStatusTable extends JScrollPane {
                                 mf.file().getParent().toString())
                         .thenComparing(mf -> mf.file().getFileName()))
                 .forEach(mf -> {
-                    statusMap.put(mf.file(), mf.status());
+                    statusMap.put(mf.file(), mf.status().toString());
                     String conflictIndicator = conflictFiles.contains(mf.file()) ? "!" : "";
                     model.addRow(new Object[] {conflictIndicator, mf.file().getFileName(), mf.file()});
                 });

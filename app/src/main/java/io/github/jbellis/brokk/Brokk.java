@@ -773,8 +773,7 @@ public class Brokk {
 
                                           Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
                                           """
-                                    .formatted(cause.getMessage())
-                                    .stripIndent();
+                                    .formatted(cause.getMessage());
                     SwingUtil.runOnEdt(() -> {
                         hideSplashScreen(); // Hide splash before showing error dialog
                         JOptionPane.showMessageDialog(

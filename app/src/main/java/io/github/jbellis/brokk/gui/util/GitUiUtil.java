@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.git.IGitRepo.ModificationType;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.PrTitleFormatter;
@@ -197,7 +198,9 @@ public final class GitUiUtil {
                     changedFiles = newestCommitInSelection.changedFiles();
                 } else {
                     // Files changed between oldest selected commit's parent and newest selected commit
-                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^");
+                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^").stream()
+                            .map(IGitRepo.ModifiedFile::file)
+                            .collect(Collectors.toList());
                 }
 
                 var fileNamesSummary = formatFileList(changedFiles);
@@ -758,7 +761,10 @@ public final class GitUiUtil {
                     return;
                 }
 
-                List<ProjectFile> changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha);
+                List<ProjectFile> changedFiles =
+                        repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha).stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .collect(Collectors.toList());
                 String fileNamesSummary = formatFileList(changedFiles);
 
                 String description = String.format(
@@ -894,7 +900,7 @@ public final class GitUiUtil {
 
                     BufferSource leftSource, rightSource;
 
-                    if ("deleted".equals(status)) {
+                    if (status == ModificationType.DELETED) {
                         // Deleted: left side has content from base, right side is empty (but still track head SHA for
                         // context)
                         leftSource = new BufferSource.StringSource(
@@ -904,7 +910,7 @@ public final class GitUiUtil {
                                 prBaseSha);
                         rightSource = new BufferSource.StringSource(
                                 "", prHeadSha + " (Deleted)", projectFile.toString(), prHeadSha);
-                    } else if ("new".equals(status)) {
+                    } else if (status == ModificationType.NEW) {
                         // New: left side is empty (but still track base SHA for context), right side has content from
                         // head
                         leftSource = new BufferSource.StringSource(

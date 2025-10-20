@@ -107,8 +107,7 @@ public final class MainProject extends AbstractProject {
             """
                                                                The commit message should be structured as follows: <type>: <description>
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
-                                                               """
-                    .stripIndent();
+                                                               """;
 
     @Nullable
     private static volatile Boolean isDataShareAllowedCache = null;
@@ -151,8 +150,7 @@ public final class MainProject extends AbstractProject {
             - What additional tests, if any, would add the most value?
 
             Conclude with a summary of serious functional or design issues ONLY.
-            """
-                    .stripIndent();
+            """;
 
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {}
@@ -273,7 +271,7 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private static synchronized Properties loadGlobalProperties() {
+    public static synchronized Properties loadGlobalProperties() {
         if (globalPropertiesCache != null) {
             return (Properties) globalPropertiesCache.clone();
         }
@@ -1247,6 +1245,44 @@ public final class MainProject extends AbstractProject {
             props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
         }
         saveGlobalProperties(props);
+    }
+
+    // JVM memory settings (global)
+    private static final String JVM_MEMORY_MODE_KEY = "jvmMemoryMode";
+    private static final String JVM_MEMORY_MB_KEY = "jvmMemoryMb";
+
+    public record JvmMemorySettings(boolean automatic, int manualMb) {}
+
+    public static JvmMemorySettings getJvmMemorySettings() {
+        var props = loadGlobalProperties();
+        String mode = props.getProperty(JVM_MEMORY_MODE_KEY, "auto");
+        boolean automatic = !"manual".equalsIgnoreCase(mode);
+        int mb = 4096;
+        String mbStr = props.getProperty(JVM_MEMORY_MB_KEY);
+        if (mbStr != null) {
+            try {
+                mb = Integer.parseInt(mbStr.trim());
+            } catch (NumberFormatException ignore) {
+                // keep default
+            }
+        }
+        return new JvmMemorySettings(automatic, mb);
+    }
+
+    public static void setJvmMemorySettings(JvmMemorySettings settings) {
+        var props = loadGlobalProperties();
+        if (settings.automatic()) {
+            props.setProperty(JVM_MEMORY_MODE_KEY, "auto");
+            props.remove(JVM_MEMORY_MB_KEY);
+        } else {
+            props.setProperty(JVM_MEMORY_MODE_KEY, "manual");
+            props.setProperty(JVM_MEMORY_MB_KEY, Integer.toString(settings.manualMb()));
+        }
+        saveGlobalProperties(props);
+        logger.debug(
+                "Saved JVM memory settings: mode={}, mb={}",
+                settings.automatic() ? "auto" : "manual",
+                settings.automatic() ? "n/a" : settings.manualMb());
     }
 
     public static String getBrokkKey() {

@@ -906,7 +906,6 @@ public class Llm {
                              %s
                              </toolcall>
                              """
-                                .stripIndent()
                                 .formatted(tr.id(), tr.toolName(), tr.text()))
                 .collect(Collectors.joining("\n"));
     }
@@ -965,7 +964,6 @@ public class Llm {
                     ]
                   }
                 """
-                        .stripIndent()
                         .formatted(
                                 e == null
                                         ? ""
@@ -1022,7 +1020,6 @@ public class Llm {
                   ]
                 }
                 """
-                        .stripIndent()
                         .formatted(e == null ? "" : "Your previous response was not valid: " + e.getMessage());
 
         // Check if we've already added tool instructions to any message
@@ -1254,11 +1251,10 @@ public class Llm {
                                 assert description != null : "null description for " + entry;
 
                                 return """
-                                        <parameter name="%s" type="%s" required="%s">
-                                        %s
-                                        </parameter>
-                                        """
-                                        .stripIndent()
+                                <parameter name="%s" type="%s" required="%s">
+                                %s
+                                </parameter>
+                                """
                                         .formatted(
                                                 entry.getKey(),
                                                 type,
@@ -1270,12 +1266,11 @@ public class Llm {
                             .collect(Collectors.joining("\n"));
 
                     return """
-                            <tool name="%s">
-                            %s
-                            %s
-                            </tool>
-                            """
-                            .stripIndent()
+                    <tool name="%s">
+                    %s
+                    %s
+                    </tool>
+                    """
                             .formatted(
                                     tool.name(),
                                     tool.description(),
@@ -1292,7 +1287,6 @@ public class Llm {
 
                 Include all the tool calls necessary to satisfy the request in a single object!
                 """
-                .stripIndent()
                 .formatted(tools.size(), toolsDescription, retryInstructionsProvider.apply(null));
     }
 
@@ -1560,7 +1554,6 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .stripIndent()
                         .formatted(formatThrowable(error), contentToShow);
             }
             // If no error, originalResponse is guaranteed to be non-null by the record's invariant.

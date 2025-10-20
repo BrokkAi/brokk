@@ -277,7 +277,6 @@ public interface ContextFragment {
                     %s
                     </file>
                     """
-                    .stripIndent()
                     .formatted(file().toString(), id(), text());
         }
 
@@ -436,7 +435,6 @@ public interface ContextFragment {
                     %s
                     </file>
                     """
-                    .stripIndent()
                     .formatted(file().toString(), revision(), text());
         }
 
@@ -622,7 +620,6 @@ public interface ContextFragment {
                     [Image content provided out of band]
                     </file>
                     """
-                    .stripIndent()
                     .formatted(file().toString(), id());
         }
 
@@ -708,7 +705,6 @@ public interface ContextFragment {
                     %s
                     </fragment>
                     """
-                    .stripIndent()
                     .formatted(description(), id(), text());
         }
 
@@ -1052,7 +1048,6 @@ public interface ContextFragment {
                     %s
                     </fragment>
                     """
-                    .stripIndent()
                     .formatted(description(), id(), text());
         }
 
@@ -1646,7 +1641,6 @@ public interface ContextFragment {
                     %s
                     </summary>
                     """
-                    .stripIndent()
                     .formatted(String.join(", ", targetIdentifiers), summaryType.name(), id(), text());
         }
 
@@ -1749,7 +1743,6 @@ public interface ContextFragment {
                     %s
                     </taskhistory>
                     """
-                    .stripIndent()
                     .formatted(id(), text()); // Analyzer not used by its text()
         }
 

@@ -72,8 +72,7 @@ public final class JavascriptAnalyzerTest {
         export class JsxClass {
           function render(): JSX.Element ...
         }
-        """
-                        .stripIndent();
+        """;
         assertEquals(
                 expectedJsxClassSkeleton.trim(),
                 skelJsx.get(jsxClass).trim(),
@@ -82,7 +81,7 @@ public final class JavascriptAnalyzerTest {
         String expectedExportedArrowFnSkeleton =
                 """
         export JsxArrowFnComponent({ name }): JSX.Element => ...
-        """.stripIndent();
+        """;
         assertEquals(
                 expectedExportedArrowFnSkeleton.trim(),
                 skelJsx.get(jsxArrowFn).trim(),
@@ -90,7 +89,7 @@ public final class JavascriptAnalyzerTest {
 
         String expectedLocalArrowFnSkeleton = """
         LocalJsxArrowFn() => ...
-        """.stripIndent();
+        """;
         assertEquals(
                 expectedLocalArrowFnSkeleton.trim(),
                 skelJsx.get(localJsxArrowFn).trim(),
@@ -98,7 +97,7 @@ public final class JavascriptAnalyzerTest {
 
         String expectedPlainJsxFuncSkeleton = """
         function PlainJsxFunc() ...
-        """.stripIndent();
+        """;
         assertEquals(
                 expectedPlainJsxFuncSkeleton.trim(),
                 skelJsx.get(plainJsxFunc).trim(),
@@ -141,7 +140,7 @@ public final class JavascriptAnalyzerTest {
         export class Hello {
           function greet() ...
         }
-        """.stripIndent();
+        """;
         assertEquals(
                 expectedHelloClassSkeleton.trim(),
                 skelJs.get(helloClass).trim(),
@@ -149,7 +148,7 @@ public final class JavascriptAnalyzerTest {
 
         String expectedUtilFuncSkeleton = """
         export function util() ...
-        """.stripIndent();
+        """;
         assertEquals(expectedUtilFuncSkeleton.trim(), skelJs.get(utilFunc).trim());
     }
 
@@ -221,8 +220,7 @@ public final class JavascriptAnalyzerTest {
         import { Something, AnotherThing as AT } from './another-module';
         import * as AllThings from './all-the-things';
         import DefaultThing from './default-thing';
-        """
-                        .stripIndent();
+        """;
         assertEquals(expectedImports.trim(), skeletons.get(moduleCU).trim(), "Module imports skeleton mismatch.");
 
         // MyExportedComponent: JSX inference + mutations
@@ -232,8 +230,7 @@ public final class JavascriptAnalyzerTest {
                 """
         // mutates: counter, wasUpdated
         export function MyExportedComponent(props): JSX.Element ...
-        """
-                        .stripIndent();
+        """;
         assertEquals(expectedMecSkeleton.trim(), skeletons.get(mecCU).trim(), "MyExportedComponent skeleton mismatch.");
 
         // MyExportedArrowComponent: JSX inference (arrow) + mutation
@@ -243,8 +240,7 @@ public final class JavascriptAnalyzerTest {
                 """
         // mutates: localStatus
         export MyExportedArrowComponent({ id }): JSX.Element => ...
-        """
-                        .stripIndent();
+        """;
         assertEquals(
                 expectedMeacSkeleton.trim(),
                 skeletons.get(meacCU).trim(),
@@ -257,8 +253,7 @@ public final class JavascriptAnalyzerTest {
                 """
         // mutates: isValid
         function internalProcessingUtil(dataObject) ...
-        """
-                        .stripIndent();
+        """;
         assertEquals(
                 expectedIpuSkeleton.trim(), skeletons.get(ipuCU).trim(), "internalProcessingUtil skeleton mismatch.");
 
@@ -269,8 +264,7 @@ public final class JavascriptAnalyzerTest {
                 """
         // mutates: global_config_val
         export function updateGlobalConfig(newVal) ...
-        """
-                        .stripIndent();
+        """;
         assertEquals(expectedUgcSkeleton.trim(), skeletons.get(ugcCU).trim(), "updateGlobalConfig skeleton mismatch.");
 
         // ComponentWithComment: JSX inference (despite comment)
@@ -279,8 +273,7 @@ public final class JavascriptAnalyzerTest {
         String expectedCwcSkeleton =
                 """
         export function ComponentWithComment(user /*: UserType */): JSX.Element ...
-        """
-                        .stripIndent(); // Mutations comment should not appear if no mutations
+        """; // Mutations comment should not appear if no mutations
         assertEquals(
                 expectedCwcSkeleton.trim(), skeletons.get(cwcCU).trim(), "ComponentWithComment skeleton mismatch.");
 
@@ -291,8 +284,7 @@ public final class JavascriptAnalyzerTest {
                 """
         // mutates: age, name
         export function modifyUser(user) ...
-        """
-                        .stripIndent();
+        """;
         assertEquals(expectedMuSkeleton.trim(), skeletons.get(muCU).trim(), "modifyUser skeleton mismatch.");
 
         // Verify getSkeleton for one of the CUs
@@ -594,20 +586,18 @@ public final class JavascriptAnalyzerTest {
         // Test case 1: Valid class from Hello.js
         final var helloSourceOpt = jsAnalyzer.getClassSource("Hello", true);
         assertTrue(helloSourceOpt.isPresent());
-        final var helloClassSource = helloSourceOpt.get().stripIndent();
+        final var helloClassSource = helloSourceOpt.get();
         String expectedHelloClassSource =
                 """
         export class Hello {
             greet() { console.log("hi"); }
         }""";
-        assertEquals(
-                expectedHelloClassSource.stripIndent().trim(),
-                helloClassSource.stripIndent().trim());
+        assertEquals(expectedHelloClassSource.trim(), helloClassSource.trim());
 
         // Test case 2: Valid class from Hello.jsx
         final var jsxClassSourceOpt = jsAnalyzer.getClassSource("JsxClass", true);
         assertTrue(jsxClassSourceOpt.isPresent());
-        final var jsxClassSource = jsxClassSourceOpt.get().stripIndent();
+        final var jsxClassSource = jsxClassSourceOpt.get();
         String expectedJsxClassSource =
                 """
         export class JsxClass {
@@ -615,9 +605,7 @@ public final class JavascriptAnalyzerTest {
                 return <div className="class-jsx">Hello from JSX Class</div>;
             }
         }""";
-        assertEquals(
-                expectedJsxClassSource.stripIndent().trim(),
-                jsxClassSource.stripIndent().trim());
+        assertEquals(expectedJsxClassSource.trim(), jsxClassSource.trim());
 
         // Test case 3: Non-existent class
         assertTrue(
@@ -643,8 +631,7 @@ public final class JavascriptAnalyzerTest {
         String expectedGreetMethodSource = """
         greet() { console.log("hi"); }""";
         assertEquals(
-                expectedGreetMethodSource.stripIndent().trim(),
-                greetMethodSourceOpt.get().stripIndent().trim());
+                expectedGreetMethodSource.trim(), greetMethodSourceOpt.get().trim());
 
         // Test case 2: Method in Hello.jsx
         Optional<String> renderMethodSourceOpt = jsAnalyzer.getMethodSource("JsxClass.render", true);
@@ -655,17 +642,14 @@ public final class JavascriptAnalyzerTest {
                 return <div className="class-jsx">Hello from JSX Class</div>;
             }"""; // Note: Indentation within the method body is preserved.
         assertEquals(
-                expectedRenderMethodSource.stripIndent().trim(),
-                renderMethodSourceOpt.get().stripIndent().trim());
+                expectedRenderMethodSource.trim(), renderMethodSourceOpt.get().trim());
 
         // Test case 3: Exported function in Hello.js
         Optional<String> utilFuncSourceOpt = jsAnalyzer.getMethodSource("util", true);
         assertTrue(utilFuncSourceOpt.isPresent(), "Source for 'util' function should be found.");
         String expectedUtilFuncSource = """
         export function util() { return 42; }""";
-        assertEquals(
-                expectedUtilFuncSource.stripIndent().trim(),
-                utilFuncSourceOpt.get().stripIndent().trim());
+        assertEquals(expectedUtilFuncSource.trim(), utilFuncSourceOpt.get().trim());
 
         // Test case 4: Exported arrow function in Hello.jsx
         Optional<String> jsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("JsxArrowFnComponent", true);
@@ -680,9 +664,7 @@ public final class JavascriptAnalyzerTest {
                 </section>
             );
         }""";
-        assertEquals(
-                expectedJsxArrowFnSource.stripIndent().trim(),
-                jsxArrowFnSourceOpt.get().stripIndent().trim());
+        assertEquals(expectedJsxArrowFnSource.trim(), jsxArrowFnSourceOpt.get().trim());
 
         // Test case 5: Local (non-exported) arrow function in Hello.jsx
         Optional<String> localJsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("LocalJsxArrowFn", true);
@@ -690,8 +672,8 @@ public final class JavascriptAnalyzerTest {
         String expectedLocalJsxArrowFnSource = """
         () => <button>Click Me</button>""";
         assertEquals(
-                expectedLocalJsxArrowFnSource.stripIndent().trim(),
-                localJsxArrowFnSourceOpt.get().stripIndent().trim());
+                expectedLocalJsxArrowFnSource.trim(),
+                localJsxArrowFnSourceOpt.get().trim());
 
         // Test case 6: Local (non-exported) plain function in Hello.jsx
         Optional<String> plainJsxFuncSourceOpt = jsAnalyzer.getMethodSource("PlainJsxFunc", true);
@@ -702,8 +684,7 @@ public final class JavascriptAnalyzerTest {
             return <article>Some article content</article>;
         }""";
         assertEquals(
-                expectedPlainJsxFuncSource.stripIndent().trim(),
-                plainJsxFuncSourceOpt.get().stripIndent().trim());
+                expectedPlainJsxFuncSource.trim(), plainJsxFuncSourceOpt.get().trim());
 
         // Test case 7: Non-existent method
         Optional<String> nonExistentMethodSourceOpt = jsAnalyzer.getMethodSource("NonExistent.method", true);

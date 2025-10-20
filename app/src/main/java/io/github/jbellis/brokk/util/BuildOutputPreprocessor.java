@@ -131,7 +131,6 @@ public class BuildOutputPreprocessor {
 
             Return the extracted errors in a clean, readable format.
             """
-                        .stripIndent()
                         .formatted(MAX_EXTRACTED_ERRORS));
 
         var userMessage = new UserMessage(
@@ -142,7 +141,6 @@ public class BuildOutputPreprocessor {
             %s
             ```
             """
-                        .stripIndent()
                         .formatted(truncatedOutput));
         var messages = List.of(systemMessage, userMessage);
 

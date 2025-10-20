@@ -601,7 +601,6 @@ public class ArchitectAgent {
                             %s
                             </related_classes>
                             """
-                            .stripIndent()
                             .formatted(topClassesRaw);
             messages.add(new UserMessage(topClassesText));
             messages.add(new AiMessage("Okay, I will consider these related classes."));

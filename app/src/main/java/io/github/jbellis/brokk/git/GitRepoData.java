@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.IGitRepo.ModifiedFile;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -9,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -18,6 +18,7 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.TreeWalk;
@@ -36,7 +37,7 @@ public class GitRepoData {
     private static final Logger logger = LogManager.getLogger(GitRepoData.class);
 
     private final GitRepo repo;
-    private final org.eclipse.jgit.lib.Repository repository;
+    private final Repository repository;
     private final Git git;
 
     GitRepoData(GitRepo repo) {
@@ -220,33 +221,42 @@ public class GitRepoData {
         }
     }
 
-    private List<ProjectFile> extractFilesFromDiffEntriesInternal(List<DiffEntry> diffs) {
-        var fileSet = new HashSet<String>();
+    public List<ModifiedFile> extractFilesFromDiffEntries(List<DiffEntry> diffs) {
+        var result = new ArrayList<ModifiedFile>();
         for (var diff : diffs) {
-            if (diff.getChangeType() == DiffEntry.ChangeType.DELETE) {
-                fileSet.add(diff.getOldPath());
-            } else if (diff.getChangeType() == DiffEntry.ChangeType.ADD
-                    || diff.getChangeType() == DiffEntry.ChangeType.COPY) {
-                fileSet.add(diff.getNewPath());
-            } else { // MODIFY, RENAME
-                fileSet.add(diff.getNewPath()); // new path is usually the one of interest
-                if (diff.getOldPath() != null && !diff.getOldPath().equals(diff.getNewPath())) {
-                    fileSet.add(diff.getOldPath()); // For renames, include old path too
+            String pathToUse = null;
+            IGitRepo.ModificationType type;
+
+            switch (diff.getChangeType()) {
+                case ADD, COPY -> {
+                    pathToUse = diff.getNewPath();
+                    type = IGitRepo.ModificationType.NEW;
                 }
+                case MODIFY -> {
+                    pathToUse = diff.getNewPath();
+                    type = IGitRepo.ModificationType.MODIFIED;
+                }
+                case DELETE -> {
+                    pathToUse = diff.getOldPath();
+                    type = IGitRepo.ModificationType.DELETED;
+                }
+                case RENAME -> {
+                    // For renames, use only the new path to avoid leaking old names into analytics
+                    pathToUse = diff.getNewPath();
+                    type = IGitRepo.ModificationType.MODIFIED;
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + diff.getChangeType());
+            }
+
+            if (pathToUse != null && !"/dev/null".equals(pathToUse)) {
+                var projectFileOpt = repo.toProjectFile(pathToUse);
+                projectFileOpt.ifPresent(projectFile -> result.add(new ModifiedFile(projectFile, type)));
             }
         }
-        return fileSet.stream()
-                .filter(path -> !"/dev/null".equals(path))
-                .sorted() // Sort paths alphabetically for consistent ordering
-                .map(repo::toProjectFile)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.toList());
-    }
 
-    // Public wrapper (so callers can call it as `data.extractFilesFromDiffEntries(...)`)
-    public List<ProjectFile> extractFilesFromDiffEntries(List<DiffEntry> diffs) {
-        return extractFilesFromDiffEntriesInternal(diffs);
+        // Sort by file path for consistent ordering
+        result.sort((a, b) -> a.file().toString().compareTo(b.file().toString()));
+        return result;
     }
 
     /** Prepares an AbstractTreeIterator for the given commit-ish string. */

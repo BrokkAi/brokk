@@ -31,8 +31,7 @@ public abstract class CodePrompts {
             You are diligent and tireless!
             You NEVER leave comments describing code without implementing it!
             You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
-            """
-                    .stripIndent();
+            """;
 
     public static final String OVEREAGER_REMINDER =
             """
@@ -41,8 +40,7 @@ public abstract class CodePrompts {
             Do not comment on your modifications, only on the resulting code in isolation.
             You must never output any comments about the progress or type of changes of your refactoring or generation.
             For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
-            """
-                    .stripIndent();
+            """;
 
     public static final String ARCHITECT_REMINDER =
             """
@@ -50,8 +48,7 @@ public abstract class CodePrompts {
             to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
             For example, if the user asks you a question, you should do your best to answer his question first,
             before immediately jumping into taking further action.
-            """
-                    .stripIndent();
+            """;
 
     public static final String GPT5_MARKDOWN_REMINDER =
             """
@@ -67,8 +64,7 @@ public abstract class CodePrompts {
             - prefer GFM tables over bulleted lists
             - header tags (start from ##).
             </persistence>
-            """
-                    .stripIndent();
+            """;
 
     /** Formats the most recent build error for the LLM retry prompt. */
     public static String buildFeedbackPrompt() {
@@ -321,7 +317,6 @@ public abstract class CodePrompts {
           %s
           </style_guide>
           """
-                        .stripIndent()
                         .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
                         .trim();
 
@@ -344,7 +339,6 @@ public abstract class CodePrompts {
           %s
           </style_guide>
           """
-                        .stripIndent()
                         .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
                         .trim();
 
@@ -359,7 +353,6 @@ public abstract class CodePrompts {
 
         %s
         """
-                .stripIndent()
                 .formatted(reminder);
     }
 
@@ -455,8 +448,7 @@ public abstract class CodePrompts {
                       Provide corrected SEARCH/REPLACE blocks for the failed edits only.
                       </instructions>
                       """
-                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail)
-                        .stripIndent();
+                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail);
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -481,8 +473,7 @@ public abstract class CodePrompts {
                                        </block>
                                        </failed_block>
                                        """
-                                        .formatted(f.reason(), f.block().repr(), commentaryText)
-                                        .stripIndent();
+                                        .formatted(f.reason(), f.block().repr(), commentaryText);
                             })
                             .collect(Collectors.joining("\n"));
 
@@ -509,8 +500,7 @@ public abstract class CodePrompts {
                           The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
                           </note>
                           """
-                            .formatted(succeededCount, pluralizeSuccess)
-                            .stripIndent();
+                            .formatted(succeededCount, pluralizeSuccess);
         }
 
         // Construct the full message for the LLM
@@ -520,8 +510,7 @@ public abstract class CodePrompts {
                %s
                %s
                """
-                .formatted(instructions, fileDetails, successNote)
-                .stripIndent();
+                .formatted(instructions, fileDetails, successNote);
     }
 
     /**
@@ -580,7 +569,6 @@ public abstract class CodePrompts {
                               %s
                               </workspace_readonly>
                               """
-                        .stripIndent()
                         .formatted(readOnlyTextFragments.toString().trim());
 
         // text and image content must be distinct
@@ -622,7 +610,6 @@ public abstract class CodePrompts {
                               %s
                               </workspace_editable>
                               """
-                        .stripIndent()
                         .formatted(editableTextFragments.toString().trim());
 
         var editableUserMessage = new UserMessage(editableText);
@@ -694,7 +681,6 @@ public abstract class CodePrompts {
                            %s
                            </workspace>
                            """
-                        .stripIndent()
                         .formatted(combinedText.toString().trim());
 
         // Add the workspace text as the first content
@@ -721,7 +707,6 @@ public abstract class CodePrompts {
                              %s
                              </workspace-summary>
                              """
-                        .stripIndent()
                         .formatted(summaries)
                         .trim();
 
@@ -933,7 +918,6 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                 </file>
               </workspace_example>
               """
-                        .stripIndent()
                 : """
               ### Before: Current Workspace excerpt
 
@@ -961,8 +945,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                 }
                 </file>
               </workspace_example>
-              """
-                        .stripIndent();
+              """;
 
         parts.add(before);
 
@@ -983,8 +966,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
               >>>>>>> REPLACE
               ```
               """
-                        .formatted(ex++)
-                        .stripIndent());
+                        .formatted(ex++));
 
         // ---------- Syntax-aware examples (only if enabled) ----------
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
@@ -1004,8 +986,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                   >>>>>>> REPLACE
                   ```
                   """
-                            .formatted(ex++)
-                            .stripIndent());
+                            .formatted(ex++));
 
             // BRK_CLASS: replace the entire class body by fully qualified name
             // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
@@ -1041,8 +1022,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                   >>>>>>> REPLACE
                   ```
                   """
-                            .formatted(ex++)
-                            .stripIndent());
+                            .formatted(ex++));
         }
 
         // ---------- Example: Full-file replacement using BRK_ENTIRE_FILE ----------
@@ -1080,8 +1060,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
               >>>>>>> REPLACE
               ```
               """
-                        .formatted(ex++)
-                        .stripIndent());
+                        .formatted(ex++));
 
         // ---------- Conflict-range fix (only if enabled) ----------
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
@@ -1110,8 +1089,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                   >>>>>>> REPLACE
                   ```
                   """
-                            .formatted(ex++)
-                            .stripIndent());
+                            .formatted(ex++));
         }
 
         return String.join("\n\n", parts).strip();

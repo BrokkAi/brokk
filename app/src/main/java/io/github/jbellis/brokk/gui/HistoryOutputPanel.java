@@ -1846,22 +1846,21 @@ public class HistoryOutputPanel extends JPanel {
                                 + "Do not output free-form text.");
                 var user = new UserMessage(
                         """
-                        <capture>
-                        %s
-                        </capture>
+                <capture>
+                %s
+                </capture>
 
-                        Instructions:
-                        - Prefer using tasks that are already defined in the capture.
-                        - If no such tasks exist, use your best judgement with the following guidelines:
-                          - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
-                          - Prefer tasks that keep the project buildable and testable after each step.
-                          - Avoid multi-goal items; split if needed.
-                          - Avoid external/non-code tasks.
-                        - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
+                Instructions:
+                - Prefer using tasks that are already defined in the capture.
+                - If no such tasks exist, use your best judgement with the following guidelines:
+                - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+                - Prefer tasks that keep the project buildable and testable after each step.
+                - Avoid multi-goal items; split if needed.
+                - Avoid external/non-code tasks.
+                - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                        Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
-                        """
-                                .stripIndent()
+                Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
+                """
                                 .formatted(captureText));
 
                 var toolSpecs = contextManager.getToolRegistry().getRegisteredTools(List.of("createTaskList"));

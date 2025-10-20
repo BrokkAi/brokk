@@ -34,7 +34,7 @@ public final class GitDistance {
      *
      * @return a sorted list of files with relevance scores. If no seed weights are given,an empty result.
      */
-    public static List<IAnalyzer.FileRelevance> getPMI(
+    public static List<IAnalyzer.FileRelevance> getRelatedFiles(
             GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) {
 
         if (seedWeights.isEmpty()) {
@@ -134,13 +134,13 @@ public final class GitDistance {
 
         try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             pool.submit(() -> commits.parallelStream().forEach(commit -> {
-                        List<ProjectFile> changedFiles;
+                        List<IGitRepo.ModifiedFile> changedModifiedFiles;
                         try {
-                            changedFiles = repo.listFilesChangedInCommit(commit.id());
+                            changedModifiedFiles = repo.listFilesChangedInCommit(commit.id());
                         } catch (GitAPIException e) {
                             throw new RuntimeException("Error processing commit: " + commit.id(), e);
                         }
-                        if (changedFiles.isEmpty()) {
+                        if (changedModifiedFiles.isEmpty()) {
                             return;
                         }
 
@@ -150,8 +150,8 @@ public final class GitDistance {
 
                         double weight = Math.pow(2, -(ageMillis / halfLifeMillis));
 
-                        for (var file : changedFiles) {
-                            scores.merge(file, weight, Double::sum);
+                        for (var modifiedFile : changedModifiedFiles) {
+                            scores.merge(modifiedFile.file(), weight, Double::sum);
                         }
                     }))
                     .get();
@@ -162,39 +162,59 @@ public final class GitDistance {
         return scores;
     }
 
+    /**
+     * Compute PMI scores using a rename canonicalizer that is *scoped to the PMI sample*.
+     * Each changed file in a sampled commit is canonicalized by walking forward through
+     * renames that occur after that commit, eliminating leakage from historical names and
+     * avoiding path-recycling ambiguity.
+     */
     private static List<IAnalyzer.FileRelevance> computePmiScores(
             GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws GitAPIException {
+
+        // The PMI sample: commits that touched the seed files
         var commits = repo.getFileHistories(seedWeights.keySet(), COMMITS_TO_PROCESS);
         var totalCommits = commits.size();
         if (totalCommits == 0) return List.of();
+
+        // Build a canonicalizer exactly for this sample window
+        var canonicalizer = repo.buildCanonicalizer(commits);
 
         var fileCounts = new ConcurrentHashMap<ProjectFile, Integer>();
         var jointCounts = new ConcurrentHashMap<FileEdge, Integer>();
 
         try (var pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors())) {
             pool.submit(() -> commits.parallelStream().forEach(commit -> {
+                        List<IGitRepo.ModifiedFile> changedModifiedFiles;
                         try {
-                            var changedFiles = repo.listFilesChangedInCommit(commit.id());
-                            if (changedFiles.isEmpty()) return;
-
-                            // individual counts
-                            for (var f : changedFiles) {
-                                fileCounts.merge(f, 1, Integer::sum);
-                            }
-
-                            // joint counts
-                            var seedsInCommit = changedFiles.stream()
-                                    .filter(seedWeights::containsKey)
-                                    .collect(Collectors.toSet());
-                            if (seedsInCommit.isEmpty()) return;
-
-                            for (var seed : seedsInCommit) {
-                                for (var cu : changedFiles) {
-                                    jointCounts.merge(new FileEdge(seed, cu), 1, Integer::sum);
-                                }
-                            }
+                            changedModifiedFiles = repo.listFilesChangedInCommit(commit.id());
                         } catch (GitAPIException e) {
                             throw new RuntimeException("Error processing commit: " + commit.id(), e);
+                        }
+                        if (changedModifiedFiles.isEmpty()) return;
+
+                        // Canonicalize "as-of-commit" paths to current names by walking forward from this commit
+                        var changedFiles = changedModifiedFiles.stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .map(pf -> canonicalizer.canonicalize(commit.id(), pf))
+                                .distinct()
+                                .filter(ProjectFile::exists)
+                                .toList();
+
+                        // individual counts
+                        for (var f : changedFiles) {
+                            fileCounts.merge(f, 1, Integer::sum);
+                        }
+
+                        // joint counts
+                        var seedsInCommit = changedFiles.stream()
+                                .filter(seedWeights::containsKey)
+                                .collect(Collectors.toSet());
+                        if (seedsInCommit.isEmpty()) return;
+
+                        for (var seed : seedsInCommit) {
+                            for (var cu : changedFiles) {
+                                jointCounts.merge(new FileEdge(seed, cu), 1, Integer::sum);
+                            }
                         }
                     }))
                     .get();

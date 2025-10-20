@@ -283,7 +283,7 @@ public class GoAnalyzerTest {
                           type MyInterface interface {
                             DoSomething()
                           }""";
-        assertEquals(expected.stripIndent().trim(), skeleton.get().stripIndent().trim());
+        assertEquals(expected.trim(), skeleton.get().trim());
     }
 
     @Test
@@ -379,9 +379,7 @@ public class GoAnalyzerTest {
                                   }""";
         String actualSkeleton = skeleton.get().replaceAll("\\r\\n", "\n").trim(); // Normalize newlines
         assertEquals(
-                expectedSkeleton.stripIndent().trim(),
-                actualSkeleton,
-                "Skeleton for MyStruct with fields and methods mismatch.");
+                expectedSkeleton.trim(), actualSkeleton, "Skeleton for MyStruct with fields and methods mismatch.");
     }
 
     @Test
@@ -440,7 +438,7 @@ public class GoAnalyzerTest {
         // MyStruct in declarations.go
         final var sourceOpt = analyzer.getClassSource("declpkg.MyStruct", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().stripIndent();
+        final var source = sourceOpt.get();
         assertNotNull(source, "Source for declpkg.MyStruct should not be null");
         String expectedSource = "type MyStruct struct {\n\tFieldA int\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(source));
@@ -451,7 +449,7 @@ public class GoAnalyzerTest {
         // MyInterface in declarations.go
         final var sourceOpt = analyzer.getClassSource("declpkg.MyInterface", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().stripIndent();
+        final var source = sourceOpt.get();
         assertNotNull(source, "Source for declpkg.MyInterface should not be null");
         String expectedSource = "type MyInterface interface {\n\tDoSomething()\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(source));

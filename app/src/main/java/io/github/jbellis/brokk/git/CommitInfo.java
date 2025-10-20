@@ -46,7 +46,10 @@ public final class CommitInfo implements ICommitInfo {
      */
     @Override
     public List<ProjectFile> changedFiles() throws GitAPIException {
-        return repo.listFilesChangedInCommit(this.id);
+        // FIXME, but not today: this should return ModifiedFiles
+        return repo.listFilesChangedInCommit(this.id).stream()
+                .map(IGitRepo.ModifiedFile::file)
+                .toList();
     }
 
     @Override
