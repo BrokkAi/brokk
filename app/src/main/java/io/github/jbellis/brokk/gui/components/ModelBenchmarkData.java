@@ -114,9 +114,9 @@ public class ModelBenchmarkData {
         ModelKey key = new ModelKey(modelName, reasoning);
         Map<TokenRange, Integer> rangeData = new HashMap<>();
 
-        if (rate16k32k != null) rangeData.put(TokenRange.RANGE_16K_32K, rate16k32k);
-        if (rate32k65k != null) rangeData.put(TokenRange.RANGE_32K_65K, rate32k65k);
-        if (rate65k131k != null) rangeData.put(TokenRange.RANGE_65K_131K, rate65k131k);
+        rangeData.put(TokenRange.RANGE_16K_32K, rate16k32k);
+        rangeData.put(TokenRange.RANGE_32K_65K, rate32k65k);
+        rangeData.put(TokenRange.RANGE_65K_131K, rate65k131k);
 
         if (!rangeData.isEmpty()) {
             BENCHMARK_DATA.put(key, rangeData);
