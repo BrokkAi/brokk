@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.components;
 
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.FragmentColorUtils;
@@ -26,6 +27,16 @@ import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
+
+    public enum WarningLevel {
+        NONE,
+        YELLOW,
+        RED
+    }
+
+    private WarningLevel warningLevel = WarningLevel.NONE;
+    @Nullable
+    private Service.ModelConfig modelConfig = null;
 
     // Fallback counters if fragments aren't provided
     private int fallbackCurrentTokens = 0;
@@ -134,6 +145,17 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         repaint();
     }
 
+    public void setWarningLevel(WarningLevel level, @Nullable Service.ModelConfig config) {
+        this.warningLevel = level;
+        this.modelConfig = config;
+        repaint();
+    }
+
+    @Nullable
+    public Service.ModelConfig getModelConfig() {
+        return modelConfig;
+    }
+
     @Override
     public String getToolTipText(MouseEvent event) {
         try {
@@ -178,6 +200,21 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 g2d.fillRoundRect(s.startX, 0, s.widthPx, height, ARC, ARC);
                 // Optional border (only outer border looks good; inner borders between segments can look jagged)
                 // We skip borders to keep it clean.
+            }
+
+            // Warning border based on model performance
+            if (warningLevel != WarningLevel.NONE) {
+                g2d.setComposite(AlphaComposite.SrcOver);
+                Color borderColor = switch (warningLevel) {
+                    case YELLOW -> new Color(0xFFA500);
+                    case RED -> new Color(0xFF4444);
+                    default -> null;
+                };
+                if (borderColor != null) {
+                    g2d.setColor(borderColor);
+                    g2d.setStroke(new BasicStroke(2.0f));
+                    g2d.drawRoundRect(1, 1, width - 3, height - 3, ARC, ARC);
+                }
             }
 
             // Hover affordance (subtle overlay + outline) regardless of clickability
