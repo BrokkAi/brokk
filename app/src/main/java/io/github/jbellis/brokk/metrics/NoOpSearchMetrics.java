@@ -39,11 +39,11 @@ public enum NoOpSearchMetrics implements SearchMetrics {
     public void recordFinalWorkspaceFiles(Set<String> finalFiles) {}
 
     @Override
-    public String toJson(String query, List<String> foundFiles, int turns, long elapsedMs, boolean success) {
+    public String toJson(String query, int turns, long elapsedMs, boolean success) {
         // Produce the same minimal structure used previously by NO_OP
         Map<String, Object> result = new HashMap<>();
         result.put("query", query);
-        result.put("found_files", foundFiles);
+        result.put("found_files", List.of());
         result.put("turns", turns);
         result.put("elapsed_ms", elapsedMs);
         result.put("success", success);
@@ -51,10 +51,8 @@ public enum NoOpSearchMetrics implements SearchMetrics {
             return AbstractProject.objectMapper.writeValueAsString(result);
         } catch (JsonProcessingException e) {
             // Fallback to a tiny JSON string if serialization fails
-            var filesJson =
-                    foundFiles.stream().map(f -> "\"" + f + "\"").collect(java.util.stream.Collectors.joining(","));
-            return "{\"query\":\"" + query + "\",\"found_files\":["
-                    + filesJson + "],\"turns\":" + turns + ",\"elapsed_ms\":" + elapsedMs
+            return "{\"query\":\"" + query + "\",\"found_files\":[]"
+                    + ",\"turns\":" + turns + ",\"elapsed_ms\":" + elapsedMs
                     + ",\"success\":" + success + "}";
         }
     }

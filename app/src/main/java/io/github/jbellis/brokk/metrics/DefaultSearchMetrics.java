@@ -130,8 +130,12 @@ public class DefaultSearchMetrics implements SearchMetrics {
      * Maintains backward compatibility by keeping original fields in same order.
      */
     @Override
-    public synchronized String toJson(
-            String query, List<String> foundFiles, int turns, long elapsedMs, boolean success) {
+    public synchronized String toJson(String query, int turns, long elapsedMs, boolean success) {
+        // Derive found_files from finalWorkspaceFiles
+        List<String> foundFiles = finalWorkspaceFiles != null && !finalWorkspaceFiles.isEmpty()
+                ? finalWorkspaceFiles.stream().sorted().toList()
+                : List.of();
+
         var contextScan = new ContextScanInfo(contextScanFilesAdded, contextScanTimeMs, contextScanSkipped);
         var result = new SearchResult(
                 query,
@@ -143,7 +147,6 @@ public class DefaultSearchMetrics implements SearchMetrics {
                 new ArrayList<>(this.turns),
                 failureType,
                 stopReason,
-                finalWorkspaceFiles,
                 finalWorkspaceSize);
 
         try {
@@ -166,7 +169,6 @@ public class DefaultSearchMetrics implements SearchMetrics {
             List<TurnMetrics> turns_detail,
             @Nullable String failure_type,
             @Nullable String stop_reason,
-            @Nullable Set<String> final_workspace_files,
             int final_workspace_size) {}
 
     /**

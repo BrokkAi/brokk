@@ -412,16 +412,8 @@ public final class BrokkCli implements Callable<Integer> {
             var messages = searchResult.output().messages();
             int turns = countTurns(messages);
 
-            // Return all files in the final workspace - represents what the LLM
-            // determined was relevant to answer the question
-            List<String> foundFiles = List.of();
-            var finalFiles = metrics.getFinalWorkspaceFiles();
-            if (finalFiles != null && !finalFiles.isEmpty()) {
-                foundFiles = finalFiles.stream().sorted().toList();
-            }
-
             // Output enhanced JSON result with metrics
-            var json = metrics.toJson(searchWorkspace, foundFiles, turns, elapsedTime, success);
+            var json = metrics.toJson(searchWorkspace, turns, elapsedTime, success);
             System.out.println(json);
 
             return success ? 0 : 1;
