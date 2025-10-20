@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
-import javax.swing.UIManager;
 
 /**
  * Shared utilities for fragment classification and color styling, used by both WorkspaceItemsChipPanel and
