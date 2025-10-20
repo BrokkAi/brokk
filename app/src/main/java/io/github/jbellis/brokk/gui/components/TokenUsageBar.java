@@ -7,27 +7,21 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.util.Messages;
-import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiConsumer;
-import java.util.function.Predicate;
-import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.WordUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.*;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
@@ -247,22 +241,27 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     }
                 }
 
-                // Fill
-                g2d.setColor(s.bg);
-                g2d.fillRoundRect(s.startX, 0, s.widthPx, height, ARC, ARC);
-
-                // Border
-                Color borderColor = getSegmentBorderColor(s.frag);
-                g2d.setColor(borderColor);
-                int bw = Math.max(1, s.widthPx - 1);
-                int bh = Math.max(1, height - 1);
-                g2d.drawRoundRect(s.startX, 0, bw, bh, ARC, ARC);
-
-                // Dimming overlay
                 boolean isDimmed = !hoveredFragments.isEmpty() && !isHovered;
+                Composite originalComposite = g2d.getComposite();
                 if (isDimmed) {
-                    g2d.setColor(new Color(0, 0, 0, 0.5f));
+                    g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                }
+
+                try {
+                    // Fill
+                    g2d.setColor(s.bg);
                     g2d.fillRoundRect(s.startX, 0, s.widthPx, height, ARC, ARC);
+
+                    // Border
+                    Color borderColor = getSegmentBorderColor(s.frag);
+                    g2d.setColor(borderColor);
+                    int bw = Math.max(1, s.widthPx - 1);
+                    int bh = Math.max(1, height - 1);
+                    g2d.drawRoundRect(s.startX, 0, bw, bh, ARC, ARC);
+                } finally {
+                    if (isDimmed) {
+                        g2d.setComposite(originalComposite);
+                    }
                 }
             }
 

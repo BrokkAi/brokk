@@ -166,6 +166,26 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
 
         @Override
+        public void paint(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
+                    var myFragment = (ContextFragment) getClientProperty("brokk.fragment");
+                    if (myFragment != null) {
+                        boolean isHovered = parentPanel.hoveredFragments.contains(myFragment);
+                        boolean isDimmed = !parentPanel.hoveredFragments.isEmpty() && !isHovered;
+                        if (isDimmed) {
+                            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                        }
+                    }
+                }
+                super.paint(g2);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
@@ -182,27 +202,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 g2.dispose();
             }
             super.paintComponent(g);
-
-            // After children are painted, draw dimming overlay if needed.
-            if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
-                var myFragment = (ContextFragment) getClientProperty("brokk.fragment");
-                if (myFragment == null) return;
-
-                boolean isHovered = parentPanel.hoveredFragments.contains(myFragment);
-                boolean isDimmed = !parentPanel.hoveredFragments.isEmpty() && !isHovered;
-
-                if (isDimmed) {
-                    Graphics2D g2d = (Graphics2D) g.create();
-                    try {
-                        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                        g2d.setColor(new Color(0, 0, 0, 0.5f)); // 50% black overlay
-                        g2d.setComposite(AlphaComposite.SrcOver);
-                        g2d.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                    } finally {
-                        g2d.dispose();
-                    }
-                }
-            }
         }
 
         @Override
