@@ -20,6 +20,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
     private int contextScanFilesAdded = 0;
     private long contextScanTimeMs = 0;
     private boolean contextScanSkipped = false;
+    private Set<String> contextScanFilesAddedPaths = new HashSet<>();
 
     // Per-turn metrics
     private int turnCounter = 0;
@@ -36,10 +37,11 @@ public class DefaultSearchMetrics implements SearchMetrics {
     private @Nullable Set<String> finalWorkspaceFiles = null;
 
     @Override
-    public synchronized void recordContextScan(int filesAdded, long timeMs, boolean skipped) {
+    public synchronized void recordContextScan(int filesAdded, long timeMs, boolean skipped, Set<String> filesAddedPaths) {
         this.contextScanFilesAdded = filesAdded;
         this.contextScanTimeMs = timeMs;
         this.contextScanSkipped = skipped;
+        this.contextScanFilesAddedPaths = new HashSet<>(filesAddedPaths);
     }
 
     @Override
@@ -73,10 +75,16 @@ public class DefaultSearchMetrics implements SearchMetrics {
     }
 
     @Override
-    public synchronized void endTurn() {
+    public synchronized void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {
         if (currentTurn != null) {
+            // Compute files removed during this turn
+            Set<String> removed = new HashSet<>(filesBeforeTurn);
+            removed.removeAll(filesAfterTurn);
+            currentTurn.addRemovedFilePaths(removed);
+
             long turnTimeMs = System.currentTimeMillis() - turnStartTimeMs;
             currentTurn.setTimeMs(turnTimeMs);
+
             turns.add(currentTurn);
             currentTurn = null;
         }
@@ -136,7 +144,8 @@ public class DefaultSearchMetrics implements SearchMetrics {
                 ? finalWorkspaceFiles.stream().sorted().toList()
                 : List.of();
 
-        var contextScan = new ContextScanInfo(contextScanFilesAdded, contextScanTimeMs, contextScanSkipped);
+        var contextScan = new ContextScanInfo(contextScanFilesAdded, contextScanTimeMs, contextScanSkipped,
+                new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()));
         var result = new SearchResult(
                 query,
                 foundFiles,
@@ -150,7 +159,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
                 finalWorkspaceSize);
 
         try {
-            return AbstractProject.objectMapper.writeValueAsString(result);
+            return AbstractProject.objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize search result", e);
         }
@@ -174,7 +183,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
     /**
      * Context scan metrics.
      */
-    public record ContextScanInfo(int files_added, long scan_time_ms, boolean skipped) {}
+    public record ContextScanInfo(int files_added, long scan_time_ms, boolean skipped, List<String> files_added_paths) {}
 
     /**
      * Metrics for a single search turn.
@@ -184,6 +193,7 @@ public class DefaultSearchMetrics implements SearchMetrics {
         private final List<String> tool_calls = new ArrayList<>();
         private int files_added = 0;
         private final Set<String> files_added_paths = new HashSet<>();
+        private final Set<String> files_removed_paths = new HashSet<>();
         private long time_ms = 0;
 
         public TurnMetrics(int turnNumber) {
@@ -200,6 +210,10 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
         public void addFilePaths(Set<String> paths) {
             files_added_paths.addAll(paths);
+        }
+
+        public void addRemovedFilePaths(Set<String> paths) {
+            files_removed_paths.addAll(paths);
         }
 
         public void setTimeMs(long timeMs) {
@@ -221,6 +235,10 @@ public class DefaultSearchMetrics implements SearchMetrics {
 
         public Set<String> getFiles_added_paths() {
             return files_added_paths;
+        }
+
+        public Set<String> getFiles_removed_paths() {
+            return files_removed_paths;
         }
 
         public long getTime_ms() {

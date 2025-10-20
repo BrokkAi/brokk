@@ -134,7 +134,7 @@ public class SearchAgent {
             addInitialContextToWorkspace();
         } else {
             // Record that context scan was skipped
-            metrics.recordContextScan(0, 0, true);
+            metrics.recordContextScan(0, 0, true, Set.of());
         }
 
         // Main loop: propose actions, execute, record, repeat until finalization
@@ -632,7 +632,7 @@ public class SearchAgent {
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         long scanStartTime = System.currentTimeMillis();
-        int filesBeforeScan = getWorkspaceFileSet().size();
+        Set<String> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
@@ -645,7 +645,7 @@ public class SearchAgent {
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
             long scanTime = System.currentTimeMillis() - scanStartTime;
-            metrics.recordContextScan(0, scanTime, false);
+            metrics.recordContextScan(0, scanTime, false, Set.of());
             return;
         }
 
@@ -669,9 +669,11 @@ public class SearchAgent {
         }
 
         // Track metrics
-        int filesAfterScan = getWorkspaceFileSet().size();
+        Set<String> filesAfterScan = getWorkspaceFileSet();
+        Set<String> filesAdded = new HashSet<>(filesAfterScan);
+        filesAdded.removeAll(filesBeforeScan);
         long scanTime = System.currentTimeMillis() - scanStartTime;
-        metrics.recordContextScan(filesAfterScan - filesBeforeScan, scanTime, false);
+        metrics.recordContextScan(filesAdded.size(), scanTime, false, filesAdded);
     }
 
     // =======================
@@ -787,7 +789,7 @@ public class SearchAgent {
         added.removeAll(filesBeforeSet);
         metrics.recordFilesAdded(added.size());
         metrics.recordFilesAddedPaths(added);
-        metrics.endTurn();
+        metrics.endTurn(filesBeforeSet, filesAfterSet);
     }
 
     private void recordFinalWorkspaceState() {

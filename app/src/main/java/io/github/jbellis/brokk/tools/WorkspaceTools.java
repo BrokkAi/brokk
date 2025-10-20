@@ -348,6 +348,7 @@ public class WorkspaceTools {
                 attemptedProtected);
 
         var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
+
         var baseMsg = "Dropped %d fragment(s): [%s]. Updated DISCARDED_CONTEXT with %d entr%s."
                 .formatted(
                         droppedIds.size(),

@@ -13,7 +13,15 @@ import java.util.Set;
  */
 public interface SearchMetrics {
 
-    void recordContextScan(int filesAdded, long timeMs, boolean skipped);
+    /**
+     * Record context scan metrics.
+     *
+     * @param filesAdded count of files added
+     * @param timeMs time taken in milliseconds
+     * @param skipped whether the scan was skipped
+     * @param filesAddedPaths project-relative paths of files added during context scan (empty if skipped)
+     */
+    void recordContextScan(int filesAdded, long timeMs, boolean skipped, Set<String> filesAddedPaths);
 
     void startTurn();
 
@@ -30,7 +38,13 @@ public interface SearchMetrics {
      */
     void recordFilesAddedPaths(Set<String> paths);
 
-    void endTurn();
+    /**
+     * End the current turn and compute files removed.
+     *
+     * @param filesBeforeTurn workspace file set at turn start
+     * @param filesAfterTurn workspace file set at turn end
+     */
+    void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn);
 
     void recordFailure(TaskResult.StopReason reason, int workspaceSize);
 

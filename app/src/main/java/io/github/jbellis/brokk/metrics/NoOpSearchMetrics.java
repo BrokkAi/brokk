@@ -15,7 +15,7 @@ public enum NoOpSearchMetrics implements SearchMetrics {
     INSTANCE;
 
     @Override
-    public void recordContextScan(int filesAdded, long timeMs, boolean skipped) {}
+    public void recordContextScan(int filesAdded, long timeMs, boolean skipped, Set<String> filesAddedPaths) {}
 
     @Override
     public void startTurn() {}
@@ -30,7 +30,7 @@ public enum NoOpSearchMetrics implements SearchMetrics {
     public void recordFilesAddedPaths(Set<String> paths) {}
 
     @Override
-    public void endTurn() {}
+    public void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {}
 
     @Override
     public void recordFailure(TaskResult.StopReason reason, int workspaceSize) {}
