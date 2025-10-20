@@ -12,7 +12,6 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -46,7 +45,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -183,7 +181,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Dimension pref = getPreferredSize();
             return new Dimension(Integer.MAX_VALUE, pref.height);
         }
-
     }
 
     /** Pick a readable text color (white or dark) against the given background color. */
@@ -737,8 +734,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomLinePanel.add(contextRightPanel, BorderLayout.EAST);
 
         // The InteractiveHoverPanel now manages its own layout and hover logic
-        var hoverPanel =
-                new InteractiveHoverPanel(chipsSizer, bottomLinePanel, workspaceItemsChipPanel, tokenUsageBar);
+        var hoverPanel = new InteractiveHoverPanel(chipsSizer, bottomLinePanel, workspaceItemsChipPanel, tokenUsageBar);
         hoverPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
         hoverPanel.install();
 

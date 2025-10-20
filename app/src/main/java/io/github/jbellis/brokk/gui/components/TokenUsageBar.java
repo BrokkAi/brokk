@@ -8,13 +8,6 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.util.Messages;
-import org.apache.commons.text.StringEscapeUtils;
-import org.apache.commons.text.WordUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -23,6 +16,12 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
+import javax.swing.*;
+import org.apache.commons.text.StringEscapeUtils;
+import org.apache.commons.text.WordUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
@@ -35,6 +34,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     // Hovered segment state and callbacks
     @Nullable
     private volatile Segment hoveredSegment = null;
+
     @Nullable
     private volatile BiConsumer<Collection<ContextFragment>, Boolean> onHoverFragments = null;
 
@@ -538,13 +538,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     : FragmentColorUtils.classify(Objects.requireNonNull(frag));
             Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
             String tip = isOther ? buildOtherTooltip(small) : buildFragmentTooltip(Objects.requireNonNull(frag));
-            out.add(new Segment(
-                    x,
-                    w.width,
-                    bg,
-                    tip,
-                    isOther ? null : frag,
-                    isOther ? List.copyOf(small) : null));
+            out.add(new Segment(x, w.width, bg, tip, isOther ? null : frag, isOther ? List.copyOf(small) : null));
             x += w.width + SEGMENT_GAP;
         }
 
@@ -607,8 +601,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         final int widthPx;
         final Color bg;
         final String tooltipHtml;
+
         @Nullable
         final ContextFragment frag;
+
         @Nullable
         final List<ContextFragment> members;
 
