@@ -8,9 +8,9 @@ import org.junit.jupiter.api.Test;
 class ModelBenchmarkDataTest {
 
     @Test
-    void unknownModel_returns100() {
+    void unknownModel_returnsUnknown() {
         int result = ModelBenchmarkData.getSuccessRate("some-unknown-model", Service.ReasoningLevel.DEFAULT, 50000);
-        assertEquals(100, result, "Unknown model should return 100% success rate");
+        assertEquals(-1, result, "Unknown model should return -1 (we don't know)");
     }
 
     @Test
@@ -48,29 +48,29 @@ class ModelBenchmarkDataTest {
 
     @Test
     void claude_default_normalizes_to_medium() {
-        int result = ModelBenchmarkData.getSuccessRate("claude-4.1-opus", Service.ReasoningLevel.DEFAULT, 20000);
-        assertEquals(85, result, "claude-4.1-opus DEFAULT @20k should normalize to MEDIUM and return 85%");
+        int result = ModelBenchmarkData.getSuccessRate("claude-4-1-opus", Service.ReasoningLevel.DEFAULT, 20000);
+        assertEquals(85, result, "claude-4-1-opus DEFAULT @20k should normalize to MEDIUM and return 85%");
     }
 
     @Test
     void nothink_suffix_sets_disable_via_config_overload() {
-        var config = new Service.ModelConfig("claude-4.1-opus-nothink", Service.ReasoningLevel.DEFAULT);
+        var config = new Service.ModelConfig("claude-4-1-opus-nothink", Service.ReasoningLevel.DEFAULT);
         int result = ModelBenchmarkData.getSuccessRate(config, 50000);
-        assertEquals(68, result, "claude-4.1-opus-nothink should strip suffix, use DISABLE reasoning, and return 68% @50k");
+        assertEquals(68, result, "claude-4-1-opus-nothink should strip suffix, use DISABLE reasoning, and return 68% @50k");
     }
 
     @Test
-    void out_of_range_tokenCount_returns100() {
+    void out_of_range_tokenCount_usesExtrapolation() {
         int r1 = ModelBenchmarkData.getSuccessRate("gpt-5", Service.ReasoningLevel.DEFAULT, 1_000_000_000);
-        assertEquals(100, r1, "Token count outside defined ranges should return 100%");
+        assertEquals(50, r1, "Token count above max range should use highest range data");
 
         int r2 = ModelBenchmarkData.getSuccessRate("gemini-2.5-pro", Service.ReasoningLevel.DEFAULT, 100);
-        assertEquals(100, r2, "Token count below 4k should return 100%");
+        assertEquals(93, r2, "Token count below 32k should use 16K-32K data");
     }
 
     @Test
     void boundary_inclusive_checks() {
-        int result = ModelBenchmarkData.getSuccessRate("glm-4.6", Service.ReasoningLevel.DEFAULT, 4096);
-        assertEquals(100, result, "glm-4.6 DEFAULT @4096 (lower bound of RANGE_4K_8K) should be 100%");
+        int result = ModelBenchmarkData.getSuccessRate("glm-4.6", Service.ReasoningLevel.DEFAULT, 100);
+        assertEquals(63, result, "glm-4.6 DEFAULT @100 (16K-32K range) should be 63%");
     }
 }

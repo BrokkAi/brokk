@@ -171,14 +171,23 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
                     : "a very low success rate (&lt;30%)";
+            
+            // Indicate if we're extrapolating beyond tested ranges
+            String extrapolationNote = "";
+            if (usedTokens > 131071) {
+                extrapolationNote = "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
+            } else if (usedTokens < 4096) {
+                extrapolationNote = "<br/><br/><i>Note: This success rate is extrapolated from the smallest tested range (&lt;4K tokens).</i>";
+            }
 
             return String.format(
                     "<html><body style='width: 300px'>"
                             + "<b>Warning: Potential performance issue</b><br/><br/>"
                             + "The model <b>%s</b> might perform poorly at this token count due to %s.<br/><br/>"
                             + "Observed success rate from benchmarks: <b>%d%%</b>"
+                            + "%s"
                             + "</body></html>",
-                    modelName, reason, successRate);
+                    modelName, reason, successRate, extrapolationNote);
         }
 
         try {
@@ -224,6 +233,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 // Optional border (only outer border looks good; inner borders between segments can look jagged)
                 // We skip borders to keep it clean.
             }
+
+            // Default border
+            g2d.setComposite(AlphaComposite.SrcOver);
+            g2d.setColor(getBorderColor());
+            g2d.setStroke(new BasicStroke(1.0f));
+            g2d.drawRoundRect(0, 0, width - 1, height - 1, ARC, ARC);
 
             // Warning border based on model performance
             if (warningLevel != WarningLevel.NONE) {
@@ -737,6 +752,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private Color getOkColor(boolean dark) {
         return dark ? new Color(0x2EA043) : new Color(0x1F883D);
+    }
+
+    private Color getBorderColor() {
+        boolean dark = isDarkTheme();
+        if (dark) {
+            return new Color(128, 128, 128, 80);
+        } else {
+            return new Color(128, 128, 128, 100);
+        }
     }
 
     @Override

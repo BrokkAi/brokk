@@ -131,13 +131,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         private void updateBorderColor() {
             Color borderColor = UIManager.getColor("Component.borderColor");
+            int thickness = 1;
             if (warningLevel == TokenUsageBar.WarningLevel.RED) {
                 borderColor = new Color(0xFF4444);
+                thickness = 3;
             } else if (warningLevel == TokenUsageBar.WarningLevel.YELLOW) {
                 borderColor = new Color(0xFFA500);
+                thickness = 3;
             }
             
-            var lineBorder = BorderFactory.createLineBorder(borderColor);
+            var lineBorder = BorderFactory.createLineBorder(borderColor, thickness);
             var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
             var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
             setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
@@ -1027,7 +1030,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     
                     int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
                     TokenUsageBar.WarningLevel warningLevel;
-                    if (successRate < 30) {
+                    if (successRate == -1) {
+                        // Unknown/untested combination: don't warn
+                        warningLevel = TokenUsageBar.WarningLevel.NONE;
+                    } else if (successRate < 30) {
                         warningLevel = TokenUsageBar.WarningLevel.RED;
                     } else if (successRate < 50) {
                         warningLevel = TokenUsageBar.WarningLevel.YELLOW;
@@ -1091,9 +1097,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             body.append("<div style='margin-top: 4px;'>The model <b>")
                     .append(htmlEscape(modelName))
                     .append("</b> may perform poorly at this token count.</div>");
-            body.append("<div style='margin-top: 4px;'>Observed success rate: <b>")
-                    .append(successRate)
-                    .append("%</b></div>");
             body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
         }
         
@@ -1107,6 +1110,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     .append(htmlEscape(costPerRequest))
                     .append("</div>");
         }
+        
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
+        body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
+                .append("Brokk Power Ranking</a></b></div>");
+        if (successRate == -1) {
+            body.append("<div style='margin-top: 4px;'>Success rate: <b>We don't know</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Untested model reasoning combination.</div>");
+        } else {
+            body.append("<div style='margin-top: 4px;'>Success rate at this token count: <b>")
+                    .append(successRate)
+                    .append("%</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Based on benchmark data for model performance across token ranges.</div>");
+        }
+        
         return wrapTooltipHtml(body.toString(), 420);
     }
 
