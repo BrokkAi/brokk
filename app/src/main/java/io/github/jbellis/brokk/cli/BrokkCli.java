@@ -412,26 +412,12 @@ public final class BrokkCli implements Callable<Integer> {
             var messages = searchResult.output().messages();
             int turns = countTurns(messages);
 
-            // Infer found files from turn history - use files from last turn
-            // The LLM typically adds the answer file(s) in the final turn(s)
+            // Return all files in the final workspace - represents what the LLM
+            // determined was relevant to answer the question
             List<String> foundFiles = List.of();
-            var turnHistory = metrics.getTurns();
-
-            // Iterate backwards through turns to find the most recently added files
-            for (int i = turnHistory.size() - 1; i >= 0 && foundFiles.isEmpty(); i--) {
-                var filesInTurn = turnHistory.get(i).getFiles_added_paths();
-                if (!filesInTurn.isEmpty()) {
-                    // Return all files from this turn, sorted alphabetically for determinism
-                    foundFiles = filesInTurn.stream().sorted().toList();
-                }
-            }
-
-            // Fallback to alphabetical from final workspace if no files in turn history
-            if (foundFiles.isEmpty()) {
-                var finalFiles = metrics.getFinalWorkspaceFiles();
-                if (finalFiles != null && !finalFiles.isEmpty()) {
-                    foundFiles = finalFiles.stream().sorted().toList();
-                }
+            var finalFiles = metrics.getFinalWorkspaceFiles();
+            if (finalFiles != null && !finalFiles.isEmpty()) {
+                foundFiles = finalFiles.stream().sorted().toList();
             }
 
             // Output enhanced JSON result with metrics
