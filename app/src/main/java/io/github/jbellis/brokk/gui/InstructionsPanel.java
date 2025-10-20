@@ -1055,6 +1055,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
+                        contextAreaContainer.setToolTipText(stat.toolTipHtml);
+                        modelSelector.getComponent().setToolTipText(stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);

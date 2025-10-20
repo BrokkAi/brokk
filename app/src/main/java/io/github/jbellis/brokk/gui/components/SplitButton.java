@@ -119,6 +119,13 @@ public class SplitButton extends JComponent {
         }
     }
 
+    @Override
+    public void setToolTipText(@Nullable String text) {
+        super.setToolTipText(text);
+        actionButton.setToolTipText(text);
+        arrowButton.setToolTipText(text);
+    }
+
     private static void applyCompactStyling(MaterialButton b) {
         // Maximum compactness: zero margins, zero padding, no border, no minimum width
         b.putClientProperty("JButton.buttonType", "borderless");
