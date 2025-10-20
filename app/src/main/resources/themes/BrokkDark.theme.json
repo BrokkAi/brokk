@@ -89,9 +89,9 @@
       "chip_history_fg": "#FFFFFF",
       "chip_history_border": "#1F7A2C",
 
-      "chip_other_bg": "#0A66B2",
+      "chip_other_bg": "#0A5BA0",
       "chip_other_fg": "#FFFFFF",
-      "chip_other_border": "#084E88"
+      "chip_other_border": "#073D70"
     }
   }
 }
