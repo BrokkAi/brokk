@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FragmentColorUtils;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -55,7 +56,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile String unfilledTooltipHtml = null;
 
-    public TokenUsageBar() {
+    public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
@@ -67,12 +68,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         MouseAdapter mouseAdapter = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                Runnable r = onClick;
-                if (r != null && isEnabled() && SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
-                    try {
-                        r.run();
-                    } catch (Exception ex) {
-                        logger.debug("TokenUsageBar onClick handler threw", ex);
+                if (isEnabled() && SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
+                    Segment seg = findSegmentAt(e.getX());
+                    if (seg != null && seg.frag != null) {
+                        chrome.openFragmentPreview(seg.frag);
+                    } else {
+                        Runnable r = onClick;
+                        if (r != null) {
+                            try {
+                                r.run();
+                            } catch (Exception ex) {
+                                logger.debug("TokenUsageBar onClick handler threw", ex);
+                            }
+                        }
                     }
                 }
             }

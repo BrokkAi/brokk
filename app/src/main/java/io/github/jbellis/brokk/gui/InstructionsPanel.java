@@ -376,7 +376,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.getComponent().setFocusable(true);
 
         // Initialize TokenUsageBar (left of Attach button)
-        tokenUsageBar = new TokenUsageBar();
+        tokenUsageBar = new TokenUsageBar(chrome);
         tokenUsageBar.setVisible(false);
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
