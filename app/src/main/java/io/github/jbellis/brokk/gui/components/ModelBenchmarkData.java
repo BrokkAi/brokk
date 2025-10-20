@@ -42,8 +42,8 @@ public class ModelBenchmarkData {
         addModel("gemini-2.5-flash", Service.ReasoningLevel.DEFAULT, 90, 59, 17);
         addModel("gemini-2.5-flash", Service.ReasoningLevel.HIGH, 65, 64, 33);
         addModel("gemini-2.5-flash", Service.ReasoningLevel.DISABLE, 81, 61, 21);
-        addModel("gemini-2.0-flash", Service.ReasoningLevel.DEFAULT, 21, 8, null);
-        addModel("gemini-2.5-flash-lite", Service.ReasoningLevel.DEFAULT, null, null, null);
+        addModel("gemini-2.0-flash", Service.ReasoningLevel.DEFAULT, 21, 8, 0);
+        addModel("gemini-2.5-flash-lite", Service.ReasoningLevel.DEFAULT, 0, 0, 0);
 
         // GPT models
         addModel("gpt-5", Service.ReasoningLevel.DEFAULT, 93, 71, 50);
@@ -51,13 +51,13 @@ public class ModelBenchmarkData {
         addModel("gpt-5-mini", Service.ReasoningLevel.DEFAULT, 90, 88, 34);
         addModel("gpt-5-mini", Service.ReasoningLevel.HIGH, 93, 88, 46);
         addModel("gpt-5-nano", Service.ReasoningLevel.DEFAULT, 70, 27, 33);
-        addModel("gpt-5-nano", Service.ReasoningLevel.HIGH, 80, null, 33);
+        addModel("gpt-5-nano", Service.ReasoningLevel.HIGH, 80, 70, 33);
         addModel("gpt-5-codex", Service.ReasoningLevel.DEFAULT, 53, 50, 33);
 
         // Claude models
         addModel("claude-4-sonnet", Service.ReasoningLevel.MEDIUM, 85, 51, 63);
         addModel("claude-4-sonnet", Service.ReasoningLevel.HIGH, 93, 53, 75);
-        addModel("claude-4-sonnet", Service.ReasoningLevel.DISABLE, 100, null, 52);
+        addModel("claude-4-sonnet", Service.ReasoningLevel.DISABLE, 100, 51, 52);
         addModel("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM, 85, 67, 67);
         addModel("claude-4-1-opus", Service.ReasoningLevel.MEDIUM, 85, 60, 54);
         addModel("claude-4-1-opus", Service.ReasoningLevel.HIGH, 93, 84, 69);
@@ -75,34 +75,34 @@ public class ModelBenchmarkData {
         addModel("deepseek-v3.1-thinking", Service.ReasoningLevel.DEFAULT, 73, 26, 17);
         addModel("deepseek-v3.2", Service.ReasoningLevel.DEFAULT, 75, 70, 21);
         addModel("deepseek-v3.2-thinking", Service.ReasoningLevel.DEFAULT, 80, 76, 17);
-        addModel("deepseek-R1", Service.ReasoningLevel.DEFAULT, 60, 17, null);
-        addModel("deepseek-v3", Service.ReasoningLevel.DEFAULT, 33, 17, null);
+        addModel("deepseek-R1", Service.ReasoningLevel.DEFAULT, 60, 17, 0);
+        addModel("deepseek-v3", Service.ReasoningLevel.DEFAULT, 33, 17, 0);
 
         // GLM models
-        addModel("glm-4.5", Service.ReasoningLevel.DEFAULT, 70, 52, null);
+        addModel("glm-4.5", Service.ReasoningLevel.DEFAULT, 70, 52, 0);
         addModel("glm-4.5-air", Service.ReasoningLevel.DEFAULT, 60, 31, 21);
         addModel("glm-4.6", Service.ReasoningLevel.DEFAULT, 63, 72, 31);
 
         // Qwen models
         addModel("qwen3-coder", Service.ReasoningLevel.DEFAULT, 73, 57, 32);
-        addModel("qwen3-coder-30b", Service.ReasoningLevel.DEFAULT, 69, 25, null);
+        addModel("qwen3-coder-30b", Service.ReasoningLevel.DEFAULT, 69, 25, 0);
         addModel("qwen3-coder-fp8", Service.ReasoningLevel.DEFAULT, 53, 48, 21);
         addModel("qwen3-max", Service.ReasoningLevel.DEFAULT, 74, 57, 21);
-        addModel("qwen3-next", Service.ReasoningLevel.DEFAULT, 49, 33, null);
+        addModel("qwen3-next", Service.ReasoningLevel.DEFAULT, 49, 33, 0);
 
         // Grok models
         addModel("grok-3", Service.ReasoningLevel.DEFAULT, 73, 51, 17);
-        addModel("grok-3-mini", Service.ReasoningLevel.DEFAULT, 39, 17, null);
-        addModel("grok-3-mini", Service.ReasoningLevel.HIGH, 20, 17, null);
+        addModel("grok-3-mini", Service.ReasoningLevel.DEFAULT, 39, 17, 0);
+        addModel("grok-3-mini", Service.ReasoningLevel.HIGH, 20, 17, 0);
         addModel("grok-4-fast", Service.ReasoningLevel.DEFAULT, 73, 53, 33);
         addModel("grok-code-fast-1", Service.ReasoningLevel.DEFAULT, 60, 33, 21);
 
         // GPT-OSS models
-        addModel("gpt-oss-120b", Service.ReasoningLevel.DEFAULT, 63, 42, null);
-        addModel("gpt-oss-20b", Service.ReasoningLevel.DEFAULT, 48, null, null);
+        addModel("gpt-oss-120b", Service.ReasoningLevel.DEFAULT, 63, 42, 0);
+        addModel("gpt-oss-20b", Service.ReasoningLevel.DEFAULT, 48, 0, 0);
 
         // Kimi model
-        addModel("kimi-k2", Service.ReasoningLevel.DEFAULT, 71, null, null);
+        addModel("kimi-k2", Service.ReasoningLevel.DEFAULT, 71, 0, 0);
     }
 
     private static void addModel(
@@ -160,7 +160,7 @@ public class ModelBenchmarkData {
                     return successRate != null ? successRate : -1;
                 }
             }
-            // Model not found at all: return -1 to signal "we don't know"
+            // Model not found at all: return -1 to signal "unknown"
             return -1;
         }
 

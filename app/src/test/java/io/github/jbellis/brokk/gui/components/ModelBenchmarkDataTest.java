@@ -10,7 +10,7 @@ class ModelBenchmarkDataTest {
     @Test
     void unknownModel_returnsUnknown() {
         int result = ModelBenchmarkData.getSuccessRate("some-unknown-model", Service.ReasoningLevel.DEFAULT, 50000);
-        assertEquals(-1, result, "Unknown model should return -1 (we don't know)");
+        assertEquals(-1, result, "Unknown model should return -1 (unknown)");
     }
 
     @Test

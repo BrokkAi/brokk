@@ -1134,7 +1134,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
                 .append("Brokk Power Ranking</a></b></div>");
         if (successRate == -1) {
-            body.append("<div style='margin-top: 4px;'>Success rate: <b>We don't know</b></div>");
+            body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
                     .append("Untested model reasoning combination.</div>");
         } else {
