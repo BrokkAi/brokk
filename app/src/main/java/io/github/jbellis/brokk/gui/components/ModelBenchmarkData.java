@@ -149,4 +149,16 @@ public class ModelBenchmarkData {
         Integer successRate = rangeData.get(range);
         return successRate != null ? successRate : 100;
     }
+
+    public static int getSuccessRate(Service.ModelConfig config, int tokenCount) {
+        String modelName = config.name();
+        Service.ReasoningLevel reasoningLevel = config.reasoning();
+
+        if (modelName.contains("-nothink")) {
+            modelName = modelName.replace("-nothink", "");
+            reasoningLevel = Service.ReasoningLevel.DISABLE;
+        }
+
+        return getSuccessRate(modelName, reasoningLevel, tokenCount);
+    }
 }
