@@ -88,6 +88,20 @@ public class ThemeColors {
     public static final String SEARCH_HIGHLIGHT = "search_highlight";
     public static final String SEARCH_CURRENT = "search_current";
 
+    // Chip colors
+    public static final String CHIP_EDIT_BACKGROUND = "chip_edit_bg";
+    public static final String CHIP_EDIT_FOREGROUND = "chip_edit_fg";
+    public static final String CHIP_EDIT_BORDER = "chip_edit_border";
+    public static final String CHIP_SUMMARY_BACKGROUND = "chip_summary_bg";
+    public static final String CHIP_SUMMARY_FOREGROUND = "chip_summary_fg";
+    public static final String CHIP_SUMMARY_BORDER = "chip_summary_border";
+    public static final String CHIP_HISTORY_BACKGROUND = "chip_history_bg";
+    public static final String CHIP_HISTORY_FOREGROUND = "chip_history_fg";
+    public static final String CHIP_HISTORY_BORDER = "chip_history_border";
+    public static final String CHIP_OTHER_BACKGROUND = "chip_other_bg";
+    public static final String CHIP_OTHER_FOREGROUND = "chip_other_fg";
+    public static final String CHIP_OTHER_BORDER = "chip_other_border";
+
     /**
      * Provides fallback colors for critical keys if UIManager doesn't have them.
      * This prevents NPE if colors are accessed before theme initialization.
