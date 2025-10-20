@@ -542,6 +542,24 @@ public class SearchAgent {
                     """);
         }
 
+        if (hasAnswer && !hasTaskList) {
+            assert !hasWorkspace;
+            return new TerminalObjective(
+                    "query",
+                    """
+                    Deliver a written answer using the answer(String) tool.
+                    """);
+        }
+
+        if (hasTaskList && !hasAnswer) {
+            assert !hasWorkspace;
+            return new TerminalObjective(
+                    "task",
+                    """
+                    Deliver a task list using the createTaskList(List<String>) tool.
+                    """);
+        }
+
         if (hasWorkspace) {
             assert !hasAnswer && !hasTaskList;
             return new TerminalObjective(
