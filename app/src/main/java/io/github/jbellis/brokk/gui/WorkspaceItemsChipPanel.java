@@ -14,10 +14,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.*;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -47,7 +49,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
-    private Collection<ContextFragment> hoveredFragments = List.of();
+    private Set<ContextFragment> hoveredFragments = Set.of();
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -113,16 +115,31 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onHover = listener;
     }
 
-    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+    public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragments = targets;
-        repaint();
+        for (var component : getComponents()) {
+            if (component instanceof JComponent jc) {
+                jc.repaint();
+            }
+        }
+    }
+
+    // Overload to support existing callers that pass a Collection
+    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+        applyGlobalStyling(Set.copyOf(targets));
     }
 
     /**
      * Highlight or clear highlight for a collection of fragments' chips.
      * Safe to call from any thread; will marshal to the EDT.
      */
-    public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {}
+    public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {
+        if (highlight) {
+            applyGlobalStyling(Set.copyOf(fragments));
+        } else {
+            applyGlobalStyling(Set.of());
+        }
+    }
 
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
@@ -185,10 +202,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
-                    var myFragment = (ContextFragment) getClientProperty("brokk.fragment");
-                    if (myFragment != null) {
-                        boolean isHovered = parentPanel.hoveredFragments.contains(myFragment);
-                        boolean isDimmed = !parentPanel.hoveredFragments.isEmpty() && !isHovered;
+                    Object obj = getClientProperty("brokk.fragments");
+                    if (obj instanceof Set<?> myFragments && !myFragments.isEmpty()) {
+                        boolean hasHover = !parentPanel.hoveredFragments.isEmpty();
+                        boolean isHovered =
+                                hasHover && !Collections.disjoint(myFragments, parentPanel.hoveredFragments);
+                        boolean isDimmed = hasHover && !isHovered;
                         if (isDimmed) {
                             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
                         }
@@ -843,8 +862,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.add(close);
 
-        // Keep a handle to the fragment and close button so theme changes can restyle accurately
-        chip.putClientProperty("brokk.fragment", fragment);
+        // Keep a handle to the fragments and close button so theme changes can restyle accurately
+        chip.putClientProperty("brokk.fragments", Set.of(fragment));
         chip.putClientProperty("brokk.chip.closeButton", close);
         chip.putClientProperty("brokk.chip.label", label);
         // Track by id for grouped-segment multi-highlight
@@ -1064,6 +1083,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.add(close);
 
+        chip.putClientProperty("brokk.fragments", Set.copyOf(summaries));
         chip.putClientProperty("brokk.chip.closeButton", close);
         chip.putClientProperty("brokk.chip.label", label);
         chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
@@ -1195,8 +1215,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     }
                 }
                 if (label != null) {
-                    var fragObj = chip.getClientProperty("brokk.fragment");
-                    ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                    var fragsObj = chip.getClientProperty("brokk.fragments");
+                    ContextFragment fragment = null;
+                    if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
+                        fragment = (ContextFragment) fragSet.iterator().next();
+                    }
                     // styleChip() now updates the close button icon with proper background color
                     styleChip(chip, label, fragment);
                 }
