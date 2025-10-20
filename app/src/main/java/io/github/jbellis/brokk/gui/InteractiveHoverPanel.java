@@ -5,6 +5,7 @@ import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.TokenUsageBar;
 import java.awt.BorderLayout;
+import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Collection;
@@ -39,6 +40,7 @@ public class InteractiveHoverPanel extends JPanel {
     public void install() {
         SwingUtilities.invokeLater(() -> {
             addMouseListener(mouseListener);
+            addMouseMotionListener(mouseListener);
             chips.setOnHover((frag, entered) -> {
                 if (entered && frag != null) {
                     setHoverTarget(List.of(frag));
@@ -57,6 +59,7 @@ public class InteractiveHoverPanel extends JPanel {
     public void dispose() {
         SwingUtilities.invokeLater(() -> {
             removeMouseListener(mouseListener);
+            removeMouseMotionListener(mouseListener);
             chips.setOnHover(null);
             tokenBar.setOnHoverFragments(null);
             setHoverTarget(List.of());
@@ -79,6 +82,24 @@ public class InteractiveHoverPanel extends JPanel {
     }
 
     private class HoverMouseListener extends MouseAdapter {
+        @Override
+        public void mouseMoved(MouseEvent e) {
+            // This is called for mouse motion over the panel, but not over children that consume the event
+            // (like TokenUsageBar). We use it to detect when the mouse is in an empty area over the
+            // chips panel and clear the hover state.
+            var p = SwingUtilities.convertPoint(InteractiveHoverPanel.this, e.getPoint(), chips);
+            if (chips.contains(p) && chips.getComponentAt(p) != chips) {
+                // Mouse is over a chip, its own listener will handle setting the hover.
+                return;
+            }
+
+            // If we're not over a chip, and not over the token bar (which would consume the event),
+            // we must be in an empty area.
+            if (!currentHover.isEmpty()) {
+                setHoverTarget(List.of());
+            }
+        }
+
         @Override
         public void mouseExited(MouseEvent e) {
             // If the mouse exits the host container, clear the hover state.
