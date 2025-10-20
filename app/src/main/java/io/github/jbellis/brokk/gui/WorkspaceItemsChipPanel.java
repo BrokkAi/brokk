@@ -13,8 +13,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -37,6 +41,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Logger for defensive debug logging in catch blocks (avoid empty catches)
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
+
+    // Cross-hover state: chip lookup by fragment id and external hover callback
+    private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
+    private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
+    private Collection<ContextFragment> hoveredFragments = List.of();
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -94,8 +103,28 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onRemoveFragment = listener;
     }
 
+    /**
+     * Set a callback invoked when the mouse enters/leaves a chip for a fragment.
+     * Pass null to clear.
+     */
+    public void setOnHover(@Nullable BiConsumer<ContextFragment, Boolean> listener) {
+        this.onHover = listener;
+    }
+
+    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+        this.hoveredFragments = targets;
+        repaint();
+    }
+
+    /**
+     * Highlight or clear highlight for a collection of fragments' chips.
+     * Safe to call from any thread; will marshal to the EDT.
+     */
+    public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {}
+
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
+        chipById.clear();
 
         for (var fragment : fragments) {
             add(createChip(fragment));
@@ -134,6 +163,26 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         void setBorderColor(Color c) {
             this.borderColor = c;
             repaint();
+        }
+
+        @Override
+        public void paint(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
+                    var myFragment = (ContextFragment) getClientProperty("brokk.fragment");
+                    if (myFragment != null) {
+                        boolean isHovered = parentPanel.hoveredFragments.contains(myFragment);
+                        boolean isDimmed = !parentPanel.hoveredFragments.isEmpty() && !isHovered;
+                        if (isDimmed) {
+                            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                        }
+                    }
+                }
+                super.paint(g2);
+            } finally {
+                g2.dispose();
+            }
         }
 
         @Override
@@ -702,7 +751,48 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Keep a handle to the fragment and close button so theme changes can restyle accurately
         chip.putClientProperty("brokk.fragment", fragment);
         chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+        // Track by id for grouped-segment multi-highlight
+        try {
+            chipById.put(fragment.id(), chip);
+        } catch (Exception ignored) {
+            // best-effort; id() should be stable, but guard against any exceptions
+        }
         styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
+
+        // Hover handlers: simple glow on enter; restore styling on exit; forward to external listener
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+        };
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        close.addMouseListener(hoverAdapter);
+        sep.addMouseListener(hoverAdapter);
 
         chip.addMouseListener(new MouseAdapter() {
             @Override

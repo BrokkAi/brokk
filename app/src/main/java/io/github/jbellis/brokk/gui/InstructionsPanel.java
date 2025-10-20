@@ -45,8 +45,12 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -142,7 +146,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             var lineBorder = BorderFactory.createLineBorder(borderColor, thickness);
             var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
-            var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+            var marginBorder = BorderFactory.createEmptyBorder(8, 8, 8, 8);
             setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         }
 
@@ -153,7 +157,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintChildren(Graphics g) {
-            super.paintChildren(g);
+            if (!isDragOver) {
+                super.paintChildren(g);
+            }
+
             if (isDragOver) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
@@ -200,13 +207,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         public Dimension getMaximumSize() {
             Dimension pref = getPreferredSize();
             return new Dimension(Integer.MAX_VALUE, pref.height);
-        }
-
-        @Override
-        public boolean contains(int x, int y) {
-            // Treat the entire rectangular bounds of the component as the hit area for mouse events,
-            // which is important for drag-and-drop on a non-opaque component.
-            return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
         }
     }
 
@@ -400,7 +400,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.getComponent().setFocusable(true);
 
         // Initialize TokenUsageBar (left of Attach button)
-        tokenUsageBar = new TokenUsageBar();
+        tokenUsageBar = new TokenUsageBar(chrome);
         tokenUsageBar.setVisible(false);
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
@@ -656,10 +656,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             requestCommandInputFocus();
         });
 
-        var container = new JPanel(new BorderLayout(H_GLUE, 0));
-        container.setOpaque(false);
-        container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-
         // Sizer panel computes rows (1..5) based on current width and chip widths.
         var chipsSizer = new JPanel(new BorderLayout()) {
             private int computeRowsForWidth(int contentWidth) {
@@ -725,8 +721,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chipsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         chipsSizer.add(chipsScrollPane, BorderLayout.CENTER);
 
-        container.add(chipsSizer, BorderLayout.CENTER);
-
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
@@ -737,7 +731,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
-        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // minimal gap above
+        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 5, 0, 0));
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -766,7 +760,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextRightPanel.add(attachButton);
         bottomLinePanel.add(contextRightPanel, BorderLayout.EAST);
 
-        container.add(bottomLinePanel, BorderLayout.SOUTH);
+        // The InteractiveHoverPanel now manages its own layout and hover logic
+        var hoverPanel = new InteractiveHoverPanel(chipsSizer, bottomLinePanel, workspaceItemsChipPanel, tokenUsageBar);
+        hoverPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
+        hoverPanel.install();
 
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
@@ -827,7 +824,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         titledContainer.setDropTarget(
                 new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
-        titledContainer.add(container, BorderLayout.CENTER);
+        titledContainer.add(hoverPanel, BorderLayout.CENTER);
 
         // Add mouse listener for right-click context menu in empty space
         titledContainer.addMouseListener(new MouseAdapter() {
