@@ -704,7 +704,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
-        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // minimal gap above
+        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 5, 0, 0));
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
