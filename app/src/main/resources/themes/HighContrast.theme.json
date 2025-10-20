@@ -729,6 +729,13 @@
       "git_badge_background": "#1AEBFF",
       "git_badge_text": "#000000",
 
+      "mode_answer_bg": "#00FFFF",
+      "mode_answer_fg": "#FFFFFF",
+      "mode_answer_accent": "#00FFFF",
+      "mode_code_bg": "#00FF00",
+      "mode_code_fg": "#FFFFFF",
+      "mode_code_accent": "#00FF00",
+
       "badge_border": "#1AEBFF",
       "badge_foreground": "#1AEBFF",
       "badge_hover_border": "#00EAFF",
