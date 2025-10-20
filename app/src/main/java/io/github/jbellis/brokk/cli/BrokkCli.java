@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
@@ -23,15 +24,20 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
+import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.gui.PrTitleFormatter;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
+import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -45,7 +51,11 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHIssue;
+import org.kohsuke.github.GHIssueComment;
+import org.kohsuke.github.GHPullRequest;
 import picocli.CommandLine;
 
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
@@ -450,6 +460,129 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
+                    scope.append(result);
+                } else if (reviewPrompt != null) {
+                    if (codeModel == null) {
+                        System.err.println("Error: --review requires --codemodel to be specified.");
+                        return 1;
+                    }
+
+                    var prNumberOpt = parsePrNumber(reviewPrompt);
+                    if (prNumberOpt.isEmpty()) {
+                        System.err.println("Error: Could not parse PR number from: " + reviewPrompt);
+                        return 1;
+                    }
+                    int prNumber = prNumberOpt.get();
+
+                    GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
+                    GHPullRequest pr = auth.getGhRepository().getPullRequest(prNumber);
+
+                    String prHeadSha = pr.getHead().getSha();
+                    String prBaseSha = pr.getBase().getSha();
+                    var repo = (GitRepo) project.getRepo();
+
+                    String prHeadFetchRef =
+                            String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
+                    String prBaseBranchName = pr.getBase().getRef();
+                    String prBaseFetchRef =
+                            String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                    if (!repo.ensureShaIsLocal(prHeadSha, prHeadFetchRef, "origin")) {
+                        io.toolError(
+                                "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
+                                "Review Error");
+                        return 1;
+                    }
+                    repo.ensureShaIsLocal(prBaseSha, prBaseFetchRef, "origin");
+
+                    String effectiveBaseSha = repo.getMergeBase(prHeadSha, prBaseSha);
+                    if (effectiveBaseSha == null) {
+                        logger.warn(
+                                "Could not determine merge base for PR #{} (head: {}, base: {}). Using PR base SHA for diff.",
+                                prNumber,
+                                repo.shortHash(prHeadSha),
+                                repo.shortHash(prBaseSha));
+                        effectiveBaseSha = prBaseSha;
+                    }
+
+                    String diff = repo.getDiff(effectiveBaseSha, prHeadSha);
+                    if (!diff.isEmpty()) {
+                        List<ProjectFile> changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha)
+                                .stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .collect(Collectors.toList());
+                        String fileNamesSummary = GitUiUtil.formatFileList(changedFiles);
+
+                        String description = String.format(
+                                "Diff of PR #%d (%s): %s [HEAD: %s vs Base: %s]",
+                                prNumber,
+                                pr.getTitle(),
+                                fileNamesSummary,
+                                repo.shortHash(prHeadSha),
+                                repo.shortHash(effectiveBaseSha));
+
+                        String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+                        if (!changedFiles.isEmpty()) {
+                            syntaxStyle = SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
+                        }
+
+                        var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
+                        cm.addVirtualFragment(fragment);
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format("Added diff for PR #%d (%s) to context", prNumber, pr.getTitle()));
+                    } else {
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format("No differences found for PR #%d", prNumber));
+                    }
+
+                    List<GitRepo.ModifiedFile> modifiedFiles =
+                            repo.listFilesChangedBetweenBranches(prHeadSha, effectiveBaseSha);
+                    var textFiles = GitUiUtil.filterTextFiles(modifiedFiles);
+
+                    if (!textFiles.isEmpty()) {
+                        cm.addFiles(new HashSet<>(textFiles));
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format(
+                                        "Added %d changed file(s) from PR #%d to editable context",
+                                        textFiles.size(), prNumber));
+                    }
+
+                    String descriptionText = pr.getBody();
+                    if (descriptionText == null || descriptionText.isBlank()) {
+                        String authorLogin = pr.getUser() != null ? pr.getUser().getLogin() : null;
+                        if (authorLogin != null) {
+                            GHIssue issue = auth.getIssue(prNumber);
+                            List<GHIssueComment> comments = issue.getComments();
+                            for (GHIssueComment c : comments) {
+                                if (authorLogin.equals(c.getUser().getLogin())) {
+                                    String candidate = c.getBody();
+                                    if (candidate != null && !candidate.isBlank()) {
+                                        descriptionText = candidate.trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (descriptionText != null && !descriptionText.isBlank()) {
+                        var descriptionFragment = new ContextFragment.StringFragment(
+                                cm,
+                                descriptionText,
+                                PrTitleFormatter.formatDescriptionTitle(prNumber),
+                                "markdown");
+                        cm.addVirtualFragment(descriptionFragment);
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format("Added PR description fragment for PR #%d", prNumber));
+                    }
+
+                    String reviewGuide = project.getReviewGuide();
+                    String reviewPromptFormatted = PrTitleFormatter.formatReviewPrompt(pr, reviewGuide);
+                    result = InstructionsPanel.executeAskCommand(cm, codeModel, reviewPromptFormatted);
                     scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
