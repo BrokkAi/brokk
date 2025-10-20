@@ -77,18 +77,21 @@
       "search_highlight": "#FFFF00",
       "search_current": "#FFA500",
 
-      "chip_edit_bg": "#007ACC",
+      "chip_edit_bg": "#0078D4",
       "chip_edit_fg": "#FFFFFF",
-      "chip_edit_border": "#005A9C",
-      "chip_summary_bg": "#1B2A3A",
-      "chip_summary_fg": "#B7D8FF",
-      "chip_summary_border": "#007ACC",
-      "chip_history_bg": "#1B2A1B",
-      "chip_history_fg": "#A8E6A8",
-      "chip_history_border": "#2A7722",
-      "chip_other_bg": "#004B87",
-      "chip_other_fg": "#90D4FF",
-      "chip_other_border": "#0078D4"
+      "chip_edit_border": "#005A9E",
+
+      "chip_summary_bg": "#0C4E8A",
+      "chip_summary_fg": "#FFFFFF",
+      "chip_summary_border": "#083A5E",
+
+      "chip_history_bg": "#2EA043",
+      "chip_history_fg": "#FFFFFF",
+      "chip_history_border": "#1F7A2C",
+
+      "chip_other_bg": "#0A66B2",
+      "chip_other_fg": "#FFFFFF",
+      "chip_other_border": "#084E88"
     }
   }
 }
