@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -44,8 +45,13 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -826,36 +832,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Cross-highlighting: when user hovers chips/segments, highlight the counterpart
-        workspaceItemsChipPanel.setOnHover((frag, entered) -> {
-            try {
-                if (frag == null) return;
-                // TokenUsageBar.highlightFragment is safe to call off-EDT
-                tokenUsageBar.highlightFragment(frag, entered);
-            } catch (Exception ex) {
-                logger.trace("workspace->token highlight callback threw", ex);
-            }
-        });
-
-        tokenUsageBar.setOnHover((frag, entered) -> {
-            try {
-                if (frag == null) return;
-                // WorkspaceItemsChipPanel.highlightFragment is safe to call off-EDT
-                workspaceItemsChipPanel.highlightFragment(frag, entered);
-            } catch (Exception ex) {
-                logger.trace("token->workspace highlight callback threw", ex);
-            }
-        });
-
-        // Clicking a segment should highlight the chip (persistently) so user can find it
-        tokenUsageBar.setOnSegmentClick(frag -> {
-            try {
-                if (frag == null) return;
-                workspaceItemsChipPanel.setPersistentTarget(frag);
-            } catch (Exception ex) {
-                logger.trace("token segment click callback threw", ex);
-            }
-        });
+        // Cross-highlight Chips <-> TokenUsageBar segments
+        var hoverPanel = new InteractiveHoverPanel(titledContainer, workspaceItemsChipPanel, tokenUsageBar);
+        hoverPanel.install();
 
         // Insert beneath the command-input area (index 2)
         return titledContainer;
@@ -1950,35 +1929,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         workspaceItemsChipPanel.setFragments(fragments);
         // Feed per-fragment data to the token bar
         tokenUsageBar.setFragments(fragments);
-
-        // Re-register cross-listeners (idempotent)
-        workspaceItemsChipPanel.setOnHover((frag, entered) -> {
-            try {
-                if (frag == null) return;
-                tokenUsageBar.highlightFragment(frag, entered);
-            } catch (Exception ex) {
-                logger.trace("workspace->token highlight callback threw", ex);
-            }
-        });
-
-        tokenUsageBar.setOnHover((frag, entered) -> {
-            try {
-                if (frag == null) return;
-                workspaceItemsChipPanel.highlightFragment(frag, entered);
-            } catch (Exception ex) {
-                logger.trace("token->workspace highlight callback threw", ex);
-            }
-        });
-
-        tokenUsageBar.setOnSegmentClick(frag -> {
-            try {
-                if (frag == null) return;
-                workspaceItemsChipPanel.setPersistentTarget(frag);
-            } catch (Exception ex) {
-                logger.trace("token segment click callback threw", ex);
-            }
-        });
-
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
     }
