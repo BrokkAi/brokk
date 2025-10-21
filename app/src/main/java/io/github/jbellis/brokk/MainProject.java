@@ -1113,7 +1113,7 @@ public final class MainProject extends AbstractProject {
 
     public static void setGlobalActionMode(String mode) {
         var props = loadGlobalProperties();
-        if (mode == null || mode.isEmpty()) {
+        if (mode.isEmpty()) {
             props.remove("actionMode");
         } else {
             props.setProperty("actionMode", mode);
