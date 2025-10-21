@@ -33,7 +33,6 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
-import java.util.Optional;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DropTarget;
@@ -55,6 +54,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -1899,9 +1899,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Color borderColor = UIManager.getColor("Component.borderColor");
             if (borderColor == null) borderColor = Color.GRAY;
             setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(borderColor, 1, true),
-                BorderFactory.createEmptyBorder(4, 0, 4, 8)
-            ));
+                    new LineBorder(borderColor, 1, true), BorderFactory.createEmptyBorder(4, 0, 4, 8)));
 
             // Defer icon loading until EDT is ready
             SwingUtilities.invokeLater(() -> {
