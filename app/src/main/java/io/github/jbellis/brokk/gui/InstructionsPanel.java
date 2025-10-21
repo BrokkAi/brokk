@@ -345,7 +345,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize the workspace chips area below the command input
         this.contextAreaContainer = createContextAreaContainer();
-        centerPanel.add(contextAreaContainer, 2);
+        centerPanel.add(contextAreaContainer, 1);
 
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
@@ -1848,6 +1848,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private String selectedMode;
         private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
         private boolean inStopMode = false;
+        private boolean lastPressWasInDropdown = false;
 
         public ActionSplitButton(
                 Supplier<Boolean> isActionRunning, 
@@ -1864,17 +1865,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             updateButtonText();
             
             // Handle clicks: left side executes action, right side shows dropdown
+            // This listener must be added first to intercept events before the button's internal listeners
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
                     if (inStopMode) {
+                        lastPressWasInDropdown = false;
                         return; // Normal button behavior in stop mode
                     }
                     
                     int dropdownWidth = 30;
                     if (e.getX() > getWidth() - dropdownWidth) {
+                        lastPressWasInDropdown = true;
                         showDropdownMenu();
                         e.consume();
+                    } else {
+                        lastPressWasInDropdown = false;
+                    }
+                }
+                
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    // Consume release events for dropdown area to prevent action listener from firing
+                    if (lastPressWasInDropdown) {
+                        e.consume();
+                        lastPressWasInDropdown = false;
                     }
                 }
             });
