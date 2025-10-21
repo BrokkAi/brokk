@@ -958,7 +958,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setPreferredSize(prefSize);
         actionButton.setMinimumSize(prefSize);
         actionButton.setMaximumSize(prefSize);
-        actionButton.setMargin(new Insets(4, 10, 4, 10));
+        actionButton.setMargin(new Insets(4, 4, 4, 10));
 
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new FocusAdapter() {
@@ -1845,7 +1845,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
         private boolean inStopMode = false;
         private static final int DROPDOWN_WIDTH = 30;
-        private final Icon dropdownIcon;
+        private @Nullable Icon dropdownIcon;
 
         public ActionSplitButton(
                 Supplier<Boolean> isActionRunning,
@@ -1858,9 +1858,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.defaultActionButtonBg = defaultActionButtonBg;
             this.selectedMode = defaultMode;
             this.originalIcon = null;
-            this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+            this.dropdownIcon = null;
 
             updateButtonText();
+
+            // Defer icon loading until EDT is ready
+            SwingUtilities.invokeLater(() -> {
+                this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+            });
 
             // Change cursor when hovering the dropdown area on the right
             addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
@@ -1979,18 +1984,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Draw divider line if not in stop mode
                 if (!inStopMode) {
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
-                    Color dividerColor = UIManager.getColor("Component.borderColor");
-                    if (dividerColor == null) dividerColor = Color.GRAY;
-                    g2.setColor(dividerColor);
+                    // Force the divider to be white
+                    g2.setColor(Color.WHITE);
                     g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
 
-                    // Paint dropdown icon centered in the dropdown area
-                    if (dropdownIcon != null) {
-                        int iw = dropdownIcon.getIconWidth();
-                        int ih = dropdownIcon.getIconHeight();
+                    // Lazy-load and paint dropdown icon centered in the dropdown area
+                    if (dropdownIcon == null) {
+                        dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+                    }
+                    if (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon) {
+                        themedIcon.ensureResolved();
+                    }
+                    Icon iconToPaint = (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon)
+                            ? themedIcon.delegate()
+                            : dropdownIcon;
+                    if (iconToPaint != null) {
+                        int iw = iconToPaint.getIconWidth();
+                        int ih = iconToPaint.getIconHeight();
                         int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
                         int iy = Math.max(0, (getHeight() - ih) / 2);
-                        dropdownIcon.paintIcon(this, g2, ix, iy);
+                        iconToPaint.paintIcon(this, g2, ix, iy);
                     }
                 }
             } finally {
