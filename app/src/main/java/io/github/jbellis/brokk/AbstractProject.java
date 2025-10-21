@@ -9,10 +9,12 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
+import org.eclipse.jgit.ignore.IgnoreNode;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.EnvironmentJava;
 import java.awt.Rectangle;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -549,9 +551,79 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
-            allFilesCache = getAllFilesRaw();
+            var rawFiles = getAllFilesRaw();
+            allFilesCache = applyFiltering(rawFiles);
         }
         return allFilesCache;
+    }
+
+    /**
+     * Applies gitignore and baseline filtering to the given set of files.
+     * Uses JGit's IgnoreNode to parse .gitignore patterns and filter out ignored files.
+     * 
+     * @param files The raw set of files to filter
+     * @return Filtered set of files that are not ignored by .gitignore or baseline exclusions
+     */
+    protected Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
+        // If not a git repo, return files as-is
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return files;
+        }
+
+        try {
+            // Load gitignore patterns
+            var ignoredPatterns = gitRepo.getIgnoredPatterns();
+            if (ignoredPatterns.isEmpty()) {
+                return files; // No .gitignore file, return all files
+            }
+
+            // Create IgnoreNode and parse patterns
+            var ignoreNode = new IgnoreNode();
+            var patternsBuilder = new StringBuilder();
+            for (var pattern : ignoredPatterns) {
+                patternsBuilder.append(pattern.trim()).append('\n');
+            }
+            
+            try (var inputStream = new java.io.ByteArrayInputStream(patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
+                ignoreNode.parse(inputStream);
+            } catch (Exception e) {
+                logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
+                return files; // Return all files if parsing fails
+            }
+
+            // Apply baseline exclusions from build details
+            var baselineExclusions = new HashSet<>(loadBuildDetails().excludedDirectories());
+            
+            // Filter files
+            var filteredFiles = new HashSet<ProjectFile>();
+            for (var file : files) {
+                var relativePath = file.toString().replace('\\', '/');
+                
+                // Check baseline exclusions first
+                boolean isBaselineExcluded = baselineExclusions.stream().anyMatch(exclusion -> {
+                    var exclusionPath = exclusion.replace('\\', '/');
+                    return relativePath.startsWith(exclusionPath) || relativePath.equals(exclusionPath);
+                });
+                
+                if (isBaselineExcluded) {
+                    continue;
+                }
+                
+                // Check gitignore rules
+                boolean isDirectory = Files.isDirectory(file.absPath());
+                var gitIgnoreResult = ignoreNode.isIgnored(relativePath, isDirectory);
+                if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
+                    continue;
+                }
+                
+                filteredFiles.add(file);
+            }
+            
+            return filteredFiles;
+        } catch (Exception e) {
+            logger.warn("Error applying gitignore filtering, returning all files: {}", e.getMessage());
+            return files;
+        }
     }
 
     @Override

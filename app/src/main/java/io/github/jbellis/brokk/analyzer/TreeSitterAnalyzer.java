@@ -229,23 +229,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var successfullyProcessed = new AtomicInteger(0);
         var failedFiles = new AtomicInteger(0);
 
-        // Collect files to process
-        List<ProjectFile> filesToProcess = project.getAllFiles().stream()
-                .filter(pf -> {
-                    var filePath = pf.absPath().toAbsolutePath().normalize();
-
-                    var excludedBy = normalizedExcludedPaths.stream()
-                            .filter(filePath::startsWith)
-                            .findFirst();
-
-                    if (excludedBy.isPresent()) {
-                        log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
-                        return false;
-                    }
-
-                    var extension = pf.extension();
-                    return validExtensions.contains(extension);
-                })
+        // Collect files to process using gitignore-filtered analyzable files
+        List<ProjectFile> filesToProcess = project.getAnalyzableFiles(language).stream()
+                .map(path -> new ProjectFile(project.getRoot(), project.getRoot().relativize(path)))
                 .toList();
 
         var timing = ConstructionTiming.create();
