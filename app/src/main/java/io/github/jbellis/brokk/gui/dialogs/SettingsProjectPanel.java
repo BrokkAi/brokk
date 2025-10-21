@@ -49,7 +49,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
     // Analyzer-related UI
-    private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
+    DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
     private MaterialButton addExcludedDirButton = new MaterialButton();
@@ -931,6 +931,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             default:
                 issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
                 break;
+        }
+
+        // Load CI exclusions from BuildDetails (not from project.getExcludedDirectories())
+        try {
+            var details = project.loadBuildDetails();
+            var dirs = new ArrayList<>(details.excludedDirectories());
+            dirs.sort(String::compareToIgnoreCase);
+            excludedDirectoriesListModel.clear();
+            for (var d : dirs) {
+                excludedDirectoriesListModel.addElement(d);
+            }
+        } catch (Exception ex) {
+            logger.warn("Failed to load BuildDetails for CI exclusions: {}", ex.getMessage(), ex);
+            excludedDirectoriesListModel.clear();
         }
 
         // Build Tab - delegate to buildPanelInstance
