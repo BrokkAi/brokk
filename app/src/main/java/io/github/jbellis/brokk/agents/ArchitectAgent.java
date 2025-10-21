@@ -141,6 +141,7 @@ public class ArchitectAgent {
         io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true, false);
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
+        opts.add(CodeAgent.Option.PRESERVE_BUILD_RESULT);
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
@@ -170,11 +171,13 @@ public class ArchitectAgent {
         this.offerUndoToolNext = true;
         var resultString =
                 """
-                        CodeAgent was not able to get to a clean build. Details are in the Workspace.
+                        CodeAgent was not able to get to a clean build.
                         Changes were made but can be undone with 'undoLastChanges'
                         if CodeAgent made negative progress; you will have to determine this from the messages history and the
-                        current Workspace contents.
-                        """;
+                        current Workspace contents. Here is the final build result:
+                        
+                        %s
+                        """.formatted(cm.liveContext().format());
         logger.debug("failed callCodeAgent");
         return resultString;
     }

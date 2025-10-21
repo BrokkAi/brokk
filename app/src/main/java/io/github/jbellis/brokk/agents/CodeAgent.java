@@ -30,6 +30,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -82,6 +83,7 @@ public class CodeAgent {
     }
 
     public enum Option {
+        PRESERVE_BUILD_RESULT,
         DEFER_BUILD
     }
 
@@ -346,6 +348,13 @@ public class CodeAgent {
 
         if (metrics != null) {
             metrics.print(es.changedFiles(), stopDetails);
+        }
+
+        // If PRESERVE_BUILD_RESULT is set, update the ContextManager's live context with this task's build state
+        // FIXME this means we are not encapsulating the Task List's Search + Architect + Code work,
+        // but it's a lesser evil than making Architect blind to what happened
+        if (options.contains(Option.PRESERVE_BUILD_RESULT)) {
+            contextManager.pushContext(currentLiveCtx -> context.withAction(CompletableFuture.completedFuture("Code Agent Complete")));
         }
 
         // create the Result for history
