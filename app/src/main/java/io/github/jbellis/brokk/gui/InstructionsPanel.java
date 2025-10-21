@@ -967,7 +967,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMaximumSize(prefSize);
         actionButton.setMargin(new Insets(4, 4, 4, 10));
         actionButton.setIconTextGap(0);
-        actionButton.setHorizontalTextPosition(SwingConstants.LEFT);
+        actionButton.setHorizontalTextPosition(SwingConstants.RIGHT);
 
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new FocusAdapter() {
