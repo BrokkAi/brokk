@@ -959,6 +959,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMinimumSize(prefSize);
         actionButton.setMaximumSize(prefSize);
         actionButton.setMargin(new Insets(4, 4, 4, 10));
+        actionButton.setIconTextGap(0);
 
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new FocusAdapter() {
@@ -1952,7 +1953,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
             menu.add(searchItem);
 
-            menu.show(this, getWidth() - DROPDOWN_WIDTH, getHeight());
+            menu.show(this, getWidth() - DROPDOWN_WIDTH, -5);
         }
 
         @Override
