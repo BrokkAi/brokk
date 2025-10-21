@@ -532,6 +532,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Set<ProjectFile> allFilesCache;
 
+    @Nullable
+    private volatile IgnoreNode ignoreNodeCache;
+
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
@@ -571,24 +574,28 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         try {
-            // Load gitignore patterns
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            IgnoreNode ignoreNode = null;
+            // Use cached IgnoreNode if available, otherwise load and parse .gitignore patterns
+            IgnoreNode ignoreNode = ignoreNodeCache;
 
-            if (!ignoredPatterns.isEmpty()) {
-                // Create IgnoreNode and parse patterns
-                ignoreNode = new IgnoreNode();
-                var patternsBuilder = new StringBuilder();
-                for (var pattern : ignoredPatterns) {
-                    patternsBuilder.append(pattern.trim()).append('\n');
-                }
+            if (ignoreNode == null) {
+                var ignoredPatterns = gitRepo.getIgnoredPatterns();
 
-                try (var inputStream = new java.io.ByteArrayInputStream(
-                        patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
-                    ignoreNode.parse(inputStream);
-                } catch (Exception e) {
-                    logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
-                    ignoreNode = null; // Treat as if no .gitignore exists
+                if (!ignoredPatterns.isEmpty()) {
+                    // Create IgnoreNode and parse patterns
+                    ignoreNode = new IgnoreNode();
+                    var patternsBuilder = new StringBuilder();
+                    for (var pattern : ignoredPatterns) {
+                        patternsBuilder.append(pattern.trim()).append('\n');
+                    }
+
+                    try (var inputStream = new java.io.ByteArrayInputStream(
+                            patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
+                        ignoreNode.parse(inputStream);
+                        ignoreNodeCache = ignoreNode; // Cache the parsed IgnoreNode
+                    } catch (Exception e) {
+                        logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
+                        ignoreNode = null; // Treat as if no .gitignore exists
+                    }
                 }
             }
 
@@ -673,6 +680,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
+        ignoreNodeCache = null;
     }
 
     @Override
