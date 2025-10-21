@@ -171,6 +171,20 @@ public class MaterialButton extends JButton {
         return icon;
     }
 
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        // When the component becomes displayable / is added to a hierarchy, register for dialog sizing
+        DialogButtonSizing.registerIfInDialog(this);
+    }
+
+    @Override
+    public void removeNotify() {
+        // When the component is removed from the hierarchy or destroyed, unregister and allow cleanup
+        DialogButtonSizing.unregister(this);
+        super.removeNotify();
+    }
+
     private static String formatKeyStroke(KeyStroke ks) {
         try {
             int modifiers = ks.getModifiers();
