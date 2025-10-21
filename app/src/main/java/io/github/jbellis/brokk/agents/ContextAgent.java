@@ -333,13 +333,14 @@ public class ContextAgent {
 
         // If small, include everything without LLM
         if (allowSkipPruning && initialTokens <= skipPruningBudget) {
+            // Under skip-pruning budget
             LlmRecommendation rec;
             rec = type == GroupType.ANALYZED
                     ? new LlmRecommendation(
                             List.of(),
                             new ArrayList<>(allSummariesForAnalyzed.keySet()),
-                            "Under skip-pruning budget (" + type + ")")
-                    : new LlmRecommendation(groupFiles, List.of(), "Under skip-pruning budget (" + type + ")");
+                            "")
+                    : new LlmRecommendation(groupFiles, List.of(), "");
             return createResult(rec, existingFiles);
         }
 
