@@ -1980,14 +1980,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             JPopupMenu menu = new JPopupMenu();
 
             JMenuItem codeItem = new JMenuItem("Code");
+            codeItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Code Mode:</b> The Code agent executes your instructions to directly modify the code files currently in the context.</body></html>");
             codeItem.addActionListener(ev -> setSelectedMode(ACTION_CODE));
             menu.add(codeItem);
 
             JMenuItem askItem = new JMenuItem("Ask");
+            askItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Ask mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.</body></html>");
             askItem.addActionListener(ev -> setSelectedMode(ACTION_ASK));
             menu.add(askItem);
 
             JMenuItem searchItem = new JMenuItem("Lutz");
+            searchItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Lutz mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.</body></html>");
             searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
             menu.add(searchItem);
 
