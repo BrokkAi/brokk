@@ -1848,7 +1848,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private String selectedMode;
         private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
         private boolean inStopMode = false;
-        private boolean lastPressWasInDropdown = false;
+        private static final int DROPDOWN_WIDTH = 30;
 
         public ActionSplitButton(
                 Supplier<Boolean> isActionRunning, 
@@ -1863,34 +1863,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.originalIcon = null;
             
             updateButtonText();
-            
-            // Handle clicks: left side executes action, right side shows dropdown
-            // This listener must be added first to intercept events before the button's internal listeners
-            addMouseListener(new MouseAdapter() {
+
+            // Change cursor when hovering the dropdown area on the right
+            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
                 @Override
-                public void mousePressed(MouseEvent e) {
-                    if (inStopMode) {
-                        lastPressWasInDropdown = false;
-                        return; // Normal button behavior in stop mode
-                    }
-                    
-                    int dropdownWidth = 30;
-                    if (e.getX() > getWidth() - dropdownWidth) {
-                        lastPressWasInDropdown = true;
-                        showDropdownMenu();
-                        e.consume();
-                    } else {
-                        lastPressWasInDropdown = false;
-                    }
-                }
-                
-                @Override
-                public void mouseReleased(MouseEvent e) {
-                    // Consume release events for dropdown area to prevent action listener from firing
-                    if (lastPressWasInDropdown) {
-                        e.consume();
-                        lastPressWasInDropdown = false;
-                    }
+                public void mouseMoved(MouseEvent e) {
+                    boolean inDropdown = e.getX() >= getWidth() - DROPDOWN_WIDTH;
+                    setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                                         : Cursor.getDefaultCursor());
                 }
             });
         }
@@ -1939,6 +1919,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
         
+        @Override
+        protected void processMouseEvent(MouseEvent e) {
+            int x = e.getX();
+            int y = e.getY();
+            boolean inDropdown = x >= getWidth() - DROPDOWN_WIDTH && x <= getWidth() && y >= 0 && y <= getHeight();
+            if (inDropdown && isEnabled()) {
+                // Swallow events in dropdown area and show menu on press
+                if (e.getID() == MouseEvent.MOUSE_PRESSED) {
+                    showDropdownMenu();
+                }
+                return; // Do not pass to super; prevents main action from firing
+            }
+            super.processMouseEvent(e);
+        }
+
         private void showDropdownMenu() {
             JPopupMenu menu = new JPopupMenu();
             
@@ -1954,7 +1949,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
             menu.add(searchItem);
             
-            menu.show(this, 0, getHeight());
+            menu.show(this, getWidth() - DROPDOWN_WIDTH, getHeight());
         }
 
         @Override
@@ -1985,7 +1980,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 
                 // Draw divider line if not in stop mode
                 if (!inStopMode) {
-                    int dropdownX = getWidth() - 30;
+                    int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     Color dividerColor = UIManager.getColor("Component.borderColor");
                     if (dividerColor == null) dividerColor = Color.GRAY;
                     g2.setColor(dividerColor);
