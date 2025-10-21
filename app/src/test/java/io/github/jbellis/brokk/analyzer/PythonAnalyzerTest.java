@@ -107,7 +107,9 @@ public final class PythonAnalyzerTest {
         // Add other expected CUs if necessary for a more complete check, e.g., methods of classA_CU
         assertTrue(analyzer.getSkeleton(funcA_CU.fqName()).isPresent(), "Skeleton for funcA_CU should be present");
         assertEquals(
-                funcASummary.trim(), analyzer.getSkeleton(funcA_CU.fqName()).get().trim(), "getSkeleton mismatch for funcA");
+                funcASummary.trim(),
+                analyzer.getSkeleton(funcA_CU.fqName()).get().trim(),
+                "getSkeleton mismatch for funcA");
     }
 
     @Test
@@ -349,9 +351,14 @@ public final class PythonAnalyzerTest {
         var unique = new HashSet<>(allDecls);
         assertEquals(unique.size(), allDecls.size(), "All declaration FQNs should be unique after deduplication");
 
-        var topDecls = analyzer.getTopLevelDeclarations().values().stream().flatMap(List::stream).collect(Collectors.toList());
+        var topDecls = analyzer.getTopLevelDeclarations().values().stream()
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
         var uniqueTopDecls = new HashSet<>(topDecls);
-        assertEquals(uniqueTopDecls.size(), topDecls.size(), "Top-level declaration FQNs should be unique after deduplication");
+        assertEquals(
+                uniqueTopDecls.size(),
+                topDecls.size(),
+                "Top-level declaration FQNs should be unique after deduplication");
     }
 
     @Test
@@ -368,7 +375,8 @@ public final class PythonAnalyzerTest {
 
         // The expected behavior: method should NOT be top-level; it should be a child of the inner class.
         var topLevel = analyzer.getTopLevelDeclarations(file);
-        assertFalse(topLevel.contains(innerMethodCU), "Nested method should not be included as a top-level declaration");
+        assertFalse(
+                topLevel.contains(innerMethodCU), "Nested method should not be included as a top-level declaration");
 
         var innerChildren = analyzer.getSubDeclarations(innerClassCU);
         assertTrue(innerChildren.contains(innerMethodCU), "Nested method should be attached under the inner class");
