@@ -77,67 +77,8 @@ public class BranchSelectorButton extends SplitButton {
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
 
-        try {
-            if (project.hasGit()) {
-                IGitRepo repo = project.getRepo();
-                List<String> localBranches;
-                if (repo instanceof GitRepo gitRepo) {
-                    localBranches = gitRepo.listLocalBranches();
-                } else {
-                    localBranches = List.of();
-                }
-                String current = repo.getCurrentBranch();
-
-                if (!current.isBlank()) {
-                    JMenuItem header = new JMenuItem("Current: " + current);
-                    header.setEnabled(false);
-                    menu.add(header);
-                    menu.add(new JSeparator());
-                }
-
-                for (var b : localBranches) {
-                    JMenuItem item = new JMenuItem(b);
-                    item.addActionListener(ev -> {
-                        cm.submitExclusiveAction(() -> {
-                            try {
-                                IGitRepo r = project.getRepo();
-                                r.checkout(b);
-                                SwingUtilities.invokeLater(() -> {
-                                    try {
-                                        var currentBranch = r.getCurrentBranch();
-                                        var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                        refreshBranch(displayBranch);
-                                    } catch (Exception ex) {
-                                        logger.debug("Error updating branch UI after checkout", ex);
-                                        refreshBranch(b);
-                                    }
-                                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                });
-                            } catch (Exception ex) {
-                                logger.error("Error checking out branch {}", b, ex);
-                                SwingUtilities.invokeLater(
-                                        () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                            }
-                        });
-                    });
-                    menu.add(item);
-                }
-
-            } else {
-                JMenuItem noRepo = new JMenuItem("No Git repository");
-                noRepo.setEnabled(false);
-                menu.add(noRepo);
-            }
-        } catch (Exception ex) {
-            logger.error("Error building branch menu", ex);
-            JMenuItem err = new JMenuItem("Error loading branches");
-            err.setEnabled(false);
-            menu.add(err);
-        }
-
         if (project.hasGit()) {
-            menu.addSeparator();
-
+            // Top-level actions should always appear first when a Git repo is present
             JMenuItem create = new JMenuItem("Create New Branch...");
             create.addActionListener(ev -> {
                 SwingUtilities.invokeLater(() -> {
@@ -190,8 +131,6 @@ public class BranchSelectorButton extends SplitButton {
             });
             menu.add(refresh);
 
-            // Append "Create Pull Request..." action
-            menu.addSeparator();
             JMenuItem createPr = new JMenuItem("Create Pull Request...");
             createPr.addActionListener(ev -> {
                 SwingUtilities.invokeLater(() -> {
@@ -224,6 +163,65 @@ public class BranchSelectorButton extends SplitButton {
                 });
             });
             menu.add(createPr);
+
+            // Separator before the branch list
+            menu.addSeparator();
+
+            // Build the branch list; if something fails, show an error while keeping top actions
+            try {
+                IGitRepo repo = project.getRepo();
+                List<String> localBranches;
+                if (repo instanceof GitRepo gitRepo) {
+                    localBranches = gitRepo.listLocalBranches();
+                } else {
+                    localBranches = List.of();
+                }
+                String current = repo.getCurrentBranch();
+
+                if (!current.isBlank()) {
+                    JMenuItem header = new JMenuItem("Current: " + current);
+                    header.setEnabled(false);
+                    menu.add(header);
+                    menu.add(new JSeparator());
+                }
+
+                for (var b : localBranches) {
+                    JMenuItem item = new JMenuItem(b);
+                    item.addActionListener(ev -> {
+                        cm.submitExclusiveAction(() -> {
+                            try {
+                                IGitRepo r = project.getRepo();
+                                r.checkout(b);
+                                SwingUtilities.invokeLater(() -> {
+                                    try {
+                                        var currentBranch = r.getCurrentBranch();
+                                        var displayBranch = currentBranch.isBlank() ? b : currentBranch;
+                                        refreshBranch(displayBranch);
+                                    } catch (Exception ex) {
+                                        logger.debug("Error updating branch UI after checkout", ex);
+                                        refreshBranch(b);
+                                    }
+                                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
+                                });
+                            } catch (Exception ex) {
+                                logger.error("Error checking out branch {}", b, ex);
+                                SwingUtilities.invokeLater(
+                                        () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                            }
+                        });
+                    });
+                    menu.add(item);
+                }
+            } catch (Exception ex) {
+                logger.error("Error building branch menu", ex);
+                JMenuItem err = new JMenuItem("Error loading branches");
+                err.setEnabled(false);
+                menu.add(err);
+            }
+        } else {
+            JMenuItem noRepo = new JMenuItem("No Git repository");
+            noRepo.setEnabled(false);
+            menu.add(noRepo);
         }
 
         return menu;
