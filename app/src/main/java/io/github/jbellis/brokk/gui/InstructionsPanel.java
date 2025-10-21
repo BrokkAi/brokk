@@ -1861,50 +1861,50 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-    * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
-    * The main button area executes the selected action, while the dropdown arrow shows mode options.
-    */
+     * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
+     * The main button area executes the selected action, while the dropdown arrow shows mode options.
+     */
     private static class ActionSplitButton extends MaterialButton implements ThemeAware {
-    private static final long serialVersionUID = 1L;
-    private final Supplier<Boolean> isActionRunning;
-    private final Color secondaryActionButtonBg;
-    private final Color defaultActionButtonBg;
-    private @Nullable Icon originalIcon;
-    private String selectedMode;
-    private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
-    private boolean inStopMode = false;
-    private static final int DROPDOWN_WIDTH = 30;
-    private @Nullable Icon dropdownIcon;
-    private final String baseTooltip;
-    private static final String MODE_TOOLTIP_CODE = 
-    "<b>Code Mode:</b> The Code agent executes your instructions to directly modify the code files currently in the context.";
-    private static final String MODE_TOOLTIP_ASK = 
-    "<b>Ask mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
-    private static final String MODE_TOOLTIP_LUTZ = 
-    "<b>Lutz mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+        private static final long serialVersionUID = 1L;
+        private final Supplier<Boolean> isActionRunning;
+        private final Color secondaryActionButtonBg;
+        private final Color defaultActionButtonBg;
+        private @Nullable Icon originalIcon;
+        private String selectedMode;
+        private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
+        private boolean inStopMode = false;
+        private static final int DROPDOWN_WIDTH = 30;
+        private @Nullable Icon dropdownIcon;
+        private final String baseTooltip;
+        private static final String MODE_TOOLTIP_CODE =
+                "<b>Code Mode:</b> The Code agent executes your instructions to directly modify the code files currently in the context.";
+        private static final String MODE_TOOLTIP_ASK =
+                "<b>Ask mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
+        private static final String MODE_TOOLTIP_LUTZ =
+                "<b>Lutz mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
 
         public ActionSplitButton(
-        Supplier<Boolean> isActionRunning,
-        Color secondaryActionButtonBg,
-        Color defaultActionButtonBg,
-        String defaultMode) {
-        super();
-        this.isActionRunning = isActionRunning;
-        this.secondaryActionButtonBg = secondaryActionButtonBg;
-        this.defaultActionButtonBg = defaultActionButtonBg;
-        this.selectedMode = defaultMode;
-        this.originalIcon = null;
-        this.dropdownIcon = null;
-        
-        // Build base tooltip with keybinding info
-        KeyStroke submitKs = GlobalUiSettings.getKeybinding(
-        "instructions.submit",
-        KeyStroke.getKeyStroke(
-        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        this.baseTooltip = "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")";
-        
-        updateButtonText();
-        updateTooltip();
+                Supplier<Boolean> isActionRunning,
+                Color secondaryActionButtonBg,
+                Color defaultActionButtonBg,
+                String defaultMode) {
+            super();
+            this.isActionRunning = isActionRunning;
+            this.secondaryActionButtonBg = secondaryActionButtonBg;
+            this.defaultActionButtonBg = defaultActionButtonBg;
+            this.selectedMode = defaultMode;
+            this.originalIcon = null;
+            this.dropdownIcon = null;
+
+            // Build base tooltip with keybinding info
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit",
+                    KeyStroke.getKeyStroke(
+                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+            this.baseTooltip = "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")";
+
+            updateButtonText();
+            updateTooltip();
 
             // Override border to eliminate left padding (0px instead of default 8px)
             Color borderColor = UIManager.getColor("Component.borderColor");
@@ -1914,10 +1914,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Set initial tooltip based on default mode
             updateTooltip();
-            
+
             // Defer icon loading until EDT is ready
             SwingUtilities.invokeLater(() -> {
-            this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+                this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
             });
 
             // Change cursor when hovering the dropdown area on the right
@@ -1948,15 +1948,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
         }
-        
+
         public void updateTooltip() {
-            String modeTooltip = switch (selectedMode) {
-                case ACTION_CODE -> MODE_TOOLTIP_CODE;
-                case ACTION_ASK -> MODE_TOOLTIP_ASK;
-                case ACTION_SEARCH -> MODE_TOOLTIP_LUTZ;
-                default -> MODE_TOOLTIP_LUTZ;
-            };
-            setToolTipText("<html><body style='width: 350px;'>" + modeTooltip + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>" + baseTooltip + "</body></html>");
+            String modeTooltip =
+                    switch (selectedMode) {
+                        case ACTION_CODE -> MODE_TOOLTIP_CODE;
+                        case ACTION_ASK -> MODE_TOOLTIP_ASK;
+                        case ACTION_SEARCH -> MODE_TOOLTIP_LUTZ;
+                        default -> MODE_TOOLTIP_LUTZ;
+                    };
+            setToolTipText("<html><body style='width: 350px;'>" + modeTooltip
+                    + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>" + baseTooltip
+                    + "</body></html>");
         }
 
         public void showStopMode() {
