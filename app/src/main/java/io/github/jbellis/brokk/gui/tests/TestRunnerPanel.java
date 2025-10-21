@@ -205,15 +205,30 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             logger.warn("Failed to load persisted test runs: {}", e.getMessage(), e);
         }
 
-        // Enable/disable Run All based on current build details availability
+        // Initialize Run All button state and enable asynchronously once build details are available
+        runAllButton.setEnabled(false);
+        runAllButton.setToolTipText("Waiting for project build settings...");
         if (chrome != null) {
-            try {
-                var details = chrome.getProject().awaitBuildDetails();
-                runAllButton.setEnabled(!details.equals(BuildAgent.BuildDetails.EMPTY)
-                        && !details.testAllCommand().isBlank());
-            } catch (Exception ex) {
-                runAllButton.setEnabled(false);
-            }
+            chrome.getProject()
+                    .getBuildDetailsFuture()
+                    .whenComplete((details, ex) -> {
+                        SwingUtilities.invokeLater(() -> {
+                            boolean enabled = ex == null
+                                    && details != null
+                                    && !details.equals(BuildAgent.BuildDetails.EMPTY)
+                                    && !details.testAllCommand().isBlank();
+                            runAllButton.setEnabled(enabled);
+                            if (enabled) {
+                                runAllButton.setToolTipText(
+                                        "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
+                            } else if (ex != null) {
+                                logger.warn("Build details future completed exceptionally: {}", ex.getMessage(), ex);
+                                runAllButton.setToolTipText("Build settings unavailable.");
+                            } else {
+                                runAllButton.setToolTipText("Build settings unavailable.");
+                            }
+                        });
+                    });
         } else {
             runAllButton.setEnabled(false);
         }
@@ -641,11 +656,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             logger.debug("Run All Tests clicked without Chrome context; ignoring.");
             return;
         }
-        // Guard basic configuration
+        // Guard basic configuration without blocking the EDT
         var project = chrome.getProject();
-        BuildAgent.BuildDetails details = project.awaitBuildDetails();
-        if (details.equals(BuildAgent.BuildDetails.EMPTY)
-                || details.testAllCommand().isBlank()) {
+        BuildAgent.BuildDetails details =
+                project.getBuildDetailsFuture().getNow(BuildAgent.BuildDetails.EMPTY);
+        if (details.equals(BuildAgent.BuildDetails.EMPTY) || details.testAllCommand().isBlank()) {
             chrome.toolError(
                     "No 'Test All Command' configured. Open Settings ▸ Build to configure it.", "Run All Tests");
             return;
@@ -660,9 +675,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             logger.debug("Run Tests clicked without Chrome context; ignoring.");
             return;
         }
-        // Guard basic configuration
+        // Guard basic configuration without blocking the EDT
         var project = chrome.getProject();
-        BuildAgent.BuildDetails details = project.awaitBuildDetails();
+        BuildAgent.BuildDetails details =
+                project.getBuildDetailsFuture().getNow(BuildAgent.BuildDetails.EMPTY);
         if (details.equals(BuildAgent.BuildDetails.EMPTY)) {
             chrome.toolError("No build details configured. Open Settings ▸ Build to configure it.", "Run Tests");
             return;

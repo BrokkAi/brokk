@@ -353,8 +353,22 @@ public final class MainProject extends AbstractProject {
         return detailsFuture;
     }
 
+    /**
+     * Blocking call that waits for build details to be available.
+     *
+     * <p>Important: this must NOT be invoked on the Swing Event Dispatch Thread (EDT) as it will
+     * block the UI and can deadlock. From the EDT, prefer {@link #getBuildDetailsFuture()} and
+     * update the UI when the future completes.
+     *
+     * @return the resolved build details
+     * @throws IllegalStateException if called on the Swing EDT
+     */
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            logger.error("awaitBuildDetails() called on EDT - callers must use getBuildDetailsFuture() to avoid blocking the UI");
+            throw new IllegalStateException("awaitBuildDetails() must not be called on the EDT. Use getBuildDetailsFuture() instead.");
+        }
         try {
             return detailsFuture.get();
         } catch (ExecutionException e) {
