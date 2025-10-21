@@ -849,49 +849,52 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void populateJdkControlsFromProject() {
-    // Avoid blocking the EDT; use the future and update UI when ready
-    var detailsFuture = project.getBuildDetailsFuture();
-    
-    if (detailsFuture.isDone()) {
-    var details = detailsFuture.getNow(BuildAgent.BuildDetails.EMPTY);
-    var env = details.environmentVariables();
-    String desired = env.get("JAVA_HOME");
-    
-    boolean useCustomJdk = desired != null && !desired.isBlank();
-    setJavaHomeCheckbox.setSelected(useCustomJdk);
-    jdkSelector.setEnabled(useCustomJdk);
-    // Always populate the selector; it will select 'desired' if provided
-    jdkSelector.loadJdksAsync(desired);
-    return;
-    }
-    
-    // While waiting: disable custom JDK controls and load without a selection
-    setJavaHomeCheckbox.setSelected(false);
-    jdkSelector.setEnabled(false);
-    jdkSelector.loadJdksAsync(null);
-    
-    detailsFuture.whenCompleteAsync(
-    (details, ex) -> {
-    SwingUtilities.invokeLater(() -> {
-    String desired = null;
-    if (ex == null && details != null && !details.equals(BuildAgent.BuildDetails.EMPTY)) {
-    try {
-    var env = details.environmentVariables();
-    desired = env.get("JAVA_HOME");
-    } catch (Exception e) {
-    logger.warn("Error reading JAVA_HOME from build details: {}", e.getMessage(), e);
-    }
-    } else if (ex != null) {
-    logger.warn("Build details future completed exceptionally while populating JDK controls: {}", ex.getMessage(), ex);
-    }
-    
-    boolean useCustomJdk = desired != null && !desired.isBlank();
-    setJavaHomeCheckbox.setSelected(useCustomJdk);
-    jdkSelector.setEnabled(useCustomJdk);
-    jdkSelector.loadJdksAsync(desired);
-    });
-    },
-    java.util.concurrent.ForkJoinPool.commonPool());
+        // Avoid blocking the EDT; use the future and update UI when ready
+        var detailsFuture = project.getBuildDetailsFuture();
+
+        if (detailsFuture.isDone()) {
+            var details = detailsFuture.getNow(BuildAgent.BuildDetails.EMPTY);
+            var env = details.environmentVariables();
+            String desired = env.get("JAVA_HOME");
+
+            boolean useCustomJdk = desired != null && !desired.isBlank();
+            setJavaHomeCheckbox.setSelected(useCustomJdk);
+            jdkSelector.setEnabled(useCustomJdk);
+            // Always populate the selector; it will select 'desired' if provided
+            jdkSelector.loadJdksAsync(desired);
+            return;
+        }
+
+        // While waiting: disable custom JDK controls and load without a selection
+        setJavaHomeCheckbox.setSelected(false);
+        jdkSelector.setEnabled(false);
+        jdkSelector.loadJdksAsync(null);
+
+        detailsFuture.whenCompleteAsync(
+                (details, ex) -> {
+                    SwingUtilities.invokeLater(() -> {
+                        String desired = null;
+                        if (ex == null && details != null && !details.equals(BuildAgent.BuildDetails.EMPTY)) {
+                            try {
+                                var env = details.environmentVariables();
+                                desired = env.get("JAVA_HOME");
+                            } catch (Exception e) {
+                                logger.warn("Error reading JAVA_HOME from build details: {}", e.getMessage(), e);
+                            }
+                        } else if (ex != null) {
+                            logger.warn(
+                                    "Build details future completed exceptionally while populating JDK controls: {}",
+                                    ex.getMessage(),
+                                    ex);
+                        }
+
+                        boolean useCustomJdk = desired != null && !desired.isBlank();
+                        setJavaHomeCheckbox.setSelected(useCustomJdk);
+                        jdkSelector.setEnabled(useCustomJdk);
+                        jdkSelector.loadJdksAsync(desired);
+                    });
+                },
+                ForkJoinPool.commonPool());
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {

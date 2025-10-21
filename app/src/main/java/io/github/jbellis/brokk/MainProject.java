@@ -366,8 +366,10 @@ public final class MainProject extends AbstractProject {
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
         if (SwingUtilities.isEventDispatchThread()) {
-            logger.error("awaitBuildDetails() called on EDT - callers must use getBuildDetailsFuture() to avoid blocking the UI");
-            throw new IllegalStateException("awaitBuildDetails() must not be called on the EDT. Use getBuildDetailsFuture() instead.");
+            logger.error(
+                    "awaitBuildDetails() called on EDT - callers must use getBuildDetailsFuture() to avoid blocking the UI");
+            throw new IllegalStateException(
+                    "awaitBuildDetails() must not be called on the EDT. Use getBuildDetailsFuture() instead.");
         }
         try {
             return detailsFuture.get();

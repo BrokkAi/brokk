@@ -209,26 +209,24 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runAllButton.setEnabled(false);
         runAllButton.setToolTipText("Waiting for project build settings...");
         if (chrome != null) {
-            chrome.getProject()
-                    .getBuildDetailsFuture()
-                    .whenComplete((details, ex) -> {
-                        SwingUtilities.invokeLater(() -> {
-                            boolean enabled = ex == null
-                                    && details != null
-                                    && !details.equals(BuildAgent.BuildDetails.EMPTY)
-                                    && !details.testAllCommand().isBlank();
-                            runAllButton.setEnabled(enabled);
-                            if (enabled) {
-                                runAllButton.setToolTipText(
-                                        "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
-                            } else if (ex != null) {
-                                logger.warn("Build details future completed exceptionally: {}", ex.getMessage(), ex);
-                                runAllButton.setToolTipText("Build settings unavailable.");
-                            } else {
-                                runAllButton.setToolTipText("Build settings unavailable.");
-                            }
-                        });
-                    });
+            chrome.getProject().getBuildDetailsFuture().whenComplete((details, ex) -> {
+                SwingUtilities.invokeLater(() -> {
+                    boolean enabled = ex == null
+                            && details != null
+                            && !details.equals(BuildAgent.BuildDetails.EMPTY)
+                            && !details.testAllCommand().isBlank();
+                    runAllButton.setEnabled(enabled);
+                    if (enabled) {
+                        runAllButton.setToolTipText(
+                                "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
+                    } else if (ex != null) {
+                        logger.warn("Build details future completed exceptionally: {}", ex.getMessage(), ex);
+                        runAllButton.setToolTipText("Build settings unavailable.");
+                    } else {
+                        runAllButton.setToolTipText("Build settings unavailable.");
+                    }
+                });
+            });
         } else {
             runAllButton.setEnabled(false);
         }
@@ -658,9 +656,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
         // Guard basic configuration without blocking the EDT
         var project = chrome.getProject();
-        BuildAgent.BuildDetails details =
-                project.getBuildDetailsFuture().getNow(BuildAgent.BuildDetails.EMPTY);
-        if (details.equals(BuildAgent.BuildDetails.EMPTY) || details.testAllCommand().isBlank()) {
+        BuildAgent.BuildDetails details = project.getBuildDetailsFuture().getNow(BuildAgent.BuildDetails.EMPTY);
+        if (details.equals(BuildAgent.BuildDetails.EMPTY)
+                || details.testAllCommand().isBlank()) {
             chrome.toolError(
                     "No 'Test All Command' configured. Open Settings ▸ Build to configure it.", "Run All Tests");
             return;
@@ -677,8 +675,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
         // Guard basic configuration without blocking the EDT
         var project = chrome.getProject();
-        BuildAgent.BuildDetails details =
-                project.getBuildDetailsFuture().getNow(BuildAgent.BuildDetails.EMPTY);
+        BuildAgent.BuildDetails details = project.getBuildDetailsFuture().getNow(BuildAgent.BuildDetails.EMPTY);
         if (details.equals(BuildAgent.BuildDetails.EMPTY)) {
             chrome.toolError("No build details configured. Open Settings ▸ Build to configure it.", "Run Tests");
             return;
