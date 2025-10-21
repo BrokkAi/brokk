@@ -62,6 +62,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -960,6 +961,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMaximumSize(prefSize);
         actionButton.setMargin(new Insets(4, 4, 4, 10));
         actionButton.setIconTextGap(0);
+        actionButton.setHorizontalTextPosition(SwingConstants.LEFT);
 
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new FocusAdapter() {
@@ -1862,6 +1864,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.dropdownIcon = null;
 
             updateButtonText();
+
+            // Override border to eliminate left padding (0px instead of default 8px)
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor == null) borderColor = Color.GRAY;
+            setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(borderColor, 1, true),
+                BorderFactory.createEmptyBorder(4, 0, 4, 8)
+            ));
 
             // Defer icon loading until EDT is ready
             SwingUtilities.invokeLater(() -> {
