@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -620,9 +621,17 @@ public class Context {
         return virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
                 .filter(sf -> desc.equals(sf.description()))
-                .map(cf -> cf.text())
+                .map(ContextFragment.VirtualFragment::text)
                 .findFirst()
                 .orElse("");
+    }
+
+    public Optional<ContextFragment.StringFragment> getBuildFragment() {
+        var desc = ContextFragment.BUILD_RESULTS.description();
+        return virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                .map(ContextFragment.StringFragment.class::cast)
+                .findFirst();
     }
 
     /**

@@ -711,7 +711,7 @@ public class CodeAgent {
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
             }
             // Use processed output for LLM context, but fallback to sanitized if pipeline processing returned empty
-            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt());
+            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt(context));
             var newCs = new ConversationState(
                     cs.taskMessages(),
                     nextRequestForBuildFailure,
