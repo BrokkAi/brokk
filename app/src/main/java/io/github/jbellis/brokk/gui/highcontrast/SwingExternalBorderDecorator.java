@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.highcontrast;
 
+import io.github.jbellis.brokk.gui.borders.ThemeBorderManager;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -12,7 +13,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Decorator that installs a non-opaque overlay into a Window's layered pane and paints a thin stroked rect
+ * Decorator that installs a non-opaque overlay into a Window's layered pane and paints a themed border
  * at the very edge (inset by stroke/2). The overlay is mouse-transparent (contains() returns false) so events fall
  * through to underlying components.
  */
@@ -26,10 +27,8 @@ public final class SwingExternalBorderDecorator {
     private final ComponentAdapter resizeListener;
     private final WindowAdapter windowListener;
 
-    // Visual parameters - simple thin border
-    private final int strokePx = 1;
-    private final int cornerRadius = 0; // No rounded corners
-    private Color borderColor = new Color(192, 192, 192); // Light gray for high contrast
+    // Border configuration
+    private ThemeBorderManager.BorderConfig config;
 
     // If layered-pane overlay can't be installed (security, missing layered pane, etc.) we apply a reversible
     // LineBorder on the root content pane as a degraded fallback. Track that state so uninstall can undo it.
@@ -41,8 +40,9 @@ public final class SwingExternalBorderDecorator {
     @Nullable
     private Border originalBorder = null;
 
-    public SwingExternalBorderDecorator(Window w) {
+    public SwingExternalBorderDecorator(Window w, ThemeBorderManager.BorderConfig config) {
         this.window = w;
+        this.config = config;
         this.overlay = new BorderOverlay();
         this.overlay.setOpaque(false);
         this.overlay.setFocusable(false);
@@ -96,14 +96,11 @@ public final class SwingExternalBorderDecorator {
                     return;
                 }
 
-                // Only apply borders in high-contrast mode
-                if (!HighContrastBorderManager.getInstance().isActive()) {
-                    logger.debug("Skipping border installation: high-contrast mode not active");
+                // Only apply borders if enabled in config
+                if (!config.enabled) {
+                    logger.debug("Skipping border installation: borders not enabled in config");
                     return;
                 }
-
-                // Use light gray border for high-contrast theme
-                borderColor = new Color(192, 192, 192); // Light gray (75% brightness)
 
                 if (layered == null) {
                     // fallback to contentPane border (only if contentPane is a JComponent)
@@ -113,7 +110,7 @@ public final class SwingExternalBorderDecorator {
                             // Store original border to restore later
                             fallbackTarget = jc;
                             originalBorder = jc.getBorder();
-                            jc.setBorder(BorderFactory.createLineBorder(borderColor, Math.max(1, strokePx)));
+                            jc.setBorder(BorderFactory.createLineBorder(config.color, Math.max(1, config.width)));
                             fallbackApplied = true;
                             installed = true;
                         } else {
@@ -148,7 +145,7 @@ public final class SwingExternalBorderDecorator {
                         Component cp = root.getContentPane();
                         if (cp instanceof JComponent jc) {
                             fallbackTarget = jc;
-                            jc.setBorder(BorderFactory.createLineBorder(borderColor, Math.max(1, strokePx)));
+                            jc.setBorder(BorderFactory.createLineBorder(config.color, Math.max(1, config.width)));
                             fallbackApplied = true;
                             installed = true;
                         } else {
@@ -253,6 +250,18 @@ public final class SwingExternalBorderDecorator {
         overlay.repaint();
     }
 
+    /** Update the border configuration. */
+    public void updateConfiguration(ThemeBorderManager.BorderConfig newConfig) {
+        this.config = newConfig;
+
+        // If installed, repaint to apply new configuration
+        if (installed) {
+            SwingUtilities.invokeLater(() -> {
+                overlay.repaint();
+            });
+        }
+    }
+
     /** Returns whether the decorator is currently installed. */
     public boolean isInstalled() {
         return installed;
@@ -279,13 +288,13 @@ public final class SwingExternalBorderDecorator {
             try {
                 // enable antialiasing for smooth stroke
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(borderColor);
+                g2.setColor(config.color);
 
                 int topInset = 0;
                 Object o = getClientProperty("hc.topInset");
                 if (o instanceof Integer i) topInset = i;
 
-                float stroke = Math.max(1f, strokePx);
+                float stroke = Math.max(1f, config.width);
                 g2.setStroke(new BasicStroke(stroke));
                 // Ensure half is at least 1 so the stroke doesn't get clipped at component edges
                 int half = Math.max(1, Math.round(stroke / 2f));
@@ -300,7 +309,7 @@ public final class SwingExternalBorderDecorator {
                 }
 
                 // Draw rect inset by half stroke so stroke sits on the edge
-                g2.drawRoundRect(x, y, w - 1, h - 1, cornerRadius, cornerRadius);
+                g2.drawRoundRect(x, y, w - 1, h - 1, config.cornerRadius, config.cornerRadius);
             } finally {
                 g2.dispose();
             }

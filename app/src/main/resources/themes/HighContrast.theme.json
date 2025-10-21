@@ -780,7 +780,23 @@
       "chip_history_border": "#00FF00",
       "chip_other_bg": "#0066FF",
       "chip_other_fg": "#FFFFFF",
-      "chip_other_border": "#00FFFF"
+      "chip_other_border": "#00FFFF",
+
+      "windowBorder": {
+        "enabled": true,
+        "color": "#E6E6E6",
+        "width": 1,
+        "cornerRadius": 0
+      },
+      "titleBar": {
+        "enabled": true,
+        "backgroundColor": "#000000",
+        "foregroundColor": "#FFFFFF",
+        "topPadding": 4,
+        "leftPadding": 80,
+        "bottomPadding": 4,
+        "rightPadding": 0
+      }
     }
   },
 

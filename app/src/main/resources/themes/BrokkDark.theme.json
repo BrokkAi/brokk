@@ -91,7 +91,23 @@
 
       "chip_other_bg": "#0A5BA0",
       "chip_other_fg": "#FFFFFF",
-      "chip_other_border": "#073D70"
+      "chip_other_border": "#073D70",
+
+      "windowBorder": {
+        "enabled": false,
+        "color": "#505050",
+        "width": 1,
+        "cornerRadius": 0
+      },
+      "titleBar": {
+        "enabled": false,
+        "backgroundColor": null,
+        "foregroundColor": null,
+        "topPadding": 4,
+        "leftPadding": 80,
+        "bottomPadding": 4,
+        "rightPadding": 0
+      }
     }
   }
 }

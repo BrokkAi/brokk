@@ -13,11 +13,11 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.borders.ThemeBorderManager;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
-import io.github.jbellis.brokk.gui.highcontrast.HighContrastBorderManager;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -385,9 +385,8 @@ public class Brokk {
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
 
-        // Initialize high-contrast border manager with current theme state
-        boolean isHighContrast = "high-contrast".equalsIgnoreCase(themeName);
-        HighContrastBorderManager.getInstance().init(isHighContrast);
+        // Initialize theme border manager with current theme state
+        ThemeBorderManager.getInstance().init();
 
         // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {

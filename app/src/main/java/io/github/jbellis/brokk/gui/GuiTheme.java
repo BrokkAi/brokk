@@ -5,8 +5,9 @@ import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.gui.highcontrast.HighContrastBorderManager;
+import io.github.jbellis.brokk.gui.borders.ThemeBorderManager;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.titlebar.ThemeTitleBarManager;
 import java.awt.*;
 import java.io.IOException;
 import java.net.URL;
@@ -131,20 +132,15 @@ public class GuiTheme {
             Brokk.getOpenProjectWindows().values().forEach(chrome -> chrome.getTheme()
                     .applyThemeToChromeComponents());
 
-            // Notify HighContrastBorderManager about theme changes so it can install or remove overlays.
-            boolean isHighContrast = THEME_HIGH_CONTRAST.equalsIgnoreCase(themeName);
+            // Notify ThemeBorderManager about theme changes so it can install or remove overlays.
             SwingUtilities.invokeLater(() -> {
                 try {
-                    HighContrastBorderManager.getInstance().onThemeChanged(isHighContrast);
+                    ThemeBorderManager.getInstance().onThemeChanged();
                     // Always refresh existing windows to ensure borders are properly added or removed
-                    HighContrastBorderManager.getInstance().applyToExistingWindows();
+                    ThemeBorderManager.getInstance().applyToExistingWindows();
 
-                    // Update title bar styling for all frames
-                    for (Window w : Window.getWindows()) {
-                        if (w instanceof JFrame frame) {
-                            Chrome.updateTitleBarStyling(frame);
-                        }
-                    }
+                    // Update title bar styling for all frames using ThemeTitleBarManager
+                    ThemeTitleBarManager.updateAllTitleBars();
                 } catch (Throwable t) {
                     logger.warn("Failed to notify HighContrastBorderManager: {}", t.getMessage(), t);
                 }

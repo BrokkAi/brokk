@@ -1,9 +1,8 @@
 package io.github.jbellis.brokk.gui.highcontrast;
 
-import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.gui.borders.ThemeBorderManager;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
-import java.awt.event.WindowEvent;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
@@ -12,14 +11,11 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Singleton manager responsible for tracking top-level windows and applying/removing high-contrast external borders.
+ * Compatibility wrapper for the new ThemeBorderManager.
  *
- * Usage:
- *   HighContrastBorderManager.getInstance().init();
- *   HighContrastBorderManager.getInstance().registerWindow(someFrame);
- *   HighContrastBorderManager.getInstance().onThemeChanged(true); // enable borders
- *   HighContrastBorderManager.getInstance().onThemeChanged(false); // disable borders
+ * @deprecated Use {@link ThemeBorderManager} instead. This class is kept for backward compatibility.
  */
+@Deprecated
 public final class HighContrastBorderManager {
 
     private static final Logger logger = LogManager.getLogger(HighContrastBorderManager.class);
@@ -47,72 +43,15 @@ public final class HighContrastBorderManager {
     }
 
     /**
-     * Safe to call early; will schedule any heavy UI work on the EDT. Installs global AWT event listener for automatic
-     * window detection and scans existing windows.
-     *
-     * @param isHighContrast whether the current theme is high-contrast (borders should be active)
+     * @deprecated Use {@link ThemeBorderManager#init()} instead.
      */
+    @Deprecated
     public void init(boolean isHighContrast) {
-        logger.info("HighContrastBorderManager.init called with isHighContrast={}", isHighContrast);
+        logger.info("HighContrastBorderManager.init called - redirecting to ThemeBorderManager");
         this.active = isHighContrast;
 
-        // Install global AWT event listener for automatic window detection
-        installGlobalWindowListener();
-
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Register Brokk's tracked project windows first (if any)
-                try {
-                    Brokk.getOpenProjectWindows().values().forEach(ch -> registerWindow(ch.getFrame()));
-                } catch (Exception ex) {
-                    logger.debug("Error scanning Brokk open project windows: {}", ex.getMessage());
-                }
-
-                // Also scan all current windows
-                for (Window w : Window.getWindows()) {
-                    try {
-                        registerWindow(w);
-                    } catch (Exception ex) {
-                        logger.debug("Error registering window {}: {}", w, ex.getMessage());
-                    }
-                }
-            } catch (Throwable t) {
-                logger.warn("HighContrastBorderManager.init failed: {}", t.getMessage(), t);
-            }
-        });
-    }
-
-    /**
-     * Install global AWT event listener for automatic window detection.
-     */
-    private void installGlobalWindowListener() {
-        try {
-            windowEventListener = event -> {
-                if (event instanceof WindowEvent windowEvent) {
-                    Window window = windowEvent.getWindow();
-                    if (window instanceof JFrame || window instanceof JDialog) {
-                        switch (windowEvent.getID()) {
-                            case WindowEvent.WINDOW_OPENED -> {
-                                // Register window when it becomes visible
-                                SwingUtilities.invokeLater(() -> registerWindow(window));
-                            }
-                            case WindowEvent.WINDOW_CLOSED -> {
-                                // Unregister when closed
-                                SwingUtilities.invokeLater(() -> unregisterWindow(window));
-                            }
-                        }
-                    }
-                }
-            };
-
-            Toolkit.getDefaultToolkit().addAWTEventListener(windowEventListener, AWTEvent.WINDOW_EVENT_MASK);
-            logger.info("Installed global AWT event listener for automatic window detection");
-        } catch (SecurityException e) {
-            logger.warn("Cannot install global AWT event listener due to security restrictions: {}", e.getMessage());
-            logger.warn("Manual registration will be required for all windows");
-        } catch (Exception e) {
-            logger.error("Failed to install global AWT event listener: {}", e.getMessage(), e);
-        }
+        // Redirect to new system
+        ThemeBorderManager.getInstance().init();
     }
 
     /**
@@ -176,7 +115,7 @@ public final class HighContrastBorderManager {
         // Create and store decorator if not present
         decorators.computeIfAbsent(w, window -> {
             logger.debug("Creating new decorator for window: {}", window.getName());
-            var dec = new SwingExternalBorderDecorator(window);
+            var dec = new SwingExternalBorderDecorator(window, ThemeBorderManager.BorderConfig.DISABLED);
             if (active) {
                 dec.install();
             }
@@ -201,71 +140,35 @@ public final class HighContrastBorderManager {
     }
 
     /**
-     * Called when theme changes. If enabled==true then overlays are installed on all registered windows.
-     * If enabled==false overlays are removed.
+     * @deprecated Use {@link ThemeBorderManager#onThemeChanged()} instead.
      */
+    @Deprecated
     public void onThemeChanged(boolean enabled) {
-        logger.info(
-                "HighContrastBorderManager.onThemeChanged: enabled={}, registered windows={}",
-                enabled,
-                decorators.size());
+        logger.info("HighContrastBorderManager.onThemeChanged called - redirecting to ThemeBorderManager");
         this.active = enabled;
-        SwingUtilities.invokeLater(() -> {
-            try {
-                for (Map.Entry<Window, SwingExternalBorderDecorator> e : decorators.entrySet()) {
-                    Window window = e.getKey();
-                    SwingExternalBorderDecorator dec = e.getValue();
-                    logger.info(
-                            "Processing window: {}, type={}, installed={}",
-                            window.getName(),
-                            window.getClass().getSimpleName(),
-                            dec.isInstalled());
 
-                    if (enabled) {
-                        if (!dec.isInstalled()) {
-                            logger.info("Installing decorator for window: {}", window.getName());
-                            dec.install();
-                        } else {
-                            logger.info("Decorator already installed for window: {}", window.getName());
-                        }
-                        // Ensure bounds are current
-                        logger.info("Updating bounds for window: {}", window.getName());
-                        dec.updateBounds();
-                    } else {
-                        if (dec.isInstalled()) {
-                            logger.info("Uninstalling decorator for window: {}", window.getName());
-                            dec.uninstall();
-                        }
-                    }
-                }
-            } catch (Throwable t) {
-                logger.warn("HighContrastBorderManager.onThemeChanged failed: {}", t.getMessage(), t);
-            }
-        });
+        // Redirect to new system
+        ThemeBorderManager.getInstance().onThemeChanged();
     }
 
     /**
-     * Helper: apply to any existing windows (useful to call after late initialization).
+     * @deprecated Use {@link ThemeBorderManager#applyToExistingWindows()} instead.
      */
+    @Deprecated
     public void applyToExistingWindows() {
-        SwingUtilities.invokeLater(() -> {
-            for (Window w : Window.getWindows()) {
-                try {
-                    registerWindow(w);
-                } catch (Exception ex) {
-                    logger.debug("Error registering window during applyToExistingWindows: {}", ex.getMessage());
-                }
-            }
-        });
+        logger.info("HighContrastBorderManager.applyToExistingWindows called - redirecting to ThemeBorderManager");
+
+        // Redirect to new system
+        ThemeBorderManager.getInstance().applyToExistingWindows();
     }
 
     /** For tests / debug: checks if a window is currently registered. */
     public boolean isWindowRegistered(Window w) {
-        return decorators.containsKey(w);
+        return ThemeBorderManager.getInstance().isWindowRegistered(w);
     }
 
     /** For tests / debug: returns whether manager is currently active (theme on). */
     public boolean isActive() {
-        return active;
+        return ThemeBorderManager.getInstance().isEnabled();
     }
 }

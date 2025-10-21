@@ -32,6 +32,7 @@ import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
 import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
+import io.github.jbellis.brokk.gui.titlebar.ThemeTitleBarManager;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -2848,82 +2849,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /**
      * If using full window content, creates a themed title bar.
+     * Uses ThemeTitleBarManager for unified theme-driven configuration.
      *
      * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
      */
     public static void applyTitleBar(JFrame frame, String title) {
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            var titleBar = new JPanel(new BorderLayout());
-
-            // Theme-aware styling for high-contrast mode
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-            if (isHighContrast) {
-                titleBar.setBackground(Color.BLACK);
-            } else {
-                titleBar.setBackground(UIManager.getColor("Panel.background"));
-            }
-
-            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
-            var label = new JLabel(title, SwingConstants.CENTER);
-            if (isHighContrast) {
-                label.setForeground(Color.WHITE);
-            } else {
-                label.setForeground(UIManager.getColor("Label.foreground"));
-            }
-
-            titleBar.add(label, BorderLayout.CENTER);
-            frame.add(titleBar, BorderLayout.NORTH);
-
-            // Store the title bar and label as client properties for later updates
-            frame.getRootPane().putClientProperty("brokk.titleBar", titleBar);
-            frame.getRootPane().putClientProperty("brokk.titleLabel", label);
-
-            // Revalidate layout after dynamically adding title bar
-            frame.revalidate();
-            frame.repaint();
-            titleBar.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2) { // Double click
-                        if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                            // un-maximize the window
-                            frame.setExtendedState(JFrame.NORMAL);
-                        } else {
-                            // maximize the window
-                            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-                        }
-                    }
-                }
-            });
-        }
+        ThemeTitleBarManager.applyTitleBar(frame, title);
     }
 
     /**
      * Updates the title bar styling for existing frames when theme changes.
-     * This method handles both high-contrast and regular theme transitions.
+     * Uses ThemeTitleBarManager for unified theme-driven configuration.
      */
     public static void updateTitleBarStyling(JFrame frame) {
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            var rootPane = frame.getRootPane();
-            var titleBar = (JPanel) rootPane.getClientProperty("brokk.titleBar");
-            var titleLabel = (JLabel) rootPane.getClientProperty("brokk.titleLabel");
-
-            if (titleBar != null && titleLabel != null) {
-                // Theme-aware styling for high-contrast mode
-                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-                if (isHighContrast) {
-                    titleBar.setBackground(Color.BLACK);
-                    titleLabel.setForeground(Color.WHITE);
-                } else {
-                    titleBar.setBackground(UIManager.getColor("Panel.background"));
-                    titleLabel.setForeground(UIManager.getColor("Label.foreground"));
-                }
-
-                // Repaint to apply changes
-                titleBar.repaint();
-                titleLabel.repaint();
-            }
-        }
+        ThemeTitleBarManager.updateTitleBarStyling(frame);
     }
 
     /**
