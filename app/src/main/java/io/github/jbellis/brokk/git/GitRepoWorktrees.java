@@ -132,29 +132,11 @@ public class GitRepoWorktrees {
                 command = String.format("git worktree add -b %s %s", branch, absolutePath);
             }
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
-
-            // Recursively copy .brokk/dependencies from the project root into the new worktree
-            var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
-            if (!Files.exists(sourceDependenciesDir)) {
-                return;
-            }
-
-            // Ensure .brokk exists in the new worktree
-            var targetDependenciesDir = absolutePath.resolve(".brokk").resolve("dependencies");
-            Files.createDirectories(targetDependenciesDir.getParent());
-
-            // copy
-            Files.walkFileTree(
-                    sourceDependenciesDir, new CopyingFileVisitor(sourceDependenciesDir, targetDependenciesDir));
         } catch (Environment.SubprocessException e) {
             throw new GitRepo.GitRepoException(
                     "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
-        } catch (IOException e) {
-            throw new GitRepo.GitRepoException("Failed to copy dependencies", e);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepo.GitRepoException(
-                    "Adding worktree at " + path + " for branch " + branch + " was interrupted", e);
+            throw new RuntimeException(e);
         }
     }
 
