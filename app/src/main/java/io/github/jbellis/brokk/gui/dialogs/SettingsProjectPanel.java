@@ -96,6 +96,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     // Build panel instance (extracted)
     private SettingsProjectBuildPanel buildPanelInstance;
+
+    @Nullable
     private LanguagesTableModel languagesTableModel;
 
     public SettingsProjectPanel(
@@ -147,7 +149,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     // Update CI exclusions list model safely and consistently (EDT, sorted, deduped case-insensitively)
-    public void updateExcludedDirectories(Collection<String> dirs) {
+    public void updateExcludedDirectories(@Nullable Collection<String> dirs) {
         Runnable r = () -> {
             try {
                 var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
