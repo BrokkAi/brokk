@@ -20,7 +20,6 @@ import io.github.jbellis.brokk.gui.components.ModelBenchmarkData;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
-import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.components.TokenUsageBar;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
@@ -63,7 +62,6 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.MatteBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -253,7 +251,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
 
-
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
         KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
@@ -267,14 +264,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
         // this is when the button is in the blocking state
         this.secondaryActionButtonBg = UIManager.getColor("Button.background");
-        
+
         // Create split action button with dropdown
         actionButton = new ActionSplitButton(
-                () -> isActionRunning(), 
-                this.secondaryActionButtonBg, 
+                () -> isActionRunning(),
+                this.secondaryActionButtonBg,
                 this.defaultActionButtonBg,
                 ACTION_SEARCH); // Default to Search
-        
+
         KeyStroke submitKs = GlobalUiSettings.getKeybinding(
                 "instructions.submit",
                 KeyStroke.getKeyStroke(
@@ -288,7 +285,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
         actionButton.setBackground(this.defaultActionButtonBg);
-        
+
         // Listen for mode changes from the dropdown
         actionButton.addModeChangeListener(mode -> {
             storedAction = mode;
@@ -752,7 +749,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return titledContainer;
     }
 
-
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
@@ -986,7 +982,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-
     @SuppressWarnings("unused")
     private SplitButton createHistoryDropdown() {
         final var placeholder = "History";
@@ -1165,12 +1160,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void toggleCodeAnswerMode() {
         SwingUtilities.invokeLater(() -> {
             String current = actionButton.getSelectedMode();
-            String next = switch (current) {
-                case ACTION_CODE -> ACTION_ASK;
-                case ACTION_ASK -> ACTION_SEARCH;
-                case ACTION_SEARCH -> ACTION_CODE;
-                default -> ACTION_SEARCH;
-            };
+            String next =
+                    switch (current) {
+                        case ACTION_CODE -> ACTION_ASK;
+                        case ACTION_ASK -> ACTION_SEARCH;
+                        case ACTION_SEARCH -> ACTION_CODE;
+                        default -> ACTION_SEARCH;
+                    };
             actionButton.setSelectedMode(next);
             storedAction = next;
             // Place focus back in the command input for convenience
@@ -1851,8 +1847,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private static final int DROPDOWN_WIDTH = 30;
 
         public ActionSplitButton(
-                Supplier<Boolean> isActionRunning, 
-                Color secondaryActionButtonBg, 
+                Supplier<Boolean> isActionRunning,
+                Color secondaryActionButtonBg,
                 Color defaultActionButtonBg,
                 String defaultMode) {
             super();
@@ -1861,7 +1857,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.defaultActionButtonBg = defaultActionButtonBg;
             this.selectedMode = defaultMode;
             this.originalIcon = null;
-            
+
             updateButtonText();
 
             // Change cursor when hovering the dropdown area on the right
@@ -1869,20 +1865,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 @Override
                 public void mouseMoved(MouseEvent e) {
                     boolean inDropdown = e.getX() >= getWidth() - DROPDOWN_WIDTH;
-                    setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                                         : Cursor.getDefaultCursor());
+                    setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
                 }
             });
         }
-        
+
         public void addModeChangeListener(Consumer<String> listener) {
             modeChangeListeners.add(listener);
         }
-        
+
         public String getSelectedMode() {
             return selectedMode;
         }
-        
+
         public void setSelectedMode(String mode) {
             if (!this.selectedMode.equals(mode)) {
                 this.selectedMode = mode;
@@ -1892,33 +1887,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
         }
-        
+
         public void showStopMode() {
             inStopMode = true;
             setIcon(Icons.STOP);
             setText(null);
             repaint();
         }
-        
+
         public void showNormalMode() {
             inStopMode = false;
             setIcon(Icons.ARROW_WARM_UP);
             updateButtonText();
             repaint();
         }
-        
+
         private void updateButtonText() {
             if (!inStopMode) {
-                String displayText = switch (selectedMode) {
-                    case ACTION_CODE -> "Code";
-                    case ACTION_ASK -> "Ask";
-                    case ACTION_SEARCH -> "Search";
-                    default -> "Search";
-                };
+                String displayText =
+                        switch (selectedMode) {
+                            case ACTION_CODE -> "Code";
+                            case ACTION_ASK -> "Ask";
+                            case ACTION_SEARCH -> "Search";
+                            default -> "Search";
+                        };
                 setText(displayText);
             }
         }
-        
+
         @Override
         protected void processMouseEvent(MouseEvent e) {
             int x = e.getX();
@@ -1936,19 +1932,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         private void showDropdownMenu() {
             JPopupMenu menu = new JPopupMenu();
-            
+
             JMenuItem codeItem = new JMenuItem("Code");
             codeItem.addActionListener(ev -> setSelectedMode(ACTION_CODE));
             menu.add(codeItem);
-            
+
             JMenuItem askItem = new JMenuItem("Ask");
             askItem.addActionListener(ev -> setSelectedMode(ACTION_ASK));
             menu.add(askItem);
-            
+
             JMenuItem searchItem = new JMenuItem("Search");
             searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
             menu.add(searchItem);
-            
+
             menu.show(this, getWidth() - DROPDOWN_WIDTH, getHeight());
         }
 
@@ -1977,7 +1973,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                
+
                 // Draw divider line if not in stop mode
                 if (!inStopMode) {
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
@@ -1985,7 +1981,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (dividerColor == null) dividerColor = Color.GRAY;
                     g2.setColor(dividerColor);
                     g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
-                    
+
                     // Draw dropdown arrow
                     int arrowX = dropdownX + 10;
                     int arrowY = getHeight() / 2;

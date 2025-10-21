@@ -537,11 +537,25 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (selected == instructionsPanel) {
                 // Move shared Context area back to Instructions
                 taskListPanel.restoreControls();
-                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
-                instructionsPanel.revalidate();
-                instructionsPanel.repaint();
+                try {
+                    // Remove from any existing parent first
+                    var currentParent = contextAreaContainer.getParent();
+                    if (currentParent != null) {
+                        currentParent.remove(contextAreaContainer);
+                        currentParent.revalidate();
+                        currentParent.repaint();
+                    }
+                    // Insert just below the command input (index 1 is safe for current layout)
+                    var center = instructionsPanel.getCenterPanel();
+                    int targetIndex = Math.min(1, Math.max(0, center.getComponentCount()));
+                    center.add(contextAreaContainer, targetIndex);
+                    center.revalidate();
+                    center.repaint();
+                } catch (Exception ex) {
+                    logger.debug("Unable to move Context area back to Instructions", ex);
+                }
 
-                // Move shared ModelSelector back to Instructions bottom bar
+                // Move shared ModelSelector back to Instructions bottom bar (always try this)
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 // Move shared Context area to Tasks
