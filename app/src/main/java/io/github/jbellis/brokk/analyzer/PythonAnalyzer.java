@@ -219,6 +219,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // buildClassMemberSkeletons is no longer directly called for parent skeleton string generation.
 
     @Override
+    protected String buildParentFqName(String packageName, String classChain) {
+        // Python nested classes are named with "$" (e.g., Outer$Inner) while classChain uses ".".
+        // Convert the classChain to the Python class naming to resolve the correct parent CU.
+        if (classChain.isEmpty()) {
+            return packageName.isEmpty() ? "" : packageName;
+        }
+        String pythonClassChain = classChain.replace(".", "$");
+        return packageName.isEmpty() ? pythonClassChain : packageName + "." + pythonClassChain;
+    }
+
+    @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return PY_SYNTAX_PROFILE;
     }

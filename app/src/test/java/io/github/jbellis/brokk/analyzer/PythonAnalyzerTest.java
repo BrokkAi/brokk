@@ -360,4 +360,25 @@ public final class PythonAnalyzerTest {
                 topDecls.size(),
                 "Top-level declaration FQNs should be unique after deduplication");
     }
+
+    @Test
+    void testPythonNestedMethodParenting() {
+        ProjectFile file = new ProjectFile(project.getRoot(), "documented.py");
+
+        // Sanity: OuterClass should be a top-level class
+        CodeUnit outerClassCU = CodeUnit.cls(file, "", "OuterClass");
+        assertTrue(analyzer.getTopLevelDeclarations(file).contains(outerClassCU), "OuterClass should be top-level");
+
+        // Inner class and its method CodeUnits
+        CodeUnit innerClassCU = CodeUnit.cls(file, "", "OuterClass$InnerClass");
+        CodeUnit innerMethodCU = CodeUnit.fn(file, "", "OuterClass.InnerClass.inner_method");
+
+        // The expected behavior: method should NOT be top-level; it should be a child of the inner class.
+        var topLevel = analyzer.getTopLevelDeclarations(file);
+        assertFalse(
+                topLevel.contains(innerMethodCU), "Nested method should not be included as a top-level declaration");
+
+        var innerChildren = analyzer.getSubDeclarations(innerClassCU);
+        assertTrue(innerChildren.contains(innerMethodCU), "Nested method should be attached under the inner class");
+    }
 }
