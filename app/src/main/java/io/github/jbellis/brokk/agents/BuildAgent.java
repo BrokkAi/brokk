@@ -110,7 +110,8 @@ public class BuildAgent {
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
         // Determine build system and set initial excluded directories
-        var files = project.getAllFiles().stream()
+        // Use tracked files directly (not filtered) to ensure build files are visible
+        var files = project.getRepo().getTrackedFiles().stream()
                 .parallel()
                 .filter(f -> f.getParent().equals(Path.of("")))
                 .map(ProjectFile::toString)
@@ -326,99 +327,18 @@ public class BuildAgent {
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
                     List<String> excludedDirectories) {
         // Combine baseline excluded directories with those suggested by the LLM
-        var finalExcludes = combineAndSanitizeExcludes(this.currentExcludedDirectories, excludedDirectories);
+        var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> Path.of(s).normalize())
+                .map(Path::toString)
+                .collect(Collectors.toSet());
 
         this.reportedDetails = new BuildDetails(
                 buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, defaultEnvForProject());
         logger.debug(
                 "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
         return "Build details report received and processed.";
-    }
-
-    /**
-     * Sanitizes a raw exclusion string by normalizing paths and preserving glob patterns.
-     * Avoids Windows Path errors by handling path separators correctly.
-     * 
-     * @param raw The raw exclusion string to sanitize
-     * @return Sanitized exclusion string
-     */
-    private static String sanitizeExclusion(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return "";
-        }
-        
-        String sanitized = raw.trim();
-        
-        // Normalize path separators but preserve glob patterns
-        if (!containsGlobMeta(sanitized)) {
-            // Only normalize path separators for non-glob patterns
-            sanitized = sanitized.replace('\\', '/');
-        }
-        
-        // Remove redundant slashes
-        while (sanitized.contains("//")) {
-            sanitized = sanitized.replace("//", "/");
-        }
-        
-        return sanitized;
-    }
-
-    /**
-     * Combines and sanitizes two collections of exclusion strings.
-     * Removes duplicates, empty strings, and normalizes all paths.
-     * 
-     * @param baseline First collection of exclusions (e.g., from build conventions)
-     * @param extras Second collection of exclusions (e.g., from LLM suggestions)
-     * @return Combined and sanitized set of unique exclusion strings
-     */
-    private static Set<String> combineAndSanitizeExcludes(Collection<String> baseline, Collection<String> extras) {
-        var combined = new LinkedHashSet<String>();
-        
-        // Process baseline exclusions first
-        for (String exclusion : baseline) {
-            String sanitized = sanitizeExclusion(exclusion);
-            if (!sanitized.isEmpty()) {
-                combined.add(sanitized);
-            }
-        }
-        
-        // Process extra exclusions
-        for (String exclusion : extras) {
-            String sanitized = sanitizeExclusion(exclusion);
-            if (!sanitized.isEmpty()) {
-                combined.add(sanitized);
-            }
-        }
-        
-        // Normalize paths and remove duplicates
-        var normalized = combined.stream()
-                .map(s -> {
-                    try {
-                        return Path.of(s).normalize().toString();
-                    } catch (Exception e) {
-                        // If path normalization fails, return as-is
-                        return s.replace('\\', '/');
-                    }
-                })
-                .collect(Collectors.toSet());
-        
-        return normalized;
-    }
-
-    /**
-     * Detects if a string contains glob pattern metadata characters.
-     * Used to determine whether path normalization should be applied.
-     * 
-     * @param s The string to check for glob patterns
-     * @return true if the string contains glob meta characters, false otherwise
-     */
-    private static boolean containsGlobMeta(String s) {
-        if (s == null || s.isEmpty()) {
-            return false;
-        }
-        
-        return s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]") 
-               || s.contains("{") || s.contains("}") || s.startsWith("!");
     }
 
     @Tool("Abort the process if you cannot determine the build details or the project structure is unsupported.")

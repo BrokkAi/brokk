@@ -231,7 +231,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Collect files to process using gitignore-filtered analyzable files
         List<ProjectFile> filesToProcess = project.getAnalyzableFiles(language).stream()
-                .map(path -> new ProjectFile(project.getRoot(), project.getRoot().relativize(path)))
+                .map(path ->
+                        new ProjectFile(project.getRoot(), project.getRoot().relativize(path)))
                 .toList();
 
         var timing = ConstructionTiming.create();

@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.Language;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -36,7 +35,7 @@ class SqlAnalyzerTest {
                 // SqlAnalyzer will then filter these based on .sql extension and exclusions.
                 return filesSet;
             }
-            
+
             @Override
             public List<Path> getAnalyzableFiles(Language language) {
                 var extensions = language.getExtensions();
@@ -238,7 +237,7 @@ class SqlAnalyzerTest {
             public Set<ProjectFile> getAllFiles() {
                 return Set.of(includedProjectFile, excludedProjectFile);
             }
-            
+
             @Override
             public List<Path> getAnalyzableFiles(Language language) {
                 var extensions = language.getExtensions();

@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
-import org.eclipse.jgit.ignore.IgnoreNode;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.EnvironmentJava;
 import java.awt.Rectangle;
@@ -22,6 +21,7 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.ignore.IgnoreNode;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -560,7 +560,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     /**
      * Applies gitignore and baseline filtering to the given set of files.
      * Uses JGit's IgnoreNode to parse .gitignore patterns and filter out ignored files.
-     * 
+     *
      * @param files The raw set of files to filter
      * @return Filtered set of files that are not ignored by .gitignore or baseline exclusions
      */
@@ -573,52 +573,96 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             // Load gitignore patterns
             var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            if (ignoredPatterns.isEmpty()) {
-                return files; // No .gitignore file, return all files
+            IgnoreNode ignoreNode = null;
+
+            if (!ignoredPatterns.isEmpty()) {
+                // Create IgnoreNode and parse patterns
+                ignoreNode = new IgnoreNode();
+                var patternsBuilder = new StringBuilder();
+                for (var pattern : ignoredPatterns) {
+                    patternsBuilder.append(pattern.trim()).append('\n');
+                }
+
+                try (var inputStream = new java.io.ByteArrayInputStream(
+                        patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
+                    ignoreNode.parse(inputStream);
+                } catch (Exception e) {
+                    logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
+                    ignoreNode = null; // Treat as if no .gitignore exists
+                }
             }
 
-            // Create IgnoreNode and parse patterns
-            var ignoreNode = new IgnoreNode();
-            var patternsBuilder = new StringBuilder();
-            for (var pattern : ignoredPatterns) {
-                patternsBuilder.append(pattern.trim()).append('\n');
-            }
-            
-            try (var inputStream = new java.io.ByteArrayInputStream(patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
-                ignoreNode.parse(inputStream);
-            } catch (Exception e) {
-                logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
-                return files; // Return all files if parsing fails
-            }
-
-            // Apply baseline exclusions from build details
+            // Apply baseline exclusions from build details (even if no .gitignore)
             var baselineExclusions = new HashSet<>(loadBuildDetails().excludedDirectories());
-            
+
             // Filter files
             var filteredFiles = new HashSet<ProjectFile>();
             for (var file : files) {
                 var relativePath = file.toString().replace('\\', '/');
-                
+
                 // Check baseline exclusions first
                 boolean isBaselineExcluded = baselineExclusions.stream().anyMatch(exclusion -> {
                     var exclusionPath = exclusion.replace('\\', '/');
-                    return relativePath.startsWith(exclusionPath) || relativePath.equals(exclusionPath);
+
+                    // Check if file is inside the excluded directory (with directory boundary)
+                    if (relativePath.startsWith(exclusionPath + "/")) {
+                        return true;
+                    }
+
+                    // Check if file exactly matches the exclusion
+                    if (relativePath.equals(exclusionPath)) {
+                        return true;
+                    }
+
+                    return false;
                 });
-                
+
                 if (isBaselineExcluded) {
                     continue;
                 }
-                
-                // Check gitignore rules
-                boolean isDirectory = Files.isDirectory(file.absPath());
-                var gitIgnoreResult = ignoreNode.isIgnored(relativePath, isDirectory);
-                if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
-                    continue;
+
+                // Check gitignore rules (only if .gitignore exists)
+                if (ignoreNode != null) {
+                    boolean isDirectory = Files.isDirectory(file.absPath());
+                    var gitIgnoreResult = ignoreNode.isIgnored(relativePath, isDirectory);
+                    if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
+                        continue;
+                    }
+
+                    // Check ancestor directories for ignored patterns
+                    Path parent = Path.of(relativePath).getParent();
+                    while (parent != null) {
+                        var parentRel = parent.toString().replace('\\', '/');
+                        var match = ignoreNode.isIgnored(parentRel, true);
+
+                        if (match == IgnoreNode.MatchResult.IGNORED) {
+                            logger.trace(
+                                    "Skipping file because ancestor dir ignored by .gitignore: {} (ancestor {})",
+                                    relativePath,
+                                    parentRel);
+                            gitIgnoreResult = IgnoreNode.MatchResult.IGNORED;
+                            break;
+                        } else if (match == IgnoreNode.MatchResult.NOT_IGNORED) {
+                            // Negation pattern explicitly un-ignores this ancestor directory
+                            // Stop checking further ancestors and include the file
+                            logger.trace(
+                                    "Including file because ancestor dir explicitly un-ignored: {} (ancestor {})",
+                                    relativePath,
+                                    parentRel);
+                            break;
+                        }
+
+                        parent = parent.getParent();
+                    }
+
+                    if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
+                        continue;
+                    }
                 }
-                
+
                 filteredFiles.add(file);
             }
-            
+
             return filteredFiles;
         } catch (Exception e) {
             logger.warn("Error applying gitignore filtering, returning all files: {}", e.getMessage());
