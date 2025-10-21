@@ -2855,8 +2855,23 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public static void applyTitleBar(JFrame frame, String title) {
         if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
             var titleBar = new JPanel(new BorderLayout());
+
+            // Theme-aware styling for high-contrast mode
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            if (isHighContrast) {
+                titleBar.setBackground(Color.BLACK);
+            } else {
+                titleBar.setBackground(UIManager.getColor("Panel.background"));
+            }
+
             titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
             var label = new JLabel(title, SwingConstants.CENTER);
+            if (isHighContrast) {
+                label.setForeground(Color.WHITE);
+            } else {
+                label.setForeground(UIManager.getColor("Label.foreground"));
+            }
+
             titleBar.add(label, BorderLayout.CENTER);
             frame.add(titleBar, BorderLayout.NORTH);
             // Revalidate layout after dynamically adding title bar

@@ -381,6 +381,11 @@ public class Brokk {
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
 
+        // Initialize high-contrast border manager with current theme state
+        boolean isHighContrast = "high-contrast".equalsIgnoreCase(themeName);
+        io.github.jbellis.brokk.gui.highcontrast.HighContrastBorderManager.getInstance()
+                .init(isHighContrast);
+
         // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {
             SwingUtilities.invokeLater(() -> {
