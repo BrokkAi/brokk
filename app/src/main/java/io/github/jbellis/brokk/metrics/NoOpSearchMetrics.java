@@ -39,6 +39,9 @@ public enum NoOpSearchMetrics implements SearchMetrics {
     public void recordFinalWorkspaceFiles(Set<String> finalFiles) {}
 
     @Override
+    public void recordFinalWorkspaceFragments(java.util.List<SearchMetrics.FragmentInfo> fragmentDescriptions) {}
+
+    @Override
     public String toJson(String query, int turns, long elapsedMs, boolean success) {
         // Produce the same minimal structure used previously by NO_OP
         Map<String, Object> result = new HashMap<>();

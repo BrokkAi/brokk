@@ -55,6 +55,13 @@ public interface SearchMetrics {
     void recordFinalWorkspaceFiles(Set<String> finalFiles);
 
     /**
+     * Record information about all fragments in the final workspace.
+     *
+     * @param fragmentDescriptions list of fragment descriptions (type, id, description, files)
+     */
+    void recordFinalWorkspaceFragments(java.util.List<FragmentInfo> fragmentDescriptions);
+
+    /**
      * Serialize metrics along with the basic result fields into JSON.
      *
      * @param query the original query
@@ -63,6 +70,11 @@ public interface SearchMetrics {
      * @param success whether the search succeeded
      */
     String toJson(String query, int turns, long elapsedMs, boolean success);
+
+    /**
+     * Information about a fragment in the workspace.
+     */
+    record FragmentInfo(String type, String id, String description, java.util.List<String> files) {}
 
     /**
      * Convenience factory for a no-op metrics instance.

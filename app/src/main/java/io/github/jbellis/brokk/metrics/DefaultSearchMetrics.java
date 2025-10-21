@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -15,6 +17,7 @@ import org.jetbrains.annotations.Nullable;
  * Methods are synchronized to be safe if accessed from multiple threads.
  */
 public class DefaultSearchMetrics implements SearchMetrics {
+    private static final Logger logger = LogManager.getLogger(DefaultSearchMetrics.class);
 
     // Context scan metrics
     private int contextScanFilesAdded = 0;
@@ -36,8 +39,15 @@ public class DefaultSearchMetrics implements SearchMetrics {
     // Final workspace files snapshot (project-relative paths)
     private @Nullable Set<String> finalWorkspaceFiles = null;
 
+    // Final workspace fragments information
+    private @Nullable List<SearchMetrics.FragmentInfo> finalWorkspaceFragments = null;
+
+    // LLM history directory path
+    private @Nullable String llmHistoryPath = null;
+
     @Override
-    public synchronized void recordContextScan(int filesAdded, long timeMs, boolean skipped, Set<String> filesAddedPaths) {
+    public synchronized void recordContextScan(
+            int filesAdded, long timeMs, boolean skipped, Set<String> filesAddedPaths) {
         this.contextScanFilesAdded = filesAdded;
         this.contextScanTimeMs = timeMs;
         this.contextScanSkipped = skipped;
@@ -117,6 +127,11 @@ public class DefaultSearchMetrics implements SearchMetrics {
         this.finalWorkspaceFiles = new HashSet<>(finalFiles);
     }
 
+    @Override
+    public synchronized void recordFinalWorkspaceFragments(List<SearchMetrics.FragmentInfo> fragmentDescriptions) {
+        this.finalWorkspaceFragments = new ArrayList<>(fragmentDescriptions);
+    }
+
     /**
      * Get the final workspace files that were recorded.
      * Used by BrokkCli to infer the found file.
@@ -139,12 +154,27 @@ public class DefaultSearchMetrics implements SearchMetrics {
      */
     @Override
     public synchronized String toJson(String query, int turns, long elapsedMs, boolean success) {
-        // Derive found_files from finalWorkspaceFiles
-        List<String> foundFiles = finalWorkspaceFiles != null && !finalWorkspaceFiles.isEmpty()
-                ? finalWorkspaceFiles.stream().sorted().toList()
-                : List.of();
+        // Build found_files from context scan + all turn additions
+        logger.info(
+                "Building found_files: contextScanFilesAddedPaths size={}, paths={}",
+                contextScanFilesAddedPaths.size(),
+                contextScanFilesAddedPaths);
+        Set<String> allFoundFiles = new HashSet<>(contextScanFilesAddedPaths);
+        for (TurnMetrics turn : this.turns) {
+            logger.info(
+                    "Turn {}: adding {} files: {}",
+                    turn.getTurn(),
+                    turn.getFiles_added_paths().size(),
+                    turn.getFiles_added_paths());
+            allFoundFiles.addAll(turn.getFiles_added_paths());
+        }
+        List<String> foundFiles = allFoundFiles.stream().sorted().toList();
+        logger.info("Final found_files size={}, files={}", foundFiles.size(), foundFiles);
 
-        var contextScan = new ContextScanInfo(contextScanFilesAdded, contextScanTimeMs, contextScanSkipped,
+        var contextScan = new ContextScanInfo(
+                contextScanFilesAdded,
+                contextScanTimeMs,
+                contextScanSkipped,
                 new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()));
         var result = new SearchResult(
                 query,
@@ -156,7 +186,9 @@ public class DefaultSearchMetrics implements SearchMetrics {
                 new ArrayList<>(this.turns),
                 failureType,
                 stopReason,
-                finalWorkspaceSize);
+                finalWorkspaceSize,
+                finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null,
+                llmHistoryPath);
 
         try {
             return AbstractProject.objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
@@ -178,12 +210,15 @@ public class DefaultSearchMetrics implements SearchMetrics {
             List<TurnMetrics> turns_detail,
             @Nullable String failure_type,
             @Nullable String stop_reason,
-            int final_workspace_size) {}
+            int final_workspace_size,
+            @Nullable List<SearchMetrics.FragmentInfo> final_workspace_fragments,
+            @Nullable String llm_history_path) {}
 
     /**
      * Context scan metrics.
      */
-    public record ContextScanInfo(int files_added, long scan_time_ms, boolean skipped, List<String> files_added_paths) {}
+    public record ContextScanInfo(
+            int files_added, long scan_time_ms, boolean skipped, List<String> files_added_paths) {}
 
     /**
      * Metrics for a single search turn.

@@ -139,10 +139,6 @@ public class SearchAgent {
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
-            // Start tracking this turn
-            Set<String> filesBeforeSet = getWorkspaceFileSet();
-            metrics.startTurn();
-
             // Beast mode triggers
             if (Thread.interrupted()) {
                 io.showNotification(
@@ -209,6 +205,10 @@ public class SearchAgent {
                 beastMode = true;
                 continue;
             }
+
+            // Start tracking this turn (only after successful LLM planning)
+            Set<String> filesBeforeSet = getWorkspaceFileSet();
+            metrics.startTurn();
 
             // Final tools are executed only when they are the sole requested action in a turn.
             // This ensures research results are evaluated by the LLM before finalization.
@@ -812,14 +812,28 @@ public class SearchAgent {
 
     private void recordFinalWorkspaceState() {
         metrics.recordFinalWorkspaceFiles(getWorkspaceFileSet());
+        metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
     }
 
     private Set<String> getWorkspaceFileSet() {
         return cm.topContext()
                 .allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                        || f.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(f -> f.files().stream())
                 .map(Object::toString)
                 .collect(Collectors.toSet());
+    }
+
+    private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
+        return cm.topContext()
+                .allFragments()
+                .map(f -> new SearchMetrics.FragmentInfo(
+                        f.getType().toString(),
+                        f.id(),
+                        f.description(),
+                        f.files().stream().map(Object::toString).sorted().toList()))
+                .toList();
     }
 
     // =======================
