@@ -2022,7 +2022,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
             menu.add(searchItem);
 
-            menu.show(this, getWidth() - DROPDOWN_WIDTH, -5);
+            int menuHeight = menu.getPreferredSize().height;
+            menu.show(this, getWidth() - DROPDOWN_WIDTH, -menuHeight);
         }
 
         @Override
