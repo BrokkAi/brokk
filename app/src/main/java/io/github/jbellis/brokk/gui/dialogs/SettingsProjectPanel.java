@@ -90,6 +90,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     // Build panel instance (extracted)
     private SettingsProjectBuildPanel buildPanelInstance;
+    private LanguagesTableModel languagesTableModel;
 
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
@@ -528,69 +529,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         }
 
-        // Table model for languages
-        class LanguagesTableModel extends AbstractTableModel {
-            private final List<Language> rows;
-
-            LanguagesTableModel(List<Language> rows) {
-                this.rows = rows;
-            }
-
-            @Override
-            public int getRowCount() {
-                return rows.size();
-            }
-
-            @Override
-            public int getColumnCount() {
-                return 2; // Live, Language
-            }
-
-            @Override
-            public String getColumnName(int column) {
-                return switch (column) {
-                    case 0 -> "Live";
-                    case 1 -> "Language";
-                    default -> "";
-                };
-            }
-
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                return switch (columnIndex) {
-                    case 0 -> Boolean.class;
-                    default -> String.class;
-                };
-            }
-
-            @Override
-            public boolean isCellEditable(int rowIndex, int columnIndex) {
-                return columnIndex == 0; // only the checkbox is editable
-            }
-
-            @Override
-            public Object getValueAt(int rowIndex, int columnIndex) {
-                var lang = rows.get(rowIndex);
-                return switch (columnIndex) {
-                    case 0 -> currentAnalyzerLanguagesForDialog.contains(lang);
-                    case 1 -> lang.name();
-                    default -> "";
-                };
-            }
-
-            @Override
-            public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-                if (columnIndex != 0) return;
-                var lang = rows.get(rowIndex);
-                boolean live = Boolean.TRUE.equals(aValue);
-                if (live) currentAnalyzerLanguagesForDialog.add(lang);
-                else currentAnalyzerLanguagesForDialog.remove(lang);
-                fireTableCellUpdated(rowIndex, 0);
-            }
-        }
-
-        var tableModel = new LanguagesTableModel(languagesToShow);
-        var table = new JTable(tableModel);
+        languagesTableModel = new LanguagesTableModel(languagesToShow);
+        var table = new JTable(languagesTableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
@@ -615,9 +555,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         pref = Math.max(pref, headerComp.getPreferredSize().width);
 
         // Cells width
-        for (int r = 0; r < tableModel.getRowCount(); r++) {
+        for (int r = 0; r < languagesTableModel.getRowCount(); r++) {
             var comp = table.getCellRenderer(r, 1)
-                    .getTableCellRendererComponent(table, tableModel.getValueAt(r, 1), false, false, r, 1);
+                    .getTableCellRendererComponent(table, languagesTableModel.getValueAt(r, 1), false, false, r, 1);
             pref = Math.max(pref, comp.getPreferredSize().width);
         }
 
@@ -657,7 +597,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         });
         toolbar.add(refreshBtn);
 
-        // CI Exclusions panel (moved to build panel)
+        // User-configured CI Exclusions are stored in BuildDetails and can be edited here.
         var ciPanel = new JPanel(new GridBagLayout());
         var gbcCi = new GridBagConstraints();
         gbcCi.insets = new Insets(2, 2, 2, 2);
@@ -668,7 +608,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.gridy = ciRow;
         gbcCi.weightx = 0.0;
         gbcCi.anchor = GridBagConstraints.NORTHWEST;
-        ciPanel.add(new JLabel("CI Exclusions:"), gbcCi);
+        var ciExclusionsLabel = new JLabel("CI Exclusions:");
+        ciExclusionsLabel.setToolTipText(
+                "<html>User-configured directories to exclude from Code Intelligence.<br>Additional exclusions from .gitignore and for unmanaged dependencies are applied automatically.</html>");
+        ciPanel.add(ciExclusionsLabel, gbcCi);
         excludedDirectoriesList.setVisibleRowCount(3);
         gbcCi.gridx = 1;
         gbcCi.gridy = ciRow++;
@@ -692,7 +635,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.anchor = GridBagConstraints.WEST;
         ciPanel.add(excludedButtonsPanel2, gbcCi);
 
-        // Wire add/remove actions for the exclusions buttons (kept for compatibility; real store occurs in build panel)
+        // Wire add/remove actions for the exclusions buttons.
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
                     parentDialog,
@@ -780,7 +723,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         panel.add(centerPanel, BorderLayout.CENTER);
 
         // Preselect the language with the most associated files so details show immediately.
-        if (tableModel.getRowCount() > 0) {
+        if (languagesTableModel.getRowCount() > 0) {
             int maxModelIdx = 0;
             int maxCount = -1;
             for (int i = 0; i < languagesToShow.size(); i++) {
@@ -805,6 +748,66 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         panel.add(ciPanel, BorderLayout.SOUTH);
 
         return panel;
+    }
+
+    private class LanguagesTableModel extends AbstractTableModel {
+        private final List<Language> rows;
+
+        LanguagesTableModel(List<Language> rows) {
+            this.rows = rows;
+        }
+
+        @Override
+        public int getRowCount() {
+            return rows.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return 2; // Live, Language
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return switch (column) {
+                case 0 -> "Live";
+                case 1 -> "Language";
+                default -> "";
+            };
+        }
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            return switch (columnIndex) {
+                case 0 -> Boolean.class;
+                default -> String.class;
+            };
+        }
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return columnIndex == 0; // only the checkbox is editable
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            var lang = rows.get(rowIndex);
+            return switch (columnIndex) {
+                case 0 -> currentAnalyzerLanguagesForDialog.contains(lang);
+                case 1 -> lang.name();
+                default -> "";
+            };
+        }
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+            if (columnIndex != 0) return;
+            var lang = rows.get(rowIndex);
+            boolean live = Boolean.TRUE.equals(aValue);
+            if (live) currentAnalyzerLanguagesForDialog.add(lang);
+            else currentAnalyzerLanguagesForDialog.remove(lang);
+            fireTableCellUpdated(rowIndex, 0);
+        }
     }
 
     private void testJiraConnectionAction() {
@@ -933,6 +936,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
 
+        // Code Intelligence settings
+        currentAnalyzerLanguagesForDialog.clear();
+        currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
+        if (languagesTableModel != null) {
+            languagesTableModel.fireTableDataChanged();
+        }
+
         // Load CI exclusions from BuildDetails (not from project.getExcludedDirectories())
         try {
             var details = project.loadBuildDetails();
@@ -1028,6 +1038,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         // Data Retention Tab and Analyzer-specific settings are handled elsewhere (if present)
+        Set<Language> currentLangs = project.getAnalyzerLanguages();
+        if (!currentLangs.equals(currentAnalyzerLanguagesForDialog)) {
+            project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
+        }
+
         for (AnalyzerSettingsPanel panel : analyzerSettingsCache.values()) {
             panel.saveSettings();
         }
