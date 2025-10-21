@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.eclipse.jgit.ignore.IgnoreNode;
 
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
@@ -106,13 +107,38 @@ public class TestProject implements IProject {
 
     @Override
     public Set<ProjectFile> getAllFiles() {
+        // For tests, apply .gitignore filtering if .gitignore exists
         try (Stream<Path> stream = Files.walk(root)) {
-            return stream.filter(Files::isRegularFile)
+            var allFiles = stream.filter(Files::isRegularFile)
                     .map(p -> new ProjectFile(root, root.relativize(p)))
+                    .collect(Collectors.toSet());
+
+            Path gitignorePath = root.resolve(".gitignore");
+            if (!Files.exists(gitignorePath)) {
+                return allFiles; // No .gitignore, return all files
+            }
+
+            // Parse .gitignore
+            IgnoreNode ignoreNode = new IgnoreNode();
+            try (var in = Files.newInputStream(gitignorePath)) {
+                ignoreNode.parse(in);
+            } catch (IOException e) {
+                System.err.printf("WARN (TestProject.getAllFiles): Failed to parse .gitignore: %s%n", e.getMessage());
+                return allFiles; // Parse failed, return all files
+            }
+
+            // Filter files
+            IgnoreNode finalIgnoreNode = ignoreNode;
+            return allFiles.stream()
+                    .filter(pf -> {
+                        String relPath =
+                                root.relativize(pf.absPath()).toString().replace('\\', '/');
+                        boolean isDir = Files.isDirectory(pf.absPath());
+                        return finalIgnoreNode.isIgnored(relPath, isDir) != IgnoreNode.MatchResult.IGNORED;
+                    })
                     .collect(Collectors.toSet());
         } catch (IOException e) {
             System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n", root, e.getMessage());
-            // This can happen if the test resource dir doesn't exist, which is a test setup error.
             if (!(e instanceof NoSuchFileException)) {
                 e.printStackTrace(System.err);
             }

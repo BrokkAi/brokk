@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.ignore.IgnoreNode;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -530,7 +531,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Set<ProjectFile> allFilesCache;
 
-    // Cache for getAnalyzableFiles() to avoid re-filtering on every analyzer update
+    // Cache for getAnalyzerFiles() to avoid re-filtering on every analyzer update
     private final Map<Language, List<Path>> cachedAnalyzableFiles = new HashMap<>();
     private volatile long cachedGitignoreMtime = -1;
 
@@ -551,11 +552,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     private Set<ProjectFile> getAllFilesRaw() {
+        // Get unfiltered files
         var trackedFiles = repo.getTrackedFiles();
 
         var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
-            return trackedFiles;
+            // If no dependencies, apply filtering to tracked files only
+            return applyFiltering(trackedFiles);
         }
 
         var allFiles = new HashSet<>(trackedFiles);
@@ -563,7 +566,153 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             allFiles.addAll(live.files());
         }
 
-        return allFiles;
+        // Apply filtering to combined set
+        return applyFiltering(allFiles);
+    }
+
+    /**
+     * Applies .gitignore and baseline exclusion filtering to a set of project files.
+     * This method is extracted from the original getAnalyzableFiles() implementation.
+     *
+     * @param files Input set of ProjectFiles to filter
+     * @return Filtered set with .gitignore and baseline exclusions applied
+     */
+    private Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
+        // 1. Load .gitignore with JGit IgnoreNode (root .gitignore only)
+        IgnoreNode ignoreNode = null;
+        Path gitignorePath = root.resolve(".gitignore");
+        if (Files.exists(gitignorePath)) {
+            ignoreNode = new IgnoreNode();
+            try (var in = Files.newInputStream(gitignorePath)) {
+                ignoreNode.parse(in);
+                logger.debug("Loaded .gitignore rules from {}", gitignorePath);
+            } catch (IOException e) {
+                logger.warn("Failed to parse .gitignore at {}: {}", gitignorePath, e.getMessage());
+                ignoreNode = null;
+            }
+        }
+
+        // 2. Get baseline exclusions and normalize them to absolute paths
+        Set<Path> normalizedExcludedPaths = getExcludedDirectories().stream()
+                // Skip any glob-like patterns that could cause InvalidPathException on some OSes
+                .filter(s -> !(s.contains("*")
+                        || s.contains("?")
+                        || s.contains("{")
+                        || s.contains("}")
+                        || s.contains("[")
+                        || s.contains("]")))
+                .map(Path::of)
+                .map(p -> p.isAbsolute()
+                        ? p.normalize()
+                        : root.resolve(p).toAbsolutePath().normalize())
+                .collect(Collectors.toSet());
+
+        if (!normalizedExcludedPaths.isEmpty()) {
+            logger.debug("Using {} baseline excluded paths", normalizedExcludedPaths.size());
+        }
+
+        IgnoreNode finalIgnoreNode = ignoreNode;
+
+        // Memoize ignored ancestor directories discovered during this call to avoid repeat checks
+        var ignoredAncestorCache = new java.util.HashSet<String>();
+
+        // 3. Filter files
+        return files.stream()
+                .filter(pf -> {
+                    Path absPath = pf.absPath();
+                    Path normalizedPath = absPath.toAbsolutePath().normalize();
+
+                    // Check .git and .brokk directory exclusion first (always excluded)
+                    if (normalizedPath.startsWith(root.resolve(".git"))
+                            || normalizedPath.startsWith(root.resolve(".brokk"))) {
+                        logger.trace("Skipping file in .git or .brokk directory: {}", absPath);
+                        return false;
+                    }
+
+                    // Exclude .gitignore file by default
+                    if (normalizedPath.equals(root.resolve(".gitignore"))) {
+                        logger.trace("Skipping .gitignore file: {}", absPath);
+                        return false;
+                    }
+
+                    // Check baseline exclusions first (fast path)
+                    if (normalizedExcludedPaths.stream().anyMatch(normalizedPath::startsWith)) {
+                        logger.trace("Skipping file excluded by baseline: {}", absPath);
+                        return false;
+                    }
+
+                    // Check .gitignore rules (root .gitignore only)
+                    if (finalIgnoreNode != null) {
+                        // Skip if path is not under project root (protect relativize)
+                        if (!normalizedPath.startsWith(root)) {
+                            logger.warn(
+                                    "Skipping path outside project root when applying .gitignore: {}", normalizedPath);
+                            return false;
+                        }
+                        // Compute relative path with forward slashes
+                        String relPath =
+                                root.relativize(normalizedPath).toString().replace('\\', '/');
+
+                        // Determine if path represents an existing directory on disk.
+                        boolean isDir = Files.isDirectory(normalizedPath);
+
+                        // Direct check using correct isDirectory flag
+                        if (finalIgnoreNode.isIgnored(relPath, isDir) == IgnoreNode.MatchResult.IGNORED) {
+                            logger.trace("Skipping path ignored by .gitignore (direct): {}", absPath);
+                            return false;
+                        }
+
+                        // If this is a file, also check ancestor directories (directory patterns with trailing slash)
+                        if (!isDir) {
+                            Path parent = normalizedPath.getParent();
+                            while (parent != null && parent.startsWith(root) && !parent.equals(root.getParent())) {
+                                // Stop at root's parent to avoid relativize errors outside project
+                                if (parent.equals(root)) {
+                                    break;
+                                }
+                                String parentRel =
+                                        root.relativize(parent).toString().replace('\\', '/');
+                                if (parentRel.isEmpty()) {
+                                    // skip empty relative path (shouldn't happen except when parent == root)
+                                    parent = parent.getParent();
+                                    continue;
+                                }
+
+                                // Cached result
+                                if (ignoredAncestorCache.contains(parentRel)) {
+                                    logger.trace(
+                                            "Skipping file because ancestor dir cached as ignored: {} (ancestor {})",
+                                            absPath,
+                                            parentRel);
+                                    return false;
+                                }
+
+                                var match = finalIgnoreNode.isIgnored(parentRel, true);
+                                if (match == IgnoreNode.MatchResult.IGNORED) {
+                                    ignoredAncestorCache.add(parentRel);
+                                    logger.trace(
+                                            "Skipping file because ancestor dir ignored by .gitignore: {} (ancestor {})",
+                                            absPath,
+                                            parentRel);
+                                    return false;
+                                } else if (match == IgnoreNode.MatchResult.NOT_IGNORED) {
+                                    // Negation pattern explicitly un-ignores this ancestor directory
+                                    // Stop checking further ancestors and include the file
+                                    logger.trace(
+                                            "Including file because ancestor dir explicitly un-ignored: {} (ancestor {})",
+                                            absPath,
+                                            parentRel);
+                                    break;
+                                }
+
+                                parent = parent.getParent();
+                            }
+                        }
+                    }
+
+                    return true;
+                })
+                .collect(Collectors.toSet());
     }
 
     @Override
@@ -592,6 +741,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 && cachedGitignoreMtime == currentGitignoreMtime
                 && Objects.equals(cachedExcludedDirs, currentExcludedDirs)
                 && allFilesCache != null;
+
+        // Invalidate allFilesCache if gitignore or excluded dirs changed
+        if (allFilesCache != null
+                && (cachedGitignoreMtime != currentGitignoreMtime
+                        || !Objects.equals(cachedExcludedDirs, currentExcludedDirs))) {
+            allFilesCache = null;
+        }
 
         if (cacheValid) {
             logger.trace("Using cached analyzable files for language: {}", language);

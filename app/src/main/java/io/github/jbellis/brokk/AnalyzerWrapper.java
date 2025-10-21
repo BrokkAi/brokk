@@ -279,7 +279,10 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                 continue;
             }
             // Filter tracked files relevant to this language
-            List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
+            List<ProjectFile> tracked = project.getAnalyzableFiles(lang).stream()
+                    .map(path ->
+                            new ProjectFile(project.getRoot(), project.getRoot().relativize(path)))
+                    .toList();
             if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 

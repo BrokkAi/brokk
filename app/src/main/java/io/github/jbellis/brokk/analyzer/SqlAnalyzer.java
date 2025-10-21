@@ -58,71 +58,71 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                 filesToAnalyze.isEmpty() ? "computed from project" : "provided");
 
         for (var pf : projectFiles) {
+            String content;
             try {
-                String content = Files.readString(pf.absPath(), StandardCharsets.UTF_8);
-                // byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // Unused variable removed
-
-                var matcher = CREATE_STMT_PATTERN.matcher(content);
-                int searchOffset = 0;
-                while (matcher.find(searchOffset)) {
-                    int statementStartOffsetInChars = matcher.start();
-                    // String type = matcher.group(1).toUpperCase(Locale.ROOT); // TABLE or VIEW
-                    String fqName = matcher.group(2);
-
-                    // Find the end of the statement (next semicolon not in comments/strings)
-                    // This is a naive search, as requested.
-                    int semicolonCharPos = content.indexOf(';', matcher.end());
-                    if (semicolonCharPos == -1) {
-                        // No semicolon found, statement might be malformed or end of file. Ignore.
-                        searchOffset = matcher.end(); // Advance search past current non-terminated match
-                        continue;
-                    }
-                    int statementEndOffsetInChars = semicolonCharPos; // inclusive of semicolon
-
-                    // Convert char offsets to byte offsets
-                    int statementStartByte = new String(
-                                    content.substring(0, statementStartOffsetInChars)
-                                            .getBytes(StandardCharsets.UTF_8),
-                                    StandardCharsets.UTF_8)
-                            .length();
-                    int statementEndByte = new String(
-                                    content.substring(0, statementEndOffsetInChars + 1)
-                                            .getBytes(StandardCharsets.UTF_8),
-                                    StandardCharsets.UTF_8)
-                            .length();
-
-                    String packageName;
-                    String shortName;
-                    int lastDot = fqName.lastIndexOf('.');
-                    if (lastDot != -1) {
-                        packageName = fqName.substring(0, lastDot);
-                        shortName = fqName.substring(lastDot + 1);
-                    } else {
-                        packageName = "";
-                        shortName = fqName;
-                    }
-
-                    // Using CodeUnitType.CLASS for both TABLE and VIEW as per initial interpretation
-                    var cu = CodeUnit.cls(pf, packageName, shortName);
-
-                    declarationsByFile
-                            .computeIfAbsent(pf, k -> new ArrayList<>())
-                            .add(cu);
-                    allDeclarationsList.add(cu);
-                    definitionsByFqName
-                            .computeIfAbsent(cu.fqName(), k -> new ArrayList<>())
-                            .add(cu);
-
-                    int startLine = countLines(content, statementStartOffsetInChars);
-                    int endLine = countLines(content, statementEndOffsetInChars);
-                    var range = new TreeSitterAnalyzer.Range(
-                            statementStartByte, statementEndByte, startLine, endLine, statementStartByte);
-                    rangesByCodeUnit.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
-
-                    searchOffset = statementEndOffsetInChars + 1; // Continue search after this statement
-                }
+                content = Files.readString(pf.absPath(), StandardCharsets.UTF_8);
             } catch (IOException e) {
-                logger.warn("Failed to read or parse SQL file {}: {}", pf.absPath(), e.getMessage());
+                logger.warn("Failed to read SQL file {}: {}", pf.absPath(), e.getMessage());
+                continue;
+            }
+            // byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // Unused variable removed
+
+            var matcher = CREATE_STMT_PATTERN.matcher(content);
+            int searchOffset = 0;
+            while (matcher.find(searchOffset)) {
+                int statementStartOffsetInChars = matcher.start();
+                // String type = matcher.group(1).toUpperCase(Locale.ROOT); // TABLE or VIEW
+                String fqName = matcher.group(2);
+
+                // Find the end of the statement (next semicolon not in comments/strings)
+                // This is a naive search, as requested.
+                int semicolonCharPos = content.indexOf(';', matcher.end());
+                if (semicolonCharPos == -1) {
+                    // No semicolon found, statement might be malformed or end of file. Ignore.
+                    searchOffset = matcher.end(); // Advance search past current non-terminated match
+                    continue;
+                }
+                int statementEndOffsetInChars = semicolonCharPos; // inclusive of semicolon
+
+                // Convert char offsets to byte offsets
+                int statementStartByte = new String(
+                                content.substring(0, statementStartOffsetInChars)
+                                        .getBytes(StandardCharsets.UTF_8),
+                                StandardCharsets.UTF_8)
+                        .length();
+                int statementEndByte = new String(
+                                content.substring(0, statementEndOffsetInChars + 1)
+                                        .getBytes(StandardCharsets.UTF_8),
+                                StandardCharsets.UTF_8)
+                        .length();
+
+                String packageName;
+                String shortName;
+                int lastDot = fqName.lastIndexOf('.');
+                if (lastDot != -1) {
+                    packageName = fqName.substring(0, lastDot);
+                    shortName = fqName.substring(lastDot + 1);
+                } else {
+                    packageName = "";
+                    shortName = fqName;
+                }
+
+                // Using CodeUnitType.CLASS for both TABLE and VIEW as per initial interpretation
+                var cu = CodeUnit.cls(pf, packageName, shortName);
+
+                declarationsByFile.computeIfAbsent(pf, k -> new ArrayList<>()).add(cu);
+                allDeclarationsList.add(cu);
+                definitionsByFqName
+                        .computeIfAbsent(cu.fqName(), k -> new ArrayList<>())
+                        .add(cu);
+
+                int startLine = countLines(content, statementStartOffsetInChars);
+                int endLine = countLines(content, statementEndOffsetInChars);
+                var range = new TreeSitterAnalyzer.Range(
+                        statementStartByte, statementEndByte, startLine, endLine, statementStartByte);
+                rangesByCodeUnit.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
+
+                searchOffset = statementEndOffsetInChars + 1; // Continue search after this statement
             }
         }
     }

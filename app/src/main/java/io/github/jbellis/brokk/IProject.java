@@ -16,7 +16,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.ignore.IgnoreNode;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
@@ -54,169 +53,30 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Gets all files in the project that match the given language's extensions. This is a convenience method that
-     * filters getAllFiles() by the language's file extensions.
-     *
-     * @param language The language to filter files for
-     * @return Set of ProjectFiles that match the language's extensions
-     */
-    default Set<ProjectFile> getFiles(Language language) {
-        var extensions = language.getExtensions();
-        return getAllFiles().stream()
-                .filter(pf -> extensions.contains(pf.extension()))
-                .collect(Collectors.toSet());
-    }
-
-    /**
-     * Gets all analyzable files for the given language, applying exclusions and .gitignore rules.
-     * This method centralizes file selection logic that was previously scattered across analyzers.
+     * Gets all analyzable files for the given language, applying .gitignore, exclusions, and language filtering.
+     * This method centralizes file selection logic for analyzers.
      *
      * @param language The language to filter files for
      * @return List of absolute paths to files that should be analyzed
      */
     default List<Path> getAnalyzableFiles(Language language) {
         Logger logger = LogManager.getLogger(IProject.class);
-        Path projectRoot = getRoot();
-
-        // 1. Load .gitignore with JGit IgnoreNode (root .gitignore only)
-        IgnoreNode ignoreNode = null;
-        Path gitignorePath = projectRoot.resolve(".gitignore");
-        if (Files.exists(gitignorePath)) {
-            ignoreNode = new IgnoreNode();
-            try (var in = Files.newInputStream(gitignorePath)) {
-                ignoreNode.parse(in);
-                logger.debug("Loaded .gitignore rules from {}", gitignorePath);
-            } catch (IOException e) {
-                logger.warn("Failed to parse .gitignore at {}: {}", gitignorePath, e.getMessage());
-                ignoreNode = null;
-            }
-        }
-
-        // 2. Get baseline exclusions and normalize them to absolute paths
-        Set<Path> normalizedExcludedPaths = getExcludedDirectories().stream()
-                // Skip any glob-like patterns that could cause InvalidPathException on some OSes
-                .filter(s -> !(s.contains("*")
-                        || s.contains("?")
-                        || s.contains("{")
-                        || s.contains("}")
-                        || s.contains("[")
-                        || s.contains("]")))
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : projectRoot.resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toSet());
-
-        if (!normalizedExcludedPaths.isEmpty()) {
-            logger.debug("Using {} baseline excluded paths", normalizedExcludedPaths.size());
-        }
-
-        // 3. Get language extensions for filtering
         var validExtensions = language.getExtensions();
-        IgnoreNode finalIgnoreNode = ignoreNode;
 
-        // Memoize ignored ancestor directories discovered during this call to avoid repeat checks
-        var ignoredAncestorCache = new java.util.HashSet<String>();
-
-        // 4. Filter files
+        // getAllFiles() now returns .gitignore + baseline filtered files
+        // We only need to filter by language extension
         return getAllFiles().stream()
                 .map(ProjectFile::absPath)
                 .filter(absPath -> {
-                    Path normalizedPath = absPath.toAbsolutePath().normalize();
-
-                    // Check baseline exclusions first (fast path)
-                    if (normalizedExcludedPaths.stream().anyMatch(normalizedPath::startsWith)) {
-                        logger.trace("Skipping file excluded by baseline: {}", absPath);
-                        return false;
-                    }
-
-                    // Check .gitignore rules (root .gitignore only)
-                    if (finalIgnoreNode != null) {
-                        // Skip if path is not under project root (protect relativize)
-                        if (!normalizedPath.startsWith(projectRoot)) {
-                            logger.warn(
-                                    "Skipping path outside project root when applying .gitignore: {}", normalizedPath);
-                            return false;
-                        }
-                        // Compute relative path with forward slashes
-                        String relPath = projectRoot
-                                .relativize(normalizedPath)
-                                .toString()
-                                .replace('\\', '/');
-
-                        // Determine if path represents an existing directory on disk.
-                        boolean isDir = Files.isDirectory(normalizedPath);
-
-                        // Direct check using correct isDirectory flag
-                        if (finalIgnoreNode.isIgnored(relPath, isDir) == IgnoreNode.MatchResult.IGNORED) {
-                            logger.trace("Skipping path ignored by .gitignore (direct): {}", absPath);
-                            return false;
-                        }
-
-                        // If this is a file, also check ancestor directories (directory patterns with trailing slash)
-                        if (!isDir) {
-                            Path parent = normalizedPath.getParent();
-                            while (parent != null
-                                    && parent.startsWith(projectRoot)
-                                    && !parent.equals(projectRoot.getParent())) {
-                                // Stop at projectRoot's parent to avoid relativize errors outside project
-                                if (parent.equals(projectRoot)) {
-                                    break;
-                                }
-                                String parentRel = projectRoot
-                                        .relativize(parent)
-                                        .toString()
-                                        .replace('\\', '/');
-                                if (parentRel.isEmpty()) {
-                                    // skip empty relative path (shouldn't happen except when parent == projectRoot)
-                                    parent = parent.getParent();
-                                    continue;
-                                }
-
-                                // Cached result
-                                if (ignoredAncestorCache.contains(parentRel)) {
-                                    logger.trace(
-                                            "Skipping file because ancestor dir cached as ignored: {} (ancestor {})",
-                                            absPath,
-                                            parentRel);
-                                    return false;
-                                }
-
-                                var match = finalIgnoreNode.isIgnored(parentRel, true);
-                                if (match == IgnoreNode.MatchResult.IGNORED) {
-                                    ignoredAncestorCache.add(parentRel);
-                                    logger.trace(
-                                            "Skipping file because ancestor dir ignored by .gitignore: {} (ancestor {})",
-                                            absPath,
-                                            parentRel);
-                                    return false;
-                                } else if (match == IgnoreNode.MatchResult.NOT_IGNORED) {
-                                    // Negation pattern explicitly un-ignores this ancestor directory
-                                    // Stop checking further ancestors and include the file
-                                    logger.trace(
-                                            "Including file because ancestor dir explicitly un-ignored: {} (ancestor {})",
-                                            absPath,
-                                            parentRel);
-                                    break;
-                                }
-
-                                parent = parent.getParent();
-                            }
-                        }
-                    }
-
-                    return true;
-                })
-                .filter(absPath -> {
                     // Filter by language extension
-                    String fileName = absPath.getFileName().toString();
-                    int dotIndex = fileName.lastIndexOf('.');
-                    if (dotIndex > 0) {
-                        String extension = fileName.substring(dotIndex + 1);
-                        return validExtensions.contains(extension);
+                    String extension = com.google.common.io.Files.getFileExtension(absPath.toString());
+                    if (!extension.isEmpty() && validExtensions.contains(extension)) {
+                        return true;
                     }
+                    logger.trace("Skipping file not matching language extensions: {}", absPath);
                     return false;
                 })
+                .sorted()
                 .collect(Collectors.toList());
     }
 
