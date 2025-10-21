@@ -251,6 +251,9 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
     group = "verification"
     description = "Compile with Error Prone and NullAway enabled"
 
+    // Ensure generated sources (e.g., BuildConfig) exist before compiling
+    dependsOn("generateBuildConfig")
+
     // Use same sources as main compilation
     source = sourceSets.main.get().java
     classpath = sourceSets.main.get().compileClasspath
