@@ -722,12 +722,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             try {
                 var spp = parentDialog.getProjectPanel();
                 if (spp != null) {
-                    var dirs = new ArrayList<>(details.excludedDirectories());
-                    dirs.sort(String::compareToIgnoreCase);
-                    spp.excludedDirectoriesListModel.clear();
-                    for (var d : dirs) {
-                        spp.excludedDirectoriesListModel.addElement(d);
-                    }
+                    spp.updateExcludedDirectories(details.excludedDirectories());
                 }
             } catch (Exception ex) {
                 logger.warn("Failed to update CI exclusions list from agent details: {}", ex.getMessage(), ex);

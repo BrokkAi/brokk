@@ -29,6 +29,12 @@ import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -49,7 +55,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
     // Analyzer-related UI
-    DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
+    private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
     private MaterialButton addExcludedDirButton = new MaterialButton();
@@ -138,6 +144,30 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     public JTabbedPane getProjectSubTabbedPane() {
         return projectSubTabbedPane;
+    }
+
+    // Update CI exclusions list model safely and consistently (EDT, sorted, deduped case-insensitively)
+    public void updateExcludedDirectories(Collection<String> dirs) {
+        Runnable r = () -> {
+            try {
+                var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                if (dirs != null) {
+                    unique.addAll(dirs);
+                }
+                excludedDirectoriesListModel.clear();
+                for (String d : unique) {
+                    excludedDirectoriesListModel.addElement(d);
+                }
+            } catch (Exception ex) {
+                logger.warn("Failed to update CI exclusions list model: {}", ex.getMessage(), ex);
+                excludedDirectoriesListModel.clear();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     private JPanel createGeneralPanel() {
@@ -936,29 +966,31 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
 
-        // Code Intelligence settings
+        loadCodeIntelligenceSettings();
+        loadCiExclusionsFromBuildDetails();
+
+        // Build Tab - delegate to buildPanelInstance
+        buildPanelInstance.loadBuildPanelSettings();
+    }
+
+    private void loadCodeIntelligenceSettings() {
+        var project = chrome.getProject();
         currentAnalyzerLanguagesForDialog.clear();
         currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         if (languagesTableModel != null) {
             languagesTableModel.fireTableDataChanged();
         }
+    }
 
-        // Load CI exclusions from BuildDetails (not from project.getExcludedDirectories())
+    private void loadCiExclusionsFromBuildDetails() {
+        var project = chrome.getProject();
         try {
-            var details = project.loadBuildDetails();
-            var dirs = new ArrayList<>(details.excludedDirectories());
-            dirs.sort(String::compareToIgnoreCase);
-            excludedDirectoriesListModel.clear();
-            for (var d : dirs) {
-                excludedDirectoriesListModel.addElement(d);
-            }
+            BuildDetails details = project.loadBuildDetails();
+            updateExcludedDirectories(details.excludedDirectories());
         } catch (Exception ex) {
             logger.warn("Failed to load BuildDetails for CI exclusions: {}", ex.getMessage(), ex);
-            excludedDirectoriesListModel.clear();
+            updateExcludedDirectories(List.of());
         }
-
-        // Build Tab - delegate to buildPanelInstance
-        buildPanelInstance.loadBuildPanelSettings();
     }
 
     public boolean applySettings() {
@@ -1000,35 +1032,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         project.setIssuesProvider(newProviderToSet);
 
         // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
-        try {
-            var currentDetails = project.loadBuildDetails();
-            // Gather exclusions from UI model: trim, drop empties, normalize where possible, dedupe case-insensitively
-            java.util.Set<String> excludesSet = java.util.Collections.list(excludedDirectoriesListModel.elements()).stream()
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(s -> {
-                        try {
-                            return java.nio.file.Path.of(s).normalize().toString();
-                        } catch (java.nio.file.InvalidPathException ex) {
-                            return s;
-                        }
-                    })
-                    .collect(java.util.stream.Collectors.toCollection(() -> new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
-
-            var newDetails = new io.github.jbellis.brokk.agents.BuildAgent.BuildDetails(
-                    currentDetails.buildLintCommand(),
-                    currentDetails.testAllCommand(),
-                    currentDetails.testSomeCommand(),
-                    excludesSet,
-                    currentDetails.environmentVariables());
-            // Save only if changed to avoid unnecessary churn
-            if (!newDetails.equals(currentDetails)) {
-                project.saveBuildDetails(newDetails);
-                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: {}", excludesSet);
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
-        }
+        saveCiExclusions();
 
         // Delegate build-related persistence to extracted build panel
         try {
@@ -1038,16 +1042,57 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         // Data Retention Tab and Analyzer-specific settings are handled elsewhere (if present)
-        Set<Language> currentLangs = project.getAnalyzerLanguages();
-        if (!currentLangs.equals(currentAnalyzerLanguagesForDialog)) {
-            project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
-        }
+        setAnalyzerLanguages();
 
         for (AnalyzerSettingsPanel panel : analyzerSettingsCache.values()) {
             panel.saveSettings();
         }
 
         return true;
+    }
+
+    private void saveCiExclusions() {
+        var project = chrome.getProject();
+        try {
+            var currentDetails = project.loadBuildDetails();
+
+            Set<String> excludesSet = Collections.list(excludedDirectoriesListModel.elements()).stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(s -> {
+                        try {
+                            return Path.of(s).normalize().toString();
+                        } catch (InvalidPathException ex) {
+                            return s;
+                        }
+                    })
+                    .collect(Collectors.toCollection(() -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+
+            var newDetails = new BuildDetails(
+                    currentDetails.buildLintCommand(),
+                    currentDetails.testAllCommand(),
+                    currentDetails.testSomeCommand(),
+                    excludesSet,
+                    currentDetails.environmentVariables());
+
+            if (!newDetails.equals(currentDetails)) {
+                project.saveBuildDetails(newDetails);
+                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: {}", excludesSet);
+            }
+
+            // Refresh the UI to reflect canonicalized values
+            updateExcludedDirectories(excludesSet);
+        } catch (Exception e) {
+            logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
+        }
+    }
+
+    private void setAnalyzerLanguages() {
+        var project = chrome.getProject();
+        Set<Language> currentLangs = project.getAnalyzerLanguages();
+        if (!currentLangs.equals(currentAnalyzerLanguagesForDialog)) {
+            project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
+        }
     }
 
     public void showBuildBanner() {
