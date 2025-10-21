@@ -7,6 +7,11 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -184,33 +189,121 @@ public class BranchSelectorButton extends SplitButton {
                     menu.add(header);
                 }
 
-                for (var b : localBranches) {
-                    JMenuItem item = new JMenuItem(b);
-                    item.addActionListener(ev -> {
-                        cm.submitExclusiveAction(() -> {
-                            try {
-                                IGitRepo r = project.getRepo();
-                                r.checkout(b);
-                                SwingUtilities.invokeLater(() -> {
-                                    try {
-                                        var currentBranch = r.getCurrentBranch();
-                                        var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                        refreshBranch(displayBranch);
-                                    } catch (Exception ex) {
-                                        logger.debug("Error updating branch UI after checkout", ex);
-                                        refreshBranch(b);
-                                    }
-                                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                });
-                            } catch (Exception ex) {
-                                logger.error("Error checking out branch {}", b, ex);
-                                SwingUtilities.invokeLater(
-                                        () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                            }
-                        });
-                    });
-                    menu.add(item);
+                // Create a scrollable list of branches, so the popup can remain below the button
+                DefaultListModel<String> model = new DefaultListModel<>();
+                for (String b : localBranches) {
+                    model.addElement(b);
                 }
+                JList<String> list = new JList<>(model);
+                list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+                list.setVisibleRowCount(-1); // let the scrollpane determine visible rows
+                list.setFocusable(true);
+
+                // Single-click to checkout, like JMenuItem behavior
+                list.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        int idx = list.locationToIndex(e.getPoint());
+                        if (idx >= 0) {
+                            String b = model.getElementAt(idx);
+                            cm.submitExclusiveAction(() -> {
+                                try {
+                                    IGitRepo r = project.getRepo();
+                                    r.checkout(b);
+                                    SwingUtilities.invokeLater(() -> {
+                                        try {
+                                            var currentBranch = r.getCurrentBranch();
+                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
+                                            refreshBranch(displayBranch);
+                                        } catch (Exception ex) {
+                                            logger.debug("Error updating branch UI after checkout", ex);
+                                            refreshBranch(b);
+                                        }
+                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
+                                    });
+                                } catch (Exception ex) {
+                                    logger.error("Error checking out branch {}", b, ex);
+                                    SwingUtilities.invokeLater(
+                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                                } finally {
+                                    SwingUtilities.invokeLater(() -> menu.setVisible(false));
+                                }
+                            });
+                        }
+                    }
+                });
+
+                // Enter key triggers checkout for keyboard users
+                list.addKeyListener(new KeyAdapter() {
+                    @Override
+                    public void keyPressed(KeyEvent e) {
+                        if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                            int idx = list.getSelectedIndex();
+                            if (idx >= 0) {
+                                String b = model.getElementAt(idx);
+                                cm.submitExclusiveAction(() -> {
+                                    try {
+                                        IGitRepo r = project.getRepo();
+                                        r.checkout(b);
+                                        SwingUtilities.invokeLater(() -> {
+                                            try {
+                                                var currentBranch = r.getCurrentBranch();
+                                                var displayBranch = currentBranch.isBlank() ? b : currentBranch;
+                                                refreshBranch(displayBranch);
+                                            } catch (Exception ex) {
+                                                logger.debug("Error updating branch UI after checkout", ex);
+                                                refreshBranch(b);
+                                            }
+                                            chrome.showNotification(
+                                                    IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
+                                        });
+                                    } catch (Exception ex) {
+                                        logger.error("Error checking out branch {}", b, ex);
+                                        SwingUtilities.invokeLater(() ->
+                                                chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                                    } finally {
+                                        SwingUtilities.invokeLater(() -> menu.setVisible(false));
+                                    }
+                                });
+                            }
+                        }
+                    }
+                });
+
+                JScrollPane scrollPane = new JScrollPane(list);
+                scrollPane.setBorder(BorderFactory.createEmptyBorder());
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+                // Compute available space below the button and cap the scroll area height
+                int availableBelow = getAvailableSpaceBelow();
+
+                // Height used by items added so far (top actions, separator, and optional header)
+                int usedHeight = 0;
+                for (Component c : menu.getComponents()) {
+                    Dimension d = c.getPreferredSize();
+                    if (d != null) usedHeight += d.height;
+                }
+
+                // Provide some max height, but ensure we don't exceed available space below
+                int maxListHeight = Math.max(120, availableBelow - usedHeight - 8);
+                if (maxListHeight < 60) {
+                    // If extremely constrained, still show a tiny scroll area instead of forcing a flip
+                    maxListHeight = Math.max(availableBelow - usedHeight - 4, 16);
+                }
+                // Set a reasonable width; layout will expand if needed
+                int prefWidth = Math.max(
+                        260,
+                        list.getPreferredSize().width
+                                + scrollPane.getVerticalScrollBar().getPreferredSize().width
+                                + 16);
+                if (maxListHeight > 0) {
+                    scrollPane.setPreferredSize(new Dimension(prefWidth, maxListHeight));
+                } else {
+                    // Fallback: minimal height to keep menu below; may show only top actions
+                    scrollPane.setPreferredSize(new Dimension(prefWidth, 1));
+                }
+
+                menu.add(scrollPane);
             } catch (Exception ex) {
                 logger.error("Error building branch menu", ex);
                 JMenuItem err = new JMenuItem("Error loading branches");
@@ -250,6 +343,25 @@ public class BranchSelectorButton extends SplitButton {
             GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName);
         } else {
             SwingUtilities.invokeLater(() -> GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName));
+        }
+    }
+
+    // Compute the vertical space available below this button within the current screen,
+    // accounting for taskbar/dock insets, to keep the popup below the button.
+    private int getAvailableSpaceBelow() {
+        try {
+            Point screenLoc = getLocationOnScreen();
+            GraphicsConfiguration gc = getGraphicsConfiguration();
+            Rectangle screenBounds = (gc != null)
+                    ? gc.getBounds()
+                    : new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+            Insets insets = (gc != null) ? Toolkit.getDefaultToolkit().getScreenInsets(gc) : new Insets(0, 0, 0, 0);
+            int bottomEdge = screenBounds.y + screenBounds.height - insets.bottom;
+            int buttonBottom = screenLoc.y + getHeight();
+            return Math.max(0, bottomEdge - buttonBottom);
+        } catch (IllegalComponentStateException e) {
+            // If not yet showing, fall back to a reasonable default
+            return 400;
         }
     }
 }
