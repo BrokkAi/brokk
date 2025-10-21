@@ -718,7 +718,7 @@ public class Context {
                             oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
                     int newLineCount =
                             newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-                    logger.debug(
+                    logger.trace(
                             "getDiff: fragment='{}' id={} oldLines={} newLines={}",
                             ff.shortDescription(),
                             id,
@@ -728,7 +728,7 @@ public class Context {
                     var result = ContentDiffUtils.computeDiffResult(
                             oldContent, newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
 
-                    logger.debug(
+                    logger.trace(
                             "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
                             ff.shortDescription(),
                             result.added(),
