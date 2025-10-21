@@ -1607,6 +1607,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // If there is no running action, keep the action button enabled so the user can start an action.
                 actionButton.setEnabled(true);
                 actionButton.setBackground(defaultActionButtonBg);
+                // Ensure combined tooltip (mode-specific + base) is shown initially
+                actionButton.updateTooltip();
             }
 
             // Wand is disabled while any action is running
@@ -1621,17 +1623,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
             // Action button reflects current running state
-            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
-                    "instructions.submit",
-                    KeyStroke.getKeyStroke(
-                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
             if (isActionRunning()) {
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
                 actionButton.setBackground(secondaryActionButtonBg);
             } else {
                 actionButton.showNormalMode();
-                actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+                // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
+                actionButton.updateTooltip();
                 actionButton.setBackground(defaultActionButtonBg);
             }
             actionButton.setEnabled(true);
@@ -1905,6 +1904,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.baseTooltip = "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")";
         
         updateButtonText();
+        updateTooltip();
 
             // Override border to eliminate left padding (0px instead of default 8px)
             Color borderColor = UIManager.getColor("Component.borderColor");
