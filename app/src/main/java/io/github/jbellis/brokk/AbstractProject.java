@@ -36,6 +36,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public static final String STYLE_GUIDE_FILE = "style.md";
     public static final String REVIEW_GUIDE_FILE = "review.md";
     public static final String DEBUG_LOG_FILE = "debug.log";
+    protected static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
 
     protected final Path root;
     protected final IGitRepo repo;
@@ -525,6 +526,24 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
             return Set.of();
         }
+    }
+
+    /**
+     * Determine the predominant language for a dependency directory by scanning files inside it.
+     * This is shared between MainProject and WorktreeProject to avoid duplication.
+     */
+    protected static Language detectLanguageForDependency(ProjectFile depDir) {
+        var counts = new IProject.Dependency(depDir, Languages.NONE).files().stream()
+                .map(pf -> com.google.common.io.Files.getFileExtension(pf.absPath().toString()))
+                .filter(ext -> !ext.isEmpty())
+                .map(Languages::fromExtension)
+                .filter(lang -> lang != Languages.NONE)
+                .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
+
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(Languages.NONE);
     }
 
     @Nullable
