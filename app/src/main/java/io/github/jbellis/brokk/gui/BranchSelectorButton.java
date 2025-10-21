@@ -182,7 +182,6 @@ public class BranchSelectorButton extends SplitButton {
                     JMenuItem header = new JMenuItem("Current: " + current);
                     header.setEnabled(false);
                     menu.add(header);
-                    menu.add(new JSeparator());
                 }
 
                 for (var b : localBranches) {
