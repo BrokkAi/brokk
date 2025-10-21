@@ -1106,6 +1106,21 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public static String getGlobalActionMode() {
+        var props = loadGlobalProperties();
+        return props.getProperty("actionMode", "");
+    }
+
+    public static void setGlobalActionMode(String mode) {
+        var props = loadGlobalProperties();
+        if (mode == null || mode.isEmpty()) {
+            props.remove("actionMode");
+        } else {
+            props.setProperty("actionMode", mode);
+        }
+        saveGlobalProperties(props);
+    }
+
     public static boolean getExceptionReportingEnabled() {
         var props = loadGlobalProperties();
         return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "false"));

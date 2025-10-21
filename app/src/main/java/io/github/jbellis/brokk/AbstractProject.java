@@ -471,6 +471,25 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
+    @Override
+    public final Optional<String> getActionMode() {
+        String mode = workspaceProps.getProperty("actionMode");
+        if (mode != null && !mode.isEmpty()) {
+            return Optional.of(mode);
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public final void saveActionMode(String mode) {
+        if (mode == null || mode.isEmpty()) {
+            workspaceProps.remove("actionMode");
+        } else {
+            workspaceProps.setProperty("actionMode", mode);
+        }
+        saveWorkspaceProperties();
+    }
+
     private static double clampProportion(double p) {
         if (Double.isNaN(p) || Double.isInfinite(p)) return -1.0;
         if (p <= 0.0 || p >= 1.0) return -1.0;

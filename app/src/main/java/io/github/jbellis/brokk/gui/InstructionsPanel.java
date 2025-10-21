@@ -33,6 +33,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
+import java.util.Optional;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DropTarget;
@@ -259,8 +260,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "attachContext",
                 () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
 
-        // default stored action: Search
-        storedAction = ACTION_SEARCH;
+        // Load stored action with cascading fallback: project → global → default
+        storedAction = loadActionMode();
 
         this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
         // this is when the button is in the blocking state
@@ -287,10 +288,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.addActionListener(e -> onActionButtonPressed());
         actionButton.setBackground(this.defaultActionButtonBg);
 
+        // Synchronize button's selected mode with loaded preference
+        actionButton.setSelectedMode(storedAction);
+
         // Listen for mode changes from the dropdown
         actionButton.addModeChangeListener(mode -> {
             storedAction = mode;
-            // No need to persist mode separately anymore
+            // Save to both global and project preferences
+            MainProject.setGlobalActionMode(mode);
+            chrome.getProject().saveActionMode(mode);
         });
 
         modelSelector = new ModelSelector(chrome);
@@ -1657,6 +1663,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
         updateButtonStates();
+    }
+
+    private String loadActionMode() {
+        // 1. Try project-specific first
+        Optional<String> projectMode = chrome.getProject().getActionMode();
+        if (projectMode.isPresent() && isValidMode(projectMode.get())) {
+            logger.debug("Loading action mode from project settings: {}", projectMode.get());
+            return projectMode.get();
+        }
+
+        // 2. Fall back to global
+        String globalMode = MainProject.getGlobalActionMode();
+        if (!globalMode.isEmpty() && isValidMode(globalMode)) {
+            logger.debug("Loading action mode from global settings: {}", globalMode);
+            return globalMode;
+        }
+
+        // 3. Final fallback to default
+        logger.debug("No saved action mode found, using default: {}", ACTION_SEARCH);
+        return ACTION_SEARCH;
+    }
+
+    private boolean isValidMode(String mode) {
+        return ACTION_CODE.equals(mode) || ACTION_ASK.equals(mode) || ACTION_SEARCH.equals(mode);
     }
 
     private void notifyActionComplete(String actionName) {
