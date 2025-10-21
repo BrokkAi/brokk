@@ -1954,8 +1954,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         switch (selectedMode) {
                             case ACTION_CODE -> "Code";
                             case ACTION_ASK -> "Ask";
-                            case ACTION_SEARCH -> "Search";
-                            default -> "Search";
+                            case ACTION_SEARCH -> "Lutz";
+                            default -> "Lutz";
                         };
                 setText(displayText);
             }
@@ -1987,7 +1987,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             askItem.addActionListener(ev -> setSelectedMode(ACTION_ASK));
             menu.add(askItem);
 
-            JMenuItem searchItem = new JMenuItem("Search");
+            JMenuItem searchItem = new JMenuItem("Lutz");
             searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
             menu.add(searchItem);
 
