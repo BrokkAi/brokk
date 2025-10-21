@@ -1845,6 +1845,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
         private boolean inStopMode = false;
         private static final int DROPDOWN_WIDTH = 30;
+        private final Icon dropdownIcon;
 
         public ActionSplitButton(
                 Supplier<Boolean> isActionRunning,
@@ -1857,6 +1858,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.defaultActionButtonBg = defaultActionButtonBg;
             this.selectedMode = defaultMode;
             this.originalIcon = null;
+            this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
 
             updateButtonText();
 
@@ -1982,12 +1984,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     g2.setColor(dividerColor);
                     g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
 
-                    // Draw dropdown arrow
-                    int arrowX = dropdownX + 10;
-                    int arrowY = getHeight() / 2;
-                    int[] xPoints = {arrowX - 3, arrowX + 3, arrowX};
-                    int[] yPoints = {arrowY - 2, arrowY - 2, arrowY + 2};
-                    g2.fillPolygon(xPoints, yPoints, 3);
+                    // Paint dropdown icon centered in the dropdown area
+                    if (dropdownIcon != null) {
+                        int iw = dropdownIcon.getIconWidth();
+                        int ih = dropdownIcon.getIconHeight();
+                        int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
+                        int iy = Math.max(0, (getHeight() - ih) / 2);
+                        dropdownIcon.paintIcon(this, g2, ix, iy);
+                    }
                 }
             } finally {
                 g2.dispose();
