@@ -13,7 +13,9 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -28,6 +30,7 @@ import javax.swing.tree.TreePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.BasicCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
@@ -360,7 +363,7 @@ public class FileSelectionPanel extends JPanel {
                 try {
                     potentialPath = Path.of(pattern); // Can throw InvalidPathException
                     isAbsolutePattern = potentialPath.isAbsolute();
-                } catch (java.nio.file.InvalidPathException e) {
+                } catch (InvalidPathException e) {
                     // Invalid syntax, treat as non-absolute. potentialPath remains null.
                     isAbsolutePattern = false;
                 }
@@ -387,7 +390,7 @@ public class FileSelectionPanel extends JPanel {
             // For simplicity, we assume `autocompleteCandidatesFuture` contains all relevant paths (project +
             // external).
             // Or, we can merge if project exists:
-            Set<Path> allCandidatePaths = new java.util.HashSet<>(candidates);
+            Set<Path> allCandidatePaths = new HashSet<>(candidates);
             if (this.includeProjectFilesInAutocomplete) {
                 project.getRepo().getTrackedFiles().stream()
                         .map(ProjectFile::absPath)
@@ -485,13 +488,12 @@ public class FileSelectionPanel extends JPanel {
                                                     + p.getFileSystem().getSeparator()) + " "
                                     : absolutePath + p.getFileSystem().getSeparator();
                         }
-                        pathCompletions.add(
-                                new org.fife.ui.autocomplete.BasicCompletion(this, replacement, display, absolutePath));
+                        pathCompletions.add(new BasicCompletion(this, replacement, display, absolutePath));
                     }
-                } catch (java.io.IOException e) {
+                } catch (IOException e) {
                     logger.debug("IOException listing directory for completion: {}", parentDir, e);
                 }
-            } catch (java.nio.file.InvalidPathException e) {
+            } catch (InvalidPathException e) {
                 logger.debug("Invalid path for completion: {}", pattern, e);
             }
             pathCompletions.sort(Comparator.comparing(Completion::getSummary)); // Sort by full path

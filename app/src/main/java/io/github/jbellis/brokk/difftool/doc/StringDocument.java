@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.difftool.doc;
 
+import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -40,8 +41,8 @@ public class StringDocument extends AbstractBufferDocument {
             // Return a writer that does nothing or throws exception for read-only docs
             return new Writer() {
                 @Override
-                public void write(char[] cbuf, int off, int len) throws java.io.IOException {
-                    throw new java.io.IOException("Document is read-only: " + getName());
+                public void write(char[] cbuf, int off, int len) throws IOException {
+                    throw new IOException("Document is read-only: " + getName());
                 }
 
                 @Override
@@ -59,7 +60,7 @@ public class StringDocument extends AbstractBufferDocument {
         // Return a StringWriter that updates the internal content on close
         return new StringWriter(getBufferSize()) {
             @Override
-            public void close() throws java.io.IOException {
+            public void close() throws IOException {
                 super.close();
                 // Update the StringDocument's content when the writer is closed
                 StringDocument.this.content = this.toString();

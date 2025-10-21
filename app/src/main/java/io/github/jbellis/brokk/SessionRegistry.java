@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -60,7 +61,7 @@ public final class SessionRegistry {
     public static Optional<Path> findAnotherWorktreeWithActiveSession(Path currentWorktree, UUID sessionId) {
         return activeSessions.entrySet().stream()
                 .filter(e -> !e.getKey().equals(currentWorktree) && e.getValue().equals(sessionId))
-                .map(java.util.Map.Entry::getKey)
+                .map(Map.Entry::getKey)
                 .findFirst();
     }
 

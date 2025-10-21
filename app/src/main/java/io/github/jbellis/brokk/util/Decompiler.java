@@ -19,6 +19,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
+import org.jetbrains.java.decompiler.main.extern.IFernflowerLogger;
 
 public class Decompiler {
     private static final Logger logger = LogManager.getLogger(Decompiler.class);
@@ -183,30 +184,29 @@ public class Decompiler {
             extractJarToTemp(jarPath, tempDir);
 
             Map<String, Object> options = Map.of("hes", "1", "hdc", "1", "dgs", "1", "ren", "1");
-            ConsoleDecompiler decompiler = new ConsoleDecompiler(
-                    outputDir.toFile(), options, new org.jetbrains.java.decompiler.main.extern.IFernflowerLogger() {
-                        @Override
-                        public void writeMessage(String message, Severity severity) {
-                            switch (severity) {
-                                case ERROR -> logger.error("Fernflower: {}", message);
-                                case WARN -> logger.warn("Fernflower: {}", message);
-                                case INFO -> logger.info("Fernflower: {}", message);
-                                case TRACE -> logger.trace("Fernflower: {}", message);
-                                default -> logger.debug("Fernflower: {}", message);
-                            }
-                        }
+            ConsoleDecompiler decompiler = new ConsoleDecompiler(outputDir.toFile(), options, new IFernflowerLogger() {
+                @Override
+                public void writeMessage(String message, Severity severity) {
+                    switch (severity) {
+                        case ERROR -> logger.error("Fernflower: {}", message);
+                        case WARN -> logger.warn("Fernflower: {}", message);
+                        case INFO -> logger.info("Fernflower: {}", message);
+                        case TRACE -> logger.trace("Fernflower: {}", message);
+                        default -> logger.debug("Fernflower: {}", message);
+                    }
+                }
 
-                        @Override
-                        public void writeMessage(String message, Severity severity, Throwable t) {
-                            switch (severity) {
-                                case ERROR -> logger.error("Fernflower: {}", message, t);
-                                case WARN -> logger.warn("Fernflower: {}", message, t);
-                                case INFO -> logger.info("Fernflower: {}", message, t);
-                                case TRACE -> logger.trace("Fernflower: {}", message, t);
-                                default -> logger.debug("Fernflower: {}", message, t);
-                            }
-                        }
-                    });
+                @Override
+                public void writeMessage(String message, Severity severity, Throwable t) {
+                    switch (severity) {
+                        case ERROR -> logger.error("Fernflower: {}", message, t);
+                        case WARN -> logger.warn("Fernflower: {}", message, t);
+                        case INFO -> logger.info("Fernflower: {}", message, t);
+                        case TRACE -> logger.trace("Fernflower: {}", message, t);
+                        default -> logger.debug("Fernflower: {}", message, t);
+                    }
+                }
+            });
 
             decompiler.addSource(tempDir.toFile());
             decompiler.decompileContext();

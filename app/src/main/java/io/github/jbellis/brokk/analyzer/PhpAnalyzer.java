@@ -26,7 +26,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             "parameters", // parametersFieldName
             "return_type", // returnTypeFieldName (for return type declaration)
             "", // typeParametersFieldName (PHP doesn't have generics)
-            java.util.Map.of( // captureConfiguration
+            Map.of( // captureConfiguration
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "interface.definition", SkeletonType.CLASS_LIKE,
                     "trait.definition", SkeletonType.CLASS_LIKE,

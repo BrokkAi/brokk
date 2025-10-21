@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.issues;
 
 import static java.util.Objects.requireNonNull;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -10,7 +11,9 @@ import io.github.jbellis.brokk.IssueProvider;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
@@ -26,7 +29,7 @@ public class JiraIssueService implements IssueService {
     private static final DateTimeFormatter JIRA_PRIMARY_DATE_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
     private static final DateTimeFormatter JIRA_SECONDARY_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", java.util.Locale.ROOT);
+            DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", Locale.ROOT);
 
     private final JiraAuth jiraAuth;
     private final IssueProvider provider;
@@ -58,9 +61,9 @@ public class JiraIssueService implements IssueService {
 
         // Attempt 2: Secondary formatter for "dd/MMM/yy HH:mm" (LocalDateTime then assume system zone)
         try {
-            java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(dateTimeStr, JIRA_SECONDARY_DATE_FORMATTER);
+            LocalDateTime ldt = LocalDateTime.parse(dateTimeStr, JIRA_SECONDARY_DATE_FORMATTER);
             // Assume system default timezone for dates without explicit offset from renderedFields.
-            return Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
+            return Date.from(ldt.atZone(ZoneId.systemDefault()).toInstant());
         } catch (DateTimeParseException e2) {
             logger.warn(
                     "Could not parse date string from Jira: '{}'. Tried primary ISO format and secondary 'dd/MMM/yy HH:mm' format. Error from last attempt: {}",
@@ -166,8 +169,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null
-                    || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
                 logger.error(
                         "Expected JSON response from Jira for listIssues but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                         contentType,
@@ -215,7 +217,7 @@ public class JiraIssueService implements IssueService {
                 logger.warn("Jira response 'issues' field is not an array or is missing.");
             }
 
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
             logger.error(
                     "JSON parsing error while processing Jira list issues response. URL: {}. Error: {}. Response body (if available) was:\n{}",
                     request.url(),
@@ -293,8 +295,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null
-                    || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
                 logger.error(
                         "Expected JSON response for Jira issue details {} but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                         issueId,
@@ -423,7 +424,7 @@ public class JiraIssueService implements IssueService {
                     issueId);
             return new IssueDetails(header, renderedDescription, comments, attachmentUrls);
 
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
             logger.error(
                     "JSON parsing error while processing Jira issue details for {}. URL: {}. Error: {}. Response body (if available) was:\n{}",
                     issueId,
@@ -500,8 +501,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null
-                    || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
                 logger.error(
                         "Expected JSON response from Jira for /status but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                         contentType,
@@ -530,7 +530,7 @@ public class JiraIssueService implements IssueService {
                 logger.error("Jira /status response is not a JSON array as expected. Body: {}", responseBodyString);
                 return Collections.emptyList();
             }
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
             logger.error(
                     "JSON parsing error while processing Jira /status response. URL: {}. Error: {}. Response body (if available) was:\n{}",
                     request.url(),

@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -723,7 +724,7 @@ public class EditBlockSyntaxTest {
         return new TestContextManager(testProject, new TestConsoleIO(), new HashSet<>(files), analyzer);
     }
 
-    private java.util.List<EditBlock.SearchReplaceBlock> parseBlocks(String response, TestContextManager ctx) {
+    private List<EditBlock.SearchReplaceBlock> parseBlocks(String response, TestContextManager ctx) {
         return EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();

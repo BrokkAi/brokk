@@ -20,6 +20,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
@@ -32,10 +33,8 @@ import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
-import org.eclipse.jgit.treewalk.AbstractTreeIterator;
-import org.eclipse.jgit.treewalk.CanonicalTreeParser;
-import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -334,7 +333,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param ex the TransportException to check
      * @return true if the exception indicates a GitHub permission error
      */
-    public static boolean isGitHubPermissionDenied(org.eclipse.jgit.api.errors.TransportException ex) {
+    public static boolean isGitHubPermissionDenied(TransportException ex) {
         // Check main exception message
         if (checkMessageForPermissionDenial(ex.getMessage())) {
             return true;
@@ -363,7 +362,7 @@ public class GitRepo implements Closeable, IGitRepo {
             return false;
         }
 
-        var lower = msg.toLowerCase(java.util.Locale.ROOT);
+        var lower = msg.toLowerCase(Locale.ROOT);
 
         // GitHub HTTPS: token permission errors
         if (lower.contains("git-receive-pack not permitted")) {
@@ -588,20 +587,20 @@ public class GitRepo implements Closeable, IGitRepo {
                 continue; // Skip files with unmappable path characters
             }
             var projectFile = projectFileOpt.get();
-            String determinedStatus;
 
             // Priority: conflicts first, then added/missing, then general modifications
+            ModificationType determinedStatus;
             if (statusResult.getConflicting().contains(path)) {
-                determinedStatus = "conflict";
+                determinedStatus = ModificationType.CONFLICT;
             } else if (statusResult.getAdded().contains(path)) {
-                determinedStatus = "new";
+                determinedStatus = ModificationType.NEW;
             } else if (statusResult.getMissing().contains(path)) {
-                determinedStatus = "deleted";
+                determinedStatus = ModificationType.DELETED;
             } else if (statusResult.getModified().contains(path)
                     || statusResult.getChanged().contains(path)
                     || statusResult.getRemoved().contains(path)) {
                 // If removed from index but present in WT, it's a modification for "commit -a"
-                determinedStatus = "modified";
+                determinedStatus = ModificationType.MODIFIED;
             } else {
                 // This should not be reached if `path` originated from one of the status sets
                 // used to populate `allRelevantPaths` and the logic above is complete.
@@ -659,8 +658,8 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param remoteUrl The remote URL to check
      * @throws GitHubAuthenticationException if GitHub HTTPS URL is detected but no token is configured
      */
-    public <T, C extends org.eclipse.jgit.api.TransportCommand<C, T>> void applyGitHubAuthentication(
-            C command, @Nullable String remoteUrl) throws GitHubAuthenticationException {
+    public <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
+            throws GitHubAuthenticationException {
         // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
         if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
             return;
@@ -1171,9 +1170,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     if (!getCurrentBranch().equals(tempRebaseBranchName)) {
                         checkout(tempRebaseBranchName);
                     }
-                    git.rebase()
-                            .setOperation(org.eclipse.jgit.api.RebaseCommand.Operation.ABORT)
-                            .call();
+                    git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
                 } catch (GitAPIException abortEx) {
                     logger.error("Failed to abort rebase for {}", tempRebaseBranchName, abortEx);
                 }
@@ -1254,10 +1251,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Perform a soft reset to a specific commit */
     public void softReset(String commitId) throws GitAPIException {
-        git.reset()
-                .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
-                .setRef(commitId)
-                .call();
+        git.reset().setMode(ResetCommand.ResetType.SOFT).setRef(commitId).call();
         invalidateCaches();
     }
 
@@ -1372,34 +1366,32 @@ public class GitRepo implements Closeable, IGitRepo {
     }
     /**
      * Lists files changed in a specific commit compared to its primary parent. For an initial commit, lists all files
-     * in that commit.
+     * in that commit. This is implemented in terms of listFilesChangedBetweenCommits to ensure consistent handling
+     * of renames and file status tracking.
      */
-    public List<ProjectFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
+    public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
         var commitObjectId = resolveToCommit(commitId);
 
-        try (var revWalk = new RevWalk(repository)) {
+        try (var revWalk = new RevWalk(repository);
+                var treeWalk = new TreeWalk(repository)) {
             var commit = revWalk.parseCommit(commitObjectId);
-            var newTree = commit.getTree();
-            RevTree oldTree = null;
 
-            if (commit.getParentCount() > 0) {
-                var parentCommit = revWalk.parseCommit(commit.getParent(0).getId());
-                oldTree = parentCommit.getTree();
-            }
-
-            try (var diffFormatter =
-                    new DiffFormatter(new ByteArrayOutputStream())) { // Output stream is not used for listing files
-                diffFormatter.setRepository(repository);
-                List<DiffEntry> diffs;
-                if (oldTree == null) { // Initial commit
-                    // EmptyTreeIterator is not AutoCloseable
-                    var emptyTreeIterator = new EmptyTreeIterator();
-                    diffs = diffFormatter.scan(
-                            emptyTreeIterator, new CanonicalTreeParser(null, repository.newObjectReader(), newTree));
-                } else {
-                    diffs = diffFormatter.scan(oldTree, newTree);
+            if (commit.getParentCount() == 0) {
+                // Initial commit: list all files in the commit as NEW
+                var result = new ArrayList<ModifiedFile>();
+                treeWalk.addTree(commit.getTree());
+                treeWalk.setRecursive(true);
+                while (treeWalk.next()) {
+                    var path = treeWalk.getPathString();
+                    var projectFileOpt = toProjectFile(path);
+                    projectFileOpt.ifPresent(
+                            projectFile -> result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.NEW)));
                 }
-                return data.extractFilesFromDiffEntries(diffs);
+                return result;
+            } else {
+                // Regular commit: diff against primary parent
+                var parentId = commit.getParent(0).getId().getName();
+                return listFilesChangedBetweenCommits(commitId, parentId);
             }
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
@@ -1408,7 +1400,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
     @Override
-    public List<ProjectFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+    public List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
             throws GitAPIException {
         var newObjectId = resolveToCommit(newCommitId);
         var oldObjectId = resolveToCommit(oldCommitId);
@@ -1427,33 +1419,8 @@ public class GitRepo implements Closeable, IGitRepo {
             try (var diffFormatter =
                     new DiffFormatter(new ByteArrayOutputStream())) { // Output stream is not used for listing files
                 diffFormatter.setRepository(repository);
+                diffFormatter.setDetectRenames(true); // Enable rename detection to avoid leaking old paths
                 var diffs = diffFormatter.scan(oldCommit.getTree(), newCommit.getTree());
-                return data.extractFilesFromDiffEntries(diffs);
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
-    }
-
-    /**
-     * List changed RepoFiles in a commit range.
-     *
-     * @deprecated Prefer listFilesChangedInCommit or listFilesChangedBetweenCommits for clarity. This method diffs
-     *     (lastCommitId + "^") vs (firstCommitId).
-     */
-    @Override
-    @Deprecated
-    public List<ProjectFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId)
-            throws GitAPIException {
-        var firstCommitObj = resolveToCommit(firstCommitId);
-        var lastCommitObj = resolveToCommit(lastCommitId + "^"); // Note the parent operator here
-
-        try (var revWalk = new RevWalk(repository)) {
-            var firstCommit = revWalk.parseCommit(firstCommitObj); // "new"
-            var lastCommitParent = revWalk.parseCommit(lastCommitObj); // "old"
-            try (var diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
-                diffFormatter.setRepository(repository);
-                var diffs = diffFormatter.scan(lastCommitParent.getTree(), firstCommit.getTree());
                 return data.extractFilesFromDiffEntries(diffs);
             }
         } catch (IOException e) {
@@ -1463,8 +1430,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Show diff between two commits (or a commit and the working directory if newCommitId == HEAD). */
     @Override
-    public String showDiff(String newCommitId, String oldCommitId) throws GitAPIException {
-        return data.showDiff(newCommitId, oldCommitId);
+    public String getDiff(String oldRev, String newRev) throws GitAPIException {
+        return data.getDiff(oldRev, newRev);
     }
 
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
@@ -1523,8 +1490,8 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Show diff for a specific file between two commits. */
     @Override
-    public String showFileDiff(String commitIdA, String commitIdB, ProjectFile file) throws GitAPIException {
-        return data.showFileDiff(commitIdA, commitIdB, file);
+    public String getDiff(ProjectFile file, String oldRev, String newRev) throws GitAPIException {
+        return data.getDiff(file, oldRev, newRev);
     }
 
     /**
@@ -1640,10 +1607,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
             // 6. Soft reset to undo the temporary commit, leaving its changes staged
             logger.debug("Soft resetting to restore staged changes of files not stashed");
-            git.reset()
-                    .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
-                    .setRef("HEAD~1")
-                    .call();
+            git.reset().setMode(ResetCommand.ResetType.SOFT).setRef("HEAD~1").call();
 
             // 7. Unstage any files from the temporary commit that were not originally staged
             var unstagedFilesToKeep = filesToKeep.stream()
@@ -1862,8 +1826,7 @@ public class GitRepo implements Closeable, IGitRepo {
         for (var f : files) results.put(f, new ArrayList<>(Math.min(maxResults, 32)));
 
         try (var revWalk = new RevWalk(repository);
-                var df = new org.eclipse.jgit.diff.DiffFormatter(
-                        org.eclipse.jgit.util.io.DisabledOutputStream.INSTANCE)) {
+                var df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
 
             var headId = resolveToCommit("HEAD");
             var head = revWalk.parseCommit(headId);
@@ -2266,7 +2229,6 @@ public class GitRepo implements Closeable, IGitRepo {
     public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
             throws GitAPIException {
         ObjectId sourceHeadId = resolveToCommit(sourceBranch);
-
         ObjectId targetHeadId = resolveToCommit(targetBranch); // Can be null if target branch doesn't exist
         logger.debug(
                 "Resolved source branch '{}' to {}, target branch '{}' to {}",
@@ -2278,9 +2240,6 @@ public class GitRepo implements Closeable, IGitRepo {
         ObjectId mergeBaseId = computeMergeBase(sourceHeadId, targetHeadId);
 
         if (mergeBaseId == null) {
-            // If no common ancestor is found (e.g., unrelated histories, one branch is new, or one head was null),
-            // use the target's head as the base. If targetHeadId is also null (target branch doesn't exist),
-            // mergeBaseId will remain null, leading to a diff against an empty tree.
             logger.debug(
                     "No common merge base computed for source {} ({}) and target {} ({}). "
                             + "Falling back to target head {}.",
@@ -2299,94 +2258,13 @@ public class GitRepo implements Closeable, IGitRepo {
                 targetHeadId,
                 mergeBaseId);
 
-        var modifiedFiles = new ArrayList<ModifiedFile>();
-
-        try (RevWalk revWalk = new RevWalk(repository);
-                // DiffFormatter output stream is not used for file listing but is required by constructor
-                DiffFormatter diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
-            diffFormatter.setRepository(repository);
-            diffFormatter.setDetectRenames(true); // Enable rename detection
-
-            RevCommit sourceCommit = revWalk.parseCommit(sourceHeadId);
-            RevTree newTree = sourceCommit.getTree();
-            try (var reader = repository.newObjectReader()) {
-                var newTreeParser = new CanonicalTreeParser(null, reader, newTree);
-
-                AbstractTreeIterator oldTreeParser;
-                RevCommit mergeBaseCommit = revWalk.parseCommit(mergeBaseId);
-                RevTree oldTree = mergeBaseCommit.getTree();
-                // oldTreeParser needs its own reader, or ensure the existing reader is used correctly
-                try (var oldTreeReader = repository.newObjectReader()) {
-                    oldTreeParser = new CanonicalTreeParser(null, oldTreeReader, oldTree);
-                }
-
-                List<DiffEntry> diffs = diffFormatter.scan(oldTreeParser, newTreeParser);
-
-                for (var entry : diffs) {
-                    // Skip /dev/null paths, which can appear for add/delete of binary files or certain modes
-                    // Handled by only using relevant paths (getOldPath for DELETE, getNewPath for
-                    // ADD/COPY/MODIFY/RENAME's new side)
-                    // and relying on toProjectFile which would inherently handle or error on
-                    // /dev/null if it were a
-                    // real project path.
-                    // The main concern is ensuring we use the correct path (old vs new) based on ChangeType.
-
-                    @Nullable ModifiedFile result = null;
-                    switch (entry.getChangeType()) {
-                        case ADD, COPY -> {
-                            var projFile = toProjectFile(entry.getNewPath());
-                            if (projFile.isPresent()) {
-                                result = new ModifiedFile(projFile.get(), "new");
-                            }
-                        }
-                        case MODIFY -> {
-                            var projFile = toProjectFile(entry.getNewPath());
-                            if (projFile.isPresent()) {
-                                result = new ModifiedFile(projFile.get(), "modified");
-                            }
-                        }
-                        case DELETE -> {
-                            var projFile = toProjectFile(entry.getOldPath());
-                            if (projFile.isPresent()) {
-                                result = new ModifiedFile(projFile.get(), "deleted");
-                            }
-                        }
-                        case RENAME -> {
-                            var oldProjFile = toProjectFile(entry.getOldPath());
-                            if (oldProjFile.isPresent()) {
-                                modifiedFiles.add(new ModifiedFile(oldProjFile.get(), "deleted"));
-                            }
-                            var newProjFile = toProjectFile(entry.getNewPath());
-                            if (newProjFile.isPresent()) {
-                                result = new ModifiedFile(newProjFile.get(), "new");
-                            }
-                        }
-                        default -> {
-                            logger.warn(
-                                    "Unhandled DiffEntry ChangeType: {} for old path '{}', new path '{}'",
-                                    entry.getChangeType(),
-                                    entry.getOldPath(),
-                                    entry.getNewPath());
-                        }
-                    }
-                    if (result != null) {
-                        modifiedFiles.add(result);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
+        // Reuse listFilesChangedBetweenCommits which already handles rename detection properly
+        var result = listFilesChangedBetweenCommits(sourceHeadId.getName(), mergeBaseId.getName());
 
         // Sort for consistent UI presentation
-        modifiedFiles.sort(Comparator.comparing(mf -> mf.file().toString()));
-        logger.debug(
-                "Found {} files changed between {} and {}: {}",
-                modifiedFiles.size(),
-                sourceBranch,
-                targetBranch,
-                modifiedFiles);
-        return modifiedFiles;
+        result.sort(Comparator.comparing(mf -> mf.file().toString()));
+        logger.debug("Found {} files changed between {} and {}: {}", result.size(), sourceBranch, targetBranch, result);
+        return result;
     }
 
     private static String createTempBranchName(String prefix) {
@@ -2562,5 +2440,135 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // 5. No branches found
         throw new NoDefaultBranchException("Repository has no local branches and no default can be determined.");
+    }
+
+    // Add near other small helper types/records
+    public static final class Canonicalizer {
+        private final Map<String, Integer> indexByCommit; // commitId -> index in window (0 = newest)
+        private final NavigableMap<Integer, List<RenameEdge>> renamesByIndex; // commitIndex -> renames at that commit
+
+        private Canonicalizer(
+                Map<String, Integer> indexByCommit, NavigableMap<Integer, List<RenameEdge>> renamesByIndex) {
+            this.indexByCommit = indexByCommit;
+            this.renamesByIndex = renamesByIndex;
+        }
+
+        /**
+         * Returns the canonical (current-as-of-HEAD) ProjectFile for {@code pathAtCommit},
+         * by applying any renames that occur AFTER {@code commitId} within the window.
+         */
+        public ProjectFile canonicalize(String commitId, ProjectFile pathAtCommit) {
+            Integer startIdx = indexByCommit.get(commitId);
+            if (startIdx == null) {
+                // Commit not in window (should not happen for our PMI caller); return as-is
+                return pathAtCommit;
+            }
+
+            var current = pathAtCommit;
+            // Iterate renames from oldest to newest (highest to lowest index within the range)
+            // to correctly follow the rename chain in chronological order
+            for (var entry :
+                    renamesByIndex.headMap(startIdx, false).descendingMap().entrySet()) {
+                for (var edge : entry.getValue()) {
+                    if (edge.old().equals(current)) {
+                        current = edge.newPath();
+                    }
+                }
+            }
+            return current;
+        }
+
+        // A single rename observed in a commit's diff (old -> new)
+        public record RenameEdge(ProjectFile old, ProjectFile newPath) {}
+    }
+
+    /**
+     * Builds a per-commit rename canonicalizer scoped to the minimal window that covers all
+     * {@code commits} (i.e., the PMI sample). We walk from HEAD back until we have encountered
+     * every commit in {@code commits}, recording rename edges (with rename detection enabled)
+     * at each visited commit. COPYs are ignored; only true RENAME entries are recorded.
+     *
+     * This allows callers to canonicalize a ProjectFile "as it was at commit X" to its "current" path
+     * by walking forward through renames that occur AFTER X in this window, avoiding path-recycling
+     * ambiguities.
+     */
+    public Canonicalizer buildCanonicalizer(List<CommitInfo> commits) throws GitAPIException, InterruptedException {
+        if (commits.isEmpty()) {
+            return new Canonicalizer(Map.of(), new TreeMap<>());
+        }
+
+        var remaining = commits.stream().map(CommitInfo::id).collect(Collectors.toCollection(HashSet::new));
+        var indexByCommit = new HashMap<String, Integer>();
+        var renamesByIndex = new HashMap<Integer, List<Canonicalizer.RenameEdge>>();
+
+        try (var revWalk = new RevWalk(repository);
+                var df = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
+            df.setRepository(repository);
+            df.setDetectRenames(true);
+
+            var headId = resolveToCommit("HEAD");
+            var head = revWalk.parseCommit(headId);
+            revWalk.setRetainBody(false);
+            revWalk.sort(RevSort.COMMIT_TIME_DESC, true);
+            revWalk.markStart(head);
+
+            int idx = -1;
+            boolean foundAllCommits = false;
+            for (var commit : revWalk) {
+                if (Thread.interrupted()) {
+                    throw new InterruptedException();
+                }
+                idx++;
+                var commitId = commit.getName();
+                indexByCommit.put(commitId, idx);
+
+                // Record rename edges (first-parent diff is sufficient for our canonicalization)
+                if (commit.getParentCount() > 0) {
+                    RevCommit parent;
+                    try {
+                        parent = revWalk.parseCommit(commit.getParent(0));
+                    } catch (IOException e) {
+                        throw new GitWrappedIOException(e);
+                    }
+
+                    List<DiffEntry> diffs;
+                    try {
+                        diffs = df.scan(parent.getTree(), commit.getTree());
+                    } catch (IOException e) {
+                        throw new GitWrappedIOException(e);
+                    }
+
+                    List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
+                    for (var de : diffs) {
+                        if (de.getChangeType() != DiffEntry.ChangeType.RENAME) continue;
+
+                        var oldOpt = toProjectFile(de.getOldPath());
+                        var newOpt = toProjectFile(de.getNewPath());
+                        if (oldOpt.isEmpty() || newOpt.isEmpty()) continue;
+
+                        if (edgesForThisCommit == null) {
+                            edgesForThisCommit = new ArrayList<>();
+                        }
+                        edgesForThisCommit.add(new Canonicalizer.RenameEdge(oldOpt.get(), newOpt.get()));
+                    }
+                    if (edgesForThisCommit != null && !edgesForThisCommit.isEmpty()) {
+                        renamesByIndex.put(idx, edgesForThisCommit);
+                    }
+                }
+
+                // Check if we've found all the required commits
+                remaining.remove(commitId);
+                if (remaining.isEmpty() && !foundAllCommits) {
+                    foundAllCommits = true;
+                    // Continue walking to record any renames that occur after the sampled commits
+                }
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+
+        // Sort rename indices for efficient forward walking
+        var sorted = new TreeMap<>(renamesByIndex);
+        return new Canonicalizer(indexByCommit, sorted);
     }
 }

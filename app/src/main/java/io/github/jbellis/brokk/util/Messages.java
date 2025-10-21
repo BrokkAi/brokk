@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -101,7 +102,7 @@ public class Messages {
                 var hasText = text != null && !text.isBlank();
                 var hasTools = am.hasToolExecutionRequests();
 
-                var parts = new java.util.ArrayList<String>();
+                var parts = new ArrayList<String>();
                 if (hasReasoning) {
                     parts.add("Reasoning:\n" + reasoning);
                     if (hasText) {

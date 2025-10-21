@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo.ModificationType;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -87,10 +88,10 @@ public class GitUiUtilTest {
         Files.createFile(tempDir.resolve("logo.pdf"));
 
         List<GitRepo.ModifiedFile> modifiedFiles = List.of(
-                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "Main.java"), "modified"),
-                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "image.png"), "new"),
-                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "README.md"), "modified"),
-                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "logo.pdf"), "new"));
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "Main.java"), ModificationType.MODIFIED),
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "image.png"), ModificationType.NEW),
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "README.md"), ModificationType.MODIFIED),
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "logo.pdf"), ModificationType.NEW));
 
         List<ProjectFile> result = GitUiUtil.filterTextFiles(modifiedFiles);
 

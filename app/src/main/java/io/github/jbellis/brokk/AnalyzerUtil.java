@@ -56,7 +56,7 @@ public class AnalyzerUtil {
 
     public static Set<CodeUnit> testFilesToCodeUnits(IAnalyzer analyzer, Collection<ProjectFile> files) {
         var classUnitsInTestFiles = files.stream()
-                .flatMap(testFile -> analyzer.getDeclarationsInFile(testFile).stream())
+                .flatMap(testFile -> analyzer.getDeclarations(testFile).stream())
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 

@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.testutil;
 
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IAnalyzerWrapper;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
@@ -158,7 +159,7 @@ public final class TestContextManager implements IContextManager {
      * Set a custom model to be returned by getLlm when requesting the quickest model. Used for testing preprocessing
      * behavior.
      */
-    public void setQuickestModel(dev.langchain4j.model.chat.StreamingChatModel model) {
+    public void setQuickestModel(StreamingChatModel model) {
         stubService.setQuickestModel(model);
     }
 

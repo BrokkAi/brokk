@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
@@ -67,8 +68,7 @@ class EnvironmentTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> {
-                    Environment.instance.runShellCommand(
-                            "echo test", tmpRoot, s -> {}, java.time.Duration.ofSeconds(-1));
+                    Environment.instance.runShellCommand("echo test", tmpRoot, s -> {}, Duration.ofSeconds(-1));
                 },
                 "Negative timeout should throw IllegalArgumentException");
     }

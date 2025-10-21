@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.difftool.ui;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.DeltaType;
+import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
 /** Small, pure helper for deciding whether a {@link AbstractDelta} should be highlighted in a given viewport. */
@@ -29,7 +30,7 @@ public final class DiffHighlightUtil {
         if (chunk != null && chunk.size() == 0 && !originalSide) {
             if (delta.getType() == DeltaType.DELETE) {
                 // Create a zero-size chunk at the target position for visual indication
-                return new Chunk<>(delta.getTarget().getPosition(), java.util.List.of());
+                return new Chunk<>(delta.getTarget().getPosition(), List.of());
             }
         }
 

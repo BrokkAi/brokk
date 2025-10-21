@@ -7,17 +7,21 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.util.FileUtil;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class PythonLanguage implements Language {
@@ -198,7 +202,7 @@ public class PythonLanguage implements Language {
         var distInfoDir = pkg.sourcePath();
         var sitePackages = distInfoDir.getParent();
         if (sitePackages == null || !Files.exists(sitePackages)) {
-            javax.swing.SwingUtilities.invokeLater(() -> chrome.toolError(
+            SwingUtilities.invokeLater(() -> chrome.toolError(
                     "Could not locate site-packages for " + pkg.displayName()
                             + ". Ensure your virtual environment exists and is built.",
                     "Python Import"));
@@ -213,14 +217,14 @@ public class PythonLanguage implements Language {
 
         final var currentListener = lifecycle;
         if (currentListener != null) {
-            javax.swing.SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
+            SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
         chrome.getContextManager().submitBackgroundTask("Copying Python package: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(targetRoot.getParent());
                 if (Files.exists(targetRoot)) {
-                    if (!io.github.jbellis.brokk.util.FileUtil.deleteRecursively(targetRoot)) {
+                    if (!FileUtil.deleteRecursively(targetRoot)) {
                         throw new IOException("Failed to delete existing destination: " + targetRoot);
                     }
                 }
@@ -231,7 +235,7 @@ public class PythonLanguage implements Language {
                         requireNonNull(sitePackages), distInfoDir, meta != null ? meta.name() : pkg.displayName());
                 copyPythonFiles(requireNonNull(sitePackages), rels, targetRoot);
 
-                javax.swing.SwingUtilities.invokeLater(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Python package copied to " + targetRoot
@@ -245,7 +249,7 @@ public class PythonLanguage implements Language {
                         sitePackages,
                         targetRoot,
                         ex);
-                javax.swing.SwingUtilities.invokeLater(
+                SwingUtilities.invokeLater(
                         () -> chrome.toolError("Error copying Python package: " + ex.getMessage(), "Python Import"));
             }
             return null;
@@ -267,7 +271,7 @@ public class PythonLanguage implements Language {
 
         String name = "";
         String version = "";
-        try (var reader = Files.newBufferedReader(meta, java.nio.charset.StandardCharsets.UTF_8)) {
+        try (var reader = Files.newBufferedReader(meta, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.regionMatches(true, 0, "Name:", 0, 5)) {
@@ -295,7 +299,7 @@ public class PythonLanguage implements Language {
         var record = distInfoDir.resolve("RECORD");
         if (Files.exists(record)) {
             var rels = new ArrayList<Path>();
-            for (var line : Files.readAllLines(record, java.nio.charset.StandardCharsets.UTF_8)) {
+            for (var line : Files.readAllLines(record, StandardCharsets.UTF_8)) {
                 if (line.isEmpty()) continue;
                 String pathStr = line.split(",", 2)[0];
                 var rel = Paths.get(pathStr);
@@ -311,7 +315,7 @@ public class PythonLanguage implements Language {
         var installedFiles = distInfoDir.resolve("installed-files.txt");
         if (Files.exists(installedFiles)) {
             var rels = new ArrayList<Path>();
-            for (var line : Files.readAllLines(installedFiles, java.nio.charset.StandardCharsets.UTF_8)) {
+            for (var line : Files.readAllLines(installedFiles, StandardCharsets.UTF_8)) {
                 if (line.isBlank()) continue;
                 var rel = Paths.get(line.trim());
                 var abs = rel.isAbsolute() ? rel : sitePackages.resolve(rel).normalize();
@@ -362,7 +366,7 @@ public class PythonLanguage implements Language {
             if (!Files.exists(src) || Files.isDirectory(src)) continue;
             var dst = dest.resolve(rel);
             Files.createDirectories(requireNonNull(dst.getParent()));
-            Files.copy(src, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

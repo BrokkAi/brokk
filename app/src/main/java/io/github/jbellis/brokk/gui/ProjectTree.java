@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.FileSystemEventListener;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.util.FileManagerUtil;
 import java.awt.*;
@@ -26,6 +27,7 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -137,8 +139,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     && treeNode.getFile().isFile()) {
                 ProjectFile projectFile = getProjectFileFromNode(node);
                 if (projectFile != null) {
-                    var fragment = new io.github.jbellis.brokk.context.ContextFragment.ProjectPathFragment(
-                            projectFile, contextManager);
+                    var fragment = new ContextFragment.ProjectPathFragment(projectFile, contextManager);
                     chrome.openFragmentPreview(fragment);
                 }
             }
@@ -341,8 +342,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                         return;
                     }
 
-                    var trackedSet =
-                            project.hasGit() ? project.getRepo().getTrackedFiles() : java.util.Set.<ProjectFile>of();
+                    var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
                     var deletedInfos = filesToDelete.stream()
                             .map(pf -> {
                                 var content = pf.exists() ? pf.read().orElse(null) : null;
@@ -1035,7 +1035,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 return null;
             }
 
-            final java.util.List<java.io.File> files =
+            final List<File> files =
                     selection.stream().map(pf -> pf.absPath().toFile()).collect(Collectors.toList());
 
             return new Transferable() {

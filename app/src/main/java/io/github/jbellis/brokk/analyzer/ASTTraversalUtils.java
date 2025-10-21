@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
@@ -109,11 +110,11 @@ public class ASTTraversalUtils {
     public static int byteOffsetToCharPosition(int byteOffset, String source) {
         if (byteOffset <= 0) return 0;
 
-        byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] sourceBytes = source.getBytes(StandardCharsets.UTF_8);
         if (byteOffset >= sourceBytes.length) return source.length();
 
         // Create substring from bytes and get its character length
-        String substring = new String(sourceBytes, 0, byteOffset, java.nio.charset.StandardCharsets.UTF_8);
+        String substring = new String(sourceBytes, 0, byteOffset, StandardCharsets.UTF_8);
         return substring.length();
     }
 
@@ -125,7 +126,7 @@ public class ASTTraversalUtils {
         if (startByte < 0 || endByte < startByte) {
             log.warn(
                     "Requested bytes outside valid range for source text (length: {} bytes): startByte={}, endByte={}",
-                    source.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                    source.getBytes(StandardCharsets.UTF_8).length,
                     startByte,
                     endByte);
             return "";
@@ -137,7 +138,7 @@ public class ASTTraversalUtils {
         }
 
         // Validate byte offsets against actual source byte length
-        byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] sourceBytes = source.getBytes(StandardCharsets.UTF_8);
         if (startByte >= sourceBytes.length) {
             log.warn("Start byte offset {} exceeds source byte length {}", startByte, sourceBytes.length);
             return "";

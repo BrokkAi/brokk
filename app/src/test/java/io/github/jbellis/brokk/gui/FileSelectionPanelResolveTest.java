@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.testutil.TestProject;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -133,7 +134,7 @@ class FileSelectionPanelResolveTest {
     @Test
     void absoluteGlobInsideProjectMatchesProjectFiles() {
         var panel = panel(false, false);
-        var pattern = projectRoot.resolve("dir").toString() + java.io.File.separator + "*.txt";
+        var pattern = projectRoot.resolve("dir").toString() + File.separator + "*.txt";
         panel.setInputText(pattern);
         var results = panel.resolveAndGetSelectedFiles();
         assertEquals(1, results.size());
@@ -145,7 +146,7 @@ class FileSelectionPanelResolveTest {
 
     @Test
     void absoluteGlobOutsideProjectHonorsExternalAllowance() {
-        var pattern = externalRoot.resolve("exdir").toString() + java.io.File.separator + "e*.txt";
+        var pattern = externalRoot.resolve("exdir").toString() + File.separator + "e*.txt";
 
         var panelDisallow = panel(false, false);
         panelDisallow.setInputText(pattern);

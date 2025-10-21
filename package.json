@@ -4,12 +4,16 @@
     "description": "AI for large codebases. Brokk is a tool that helps you understand and navigate large codebases using AI.",
     "main": "index.js",
     "preferGlobal": true,
-    "repository": "",
+    "homepage": "https://brokk.ai",
+    "repository": "https://github.com/BrokkAi/brokk",
     "version": "1.0.0",
     "jdeploy": {
         "jdk": false,
         "args": [],
         "fallbackToUniversal": false,
+        "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
+        "configFileWin": "{{ path(env.APPDATA ?? path(user.home, \"AppData\", \"Roaming\"), \"Brokk\", \"jdeploy.json\") }}",
+        "configFileLinux": "{{ path(env.XDG_CONFIG_HOME ?? path(user.home, \".config\"), \"Brokk\", \"jdeploy.json\") }}",
         "publishTargets": [{
             "name": "github: brokk",
             "type": "GITHUB",

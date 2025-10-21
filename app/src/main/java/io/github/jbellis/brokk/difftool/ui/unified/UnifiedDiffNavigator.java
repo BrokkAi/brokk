@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui.unified;
 
 import java.awt.Rectangle;
+import java.util.ArrayList;
 import java.util.List;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
@@ -29,7 +30,7 @@ public class UnifiedDiffNavigator {
      * context mode switch).
      */
     public void refreshHunkPositions() {
-        var hunkLines = new java.util.ArrayList<Integer>();
+        var hunkLines = new ArrayList<Integer>();
 
         try {
             var document = textArea.getDocument();

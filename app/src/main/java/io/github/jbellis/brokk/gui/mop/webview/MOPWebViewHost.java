@@ -6,9 +6,14 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.File;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -18,6 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javafx.application.Platform;
+import javafx.concurrent.Worker;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.web.WebView;
@@ -35,10 +41,10 @@ public final class MOPWebViewHost extends JPanel {
 
     private final AtomicReference<MOPBridge> bridgeRef = new AtomicReference<>();
     private final AtomicReference<WebView> webViewRef = new AtomicReference<>();
-    private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
+    private final List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile @Nullable ContextManager contextManager;
-    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+    private volatile @Nullable Chrome chrome;
 
     // Bridge readiness tracking
     private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
@@ -47,7 +53,7 @@ public final class MOPWebViewHost extends JPanel {
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
         static Theme create(boolean isDark) {
-            var bgColor = io.github.jbellis.brokk.gui.mop.ThemeColors.getColor(isDark, "chat_background");
+            var bgColor = ThemeColors.getColor(isDark, "chat_background");
             var fxColor = javafx.scene.paint.Color.rgb(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
             var cssHex = String.format("#%02x%02x%02x", bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
             return new Theme(isDark, bgColor, fxColor, cssHex);
@@ -173,7 +179,7 @@ public final class MOPWebViewHost extends JPanel {
 
             // Expose Java object to JS after the page loads
             view.getEngine().getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
-                if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
+                if (newState == Worker.State.SUCCEEDED) {
                     var window = (JSObject) view.getEngine().executeScript("window");
                     window.setMember("javaBridge", bridge);
 
@@ -313,7 +319,7 @@ public final class MOPWebViewHost extends JPanel {
                     flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
                     // SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
-                } else if (newState == javafx.concurrent.Worker.State.FAILED) {
+                } else if (newState == Worker.State.FAILED) {
                     logger.error("WebView Page Load Failed");
                     // Show the panel even on failure to display any error content
                     // SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
@@ -351,7 +357,7 @@ public final class MOPWebViewHost extends JPanel {
      * reports it is ready.
      */
     public void setInitialTheme(String themeName, boolean isDevMode, boolean wrapMode) {
-        boolean isDark = !io.github.jbellis.brokk.gui.GuiTheme.THEME_LIGHT.equals(themeName);
+        boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName);
         double zoom = MainProject.getMopZoom();
         sendOrQueue(
                 new HostCommand.SetTheme(themeName, isDevMode, wrapMode, zoom),
@@ -364,7 +370,7 @@ public final class MOPWebViewHost extends JPanel {
      * command is queued so that the frontend is updated once the bridge appears.
      */
     public void setRuntimeTheme(String themeName, boolean isDevMode, boolean wrapMode) {
-        boolean isDark = !io.github.jbellis.brokk.gui.GuiTheme.THEME_LIGHT.equals(themeName);
+        boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName);
         double zoom = MainProject.getMopZoom();
         var bridge = bridgeRef.get();
         if (bridge != null) {
@@ -400,8 +406,8 @@ public final class MOPWebViewHost extends JPanel {
                     }
                     """
                                 .formatted(theme.cssColor());
-                String encodedCss = java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8)
-                        .replace("+", "%20");
+                String encodedCss =
+                        URLEncoder.encode(css, StandardCharsets.UTF_8).replace("+", "%20");
                 String dataCssUrl = "data:text/css," + encodedCss + "#t=" + System.currentTimeMillis();
                 webView.getEngine().setUserStyleSheetLocation(dataCssUrl);
             });
@@ -556,7 +562,7 @@ public final class MOPWebViewHost extends JPanel {
         return bridge.getContextCacheId();
     }
 
-    private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
+    private void sendOrQueue(HostCommand command, Consumer<MOPBridge> action) {
         var bridge = bridgeRef.get();
 
         // Only SetTheme commands need to wait for bridge ready; other commands can execute once bridge exists
@@ -624,7 +630,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
-    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+    public void setSymbolRightClickHandler(@Nullable Chrome chrome) {
         this.chrome = chrome;
         var bridge = bridgeRef.get();
         if (bridge != null) {
@@ -632,7 +638,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
-    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+    public void setHostComponent(@Nullable Component hostComponent) {
         var bridge = bridgeRef.get();
         if (bridge != null) {
             bridge.setHostComponent(hostComponent);

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
@@ -186,7 +187,7 @@ public class Service implements IExceptionReportingService {
     }
 
     /** Represents the parsed Brokk API key components. */
-    public record KeyParts(java.util.UUID userId, String token) {}
+    public record KeyParts(UUID userId, String token) {}
 
     /** Represents a user-defined favorite model alias. */
     public record FavoriteModel(String alias, ModelConfig config) {}
@@ -206,9 +207,9 @@ public class Service implements IExceptionReportingService {
                     "Key must have format `brk+<userId>+<token>`; found `%s`".formatted(key));
         }
 
-        java.util.UUID userId;
+        UUID userId;
         try {
-            userId = java.util.UUID.fromString(parts.get(1));
+            userId = UUID.fromString(parts.get(1));
         } catch (Exception e) {
             throw new IllegalArgumentException("User ID (part 2) must be a valid UUID", e);
         }
@@ -403,7 +404,7 @@ public class Service implements IExceptionReportingService {
                                     responseBody);
                     return true; // Assume allowed if field is missing or not a boolean
                 }
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            } catch (JsonProcessingException e) {
                 LogManager.getLogger(Service.class)
                         .warn(
                                 "Failed to parse data sharing status JSON response: {}. Assuming allowed.",
@@ -1149,8 +1150,7 @@ public class Service implements IExceptionReportingService {
      * @throws IllegalArgumentException if the Brokk key is invalid
      */
     @Override
-    public com.fasterxml.jackson.databind.JsonNode reportClientException(String stacktrace, String clientVersion)
-            throws IOException {
+    public JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
         // Get the full Brokk key - this endpoint may expect the full key as Bearer token
         String brokkKey = MainProject.getBrokkKey();
 

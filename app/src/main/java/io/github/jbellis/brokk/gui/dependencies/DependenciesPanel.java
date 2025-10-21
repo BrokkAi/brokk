@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -28,6 +29,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -112,7 +114,7 @@ public final class DependenciesPanel extends JPanel {
                 }
                 return cb;
             } else {
-                var text = java.util.Objects.toString(value, "");
+                var text = Objects.toString(value, "");
                 var lbl = new JLabel(text);
                 lbl.setHorizontalAlignment(CENTER);
                 lbl.setOpaque(isSelected);
@@ -158,7 +160,7 @@ public final class DependenciesPanel extends JPanel {
 
         table = new JTable(tableModel) {
             @Override
-            public @Nullable String getToolTipText(java.awt.event.MouseEvent e) {
+            public @Nullable String getToolTipText(MouseEvent e) {
                 var p = e.getPoint();
                 int row = rowAtPoint(p);
                 int col = columnAtPoint(p);
@@ -169,7 +171,7 @@ public final class DependenciesPanel extends JPanel {
 
                 // Return the same content as shown in the table cell (the Name column)
                 Object v = getValueAt(row, col);
-                return java.util.Objects.toString(v, null);
+                return Objects.toString(v, null);
             }
         };
         var sorter = new TableRowSorter<>(tableModel) {
@@ -408,13 +410,12 @@ public final class DependenciesPanel extends JPanel {
         });
 
         // Listen for explicit bottom-controls height changes from WorkspacePanel
-        workspacePanel.addBottomControlsListener(
-                new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
-                    @Override
-                    public void bottomControlsHeightChanged(int newHeight) {
-                        updateBottomSpacer();
-                    }
-                });
+        workspacePanel.addBottomControlsListener(new WorkspacePanel.BottomControlsListener() {
+            @Override
+            public void bottomControlsHeightChanged(int newHeight) {
+                updateBottomSpacer();
+            }
+        });
     }
 
     private void addPendingDependencyRow(String name) {

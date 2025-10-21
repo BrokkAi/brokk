@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import javax.swing.DefaultListModel;
@@ -136,7 +137,7 @@ public class TestRunnerPanelRunPersistenceTest {
                     "Output " + i));
         }
         // Reverse to be newest-to-oldest, to match snapshotRuns order
-        java.util.Collections.reverse(recordsToSave);
+        Collections.reverse(recordsToSave);
         store.save(recordsToSave);
 
         int customMaxRuns = 7; // Set a custom maxRuns

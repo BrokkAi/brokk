@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.TypeAliasProvider;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -178,7 +179,7 @@ public class SymbolLookupService {
                     analyzer.getClass().getSimpleName());
 
             // Create list for priority processing - exact matches first
-            var symbolList = new java.util.ArrayList<>(symbolNames);
+            var symbolList = new ArrayList<>(symbolNames);
             var processedCount = 0;
             var foundCount = 0;
 

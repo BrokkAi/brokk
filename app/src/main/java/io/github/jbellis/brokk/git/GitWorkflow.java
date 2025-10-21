@@ -182,7 +182,7 @@ public final class GitWorkflow {
     public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
             throws GitAPIException, InterruptedException {
         var mergeBase = repo.getMergeBase(source, target);
-        String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
+        String diff = (mergeBase != null) ? repo.getDiff(mergeBase, source) : "";
 
         var service = cm.getService();
         var modelToUse = service.getScanModel();
@@ -315,7 +315,7 @@ public final class GitWorkflow {
             throws GitAPIException, InterruptedException {
         assert !revision.isBlank();
 
-        String diff = repo.showDiff(revision, parentOrEmptyTree(revision));
+        String diff = repo.getDiff(parentOrEmptyTree(revision), revision);
 
         var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
                 ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)

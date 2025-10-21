@@ -37,11 +37,11 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -117,19 +117,13 @@ public class SearchAgent {
         }
     }
 
-    private @NotNull TaskResult executeInternal() throws InterruptedException {
+    private TaskResult executeInternal() throws InterruptedException {
         // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
         addInitialContextToWorkspace();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
             // Beast mode triggers
-            if (Thread.interrupted()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Search interrupted; attempting to finalize with available information");
-                beastMode = true;
-            }
             var inputLimit = cm.getService().getMaxInputTokens(model);
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
@@ -609,7 +603,7 @@ public class SearchAgent {
         var recommendation = contextAgent.getRecommendations(true);
         if (!recommendation.reasoning().isEmpty()) {
             io.llmOutput(
-                    "\n\nReasoning for contextual insights: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
+                    "\n\nReasoning for contextual insights: \n" + recommendation.reasoning(), ChatMessageType.CUSTOM);
         }
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
@@ -670,7 +664,7 @@ public class SearchAgent {
             @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
                     @Nullable
                     Map<String, Object> arguments) {
-        Map<String, Object> args = java.util.Objects.requireNonNullElseGet(arguments, HashMap::new);
+        Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
         var mcpToolOptional =
                 mcpTools.stream().filter(t -> t.toolName().equals(toolName)).findFirst();
 

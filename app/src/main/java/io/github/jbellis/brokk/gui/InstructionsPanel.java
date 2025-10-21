@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.components.ModelBenchmarkData;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
@@ -27,8 +28,10 @@ import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -39,16 +42,24 @@ import java.awt.dnd.DropTargetDragEvent;
 import java.awt.dnd.DropTargetDropEvent;
 import java.awt.dnd.DropTargetEvent;
 import java.awt.event.ActionEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -107,6 +118,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
+        private TokenUsageBar.WarningLevel warningLevel = TokenUsageBar.WarningLevel.NONE;
 
         public ContextAreaContainer() {
             super(new BorderLayout());
@@ -119,6 +131,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
+        public void setWarningLevel(TokenUsageBar.WarningLevel level) {
+            if (this.warningLevel != level) {
+                this.warningLevel = level;
+                updateBorderColor();
+                repaint();
+            }
+        }
+
+        private void updateBorderColor() {
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            int thickness = 1;
+            if (warningLevel == TokenUsageBar.WarningLevel.RED) {
+                borderColor = new Color(0xFF4444);
+                thickness = 3;
+            } else if (warningLevel == TokenUsageBar.WarningLevel.YELLOW) {
+                borderColor = new Color(0xFFA500);
+                thickness = 3;
+            }
+
+            var lineBorder = BorderFactory.createLineBorder(borderColor, thickness);
+            var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+            var marginBorder = BorderFactory.createEmptyBorder(8, 8, 8, 8);
+            setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
+        }
+
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
@@ -126,7 +163,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintChildren(Graphics g) {
-            super.paintChildren(g);
+            if (!isDragOver) {
+                super.paintChildren(g);
+            }
+
             if (isDragOver) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
@@ -173,13 +213,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         public Dimension getMaximumSize() {
             Dimension pref = getPreferredSize();
             return new Dimension(Integer.MAX_VALUE, pref.height);
-        }
-
-        @Override
-        public boolean contains(int x, int y) {
-            // Treat the entire rectangular bounds of the component as the hit area for mouse events,
-            // which is important for drag-and-drop on a non-opaque component.
-            return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
         }
     }
 
@@ -234,8 +267,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
-        KeyStroke toggleKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        KeyStroke toggleKs = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
         String tooltipText =
                 """
                 <html>
@@ -251,7 +283,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeModeLabel.setToolTipText(tooltipText);
         answerModeLabel.setToolTipText(tooltipText);
         // Keep tooltips visible longer (30 seconds) so users have time to read the HTML content.
-        javax.swing.ToolTipManager.sharedInstance().setDismissDelay(30_000);
+        ToolTipManager.sharedInstance().setDismissDelay(30_000);
         var switchIcon = new SwitchIcon();
         modeSwitch.setIcon(switchIcon);
         modeSwitch.setSelectedIcon(switchIcon);
@@ -267,8 +299,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setText("");
 
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
-        KeyStroke toggleSearchKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
+        KeyStroke toggleSearchKs = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
         searchProjectCheckBox = new JCheckBox("Search");
         searchProjectCheckBox.setFocusable(true);
@@ -279,7 +310,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "<li><b>unchecked:</b> Asks using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+        KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
                 toggleSearchKs,
                 "ToggleSearchFirst",
@@ -291,9 +322,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
 
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+        KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
+                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
                 "attachContext",
                 () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
 
@@ -350,7 +381,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton = new ThemeAwareRoundedButton(
                 () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
-        KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke submitKs = GlobalUiSettings.getKeybinding(
                 "instructions.submit",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -373,7 +404,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.getComponent().setFocusable(true);
 
         // Initialize TokenUsageBar (left of Attach button)
-        tokenUsageBar = new TokenUsageBar();
+        tokenUsageBar = new TokenUsageBar(chrome);
         tokenUsageBar.setVisible(false);
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
@@ -429,8 +460,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionCompletionProvider = new InstructionsCompletionProvider();
         instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
         instructionAutoCompletion.setAutoActivationEnabled(false);
-        instructionAutoCompletion.setTriggerKey(
-                KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        instructionAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
         instructionAutoCompletion.install(instructionsArea);
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
@@ -467,7 +497,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
         // otherwise, use the default JTextArea paste behaviour.
         var pasteKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_V, java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         area.getInputMap().put(pasteKeyStroke, "smartPaste");
         area.getActionMap().put("smartPaste", new AbstractAction() {
             @Override
@@ -503,7 +533,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Shift+Enter shortcut to insert a newline
-        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        var shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
         area.getInputMap().put(shiftEnter, "insertNewline");
         area.getActionMap().put("insertNewline", new AbstractAction() {
             @Override
@@ -524,7 +554,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Override Shift+Tab key to shift focus backward
-        var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK);
         area.getInputMap().put(shiftTabKeyStroke, "transferFocusBackward");
         area.getActionMap().put("transferFocusBackward", new AbstractAction() {
             @Override
@@ -629,10 +659,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             requestCommandInputFocus();
         });
 
-        var container = new JPanel(new BorderLayout(H_GLUE, 0));
-        container.setOpaque(false);
-        container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-
         // Sizer panel computes rows (1..5) based on current width and chip widths.
         var chipsSizer = new JPanel(new BorderLayout()) {
             private int computeRowsForWidth(int contentWidth) {
@@ -698,8 +724,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chipsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         chipsSizer.add(chipsScrollPane, BorderLayout.CENTER);
 
-        container.add(chipsSizer, BorderLayout.CENTER);
-
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
@@ -710,7 +734,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
-        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // minimal gap above
+        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 5, 0, 0));
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -739,11 +763,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextRightPanel.add(attachButton);
         bottomLinePanel.add(contextRightPanel, BorderLayout.EAST);
 
-        container.add(bottomLinePanel, BorderLayout.SOUTH);
+        // The InteractiveHoverPanel now manages its own layout and hover logic
+        var hoverPanel = new InteractiveHoverPanel(chipsSizer, bottomLinePanel, workspaceItemsChipPanel, tokenUsageBar);
+        hoverPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
+        hoverPanel.install();
 
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
         titledContainer.setOpaque(true);
+        // Initialize border with default color (will be updated by setWarningLevel)
+        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
+        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
+        titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
         titledContainer.setTransferHandler(transferHandler);
         var dropTargetListener = new DropTargetAdapter() {
@@ -795,11 +827,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         titledContainer.setDropTarget(
                 new DropTarget(titledContainer, DnDConstants.ACTION_COPY, dropTargetListener, true));
-        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
-        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
-        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
-        titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
-        titledContainer.add(container, BorderLayout.CENTER);
+        titledContainer.add(hoverPanel, BorderLayout.CENTER);
 
         // Add mouse listener for right-click context menu in empty space
         titledContainer.addMouseListener(new MouseAdapter() {
@@ -826,7 +854,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Insert beneath the command-input area (index 2)
         return titledContainer;
     }
 
@@ -835,11 +862,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         boolean askMode = modeSwitch.isSelected();
 
         // Base and dimmed colors (theme-aware via UIManager)
-        java.awt.Color base = UIManager.getColor("Label.foreground");
+        Color base = UIManager.getColor("Label.foreground");
         if (base == null) base = codeModeLabel.getForeground();
 
         boolean isDark = UIManager.getBoolean("laf.dark");
-        java.awt.Color dim = isDark
+        Color dim = isDark
                 ? darkenColor(base, 0.6f) // darken for dark theme
                 : lightenColor(base, 0.4f); // lighten for light theme
 
@@ -857,7 +884,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    private static java.awt.Color lightenColor(java.awt.Color base, float amount) {
+    private static Color lightenColor(Color base, float amount) {
         amount = Math.max(0f, Math.min(1f, amount));
         int r = Math.round(base.getRed() + (255 - base.getRed()) * amount);
         int g = Math.round(base.getGreen() + (255 - base.getGreen()) * amount);
@@ -865,10 +892,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         r = Math.max(0, Math.min(255, r));
         g = Math.max(0, Math.min(255, g));
         b = Math.max(0, Math.min(255, b));
-        return new java.awt.Color(r, g, b);
+        return new Color(r, g, b);
     }
 
-    private static java.awt.Color darkenColor(java.awt.Color base, float factor) {
+    private static Color darkenColor(Color base, float factor) {
         factor = Math.max(0f, Math.min(1f, factor));
         int r = Math.round(base.getRed() * factor);
         int g = Math.round(base.getGreen() * factor);
@@ -876,7 +903,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         r = Math.max(0, Math.min(255, r));
         g = Math.max(0, Math.min(255, g));
         b = Math.max(0, Math.min(255, b));
-        return new java.awt.Color(r, g, b);
+        return new Color(r, g, b);
     }
 
     private JPanel buildModeIndicatorPanel() {
@@ -977,7 +1004,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
-                                buildTokenUsageTooltip("Unavailable", 128000, "0.00"), 128000, 0);
+                                buildTokenUsageTooltip(
+                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                128000,
+                                0,
+                                TokenUsageBar.WarningLevel.NONE,
+                                config,
+                                100);
                     }
 
                     var fullText = new StringBuilder();
@@ -999,27 +1032,54 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
-                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
-                    return new TokenUsageBarComputation(tooltipHtml, maxTokens, approxTokens);
+
+                    int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
+                    TokenUsageBar.WarningLevel warningLevel;
+                    if (successRate == -1) {
+                        // Unknown/untested combination: don't warn
+                        warningLevel = TokenUsageBar.WarningLevel.NONE;
+                    } else if (successRate < 30) {
+                        warningLevel = TokenUsageBar.WarningLevel.RED;
+                    } else if (successRate < 50) {
+                        warningLevel = TokenUsageBar.WarningLevel.YELLOW;
+                    } else {
+                        warningLevel = TokenUsageBar.WarningLevel.NONE;
+                    }
+
+                    String tooltipHtml =
+                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
+                    return new TokenUsageBarComputation(
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
                         if (stat == null) {
                             tokenUsageBar.setVisible(false);
+                            contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                             return;
                         }
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+                        contextAreaContainer.setWarningLevel(stat.warningLevel);
+                        contextAreaContainer.setToolTipText(stat.toolTipHtml);
+                        modelSelector.getComponent().setToolTipText(stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
                         tokenUsageBar.setVisible(false);
+                        contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                     }
                 }));
     }
 
-    private static record TokenUsageBarComputation(String toolTipHtml, int maxTokens, int approxTokens) {}
+    private static record TokenUsageBarComputation(
+            String toolTipHtml,
+            int maxTokens,
+            int approxTokens,
+            TokenUsageBar.WarningLevel warningLevel,
+            Service.ModelConfig config,
+            int successRate) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1041,8 +1101,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     // Tooltip helpers for TokenUsageBar (HTML-wrapped, similar to chip tooltips)
-    private static String buildTokenUsageTooltip(String modelName, int maxTokens, String costPerRequest) {
+    private static String buildTokenUsageTooltip(
+            String modelName,
+            int maxTokens,
+            String costPerRequest,
+            TokenUsageBar.WarningLevel warningLevel,
+            int successRate) {
         StringBuilder body = new StringBuilder();
+
+        if (warningLevel != TokenUsageBar.WarningLevel.NONE) {
+            body.append("<div style='color: ")
+                    .append(warningLevel == TokenUsageBar.WarningLevel.RED ? "#FF4444" : "#FFA500")
+                    .append("; font-weight: bold;'>⚠ Performance Warning</div>");
+            body.append("<div style='margin-top: 4px;'>The model <b>")
+                    .append(htmlEscape(modelName))
+                    .append("</b> may perform poorly at this token count.</div>");
+            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
+        }
+
         body.append("<div><b>Context</b></div>");
         body.append("<div>Model: ").append(htmlEscape(modelName)).append("</div>");
         body.append("<div>Max input tokens: ")
@@ -1053,6 +1129,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     .append(htmlEscape(costPerRequest))
                     .append("</div>");
         }
+
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
+        body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
+                .append("Brokk Power Ranking</a></b></div>");
+        if (successRate == -1) {
+            body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Untested model reasoning combination.</div>");
+        } else {
+            body.append("<div style='margin-top: 4px;'>Success rate at this token count: <b>")
+                    .append(successRate)
+                    .append("%</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Based on benchmark data for model performance across token ranges.</div>");
+        }
+
         return wrapTooltipHtml(body.toString(), 420);
     }
 
@@ -1077,7 +1169,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             int modifiers = ks.getModifiers();
             int keyCode = ks.getKeyCode();
-            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String modText = InputEvent.getModifiersExText(modifiers);
             String keyText = KeyEvent.getKeyText(keyCode);
             if (modText == null || modText.isBlank()) return keyText;
             return modText + "+" + keyText;
@@ -1096,14 +1188,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Visually highlight Code/Ask group when the switch gains focus
-        modeSwitch.addFocusListener(new java.awt.event.FocusAdapter() {
+        modeSwitch.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
+            public void focusGained(FocusEvent e) {
                 actionGroupPanel.setAccentColor(new Color(0x1F6FEB));
             }
 
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 // Restore mode accent
                 refreshModeIndicator();
             }
@@ -1177,14 +1269,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMargin(new Insets(4, 10, 4, 10));
 
         // Repaint when focus changes so focus border is visible
-        actionButton.addFocusListener(new java.awt.event.FocusAdapter() {
+        actionButton.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
+            public void focusGained(FocusEvent e) {
                 actionButton.repaint();
             }
 
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 actionButton.repaint();
             }
         });
@@ -1871,7 +1963,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             // Action button reflects current running state
-            KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
                     "instructions.submit",
                     KeyStroke.getKeyStroke(
                             KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -2370,7 +2462,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         private Component findComponentInHierarchy(
-                Container container, java.util.function.Predicate<Component> predicate, Component fallback) {
+                Container container, Predicate<Component> predicate, Component fallback) {
             for (Component comp : container.getComponents()) {
                 if (predicate.test(comp)) {
                     return comp;

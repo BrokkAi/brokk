@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.widgets;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import java.awt.Component;
 import java.util.*;
 import java.util.List;
 import java.util.Locale;
@@ -42,8 +43,8 @@ public final class FileStatusTable extends JScrollPane {
 
         table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
-            public java.awt.Component getTableCellRendererComponent(
-                    javax.swing.JTable tbl, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            public Component getTableCellRendererComponent(
+                    JTable tbl, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 var cell = (DefaultTableCellRenderer)
                         super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, column);
 
@@ -115,7 +116,7 @@ public final class FileStatusTable extends JScrollPane {
                                 mf.file().getParent().toString())
                         .thenComparing(mf -> mf.file().getFileName()))
                 .forEach(mf -> {
-                    statusMap.put(mf.file(), mf.status());
+                    statusMap.put(mf.file(), mf.status().toString());
                     String conflictIndicator = conflictFiles.contains(mf.file()) ? "!" : "";
                     model.addRow(new Object[] {conflictIndicator, mf.file().getFileName(), mf.file()});
                 });

@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -136,7 +137,7 @@ public class ContextHistory {
                     "Attempted to select context {} not present in history (history size: {}, available contexts: {})",
                     ctx == null ? "null" : ctx,
                     history.size(),
-                    history.stream().map(Context::toString).collect(java.util.stream.Collectors.joining(", ")));
+                    history.stream().map(Context::toString).collect(Collectors.joining(", ")));
         }
         return false;
     }
@@ -390,7 +391,7 @@ public class ContextHistory {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
             entryInfos.remove(removed.id());
-            var historyIds = history.stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
+            var historyIds = history.stream().map(Context::id).collect(Collectors.toSet());
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);

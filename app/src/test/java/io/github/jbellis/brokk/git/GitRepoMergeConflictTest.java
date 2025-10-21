@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.RepositoryState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -208,7 +209,7 @@ public class GitRepoMergeConflictTest {
         assertFalse(
                 git.getRepository().getRepositoryState().isRebasing(), "Repository should not be in rebasing state");
         assertNotEquals(
-                org.eclipse.jgit.lib.RepositoryState.MERGING,
+                RepositoryState.MERGING,
                 git.getRepository().getRepositoryState(),
                 "Repository should not be in merging state");
     }

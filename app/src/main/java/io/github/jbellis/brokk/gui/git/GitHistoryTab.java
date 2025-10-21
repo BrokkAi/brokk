@@ -7,7 +7,13 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,7 +60,7 @@ public class GitHistoryTab extends JPanel {
         fileHistoryTable = new JTable(fileHistoryModel) {
             @Override
             @Nullable
-            public String getToolTipText(java.awt.event.MouseEvent e) {
+            public String getToolTipText(MouseEvent e) {
                 var p = e.getPoint();
                 int row = rowAtPoint(p);
                 int col = columnAtPoint(p);
@@ -98,9 +104,9 @@ public class GitHistoryTab extends JPanel {
         menu.add(compareWithLocalItem);
 
         /* right-click selects row */
-        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+        menu.addPopupMenuListener(new PopupMenuListener() {
             @Override
-            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     var p = MouseInfo.getPointerInfo().getLocation();
                     SwingUtilities.convertPointFromScreen(p, fileHistoryTable);
@@ -110,10 +116,10 @@ public class GitHistoryTab extends JPanel {
             }
 
             @Override
-            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
 
             @Override
-            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
         fileHistoryTable.setComponentPopupMenu(menu);
@@ -138,9 +144,9 @@ public class GitHistoryTab extends JPanel {
         });
 
         /* double-click => show diff */
-        fileHistoryTable.addMouseListener(new java.awt.event.MouseAdapter() {
+        fileHistoryTable.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() != 2) return;
                 int row = fileHistoryTable.rowAtPoint(e.getPoint());
                 if (row < 0) return;
@@ -208,7 +214,7 @@ public class GitHistoryTab extends JPanel {
                         return;
                     }
 
-                    var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
+                    var today = LocalDate.now(ZoneId.systemDefault());
 
                     for (var entry : history) {
                         var date = GitUiUtil.formatRelativeDate(entry.commit().date(), today);

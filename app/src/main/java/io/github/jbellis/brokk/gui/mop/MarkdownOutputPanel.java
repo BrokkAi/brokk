@@ -22,7 +22,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -152,19 +154,18 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
      * Ensures the main messages render first, then the history after the WebView flushes. The user want to see the main
      * message first
      */
-    public java.util.concurrent.CompletableFuture<Void> setMainThenHistoryAsync(
+    public CompletableFuture<Void> setMainThenHistoryAsync(
             List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
         if (isBlocking() && !messages.isEmpty()) {
             logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled and content already exists.");
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(null);
         }
         setMainIfChanged(mainMessages);
         return flushAsync().thenRun(() -> SwingUtilities.invokeLater(() -> setHistoryIfChanged(history)));
     }
 
     /** Convenience overload to accept a TaskEntry as the main content. */
-    public java.util.concurrent.CompletableFuture<Void> setMainThenHistoryAsync(
-            TaskEntry main, List<TaskEntry> history) {
+    public CompletableFuture<Void> setMainThenHistoryAsync(TaskEntry main, List<TaskEntry> history) {
         List<? extends ChatMessage> mainMessages = main.isCompressed()
                 ? List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")))
                 : castNonNull(main.log()).messages();
@@ -234,7 +235,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public String getText() {
-        return messages.stream().map(Messages::getRepr).collect(java.util.stream.Collectors.joining("\n\n"));
+        return messages.stream().map(Messages::getRepr).collect(Collectors.joining("\n\n"));
     }
 
     public List<ChatMessage> getRawMessages() {
@@ -274,12 +275,12 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public String getDisplayedText() {
-        return messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n\n"));
+        return messages.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
     }
 
     public String getSelectedText() {
         try {
-            return webHost.getSelectedText().get(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return webHost.getSelectedText().get(200, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             logger.warn("Failed to fetch selected text from WebView", e);
             return "";

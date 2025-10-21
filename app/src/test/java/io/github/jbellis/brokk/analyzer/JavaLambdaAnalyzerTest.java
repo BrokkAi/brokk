@@ -42,7 +42,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeFile.isPresent(), "Should resolve file for class Interface");
         final var file = maybeFile.get();
 
-        final var declarations = analyzer.getDeclarationsInFile(file);
+        final var declarations = analyzer.getDeclarations(file);
 
         assertTrue(
                 declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
@@ -57,7 +57,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeFile.isPresent(), "Should resolve file for class AnonymousUsage");
         final var file = maybeFile.get();
 
-        final var declarations = analyzer.getDeclarationsInFile(file);
+        final var declarations = analyzer.getDeclarations(file);
 
         assertTrue(
                 declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
@@ -72,7 +72,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeFile.isPresent(), "Should resolve file for class Interface");
         final var file = maybeFile.get();
 
-        final var maybeLambda = analyzer.getDeclarationsInFile(file).stream()
+        final var maybeLambda = analyzer.getDeclarations(file).stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> cu.fqName().equals("Interface.Interface$anon$5:24"))
                 .findFirst();
@@ -94,7 +94,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeFile.isPresent(), "Should resolve file for class AnonymousUsage");
         final var file = maybeFile.get();
 
-        final var maybeLambda = analyzer.getDeclarationsInFile(file).stream()
+        final var maybeLambda = analyzer.getDeclarations(file).stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> cu.fqName().equals("AnonymousUsage.NestedClass.getSomething$anon$15:37"))
                 .findFirst();

@@ -13,8 +13,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -37,6 +41,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Logger for defensive debug logging in catch blocks (avoid empty catches)
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
+
+    // Cross-hover state: chip lookup by fragment id and external hover callback
+    private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
+    private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
+    private Collection<ContextFragment> hoveredFragments = List.of();
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -94,8 +103,28 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onRemoveFragment = listener;
     }
 
+    /**
+     * Set a callback invoked when the mouse enters/leaves a chip for a fragment.
+     * Pass null to clear.
+     */
+    public void setOnHover(@Nullable BiConsumer<ContextFragment, Boolean> listener) {
+        this.onHover = listener;
+    }
+
+    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+        this.hoveredFragments = targets;
+        repaint();
+    }
+
+    /**
+     * Highlight or clear highlight for a collection of fragments' chips.
+     * Safe to call from any thread; will marshal to the EDT.
+     */
+    public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {}
+
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
+        chipById.clear();
 
         for (var fragment : fragments) {
             add(createChip(fragment));
@@ -119,6 +148,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private enum ChipKind {
         EDIT,
         SUMMARY,
+        HISTORY,
         OTHER
     }
 
@@ -134,6 +164,26 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         void setBorderColor(Color c) {
             this.borderColor = c;
             repaint();
+        }
+
+        @Override
+        public void paint(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
+                    var myFragment = (ContextFragment) getClientProperty("brokk.fragment");
+                    if (myFragment != null) {
+                        boolean isHovered = parentPanel.hoveredFragments.contains(myFragment);
+                        boolean isDimmed = !parentPanel.hoveredFragments.isEmpty() && !isHovered;
+                        if (isDimmed) {
+                            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                        }
+                    }
+                }
+                super.paint(g2);
+            } finally {
+                g2.dispose();
+            }
         }
 
         @Override
@@ -159,8 +209,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         protected void paintBorder(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
-                g2.setRenderingHint(
-                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 int w = getWidth();
                 int h = getHeight();
                 g2.setColor(borderColor);
@@ -180,30 +229,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
             return ChipKind.SUMMARY;
         }
+        // HISTORY: fragments from the history stream
+        if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
+            return ChipKind.HISTORY;
+        }
         // OTHER: everything else
         return ChipKind.OTHER;
-    }
-
-    private static boolean isDarkColor(Color c) {
-        // Relative luminance per ITU-R BT.709
-        double r = c.getRed() / 255.0;
-        double g = c.getGreen() / 255.0;
-        double b = c.getBlue() / 255.0;
-        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        return lum < 0.5;
-    }
-
-    private static Color contrastingText(Color bg) {
-        return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
-    }
-
-    // Lighten a color by blending it towards white by the given fraction (0..1)
-    private static Color lighten(Color c, float fraction) {
-        fraction = Math.max(0f, Math.min(1f, fraction));
-        int r = c.getRed() + Math.round((255 - c.getRed()) * fraction);
-        int g = c.getGreen() + Math.round((255 - c.getGreen()) * fraction);
-        int b = c.getBlue() + Math.round((255 - c.getBlue()) * fraction);
-        return new Color(Math.min(255, r), Math.min(255, g), Math.min(255, b), c.getAlpha());
     }
 
     // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
@@ -395,33 +426,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return sb.toString();
     }
 
-    /**
-     * Helper to get the background color for a given chip kind.
-     */
-    private Color getChipBackgroundColor(ChipKind kind, boolean isDark) {
-        return switch (kind) {
-            case EDIT -> {
-                // Use accent color for EDIT chips; fall back to linkColor, then to a reasonable theme color
-                Color bg = UIManager.getColor("Component.accentColor");
-                if (bg == null) {
-                    bg = UIManager.getColor("Component.linkColor");
-                }
-                if (bg == null) {
-                    // Robust fallback if theme key is missing
-                    bg = ThemeColors.getColor(isDark, ThemeColors.GIT_BADGE_BACKGROUND);
-                }
-                // In light mode, make the accent background lighter for a softer look
-                if (!isDark) {
-                    bg = lighten(bg, 0.7f); // blend 70% towards white
-                }
-                yield bg;
-            }
-            case SUMMARY -> ThemeColors.getColor(isDark, "notif_cost_bg");
-            case OTHER -> ThemeColors.getColor(isDark, "notif_info_bg");
-        };
-    }
-
-    private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
+    private void styleChip(JPanel chip, JLabel label, @Nullable ContextFragment fragment) {
         ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
 
         Color bg;
@@ -430,23 +435,24 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         switch (kind) {
             case EDIT -> {
-                bg = getChipBackgroundColor(kind, isDark);
-                fg = contrastingText(bg);
-                border = UIManager.getColor("Component.borderColor");
-                if (border == null) {
-                    border = Color.GRAY;
-                }
+                bg = ThemeColors.getColor(ThemeColors.CHIP_EDIT_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_EDIT_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_EDIT_BORDER);
             }
             case SUMMARY -> {
-                bg = ThemeColors.getColor(isDark, "notif_cost_bg");
-                fg = ThemeColors.getColor(isDark, "notif_cost_fg");
-                border = ThemeColors.getColor(isDark, "notif_cost_border");
+                bg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
+            }
+            case HISTORY -> {
+                bg = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_BORDER);
             }
             default -> {
-                // Info/Warning colors for everything else
-                bg = ThemeColors.getColor(isDark, "notif_info_bg");
-                fg = ThemeColors.getColor(isDark, "notif_info_fg");
-                border = ThemeColors.getColor(isDark, "notif_info_border");
+                bg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BORDER);
             }
         }
 
@@ -702,7 +708,48 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Keep a handle to the fragment and close button so theme changes can restyle accurately
         chip.putClientProperty("brokk.fragment", fragment);
         chip.putClientProperty("brokk.chip.closeButton", close);
-        styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
+        chip.putClientProperty("brokk.chip.label", label);
+        // Track by id for grouped-segment multi-highlight
+        try {
+            chipById.put(fragment.id(), chip);
+        } catch (Exception ignored) {
+            // best-effort; id() should be stable, but guard against any exceptions
+        }
+        styleChip(chip, label, fragment);
+
+        // Hover handlers: simple glow on enter; restore styling on exit; forward to external listener
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
+                    if (onHover != null) {
+                        try {
+                            onHover.accept(fragment, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+        };
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        close.addMouseListener(hoverAdapter);
+        sep.addMouseListener(hoverAdapter);
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
@@ -753,14 +800,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     @Override
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
         SwingUtilities.invokeLater(() -> {
-            boolean isDark = guiTheme.isDarkTheme();
-            restyleAllChips(isDark);
+            restyleAllChips();
             // Defer a second pass to catch any late UIManager icon changes after LAF/theme switch
-            SwingUtilities.invokeLater(() -> restyleAllChips(isDark));
+            SwingUtilities.invokeLater(() -> restyleAllChips());
         });
     }
 
-    private void restyleAllChips(boolean isDark) {
+    private void restyleAllChips() {
         for (var component : getComponents()) {
             if (component instanceof JPanel chip) {
                 JLabel label = null;
@@ -774,7 +820,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     var fragObj = chip.getClientProperty("brokk.fragment");
                     ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
                     // styleChip() now updates the close button icon with proper background color
-                    styleChip(chip, label, isDark, fragment);
+                    styleChip(chip, label, fragment);
                 }
             }
         }

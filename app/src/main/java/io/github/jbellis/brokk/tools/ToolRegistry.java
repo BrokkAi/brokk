@@ -11,6 +11,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -289,7 +290,7 @@ public class ToolRegistry {
                 Object converted;
 
                 var paramType = param.getParameterizedType();
-                if (paramType instanceof java.lang.reflect.ParameterizedType) {
+                if (paramType instanceof ParameterizedType) {
                     // Preserve generic information (e.g., List<String>) when converting
                     JavaType javaType = typeFactory.constructType(paramType);
                     converted = OBJECT_MAPPER.convertValue(argValue, javaType);
@@ -299,7 +300,7 @@ public class ToolRegistry {
                         JavaType contentType = javaType.getContentType();
                         Class<?> contentClass = contentType.getRawClass();
                         if (contentClass != Object.class) {
-                            if (converted instanceof java.util.Collection<?> coll) {
+                            if (converted instanceof Collection<?> coll) {
                                 for (Object elem : coll) {
                                     if (!contentClass.isInstance(elem)) {
                                         throw new ToolValidationException(
@@ -361,7 +362,7 @@ public class ToolRegistry {
         Class<?> clazz = toolProviderInstance.getClass();
 
         for (Method method : clazz.getMethods()) {
-            if (method.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class)) {
+            if (method.isAnnotationPresent(Tool.class)) {
                 String toolName = method.getName();
                 if (toolMap.containsKey(toolName)) {
                     throw new IllegalArgumentException(
@@ -406,7 +407,7 @@ public class ToolRegistry {
 
         // Gather all instance methods declared in the class that are annotated with @Tool.
         List<Method> annotatedMethods = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class))
+                .filter(m -> m.isAnnotationPresent(Tool.class))
                 .filter(m -> !Modifier.isStatic(m.getModifiers()))
                 .toList();
 

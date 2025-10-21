@@ -4,6 +4,9 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -93,14 +96,14 @@ public class PreviewImagePanel extends JPanel {
         frame.setBounds(storedBounds);
 
         // Add listener to save bounds
-        frame.addComponentListener(new java.awt.event.ComponentAdapter() {
+        frame.addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
+            public void componentMoved(ComponentEvent e) {
                 project.savePreviewWindowBounds(frame); // Save JFrame bounds
             }
 
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 project.savePreviewWindowBounds(frame); // Save JFrame bounds
             }
         });
@@ -117,7 +120,7 @@ public class PreviewImagePanel extends JPanel {
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
         getActionMap().put("closePreview", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 Window window = SwingUtilities.getWindowAncestor(PreviewImagePanel.this);
                 if (window != null) {
                     window.dispose();

@@ -12,7 +12,9 @@ import io.github.jbellis.brokk.util.migrationv3.V2_FragmentDtos.CompactContextDt
 import io.github.jbellis.brokk.util.migrationv3.V2_FragmentDtos.ReferencedFragmentDto;
 import io.github.jbellis.brokk.util.migrationv3.V2_FragmentDtos.TaskFragmentDto;
 import io.github.jbellis.brokk.util.migrationv3.V2_FragmentDtos.VirtualFragmentDto;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +22,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -111,8 +115,7 @@ public final class V2_HistoryIo {
                         return null;
                     }
                 } else if (entry.getName().equals(V1_CONTEXTS_FILENAME)) {
-                    var reader = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(zis, java.nio.charset.StandardCharsets.UTF_8));
+                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
                     String line;
                     while ((line = reader.readLine()) != null) {
                         if (!line.trim().isEmpty()) {
@@ -124,7 +127,7 @@ public final class V2_HistoryIo {
                     record EdgeDto(String sourceId, String targetId) {}
                     List<EdgeDto> list = List.of(objectMapper.readValue(edgeBytes, EdgeDto[].class));
                     list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
-                            java.util.UUID.fromString(d.sourceId()), java.util.UUID.fromString(d.targetId()))));
+                            UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
                 } else if (entry.getName().equals(GIT_STATES_FILENAME)) {
                     byte[] gitStatesBytes = zis.readAllBytes();
                     var mapType = objectMapper
@@ -151,8 +154,7 @@ public final class V2_HistoryIo {
         }
         // No warning if compactContextDtoLines is empty but fragments exist, it's a valid state (empty history).
 
-        Map<String, ContextFragment> fragmentCache =
-                new java.util.concurrent.ConcurrentHashMap<>(); // Changed to ConcurrentHashMap
+        Map<String, ContextFragment> fragmentCache = new ConcurrentHashMap<>(); // Changed to ConcurrentHashMap
         final Map<String, ReferencedFragmentDto> referencedDtosById = allFragmentsDto.referenced();
         final Map<String, VirtualFragmentDto> virtualDtosById = allFragmentsDto.virtual();
         final Map<String, TaskFragmentDto> taskDtosById = allFragmentsDto.task();
@@ -193,16 +195,16 @@ public final class V2_HistoryIo {
             return null;
         }
 
-        var gitStates = new HashMap<java.util.UUID, ContextHistory.GitState>();
+        var gitStates = new HashMap<UUID, ContextHistory.GitState>();
         for (var entry : gitStateDtos.entrySet()) {
-            var contextId = java.util.UUID.fromString(entry.getKey());
+            var contextId = UUID.fromString(entry.getKey());
             var dto = entry.getValue();
             gitStates.put(contextId, new ContextHistory.GitState(dto.commitHash(), dto.diff()));
         }
 
-        var entryInfos = new HashMap<java.util.UUID, ContextHistory.ContextHistoryEntryInfo>();
+        var entryInfos = new HashMap<UUID, ContextHistory.ContextHistoryEntryInfo>();
         for (var entry : entryInfoDtos.entrySet()) {
-            var contextId = java.util.UUID.fromString(entry.getKey());
+            var contextId = UUID.fromString(entry.getKey());
             entryInfos.put(contextId, entry.getValue());
         }
 

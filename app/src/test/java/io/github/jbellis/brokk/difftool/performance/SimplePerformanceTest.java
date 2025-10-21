@@ -7,6 +7,7 @@ import com.github.difflib.DiffUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -198,7 +199,7 @@ class SimplePerformanceTest {
             this.cacheValidityMs = cacheValidityMs;
         }
 
-        ViewportRange getOrCalculate(String key, java.util.function.Supplier<ViewportRange> calculator) {
+        ViewportRange getOrCalculate(String key, Supplier<ViewportRange> calculator) {
             long now = System.currentTimeMillis();
 
             if (cachedRange != null && key.equals(cachedKey) && now - lastUpdate < cacheValidityMs) {

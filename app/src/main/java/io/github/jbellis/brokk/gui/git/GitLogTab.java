@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -1037,7 +1038,7 @@ public class GitLogTab extends JPanel {
      * Reloads the commits for the currently selected branch or context in the GitCommitBrowserPanel. This is typically
      * called when clearing a search to restore the previous view.
      */
-    private void performRemoteBranchAction(java.util.function.Consumer<String> action) {
+    private void performRemoteBranchAction(Consumer<String> action) {
         int selectedRow = remoteBranchTable.getSelectedRow();
         if (selectedRow != -1) {
             String remoteBranchName = (String) remoteBranchTableModel.getValueAt(selectedRow, 0);

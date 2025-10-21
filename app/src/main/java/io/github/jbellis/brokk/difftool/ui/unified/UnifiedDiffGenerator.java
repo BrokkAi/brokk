@@ -5,6 +5,8 @@ import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -534,7 +536,7 @@ public class UnifiedDiffGenerator {
             if (!file.exists() || !file.isFile()) {
                 return "";
             }
-            return java.nio.file.Files.readString(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
         } else {
             throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
         }

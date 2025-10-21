@@ -111,7 +111,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(skeletons.get(localDetailsAlias)));
 
         // Check getDeclarationsInFile
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(helloTsFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(helloTsFile);
         assertTrue(declarations.contains(greeterClass));
         assertTrue(declarations.contains(globalFunc));
         assertTrue(declarations.contains(piConst));
@@ -266,7 +266,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(innerTypeAliasSkelViaParent.get()),
                 "getSkeleton for nested type alias should return reconstructed parent skeleton.");
 
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(moduleTsFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(moduleTsFile);
         // TODO: capture nested modules
         assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "", "MyModule.NestedNamespace.DeeperClass")));
         assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.InnerTypeAlias")));
@@ -386,7 +386,7 @@ public class TypescriptAnalyzerTest {
 
         // Verify that Point interface properties are correctly captured as Point interface members
         // and NOT appearing as top-level fields (which was the original bug)
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(advancedTsFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(advancedTsFile);
         CodeUnit pointXField = CodeUnit.field(advancedTsFile, "", "Point.x");
         CodeUnit pointYField = CodeUnit.field(advancedTsFile, "", "Point.y");
         assertTrue(declarations.contains(pointXField), "Point.x should be captured as a member of Point interface");
@@ -651,7 +651,7 @@ public class TypescriptAnalyzerTest {
 
         ProjectFile advancedTsFile = new ProjectFile(project.getRoot(), "Advanced.ts");
         Map<CodeUnit, String> skeletons = analyzer.getSkeletons(advancedTsFile);
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(advancedTsFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(advancedTsFile);
 
         // Test 1: Ambient variable declaration
         CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "_module_.$");
@@ -1004,15 +1004,15 @@ public class TypescriptAnalyzerTest {
             var jsxFile = new ProjectFile(tempDir, "component.jsx");
 
             // TypeScript files should have declarations
-            assertFalse(analyzer.getDeclarationsInFile(tsFile).isEmpty(), "TypeScript file should have declarations");
-            assertFalse(analyzer.getDeclarationsInFile(tsxFile).isEmpty(), "TSX file should have declarations");
+            assertFalse(analyzer.getDeclarations(tsFile).isEmpty(), "TypeScript file should have declarations");
+            assertFalse(analyzer.getDeclarations(tsxFile).isEmpty(), "TSX file should have declarations");
 
             // JavaScript files should have no declarations (empty because they're ignored)
             assertTrue(
-                    analyzer.getDeclarationsInFile(jsFile).isEmpty(),
+                    analyzer.getDeclarations(jsFile).isEmpty(),
                     "JavaScript file should have no declarations in TypeScript analyzer");
             assertTrue(
-                    analyzer.getDeclarationsInFile(jsxFile).isEmpty(),
+                    analyzer.getDeclarations(jsxFile).isEmpty(),
                     "JSX file should have no declarations in TypeScript analyzer");
 
         } finally {
@@ -1130,7 +1130,7 @@ public class TypescriptAnalyzerTest {
     void testGetDeclarationsInFileRejectsJavaFile() {
         // Test that TypeScript analyzer safely rejects Java files
         ProjectFile javaFile = new ProjectFile(project.getRoot(), "test/B.java");
-        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(javaFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(javaFile);
 
         assertTrue(declarations.isEmpty(), "TypeScript analyzer should return empty declarations for Java file");
     }
@@ -1351,7 +1351,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsOfHelloTs() {
         ProjectFile helloTsFile = new ProjectFile(project.getRoot(), "Hello.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(helloTsFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(helloTsFile);
 
         assertFalse(topLevelUnits.isEmpty(), "Hello.ts should have top-level code units");
 
@@ -1377,7 +1377,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsOfModuleTs() {
         ProjectFile moduleTsFile = new ProjectFile(project.getRoot(), "Module.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(moduleTsFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(moduleTsFile);
 
         assertFalse(topLevelUnits.isEmpty(), "Module.ts should have top-level code units");
 
@@ -1398,7 +1398,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsOfAdvancedTs() {
         ProjectFile advancedTsFile = new ProjectFile(project.getRoot(), "Advanced.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(advancedTsFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(advancedTsFile);
 
         assertFalse(topLevelUnits.isEmpty(), "Advanced.ts should have top-level code units");
 
@@ -1434,7 +1434,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsOfVarsTs() {
         ProjectFile varsTsFile = new ProjectFile(project.getRoot(), "Vars.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(varsTsFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(varsTsFile);
 
         assertFalse(topLevelUnits.isEmpty(), "Vars.ts should have top-level code units");
 
@@ -1452,7 +1452,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsOfDefaultExportTs() {
         ProjectFile defaultExportFile = new ProjectFile(project.getRoot(), "DefaultExport.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(defaultExportFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(defaultExportFile);
 
         assertFalse(topLevelUnits.isEmpty(), "DefaultExport.ts should have top-level code units");
 
@@ -1475,7 +1475,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsOfNonExistentFile() {
         ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Non-existent file should return empty list");
     }
@@ -1483,10 +1483,10 @@ public class TypescriptAnalyzerTest {
     @Test
     void testTopLevelCodeUnitsExcludesNested() {
         ProjectFile helloTsFile = new ProjectFile(project.getRoot(), "Hello.ts");
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(helloTsFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(helloTsFile);
 
         // Get all declarations including nested ones
-        Set<CodeUnit> allDeclarations = analyzer.getDeclarationsInFile(helloTsFile);
+        Set<CodeUnit> allDeclarations = analyzer.getDeclarations(helloTsFile);
 
         // Top-level units should be a subset of all declarations
         assertTrue(allDeclarations.containsAll(topLevelUnits), "All top-level units should be present in declarations");

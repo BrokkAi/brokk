@@ -5,11 +5,12 @@ import io.github.jbellis.brokk.analyzer.Language;
 import java.awt.*;
 import java.nio.file.Path;
 import javax.swing.*;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class AnalyzerSettingsPanel extends JPanel {
 
-    protected final org.slf4j.Logger logger = LoggerFactory.getLogger(AnalyzerSettingsPanel.class);
+    protected final Logger logger = LoggerFactory.getLogger(AnalyzerSettingsPanel.class);
 
     protected final Language language;
     protected final Path projectRoot;

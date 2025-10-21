@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class ContextManagerTest {
                 "src/foo/bar/under_tests_score.py");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
-        var mismatches = new java.util.ArrayList<String>();
+        var mismatches = new ArrayList<String>();
 
         positives.forEach(path -> {
             if (!pattern.matcher(path).matches()) {
@@ -75,7 +76,7 @@ class ContextManagerTest {
                 "src/main/java/Contest.java");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
-        var unexpectedMatches = new java.util.ArrayList<String>();
+        var unexpectedMatches = new ArrayList<String>();
 
         negatives.forEach(path -> {
             if (pattern.matcher(path).matches()) {

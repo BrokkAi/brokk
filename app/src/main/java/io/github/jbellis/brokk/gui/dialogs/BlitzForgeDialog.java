@@ -696,7 +696,7 @@ public class BlitzForgeDialog extends JDialog {
         var cancelButton = new MaterialButton("Cancel");
 
         // Style OK button as primary action (bright blue with white text)
-        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
+        SwingUtil.applyPrimaryButtonStyle(okButton);
 
         okButton.addActionListener(e -> onOK());
         cancelButton.addActionListener(e -> setVisible(false));
@@ -716,7 +716,7 @@ public class BlitzForgeDialog extends JDialog {
 
         // --- right column (files table) ---
         JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
-        tableModel = new javax.swing.table.DefaultTableModel(new String[] {"File"}, 0);
+        tableModel = new DefaultTableModel(new String[] {"File"}, 0);
         selectedFilesTable = new JTable(tableModel);
         selectedFilesTable.setFillsViewportHeight(true);
         selectedFilesTable.setToolTipText("Tip: You can paste a list of files here (Ctrl+V)");
@@ -921,8 +921,7 @@ public class BlitzForgeDialog extends JDialog {
 
         long workspaceTokens = includeWorkspaceCheckbox.isSelected()
                 ? Messages.getApproximateMessageTokens(
-                        io.github.jbellis.brokk.prompts.CodePrompts.instance.getWorkspaceContentsMessages(
-                                cm.topContext()))
+                        CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()))
                 : 0;
         long workspaceAdd = includeWorkspaceCheckbox.isSelected() ? workspaceTokens * n : 0;
 
@@ -1027,7 +1026,7 @@ public class BlitzForgeDialog extends JDialog {
         // Allow Esc to close the dialog
         var rootPane = getRootPane();
         var escapeStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        java.awt.event.ActionListener actionListener = e -> setVisible(false);
+        ActionListener actionListener = e -> setVisible(false);
         rootPane.registerKeyboardAction(actionListener, escapeStroke, JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
@@ -1166,7 +1165,7 @@ public class BlitzForgeDialog extends JDialog {
                     this, "No files have been selected", "No Files", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        List<ProjectFile> selectedFiles = new java.util.ArrayList<>();
+        List<ProjectFile> selectedFiles = new ArrayList<>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             String relPath = (String) tableModel.getValueAt(i, 0);
             selectedFiles.add(chrome.getContextManager().toFile(relPath));
@@ -1401,15 +1400,11 @@ public class BlitzForgeDialog extends JDialog {
                 TaskResult postProcessResult;
                 if (fRunOption == PostProcessingOption.ASK) {
                     mainIo.systemNotify(
-                            "Ask command has been invoked.",
-                            "Post-processing",
-                            javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                            "Ask command has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
                     postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
                 } else {
                     mainIo.systemNotify(
-                            "Architect has been invoked.",
-                            "Post-processing",
-                            javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                            "Architect has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
                     var agent = new ArchitectAgent(
                             cm,
                             chrome.getInstructionsPanel().getSelectedModel(),

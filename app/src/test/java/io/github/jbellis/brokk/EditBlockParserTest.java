@@ -369,7 +369,7 @@ class EditBlockParserTest {
             ```
         """;
 
-        var editsOnly = io.github.jbellis.brokk.prompts.EditBlockParser.instance.parseEditBlocks(input, Set.of());
+        var editsOnly = EditBlockParser.instance.parseEditBlocks(input, Set.of());
         assertNull(editsOnly.parseError(), "No parse errors expected");
         var blocks = editsOnly.blocks();
         assertEquals(3, blocks.size(), "Should parse exactly three edit blocks");

@@ -12,7 +12,10 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -193,9 +196,9 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
                 .getFont()
                 .deriveFont(Font.PLAIN, gitHubInstallAppLabel.getFont().getSize() * 0.9f));
         gitHubInstallAppLabel.setVisible(false);
-        gitHubInstallAppLabel.addMouseListener(new java.awt.event.MouseAdapter() {
+        gitHubInstallAppLabel.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 try {
                     Environment.openInBrowser(
                             "https://github.com/apps/brokkai/installations/select_target",
@@ -304,7 +307,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         logger.info("Starting inline GitHub integration");
 
         // Initialize device flow service with dedicated scheduler
-        var executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+        var executor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "SettingsGitHubAuth-Scheduler");
             t.setDaemon(true);
             return t;

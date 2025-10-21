@@ -7,6 +7,7 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import javax.swing.Icon;
 import javax.swing.JComponent;
@@ -233,7 +234,7 @@ public class MaterialToggleButton extends JToggleButton {
         try {
             int modifiers = ks.getModifiers();
             int keyCode = ks.getKeyCode();
-            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String modText = InputEvent.getModifiersExText(modifiers);
             String keyText = KeyEvent.getKeyText(keyCode);
             if (modText == null || modText.isBlank()) {
                 return keyText;

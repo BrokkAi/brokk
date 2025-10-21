@@ -5,12 +5,15 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.Color;
 import java.awt.Cursor;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.KeyStroke;
 import javax.swing.UIManager;
+import javax.swing.border.LineBorder;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -44,9 +47,9 @@ public class MaterialButton extends JButton {
         putClientProperty("JButton.buttonType", "borderless");
 
         var borderColor = UIManager.getColor("Component.borderColor");
-        setBorder(javax.swing.BorderFactory.createCompoundBorder(
-                new javax.swing.border.LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
-                javax.swing.BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
         setContentAreaFilled(true);
@@ -172,7 +175,7 @@ public class MaterialButton extends JButton {
         try {
             int modifiers = ks.getModifiers();
             int keyCode = ks.getKeyCode();
-            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String modText = InputEvent.getModifiersExText(modifiers);
             String keyText = KeyEvent.getKeyText(keyCode);
             if (modText == null || modText.isBlank()) {
                 return keyText;

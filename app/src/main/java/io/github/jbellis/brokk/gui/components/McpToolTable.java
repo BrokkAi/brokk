@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.modelcontextprotocol.spec.McpSchema;
+import java.awt.Component;
 import java.awt.FontMetrics;
 import java.awt.Insets;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.JLabel;
@@ -29,7 +31,7 @@ public class McpToolTable extends JTable {
     }
 
     @Override
-    public String getToolTipText(java.awt.event.MouseEvent event) {
+    public String getToolTipText(MouseEvent event) {
         var p = event.getPoint();
         int rowIndex = rowAtPoint(p);
         if (rowIndex >= 0) {
@@ -122,7 +124,7 @@ public class McpToolTable extends JTable {
     // --- Renderer that truncates text with ellipsis to fit the column width ---
     private static class EllipsingCellRenderer extends DefaultTableCellRenderer {
         @Override
-        public java.awt.Component getTableCellRendererComponent(
+        public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label =
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);

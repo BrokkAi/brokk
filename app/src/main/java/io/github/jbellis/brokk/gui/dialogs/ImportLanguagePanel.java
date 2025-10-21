@@ -6,6 +6,8 @@ import io.github.jbellis.brokk.analyzer.Language.DependencyKind;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import java.awt.BorderLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,12 +19,14 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
 import javax.swing.RowFilter;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
@@ -107,7 +111,7 @@ public class ImportLanguagePanel extends JPanel {
         searchField.putClientProperty("JTextField.placeholderText", "Search");
         add(searchField, BorderLayout.NORTH);
 
-        table.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
 
@@ -157,7 +161,7 @@ public class ImportLanguagePanel extends JPanel {
 
         searchField.getDocument().addDocumentListener(new SimpleDocumentListener() {
             @Override
-            public void update(javax.swing.event.DocumentEvent e) {
+            public void update(DocumentEvent e) {
                 var text = searchField.getText().trim();
                 if (text.isEmpty()) {
                     sorter.setRowFilter(null);
@@ -174,9 +178,9 @@ public class ImportLanguagePanel extends JPanel {
             for (var l : selectionListeners) l.accept(sel);
         });
 
-        table.addMouseListener(new java.awt.event.MouseAdapter() {
+        table.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2 && doubleClickListener != null) {
                     doubleClickListener.run();
                 }
@@ -244,8 +248,8 @@ public class ImportLanguagePanel extends JPanel {
         column.setMaxWidth(width);
     }
 
-    private interface SimpleDocumentListener extends javax.swing.event.DocumentListener {
-        void update(javax.swing.event.DocumentEvent e);
+    private interface SimpleDocumentListener extends DocumentListener {
+        void update(DocumentEvent e);
 
         @Override
         default void insertUpdate(DocumentEvent e) {

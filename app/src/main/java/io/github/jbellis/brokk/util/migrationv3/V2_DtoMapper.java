@@ -3,11 +3,15 @@ package io.github.jbellis.brokk.util.migrationv3;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -16,15 +20,21 @@ import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.migrationv3.V2_FragmentDtos.*;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
@@ -45,17 +55,17 @@ public class V2_DtoMapper {
             CompactContextDto dto, IContextManager mgr, Map<String, ContextFragment> fragmentCache) {
         var editableFragments = dto.editable().stream()
                 .map(fragmentCache::get) // Cast needed as map stores ContextFragment
-                .filter(java.util.Objects::nonNull) // Filter out if ID not found, though ideally all should be present
+                .filter(Objects::nonNull) // Filter out if ID not found, though ideally all should be present
                 .collect(Collectors.toList());
 
         var readonlyFragments = dto.readonly().stream()
                 .map(fragmentCache::get) // Cast needed
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         var virtualFragments = dto.virtuals().stream()
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id)) // Specific cast
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         var taskHistory = dto.tasks().stream()
@@ -86,7 +96,7 @@ public class V2_DtoMapper {
                             taskRefDto);
                     return null;
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
 
         ContextFragment.TaskFragment parsedOutputFragment = null;
@@ -97,7 +107,7 @@ public class V2_DtoMapper {
         var actionFuture = CompletableFuture.completedFuture(dto.action());
 
         // Preserve UUID if present (V2); otherwise generate a new one (V1)
-        java.util.UUID ctxId = dto.id() != null ? java.util.UUID.fromString(dto.id()) : java.util.UUID.randomUUID();
+        UUID ctxId = dto.id() != null ? UUID.fromString(dto.id()) : UUID.randomUUID();
 
         return Context.createWithId(
                 ctxId,
@@ -316,7 +326,7 @@ public class V2_DtoMapper {
             case ContextFragment.ImageFileFragment imf -> {
                 var file = imf.file();
                 String absPath = file.absPath().toString();
-                String fileName = file.getFileName().toLowerCase(java.util.Locale.ROOT);
+                String fileName = file.getFileName().toLowerCase(Locale.ROOT);
                 String mediaType = null;
                 if (fileName.endsWith(".png")) mediaType = "image/png";
                 else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
@@ -456,10 +466,10 @@ public class V2_DtoMapper {
     private static String getFutureDescription(Future<String> future, String prefix) {
         String description;
         try {
-            String fullDescription = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            String fullDescription = future.get(10, TimeUnit.SECONDS);
             description =
                     fullDescription.startsWith(prefix) ? fullDescription.substring(prefix.length()) : fullDescription;
-        } catch (java.util.concurrent.TimeoutException e) {
+        } catch (TimeoutException e) {
             description = "(Paste description timed out)";
         } catch (Exception e) {
             description = "(Error getting paste description: " + e.getMessage() + ")";
@@ -487,7 +497,7 @@ public class V2_DtoMapper {
     }
 
     private static ChatMessageDto toChatMessageDto(ChatMessage message) {
-        return new ChatMessageDto(message.type().name().toLowerCase(java.util.Locale.ROOT), Messages.getRepr(message));
+        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), Messages.getRepr(message));
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto) {
@@ -496,11 +506,11 @@ public class V2_DtoMapper {
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto) {
         // Convert role string back to ChatMessage
-        return switch (dto.role().toLowerCase(java.util.Locale.ROOT)) {
-            case "user" -> dev.langchain4j.data.message.UserMessage.from(dto.content());
-            case "ai" -> dev.langchain4j.data.message.AiMessage.from(dto.content());
-            case "system" -> dev.langchain4j.data.message.SystemMessage.from(dto.content());
-            case "custom" -> dev.langchain4j.data.message.SystemMessage.from(dto.content());
+        return switch (dto.role().toLowerCase(Locale.ROOT)) {
+            case "user" -> UserMessage.from(dto.content());
+            case "ai" -> AiMessage.from(dto.content());
+            case "system" -> SystemMessage.from(dto.content());
+            case "custom" -> SystemMessage.from(dto.content());
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
     }
@@ -546,7 +556,7 @@ public class V2_DtoMapper {
             CodeUnitDto dto) { // IContextManager not needed as ProjectFileDto has full path info
         ProjectFileDto pfd = dto.sourceFile();
         ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
-        var kind = io.github.jbellis.brokk.analyzer.CodeUnitType.valueOf(dto.kind());
+        var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }
 
@@ -554,12 +564,12 @@ public class V2_DtoMapper {
     private static String imageToBase64(Image image) {
         try (var baos = new ByteArrayOutputStream()) {
             // Convert Image to BufferedImage if needed
-            java.awt.image.BufferedImage bufferedImage;
-            if (image instanceof java.awt.image.BufferedImage bi) {
+            BufferedImage bufferedImage;
+            if (image instanceof BufferedImage bi) {
                 bufferedImage = bi;
             } else {
-                bufferedImage = new java.awt.image.BufferedImage(
-                        image.getWidth(null), image.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                bufferedImage =
+                        new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
                 var g = bufferedImage.createGraphics();
                 g.drawImage(image, 0, 0, null);
                 g.dispose();

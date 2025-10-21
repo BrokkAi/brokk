@@ -8,6 +8,8 @@ import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.CodeUnitType;
+import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -15,11 +17,14 @@ import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -47,7 +52,7 @@ public class ContextSerializationTest {
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
         if (Files.exists(sessionsDir)) {
             try (var stream = Files.walk(sessionsDir)) {
-                stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                stream.sorted(Comparator.reverseOrder()).forEach(path -> {
                     try {
                         Files.delete(path);
                     } catch (IOException e) {
@@ -185,7 +190,7 @@ public class ContextSerializationTest {
 
         assertNotNull(imageBytesContent);
         assertTrue(imageBytesContent.length > 0);
-        Image loadedImage = ImageIO.read(new java.io.ByteArrayInputStream(imageBytesContent));
+        Image loadedImage = ImageIO.read(new ByteArrayInputStream(imageBytesContent));
         assertNotNull(loadedImage);
         assertEquals(10, loadedImage.getWidth(null));
         assertEquals(10, loadedImage.getHeight(null));
@@ -195,10 +200,10 @@ public class ContextSerializationTest {
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
         // Compare all fragments sorted by ID
         var expectedFragments = expected.allFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
+                .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
         var actualFragments = actual.allFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
+                .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
 
         assertEquals(expectedFragments.size(), actualFragments.size(), "Fragments count mismatch");
@@ -358,8 +363,8 @@ public class ContextSerializationTest {
         assertTrue(imageBytes2.length > 0);
 
         // Verify the image can be read back
-        var reconstructedImage1 = ImageIO.read(new java.io.ByteArrayInputStream(imageBytes1));
-        var reconstructedImage2 = ImageIO.read(new java.io.ByteArrayInputStream(imageBytes2));
+        var reconstructedImage1 = ImageIO.read(new ByteArrayInputStream(imageBytes1));
+        var reconstructedImage2 = ImageIO.read(new ByteArrayInputStream(imageBytes2));
         assertNotNull(reconstructedImage1);
         assertNotNull(reconstructedImage2);
         assertEquals(8, reconstructedImage1.getWidth());
@@ -586,7 +591,7 @@ public class ContextSerializationTest {
         var loadedStringFrag1 = loadedCtx1
                 .virtualFragments()
                 .filter(f -> f instanceof ContextFragment.StringFragment
-                        && java.util.Objects.equals(f.id(), stringFragmentContentHashId))
+                        && Objects.equals(f.id(), stringFragmentContentHashId))
                 .map(f -> (ContextFragment.StringFragment) f)
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Shared StringFragment not found in loadedCtx1"));
@@ -594,7 +599,7 @@ public class ContextSerializationTest {
         var loadedStringFrag2 = loadedCtx2
                 .virtualFragments()
                 .filter(f -> f instanceof ContextFragment.StringFragment
-                        && java.util.Objects.equals(f.id(), stringFragmentContentHashId))
+                        && Objects.equals(f.id(), stringFragmentContentHashId))
                 .map(f -> (ContextFragment.StringFragment) f)
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Shared StringFragment not found in loadedCtx2"));
@@ -645,7 +650,7 @@ public class ContextSerializationTest {
         String shortName = fqName.substring(fqName.lastIndexOf('.') + 1);
         String packageName = fqName.contains(".") ? fqName.substring(0, fqName.lastIndexOf('.')) : "";
         // Use CLASS as a generic kind for testing, specific kind might not be critical for serialization tests
-        return new CodeUnit(pf, io.github.jbellis.brokk.analyzer.CodeUnitType.CLASS, packageName, shortName);
+        return new CodeUnit(pf, CodeUnitType.CLASS, packageName, shortName);
     }
 
     @Test
@@ -683,7 +688,7 @@ public class ContextSerializationTest {
     void testRoundTripExternalPathFragment() throws Exception {
         Path externalFilePath = tempDir.resolve("external_file.txt");
         Files.writeString(externalFilePath, "External file content");
-        var externalFile = new io.github.jbellis.brokk.analyzer.ExternalFile(externalFilePath);
+        var externalFile = new ExternalFile(externalFilePath);
         var fragment = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
 
         var context = new Context(mockContextManager, "Test ExternalPathFragment").addPathFragments(List.of(fragment));
@@ -716,8 +721,8 @@ public class ContextSerializationTest {
         Path imageFilePath = tempDir.resolve("test_image.png");
         var testImage = createTestImage(Color.GREEN, 20, 20);
         ImageIO.write(testImage, "PNG", imageFilePath.toFile());
-        var brokkImageFile = new io.github.jbellis.brokk.analyzer.ProjectFile(
-                tempDir, tempDir.relativize(imageFilePath)); // Treat as project file for test
+        var brokkImageFile =
+                new ProjectFile(tempDir, tempDir.relativize(imageFilePath)); // Treat as project file for test
         var fragment = new ContextFragment.ImageFileFragment(brokkImageFile, mockContextManager);
 
         var context = new Context(mockContextManager, "Test ImageFileFragment").addPathFragments(List.of(fragment));
@@ -750,7 +755,7 @@ public class ContextSerializationTest {
         // Check image content from bytes
         byte[] imageBytes = loadedFrozenFragment.imageBytesContent();
         assertNotNull(imageBytes, "Image bytes not found in FrozenFragment for ImageFileFragment");
-        Image loadedImageFromBytes = ImageIO.read(new java.io.ByteArrayInputStream(imageBytes));
+        Image loadedImageFromBytes = ImageIO.read(new ByteArrayInputStream(imageBytes));
         assertNotNull(loadedImageFromBytes);
         assertEquals(20, loadedImageFromBytes.getWidth(null));
         assertEquals(20, loadedImageFromBytes.getHeight(null));

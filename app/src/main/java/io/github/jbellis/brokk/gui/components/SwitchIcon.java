@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.gui.components;
 
 import com.formdev.flatlaf.icons.FlatCheckBoxIcon;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import javax.swing.AbstractButton;
 
 public class SwitchIcon extends FlatCheckBoxIcon {
@@ -47,7 +49,7 @@ public class SwitchIcon extends FlatCheckBoxIcon {
     @Override
     protected void paintIcon(Component c, Graphics2D g2) {
         Graphics2D g = (Graphics2D) g2.create();
-        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         boolean selected = (c instanceof AbstractButton ab && ab.isSelected());
 
@@ -60,7 +62,7 @@ public class SwitchIcon extends FlatCheckBoxIcon {
         int arc = trackH; // perfect pill
 
         // Draw the pill-shaped track (keep color constant regardless of selection)
-        java.awt.Color trackColor = disabledCheckmarkColor;
+        Color trackColor = disabledCheckmarkColor;
         g.setColor(trackColor);
         g.fillRoundRect(trackX, trackY, trackW, trackH, arc, arc);
 
@@ -77,7 +79,7 @@ public class SwitchIcon extends FlatCheckBoxIcon {
                 : trackX + knobInset; // left position
 
         // Draw knob
-        g.setColor(java.awt.Color.WHITE);
+        g.setColor(Color.WHITE);
         g.fillRoundRect(knobX, knobY, knobW, knobH, knobH, knobH);
 
         g.dispose();

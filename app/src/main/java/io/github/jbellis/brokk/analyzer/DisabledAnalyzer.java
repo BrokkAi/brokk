@@ -18,7 +18,7 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
+    public Set<CodeUnit> getDeclarations(ProjectFile file) {
         return Collections.emptySet();
     }
 
@@ -33,7 +33,12 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+    public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
         return Collections.emptyList();
     }
 
