@@ -989,6 +989,37 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
         project.setIssuesProvider(newProviderToSet);
 
+        // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
+        try {
+            var currentDetails = project.loadBuildDetails();
+            // Gather exclusions from UI model: trim, drop empties, normalize where possible, dedupe case-insensitively
+            java.util.Set<String> excludesSet = java.util.Collections.list(excludedDirectoriesListModel.elements()).stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(s -> {
+                        try {
+                            return java.nio.file.Path.of(s).normalize().toString();
+                        } catch (java.nio.file.InvalidPathException ex) {
+                            return s;
+                        }
+                    })
+                    .collect(java.util.stream.Collectors.toCollection(() -> new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+
+            var newDetails = new io.github.jbellis.brokk.agents.BuildAgent.BuildDetails(
+                    currentDetails.buildLintCommand(),
+                    currentDetails.testAllCommand(),
+                    currentDetails.testSomeCommand(),
+                    excludesSet,
+                    currentDetails.environmentVariables());
+            // Save only if changed to avoid unnecessary churn
+            if (!newDetails.equals(currentDetails)) {
+                project.saveBuildDetails(newDetails);
+                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: {}", excludesSet);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
+        }
+
         // Delegate build-related persistence to extracted build panel
         try {
             buildPanelInstance.applySettings();
