@@ -336,10 +336,7 @@ public class ContextAgent {
             // Under skip-pruning budget
             LlmRecommendation rec;
             rec = type == GroupType.ANALYZED
-                    ? new LlmRecommendation(
-                            List.of(),
-                            new ArrayList<>(allSummariesForAnalyzed.keySet()),
-                            "")
+                    ? new LlmRecommendation(List.of(), new ArrayList<>(allSummariesForAnalyzed.keySet()), "")
                     : new LlmRecommendation(groupFiles, List.of(), "");
             return createResult(rec, existingFiles);
         }
