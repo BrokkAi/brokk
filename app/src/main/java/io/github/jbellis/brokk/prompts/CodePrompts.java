@@ -50,7 +50,7 @@ public abstract class CodePrompts {
             before immediately jumping into taking further action.
             """;
 
-    public static final String GPT5_MARKDOWN_REMINDER =
+    public static final String MARKDOWN_REMINDER =
             """
             <persistence>
             ## Markdown Formatting
@@ -123,31 +123,15 @@ public abstract class CodePrompts {
 
     public String codeReminder(Service service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+        return baseReminder + "\n" + MARKDOWN_REMINDER;
     }
 
-    public String architectReminder(Service service, StreamingChatModel model) {
-        var baseReminder = ARCHITECT_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+    public String architectReminder() {
+        return ARCHITECT_REMINDER + "\n" + MARKDOWN_REMINDER;
     }
 
-    public String askReminder(IContextManager cm, StreamingChatModel model) {
-        var service = cm.getService();
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return GPT5_MARKDOWN_REMINDER;
-        }
-        return "";
+    public String askReminder() {
+        return MARKDOWN_REMINDER;
     }
 
     /**
@@ -260,7 +244,7 @@ public abstract class CodePrompts {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(systemMessage(cm, askReminder(cm, model)));
+        messages.add(systemMessage(cm, askReminder()));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
         messages.addAll(getHistoryMessages(cm.topContext()));
         messages.add(askRequest(input));

@@ -246,35 +246,41 @@ public class SearchAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        // System role: similar to Architect, with stronger emphasis on pruning
+        var reminder = CodePrompts.instance.askReminder();
+        var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
+                .map(Language::name)
+                .collect(Collectors.joining(", "));
+
         var sys = new SystemMessage(
                 """
-                        You are the Search Agent.
-                        Your job:
-                          - find and organize code relevant to the user's question or task,
-                          - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
-                          - never write code yourself.
+                <instructions>
+                You are the Search Agent.
+                Your job:
+                  - find and organize code relevant to the user's question or task,
+                  - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
+                  - never write code yourself.
 
-                        Critical rules:
-                          1) PRUNE FIRST at every turn.
-                             - Remove fragments that are not directly useful for the goal.
-                             - Prefer concise, goal-focused summaries over full files.
-                             - When you pull information from a long fragment, first add your extraction, then drop the original.
-                             - Keep the Workspace focused on answering/solving the goal.
-                          2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                          3) The symbol-based tools only have visibility into the following file types: %s
-                             Use text-based tools if you need to search other file types.
-                          4) Group related lookups into a single call when possible.
-                          5) Make multiple tool calls at once when searching for different types of code.
+                Critical rules:
+                  1) PRUNE FIRST at every turn.
+                     - Remove fragments that are not directly useful for the goal.
+                     - Prefer concise, goal-focused summaries over full files.
+                     - When you pull information from a long fragment, first add your extraction, then drop the original.
+                     - Keep the Workspace focused on answering/solving the goal.
+                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                  3) The symbol-based tools only have visibility into the following file types: %s
+                     Use text-based tools if you need to search other file types.
+                  4) Group related lookups into a single call when possible.
+                  5) Make multiple tool calls at once when searching for different types of code.
 
-                        Output discipline:
-                          - Start each turn by pruning and summarizing before any new exploration.
-                          - Think before calling tools.
-                          - If you already know what to add, use Workspace tools directly; do not search redundantly.
-                        """
-                        .formatted(cm.getProject().getAnalyzerLanguages().stream()
-                                .map(Language::name)
-                                .collect(Collectors.joining(", "))));
+                Output discipline:
+                  - Start each turn by pruning and summarizing before any new exploration.
+                  - Think before calling tools.
+                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                %s
+                </instructions>
+                """
+                        .formatted(supportedTypes, reminder));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -332,7 +338,7 @@ public class SearchAgent {
         var finals = new ArrayList<String>();
         if (allowedTerminals.contains(Terminal.ANSWER)) {
             finals.add(
-                    "- Use answer(String) when the request is purely informational and you have enough information to answer.");
+                    "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
@@ -343,6 +349,7 @@ public class SearchAgent {
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
                         - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
+                        - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
                     """);
         }
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {

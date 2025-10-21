@@ -583,7 +583,7 @@ public class ArchitectAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
-        var reminder = CodePrompts.instance.architectReminder(cm.getService(), planningModel);
+        var reminder = CodePrompts.instance.architectReminder();
         messages.add(ArchitectPrompts.instance.systemMessage(cm, reminder));
 
         // Workspace contents are added directly
