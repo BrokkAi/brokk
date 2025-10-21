@@ -482,7 +482,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public final void saveActionMode(String mode) {
-        if (mode == null || mode.isEmpty()) {
+        if (mode.isEmpty()) {
             workspaceProps.remove("actionMode");
         } else {
             workspaceProps.setProperty("actionMode", mode);
