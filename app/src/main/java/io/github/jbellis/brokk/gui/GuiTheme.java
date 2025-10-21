@@ -1,17 +1,23 @@
 package io.github.jbellis.brokk.gui;
 
+import com.formdev.flatlaf.FlatDarculaLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.highcontrast.HighContrastBorderManager;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.jar.JarFile;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -78,13 +84,13 @@ public class GuiTheme {
         try (var stream = GuiTheme.class.getResourceAsStream(themeFile)) {
             if (stream == null) {
                 logger.error("Theme file '{}' not found, falling back to Darcula", themeFile);
-                com.formdev.flatlaf.FlatDarculaLaf.setup();
+                FlatDarculaLaf.setup();
             } else {
                 IntelliJTheme.setup(stream);
             }
         } catch (IOException e) {
             logger.error("Failed to load theme from '{}': {}", themeFile, e.getMessage());
-            com.formdev.flatlaf.FlatDarculaLaf.setup();
+            FlatDarculaLaf.setup();
         }
     }
 
@@ -113,7 +119,7 @@ public class GuiTheme {
             setupLookAndFeel(themeName);
 
             // Reload ThemeColors to pick up new UIManager values
-            io.github.jbellis.brokk.gui.mop.ThemeColors.reloadColors();
+            ThemeColors.reloadColors();
 
             // Register custom icons for this theme
             boolean isDark = !THEME_LIGHT.equals(themeName);
@@ -132,6 +138,13 @@ public class GuiTheme {
                     HighContrastBorderManager.getInstance().onThemeChanged(isHighContrast);
                     // Always refresh existing windows to ensure borders are properly added or removed
                     HighContrastBorderManager.getInstance().applyToExistingWindows();
+
+                    // Update title bar styling for all frames
+                    for (Window w : Window.getWindows()) {
+                        if (w instanceof JFrame frame) {
+                            Chrome.updateTitleBarStyling(frame);
+                        }
+                    }
                 } catch (Throwable t) {
                     logger.warn("Failed to notify HighContrastBorderManager: {}", t.getMessage(), t);
                 }
@@ -144,6 +157,11 @@ public class GuiTheme {
     private void applyThemeToChromeComponents() {
         // Update the UI
         SwingUtilities.updateComponentTreeUI(frame);
+
+        // Update title bar styling for macOS frames
+        SwingUtilities.invokeLater(() -> {
+            Chrome.updateTitleBarStyling(frame);
+        });
 
         // Update registered popup menus
         for (JPopupMenu menu : popupMenus) {
@@ -158,13 +176,13 @@ public class GuiTheme {
         // Re-apply primary button styling for buttons that were explicitly styled earlier.
         // We do this after updateComponentTreeUI so the components re-adopt UIManager colors.
         SwingUtilities.invokeLater(() -> {
-            java.util.function.Consumer<Component> recurse = new java.util.function.Consumer<Component>() {
+            Consumer<Component> recurse = new Consumer<Component>() {
                 @Override
                 public void accept(Component c) {
-                    if (c instanceof javax.swing.AbstractButton b) {
+                    if (c instanceof AbstractButton b) {
                         Object prop = b.getClientProperty("brokk.primaryButton");
                         if (Boolean.TRUE.equals(prop)) {
-                            io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(b);
+                            SwingUtil.applyPrimaryButtonStyle(b);
                         }
                     }
                     if (c instanceof Container container) {
@@ -267,7 +285,7 @@ public class GuiTheme {
 
     /**
      * Recursive depth-first traversal of the Swing component hierarchy that honours the
-     * {@link io.github.jbellis.brokk.gui.ThemeAware} contract.
+     * {@link ThemeAware} contract.
      */
     private void applyThemeToComponent(@Nullable Component component, Theme theme, boolean wordWrap) {
         assert SwingUtilities.isEventDispatchThread() : "applyThemeToComponent must be called on EDT";
@@ -305,7 +323,7 @@ public class GuiTheme {
      * @return "light", "dark", or "high-contrast"
      */
     public String getCurrentTheme() {
-        return MainProject.getTheme().toLowerCase(java.util.Locale.ROOT);
+        return MainProject.getTheme().toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -416,8 +434,8 @@ public class GuiTheme {
 
             if ("file".equals(protocol)) {
                 // Running from file system (development)
-                var dirPath = java.nio.file.Paths.get(directoryUrl.toURI());
-                try (var stream = java.nio.file.Files.list(dirPath)) {
+                var dirPath = Paths.get(directoryUrl.toURI());
+                try (var stream = Files.list(dirPath)) {
                     stream.filter(path -> {
                                 var fileNamePath = path.getFileName();
                                 if (fileNamePath == null) {
@@ -443,7 +461,7 @@ public class GuiTheme {
                     var jarFile = jarPath.substring(5, exclamationIndex); // Remove "file:"
                     var entryPath = jarPath.substring(exclamationIndex + 2); // Remove "!/"
 
-                    try (var jar = new java.util.jar.JarFile(jarFile)) {
+                    try (var jar = new JarFile(jarFile)) {
                         var entries = jar.entries();
                         while (entries.hasMoreElements()) {
                             var entry = entries.nextElement();
