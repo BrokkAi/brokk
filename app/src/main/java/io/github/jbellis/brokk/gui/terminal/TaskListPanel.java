@@ -384,6 +384,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setPreferredSize(prefSize);
         goStopButton.setMinimumSize(prefSize);
         goStopButton.setMaximumSize(prefSize);
+        goStopButton.setMargin(new Insets(4, 4, 4, 10));
+        goStopButton.setIconTextGap(0);
         goStopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         controls.add(Box.createHorizontalStrut(H_GAP));
