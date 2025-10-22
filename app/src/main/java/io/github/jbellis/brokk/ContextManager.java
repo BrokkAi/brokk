@@ -1982,7 +1982,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         return new TaskScope(compressAtCommit);
     }
-    
+
     /**
      * Aggregating scope that collects messages/files and commits once.
      * By design, this keeps only the Context from the final TaskResult in the Scope.
@@ -1991,79 +1991,64 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
-        private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
         private TaskScope(boolean compressResults) {
             io.blockLlmOutput(true);
             this.compressResults = compressResults;
-            this.results = new ArrayList<>();
         }
 
         public void append(TaskResult result) {
             assert !closed : "TaskScope already closed";
-            results.add(result);
+
+            // If interrupted before any LLM output, skip
+            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
+                    && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
+                logger.debug("Command cancelled before LLM responded");
+                return;
+            }
+
+            // If there is literally nothing to record (no messages and no context/file changes), skip
+            if (result.output().messages().isEmpty() && !result.context().freeze().equals(topContext())) {
+                logger.debug("Empty TaskResult");
+                return;
+            }
+
+            var action = result.actionDescription();
+            logger.debug(
+                    "Adding session result to history. Action: '{}', Reason: {}",
+                    action,
+                    result.stopDetails());
+
+            Future<String> actionFuture = submitSummarizeTaskForConversation(action);
+            pushContext(currentLiveCtx -> {
+                var updated = result.context();
+                TaskEntry entry = updated.createTaskEntry(result);
+                TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
+                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
+            });
+
+            // Auto-rename session if it still has the default name
+            var sessionManager = project.getSessionManager();
+            var sessions = sessionManager.listSessions();
+            var currentSession =
+                    sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
+
+            if (currentSession.isPresent()
+                    && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+                renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
+                    if (io instanceof Chrome) {
+                        project.sessionsListChanged();
+                    }
+                });
+            }
         }
 
         @Override
         public void close() {
             if (closed) return;
             closed = true;
-            try {
-                if (results.isEmpty()) {
-                    return;
-                }
-
-                // Use the most recent result
-                pushFinalHistory(results.getLast(), compressResults);
-            } finally {
-                io.blockLlmOutput(false);
-            }
-        }
-    }
-
-    /** Single entry-point to actually push a TaskResult to history (used by TaskScope). */
-    private void pushFinalHistory(TaskResult result, boolean compress) {
-        // If interrupted before any LLM output, skip
-        if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
-                && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-            logger.debug("Command cancelled before LLM responded");
-            return;
-        }
-
-        // If there is literally nothing to record (no messages and no context/file changes), skip
-        if (result.output().messages().isEmpty() && !result.context().freeze().equals(topContext())) {
-            logger.debug("Empty TaskResult");
-            return;
-        }
-
-        var action = result.actionDescription();
-        logger.debug(
-                "Adding session result to history. Action: '{}', Reason: {}",
-                action,
-                result.stopDetails());
-
-        Future<String> actionFuture = submitSummarizeTaskForConversation(action);
-        pushContext(currentLiveCtx -> {
-            var updated = result.context();
-            TaskEntry entry = updated.createTaskEntry(result);
-            TaskEntry finalEntry = compress ? compressHistory(entry) : entry;
-            return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
-        });
-
-        // Auto-rename session if it still has the default name
-        var sessionManager = project.getSessionManager();
-        var sessions = sessionManager.listSessions();
-        var currentSession =
-                sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
-
-        if (currentSession.isPresent()
-                && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                if (io instanceof Chrome) {
-                    project.sessionsListChanged();
-                }
-            });
+            io.blockLlmOutput(false);
         }
     }
 
