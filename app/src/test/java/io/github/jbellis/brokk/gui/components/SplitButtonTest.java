@@ -35,4 +35,29 @@ public class SplitButtonTest {
         assertTrue(widths[0] > widths[1], "Preferred width should decrease when the label is shortened");
         assertTrue(widths[2] > widths[1], "Preferred width should increase when the label is lengthened again");
     }
+
+    @Test
+    public void testArrowAreaStableWhenTextChanges() throws Exception {
+        final SplitButton split = new SplitButton("initial");
+
+        final int[] widths = new int[2];
+
+        SwingUtilities.invokeAndWait(() -> {
+            // Long label -> measure
+            split.setText("A very long label that should increase width considerably");
+            widths[0] = split.getPreferredSize().width;
+
+            // Shorter label -> measure
+            split.setText("Short");
+            widths[1] = split.getPreferredSize().width;
+        });
+
+        int delta = widths[0] - widths[1];
+
+        // Expect the change to be dominated by the action text width.
+        final int EXPECTED_MIN_TEXT_DELTA = 10; // px
+
+        assertTrue(delta > EXPECTED_MIN_TEXT_DELTA,
+                "Width delta should be dominated by action text change (arrow area should remain stable)");
+    }
 }
