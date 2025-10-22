@@ -155,15 +155,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         public void setReadOnly(boolean readOnly) {
-            Runnable r = () -> {
+            SwingUtilities.invokeLater(() -> {
                 if (this.readOnly != readOnly) {
                     this.readOnly = readOnly;
                     updateBorderColor();
                     repaint();
                 }
-            };
-            if (SwingUtilities.isEventDispatchThread()) r.run();
-            else SwingUtilities.invokeLater(r);
+            });
         }
 
         @Override
