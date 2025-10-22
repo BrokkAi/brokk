@@ -1,24 +1,23 @@
 package io.github.jbellis.brokk.context;
 
+import static java.util.Objects.requireNonNull;
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.testutil.FileUtil;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.HistoryIo;
-import org.jetbrains.annotations.Nullable;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Predicate;
-
-import static java.util.Objects.requireNonNull;
-import static org.junit.jupiter.api.Assertions.*;
+import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class HistoryIoV3CompatibilityTest {
     @TempDir
@@ -35,7 +34,7 @@ class HistoryIoV3CompatibilityTest {
         mockContextManager = new TestContextManager(projectRoot, new NoOpConsoleIO());
 
         var resourceUri = requireNonNull(
-                HistoryIoV3CompatibilityTest.class.getResource("/context-fragments/v3-small-complete"))
+                        HistoryIoV3CompatibilityTest.class.getResource("/context-fragments/v3-small-complete"))
                 .toURI();
         var resourcePath = Path.of(resourceUri);
         var staging = tempDir.resolve("staging");
@@ -65,16 +64,18 @@ class HistoryIoV3CompatibilityTest {
 
         Context top = history.getLiveContext();
 
-        var projectPathFragment = findFragment(
-                top, ContextFragment.ProjectPathFragment.class, f -> f.description().contains("GitHubAuth.java"));
+        var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
+                .contains("GitHubAuth.java"));
         assertNotNull(projectPathFragment, "ProjectPathFragment for GitHubAuth.java should be present");
 
         var buildFragment = findFragment(
-                top, ContextFragment.StringFragment.class, f -> "Source code for io.github.jbellis.brokk.Completions.expandPath".equals(f.description()));
+                top,
+                ContextFragment.StringFragment.class,
+                f -> "Source code for io.github.jbellis.brokk.Completions.expandPath".equals(f.description()));
         assertNotNull(buildFragment, "Migrated BuildFragment (as StringFragment) should be present");
 
-        var imageFileFragment = findFragment(
-                top, ContextFragment.ImageFileFragment.class, f -> f.description().contains("ai-robot.png"));
+        var imageFileFragment = findFragment(top, ContextFragment.ImageFileFragment.class, f -> f.description()
+                .contains("ai-robot.png"));
         assertNotNull(imageFileFragment, "ImageFileFragment for ai-robot.png should be present");
         assertTrue(
                 imageFileFragment.file().absPath().toString().endsWith("ai-robot.png"),
@@ -90,7 +91,8 @@ class HistoryIoV3CompatibilityTest {
      * @param <T>       The ContextFragment type.
      * @return the fragment if found, null otherwise.
      */
-    private @Nullable <T extends ContextFragment> T findFragment(Context context, Class<T> type, Predicate<T> condition) {
+    private @Nullable <T extends ContextFragment> T findFragment(
+            Context context, Class<T> type, Predicate<T> condition) {
         return context.allFragments()
                 .filter(type::isInstance)
                 .map(type::cast)
@@ -98,5 +100,4 @@ class HistoryIoV3CompatibilityTest {
                 .findFirst()
                 .orElse(null);
     }
-
 }

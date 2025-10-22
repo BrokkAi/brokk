@@ -10,8 +10,7 @@ import java.util.zip.ZipOutputStream;
 
 public class FileUtil {
 
-    private FileUtil() {
-    }
+    private FileUtil() {}
 
     /**
      * Zips the contents of the source directory to the zipFile location.
@@ -62,5 +61,4 @@ public class FileUtil {
         Files.createDirectories(filePath.getParent());
         Files.createFile(filePath);
     }
-
 }

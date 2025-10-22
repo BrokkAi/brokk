@@ -2,11 +2,10 @@ package io.github.jbellis.brokk.util.migrationv4;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /** Sealed interfaces and records for fragment DTOs with Jackson polymorphic support. */
 public class V3_FragmentDtos {

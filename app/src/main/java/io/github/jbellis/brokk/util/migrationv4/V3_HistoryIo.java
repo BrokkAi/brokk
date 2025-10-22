@@ -10,10 +10,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -25,6 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public final class V3_HistoryIo {
     private static final Logger logger = LogManager.getLogger(V3_HistoryIo.class);
@@ -41,7 +40,7 @@ public final class V3_HistoryIo {
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
 
-//    private static final int CURRENT_FORMAT_VERSION = 3;
+    //    private static final int CURRENT_FORMAT_VERSION = 3;
 
     private V3_HistoryIo() {}
 
@@ -89,8 +88,11 @@ public final class V3_HistoryIo {
                                 .replace(
                                         "\"@class\":\"io.github.jbellis.brokk.context.FragmentDtos",
                                         "\"@class\":\"io.github.jbellis.brokk.util.migrationv4.V3_FragmentDtos")
-                                .replace("\"summaryType\":\"CLASS_SKELETON\"", "\"summaryType\" : \"CODEUNIT_SKELETON\"");
-                        allFragmentsDto = objectMapper.readValue(fragmentJsonString, V3_FragmentDtos.AllFragmentsDto.class);
+                                .replace(
+                                        "\"summaryType\":\"CLASS_SKELETON\"",
+                                        "\"summaryType\" : \"CODEUNIT_SKELETON\"");
+                        allFragmentsDto =
+                                objectMapper.readValue(fragmentJsonString, V3_FragmentDtos.AllFragmentsDto.class);
                     }
                     case CONTENT_FILENAME -> {
                         var typeRef = new TypeReference<Map<String, ContentDtos.ContentMetadataDto>>() {};
@@ -179,7 +181,8 @@ public final class V3_HistoryIo {
 
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
-            V3_FragmentDtos.CompactContextDto compactDto = objectMapper.readValue(line, V3_FragmentDtos.CompactContextDto.class);
+            V3_FragmentDtos.CompactContextDto compactDto =
+                    objectMapper.readValue(line, V3_FragmentDtos.CompactContextDto.class);
             contexts.add(V3_DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader));
         }
 
@@ -226,7 +229,8 @@ public final class V3_HistoryIo {
                         var diff = ContentDiffUtils.diff(lastContent, content);
                         var diffRatio = (double) diff.length() / content.length();
                         if (diffRatio < 0.75) {
-                            contentMetadata.put(contentId, new ContentDtos.DiffContentMetadataDto(revision, lastContentId));
+                            contentMetadata.put(
+                                    contentId, new ContentDtos.DiffContentMetadataDto(revision, lastContentId));
                             contentBytes.put(contentId, diff.getBytes(StandardCharsets.UTF_8));
                             return contentId;
                         }

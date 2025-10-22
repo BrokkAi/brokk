@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.context.ContentDtos.ContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.DiffContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.FullContentMetadataDto;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
+import io.github.jbellis.brokk.util.migrationv4.HistoryV4Migrator;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -25,8 +26,6 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-
-import io.github.jbellis.brokk.util.migrationv4.HistoryV4Migrator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
