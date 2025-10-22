@@ -40,30 +40,6 @@ public class WorkspaceTools {
     private Context context;
 
     /**
-     * The list of tool method names exposed by this class. Use this list to select instance-scoped ToolSpecifications
-     * for per-turn WorkspaceTools instances.
-     */
-    public static final List<String> INSTANCE_TOOL_NAMES = List.of(
-            "addFilesToWorkspace",
-            "addClassesToWorkspace",
-            "addUrlContentsToWorkspace",
-            "addTextToWorkspace",
-            "dropWorkspaceFragments",
-            "addSymbolUsagesToWorkspace",
-            "addClassSummariesToWorkspace",
-            "addFileSummariesToWorkspace",
-            "addMethodsToWorkspace",
-            "getFiles",
-            "addCallGraphInToWorkspace",
-            "addCallGraphOutToWorkspace",
-            "fetchUrlContent" // fetchUrlContent is static but keep name for discovery if needed
-            );
-
-    public static boolean isWorkspaceTool(String toolName) {
-        return INSTANCE_TOOL_NAMES.contains(toolName);
-    }
-
-    /**
      * Construct a WorkspaceTools instance operating on the provided Context.
      * This is the preferred constructor for per-turn/local usage inside agents.
      */
