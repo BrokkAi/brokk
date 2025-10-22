@@ -17,7 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
  * Comprehensive tests for AbstractProject's filtering logic (gitignore and baseline exclusions).
  * Tests both core filtering (getAllFiles) and language integration (getAnalyzableFiles, getFiles).
  */
-class ProjectFilteringTest {
+class ProjectFilteringGitRepoTest {
 
     private static void initGitRepo(Path tempDir) throws Exception {
         try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {

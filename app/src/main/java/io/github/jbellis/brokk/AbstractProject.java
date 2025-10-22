@@ -557,8 +557,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
-            var rawFiles = getAllFilesRaw();
-            allFilesCache = applyFiltering(rawFiles);
+            allFilesCache = applyFiltering(getAllFilesRaw());
         }
         return allFilesCache;
     }

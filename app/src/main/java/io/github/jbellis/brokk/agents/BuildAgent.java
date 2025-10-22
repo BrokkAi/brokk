@@ -130,7 +130,6 @@ public class BuildAgent {
             var addedFromGitignore = new ArrayList<String>();
             for (var pattern : ignoredPatterns) {
                 // Skip glob patterns explicitly - they're handled by AbstractProject's IgnoreNode filtering
-                // Note: Path.of() doesn't throw on Unix/macOS for glob chars, so we check explicitly
                 if (containsGlobPattern(pattern)) {
                     continue;
                 }
@@ -302,8 +301,8 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore.
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
-                IMPORTANT: Only provide literal directory paths (e.g., "build", "target", ".gradle"). DO NOT use glob patterns
-                (e.g., "**/target", "**/.idea") - these are already handled by .gitignore processing.
+                IMPORTANT: Only provide literal directory paths. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
+                these are already handled by .gitignore processing.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
@@ -335,7 +334,7 @@ public class BuildAgent {
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
                     List<String> excludedDirectories) {
         // Combine baseline excluded directories with those suggested by the LLM
-        // Filter out glob patterns defensively - they're handled by AbstractProject's IgnoreNode filtering
+        // Filter out glob patterns defensively even though the prompt instructs against them
         var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
