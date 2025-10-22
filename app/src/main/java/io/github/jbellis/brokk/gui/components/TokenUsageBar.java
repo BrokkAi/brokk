@@ -266,11 +266,39 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Update the bar with fragments from the given Context. Runs on the EDT.
+     * Update the bar with fragments from the given Context.
+     * - Schedules UI update on the EDT.
+     * - Pre-warms token counts off-EDT to avoid doing heavy work during paint.
+     * - Repaints on completion so segment widths reflect computed tokens.
      */
     public void setFragmentsForContext(Context context) {
         List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
+
+        // Update UI on EDT
         SwingUtilities.invokeLater(() -> setFragments(frags));
+
+        // Precompute token counts off-EDT to avoid jank during paint and tooltips
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                for (var f : frags) {
+                    try {
+                        if (f.isText() || f.getType().isOutput()) {
+                            // This will compute and cache the token count for the fragment
+                            tokensForFragment(f);
+                        }
+                    } catch (Exception ignore) {
+                        // Best-effort pre-warm; failures are non-fatal and will be handled lazily
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                SwingUtilities.invokeLater(TokenUsageBar.this::repaint);
+            }
+        }.execute();
     }
 
     /**
