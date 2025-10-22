@@ -77,14 +77,15 @@ public final class CompositeToolRegistry {
                 continue;
             }
 
-            // Global fallback
+            // Global tools last
             var global = registry.getRegisteredTool(name);
             if (global.isPresent()) {
                 specs.add(global.get());
                 bindings.put(name, new Target(TargetType.GLOBAL, null));
-            } else {
-                logger.debug("Tool '{}' not found in any provider (workspace, agent, or global); skipping.", name);
+                continue;
             }
+
+            throw new IllegalArgumentException("Tool `%s` not found in any provider (workspace, agent, or global)".formatted(name));
         }
 
         // Log any overshadowing (debug only)
@@ -110,25 +111,11 @@ public final class CompositeToolRegistry {
         var name = request.name();
         var target = bindings.get(name);
 
-        if (target == null) {
-            // Fallback resolution if execute is called for a tool that wasn't exposed via getToolSpecifications
-            logger.debug("No binding found for tool '{}'; attempting dynamic resolution.", name);
-            var wsNames = instanceToolNames(workspaceTools);
-            if (wsNames.contains(name)) {
-                return registry.executeTool(workspaceTools, request);
-            }
-            var agentNames = instanceToolNames(agentInstance);
-            if (agentNames.contains(name)) {
-                return registry.executeTool(agentInstance, request);
-            }
-            // global fallback
-            return registry.executeTool(this, request); // validateTool will fall back to global registry
-        }
-
         return switch (target.type()) {
             case WORKSPACE -> registry.executeTool(Objects.requireNonNull(target.instance()), request);
             case AGENT -> registry.executeTool(Objects.requireNonNull(target.instance()), request);
-            case GLOBAL -> registry.executeTool(this, request); // instance has no @Tool methods; falls back to global
+            // even though these are global, executeTool requires a non-null instance, so we pass `this`
+            case GLOBAL -> registry.executeTool(this, request);
         };
     }
 

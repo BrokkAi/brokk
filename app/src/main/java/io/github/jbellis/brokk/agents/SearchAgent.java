@@ -215,7 +215,7 @@ public class SearchAgent {
             for (var req : sortedCalls) {
                 ToolExecutionResult exec;
                 try {
-                    exec = new io.github.jbellis.brokk.tools.CompositeToolRegistry(toolRegistry, wst, this)
+                    exec = new CompositeToolRegistry(toolRegistry, wst, this)
                             .execute(req);
                     context = wst.getContext();
                 } catch (Exception e) {
