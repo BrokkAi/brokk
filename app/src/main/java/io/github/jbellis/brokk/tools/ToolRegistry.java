@@ -398,15 +398,20 @@ public class ToolRegistry {
         if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
             return "";
         }
-        var vi = validateTool(request);
-        var argsYaml = toYaml(vi);
-        var headline = headlineFor(request.name());
-        return """
-               ### %s
-               ```yaml
-               %s```
-               """
-                .formatted(headline, argsYaml);
+        try {
+            var vi = validateTool(request);
+            var argsYaml = toYaml(vi);
+            var headline = headlineFor(request.name());
+            return """
+                   ### %s
+                   ```yaml
+                   %s```
+                   """
+                    .formatted(headline, argsYaml);
+        } catch (ToolValidationException e) {
+            logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
+            return "";
+        }
     }
 
     /** Deduplication helper producing one signature unit per element of the single list param. */

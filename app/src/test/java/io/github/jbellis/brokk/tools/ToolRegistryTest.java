@@ -23,9 +23,9 @@ class ToolRegistryTest {
 
     @BeforeEach
     void setup() {
-        registry = new ToolRegistry();
+        var rootRegistry = new ToolRegistry();
         tools = new TestTools();
-        registry.register(tools);
+        registry = rootRegistry.builder().register(tools).build();
     }
 
     @Test
@@ -234,7 +234,7 @@ class ToolRegistryTest {
                 .arguments(json)
                 .build();
 
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertFalse(explanation.isBlank());
         assertTrue(explanation.contains("Fetching class source"));
@@ -256,7 +256,7 @@ class ToolRegistryTest {
                 .build();
 
         // Should NOT throw - validation errors return empty string (details logged only)
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertTrue(explanation.isBlank());
     }
@@ -269,7 +269,7 @@ class ToolRegistryTest {
                 .build();
 
         // Should NOT throw - validation errors return empty string (details logged only)
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertTrue(explanation.isBlank());
     }
@@ -282,7 +282,7 @@ class ToolRegistryTest {
                 .build();
 
         // Should NOT throw - validation errors return empty string (details logged only)
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertTrue(explanation.isBlank());
     }
