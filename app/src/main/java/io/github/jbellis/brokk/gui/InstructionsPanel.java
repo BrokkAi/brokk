@@ -918,12 +918,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (plain.isBlank()) {
                     plain = PLACEHOLDER_TEXT;
                 }
+
+                // Track previous placeholder to compare against current input content
                 String previous = currentPlaceholderText;
                 currentPlaceholderText = plain;
 
-                // Only replace if the current text is still showing an existing placeholder (don't overwrite user input).
+                // Replace the content only if the text area is not yet active (disabled),
+                // or if it still shows a placeholder (previous or default) or is blank.
                 String current = instructionsArea.getText();
-                if (PLACEHOLDER_TEXT.equals(current) || previous.equals(current)) {
+                boolean inactive = !instructionsArea.isEnabled();
+                boolean isBlank = current == null || current.isBlank();
+                boolean isDefaultPlaceholder = PLACEHOLDER_TEXT.equals(current);
+                boolean isPreviousPlaceholder = previous.equals(current);
+
+                if (inactive || isBlank || isDefaultPlaceholder || isPreviousPlaceholder) {
                     instructionsArea.setText(currentPlaceholderText);
                 }
             } catch (Exception ex) {
