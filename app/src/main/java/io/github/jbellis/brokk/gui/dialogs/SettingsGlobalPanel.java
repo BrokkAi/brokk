@@ -1044,7 +1044,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 0.0;
         topPanel.add(new JLabel("Preferred Code Model:"), gbc);
 
-        preferredCodeModelCombo = new JComboBox<>(availableModelNames);
+        preferredCodeModelCombo = new JComboBox<>();
+        // Will be populated with favorite model aliases in loadSettings()
         // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
         var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         comboHolder.add(preferredCodeModelCombo);
@@ -1308,9 +1309,31 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
 
         // Quick Models Tab
-        quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
+        var loadedFavorites = MainProject.loadFavoriteModels();
+        quickModelsTableModel.setFavorites(loadedFavorites);
+
+        // Populate preferred code model combo with favorite aliases
+        preferredCodeModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current code config
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
-        preferredCodeModelCombo.setSelectedItem(currentCodeConfig.name());
+        String selectedAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentCodeConfig.name())
+                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
+                    && favorite.config().tier() == currentCodeConfig.tier()) {
+                selectedAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            preferredCodeModelCombo.setSelectedIndex(0);
+        }
 
         // GitHub Tab
         if (gitHubSettingsPanel != null) {
@@ -1495,10 +1518,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // Preferred Code Model
-        var selectedCodeModel = (String) preferredCodeModelCombo.getSelectedItem();
-        if (selectedCodeModel != null && !selectedCodeModel.isEmpty()) {
-            var codeConfig = new Service.ModelConfig(selectedCodeModel);
-            chrome.getProject().getMainProject().setCodeModelConfig(codeConfig);
+        var selectedAlias = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedAlias != null && !selectedAlias.isEmpty()) {
+            try {
+                var favoriteModel = MainProject.getFavoriteModel(selectedAlias);
+                chrome.getProject().getMainProject().setCodeModelConfig(favoriteModel.config());
+            } catch (IllegalArgumentException e) {
+                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedAlias);
+            }
         }
 
         // GitHub Tab - managed via Connect/Disconnect flow

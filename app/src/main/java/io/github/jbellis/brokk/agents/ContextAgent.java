@@ -237,7 +237,7 @@ public class ContextAgent {
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
         // Process each group in parallel
-        RecommendationResult[] results = new RecommendationResult[2];
+        LlmRecommendation[] results = new LlmRecommendation[2];
         Throwable[] errors = new Throwable[2];
 
         Thread t1 = Thread.ofVirtual().start(() -> {
@@ -248,8 +248,7 @@ public class ContextAgent {
                         allSummaries,
                         workspaceRepresentation,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                        pruneBudgetRemaining);
             } catch (Throwable t) {
                 errors[0] = t;
             }
@@ -263,8 +262,7 @@ public class ContextAgent {
                         Map.of(),
                         workspaceRepresentation,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                        pruneBudgetRemaining);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -276,35 +274,48 @@ public class ContextAgent {
         if (errors[0] != null) throw new RuntimeException(errors[0]);
         if (errors[1] != null) throw new RuntimeException(errors[1]);
 
-        var analyzedResult = results[0];
-        var unAnalyzedResult = results[1];
+        var analyzedRec = results[0];
+        var unAnalyzedRec = results[1];
 
-        boolean success = analyzedResult.success || unAnalyzedResult.success;
-        var combinedFragments = Stream.concat(analyzedResult.fragments.stream(), unAnalyzedResult.fragments.stream())
-                .toList();
-        var combinedReasoning = Stream.of(analyzedResult.reasoning, unAnalyzedResult.reasoning)
+        boolean success = !analyzedRec.recommendedFiles().isEmpty()
+                || !analyzedRec.recommendedClasses().isEmpty()
+                || !unAnalyzedRec.recommendedFiles().isEmpty()
+                || !unAnalyzedRec.recommendedClasses().isEmpty();
+
+        // Union files and classes from both groups. Since both groups are processed independently,
+        // the LLM may recommend the same file/class in both. We use HashSet to automatically deduplicate
+        // at the semantic level (canonical ProjectFile and CodeUnit objects).
+        var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
+        mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
+
+        var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
+        mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
+
+        var combinedReasoning = Stream.of(analyzedRec.reasoning(), unAnalyzedRec.reasoning())
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
-        var combinedUsage = addTokenUsage(analyzedResult.tokenUsage, unAnalyzedResult.tokenUsage);
+        var combinedUsage = addTokenUsage(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
 
-        return new RecommendationResult(success, combinedFragments, combinedReasoning, combinedUsage);
+        var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, combinedReasoning, combinedUsage);
+        var result = createResult(unifiedRec, existingFiles);
+
+        return new RecommendationResult(success, result, combinedReasoning, combinedUsage);
     }
 
     // --- Group processing ---
 
-    private RecommendationResult processGroup(
+    private LlmRecommendation processGroup(
             GroupType type,
             List<ProjectFile> groupFiles,
             Map<CodeUnit, String> allSummariesForAnalyzed,
             Collection<ChatMessage> workspaceRepresentation,
             int evalBudgetRemaining,
-            int pruneBudgetRemaining,
-            Set<ProjectFile> existingFiles)
+            int pruneBudgetRemaining)
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
             String msg = "No " + type.name().toLowerCase(Locale.ROOT) + " items to process.";
-            return new RecommendationResult(true, List.of(), msg, null);
+            return new LlmRecommendation(Set.of(), Set.of(), msg, null);
         }
 
         // Build initial payload preview for token estimation
@@ -341,8 +352,8 @@ public class ContextAgent {
 
             if (workingFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
-                return new RecommendationResult(
-                        true, List.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
+                return new LlmRecommendation(
+                        Set.of(), Set.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
             }
         }
 
@@ -362,7 +373,7 @@ public class ContextAgent {
                     evalRec.recommendedFiles(), evalRec.recommendedClasses(), evalRec.reasoning(), usage);
         }
 
-        return createResult(evalRec, existingFiles);
+        return evalRec;
     }
 
     private LlmRecommendation evaluateWithHalving(
@@ -396,7 +407,7 @@ public class ContextAgent {
 
     // --- Result assembly ---
 
-    private RecommendationResult createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
+    private List<ContextFragment> createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
         var originalFiles = llmRecommendation.recommendedFiles();
         var filteredFiles =
                 originalFiles.stream().filter(f -> !existingFiles.contains(f)).toList();
@@ -419,7 +430,6 @@ public class ContextAgent {
                     recommendedClasses.size());
         }
 
-        var reasoning = llmRecommendation.reasoning();
         var recommendedSummaries = getSummaries(recommendedClasses);
 
         int recommendedSummaryTokens = Messages.getApproximateTokens(String.join("\n", recommendedSummaries.values()));
@@ -440,10 +450,7 @@ public class ContextAgent {
         var pathFragments = filteredFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        var combinedFragments =
-                Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
-
-        return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
+        return Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
     }
 
     /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
