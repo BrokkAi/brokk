@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -47,6 +48,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     // Logger for defensive debug logging in catch blocks (avoid empty catches)
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
 
+    private static final String READ_ONLY_TIP = "Select latest activity to enable";
+
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
@@ -79,7 +82,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     private void handleBlankSpaceRightClick(MouseEvent e) {
         if (readOnly) {
-            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
             return;
         }
         // Check if click is on blank space (not within any chip component)
@@ -779,7 +782,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     private void executeCloseChip(ContextFragment fragment) {
         if (readOnly) {
-            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
             return;
         }
         // Enforce latest-context gating (read-only when viewing historical context)
