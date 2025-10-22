@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.agent.tool.P;
@@ -73,6 +74,8 @@ public class ArchitectAgent {
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
+
+    private static final ThreadLocal<TaskResult> LAST_SEARCH_RESULT = new ThreadLocal<>();
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -229,12 +232,14 @@ public class ArchitectAgent {
             throws FatalLlmException {
         addPlanningToHistory();
         logger.debug("callSearchAgent invoked with query: {}", query);
+        LAST_SEARCH_RESULT.remove();
 
         // Instantiate and run SearchAgent
         io.llmOutput("Search Agent engaged: " + query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
         var result = searchAgent.execute();
         scope.append(result);
+        LAST_SEARCH_RESULT.set(result);
         // Update local context from SearchAgent result
         context = result.context();
 
@@ -501,17 +506,14 @@ public class ArchitectAgent {
             // Submit search agent tasks to run in the background (offered only when Undo is offered)
             // Each task gets its own isolated WorkspaceTools and Context, all seeded from the same baseContext
             var searchAgentTasks = new ArrayList<SearchTask>();
-            var baseContextForSearch = this.context;
             for (var req : searchAgentReqs) {
                 Callable<SearchTaskResult> task = () -> {
-                    var wstSearch = new WorkspaceTools(baseContextForSearch);
-                    var trSearch = cm.getToolRegistry().copy();
-                    trSearch.register(wstSearch);
-                    trSearch.register(this);
-                    var toolResult = trSearch.executeTool(req);
-                    var resultContext = wstSearch.getContext();
+                    // Ensure a clean slate for this thread before invoking the tool
+                    LAST_SEARCH_RESULT.remove();
+                    var toolResult = tr.executeTool(req);
+                    var saResult = requireNonNull(LAST_SEARCH_RESULT.get());
                     logger.debug("Finished SearchAgent task for request: {}", req.name());
-                    return new SearchTaskResult(toolResult, resultContext);
+                    return new SearchTaskResult(toolResult, saResult.context());
                 };
                 var taskDescription = "SearchAgent: " + LogDescription.getShortDescription(req.arguments());
                 var future = cm.submitBackgroundTask(taskDescription, task);
