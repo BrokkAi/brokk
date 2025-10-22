@@ -1608,24 +1608,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.setEnabled(true);
                 actionButton.setToolTipText("Cancel the current operation");
 
-                Color bg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
+                Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
+                if (bg == null) {
+                    bg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
+                }
                 if (isHighContrast) {
-                    var hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
-                    if (hcStop != null) {
-                        bg = hcStop;
-                    }
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
             } else {
                 // If there is no running action, keep the action button enabled so the user can start an action.
                 actionButton.setEnabled(true);
-                Color bg = defaultActionButtonBg;
-                if (isHighContrast) {
-                    var hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
-                    if (hcDefault != null) {
-                        bg = hcDefault;
-                    }
+                Color bg = UIManager.getColor("Brokk.action_button_bg_default");
+                if (bg == null) {
+                    bg = defaultActionButtonBg;
                 }
                 actionButton.setBackground(bg);
                 // Ensure combined tooltip (mode-specific + base) is shown initially
@@ -1648,12 +1644,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (isActionRunning()) {
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
-                Color bg = secondaryActionButtonBg;
+                Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
+                if (bg == null) {
+                    bg = secondaryActionButtonBg;
+                }
                 if (isHighContrast) {
-                    var hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
-                    if (hcStop != null) {
-                        bg = hcStop;
-                    }
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
@@ -1661,12 +1656,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.showNormalMode();
                 // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
                 actionButton.updateTooltip();
-                Color bg = defaultActionButtonBg;
+                Color bg = UIManager.getColor("Brokk.action_button_bg_default");
+                if (bg == null) {
+                    bg = defaultActionButtonBg;
+                }
                 if (isHighContrast) {
-                    var hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
-                    if (hcDefault != null) {
-                        bg = hcDefault;
-                    }
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
