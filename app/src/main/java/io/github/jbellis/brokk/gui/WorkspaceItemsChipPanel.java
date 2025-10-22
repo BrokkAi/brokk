@@ -109,7 +109,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
      * Sets the fragments from a Context (historical or live). Safe to call from any thread.
      */
     public void setFragmentsForContext(Context context) {
-        var frags = context.getAllFragmentsInDisplayOrder();
+        List<ContextFragment> frags =
+                (context == null) ? List.of() : context.getAllFragmentsInDisplayOrder();
         SwingUtilities.invokeLater(() -> updateChips(frags));
     }
 
