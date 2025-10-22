@@ -281,14 +281,21 @@ public class ContextAgent {
         var unAnalyzedResult = results[1];
 
         boolean success = analyzedResult.success || unAnalyzedResult.success;
-        var combinedFragments = Stream.concat(analyzedResult.fragments.stream(), unAnalyzedResult.fragments.stream())
+
+        // Merge fragments from both groups, then de-duplicate.
+        // Rationale: each group is processed independently; the LLM may recommend the same file
+        // in both groups. We normalize here to avoid duplicate ProjectPathFragments in the Workspace.
+        var merged = Stream.concat(analyzedResult.fragments.stream(), unAnalyzedResult.fragments.stream())
                 .toList();
+        // De-duplicate after merging analyzed and un-analyzed groups. The LLM may select the same file in both.
+        var dedupedFragments = deduplicateMergedFragments(merged);
+
         var combinedReasoning = Stream.of(analyzedResult.reasoning, unAnalyzedResult.reasoning)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
         var combinedUsage = addTokenUsage(analyzedResult.tokenUsage, unAnalyzedResult.tokenUsage);
 
-        return new RecommendationResult(success, combinedFragments, combinedReasoning, combinedUsage);
+        return new RecommendationResult(success, dedupedFragments, combinedReasoning, combinedUsage);
     }
 
     // --- Group processing ---
@@ -812,6 +819,54 @@ public class ContextAgent {
     }
 
     // --- Helper methods ---
+    /**
+     * Final de-duplication after merging analyzed and un-analyzed groups.
+     * Rationale: both groups are processed independently and the LLM may recommend the same file in both.
+     * We keep the first occurrence and drop subsequent duplicates; we also log what was removed.
+     */
+    private List<ContextFragment> deduplicateMergedFragments(Collection<ContextFragment> fragments) {
+        var seenKeys = new HashSet<String>();
+        var deduped = new ArrayList<ContextFragment>();
+        var duplicateFileKeys = new ArrayList<String>();
+        var duplicateSummaryKeys = new ArrayList<String>();
+
+        for (var frag : fragments) {
+            String key;
+            if (frag.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                    && frag instanceof ContextFragment.ProjectPathFragment ppf) {
+                key = "PATH:" + ppf.file().toString();
+            } else if (frag.getType() == ContextFragment.FragmentType.SKELETON) {
+                key = "SKEL:" + frag.description();
+            } else {
+                key = frag.getType() + ":" + frag.description();
+            }
+
+            if (!seenKeys.add(key)) {
+                if (key.startsWith("PATH:")) {
+                    duplicateFileKeys.add(key.substring("PATH:".length()));
+                } else if (key.startsWith("SKEL:")) {
+                    duplicateSummaryKeys.add(key.substring("SKEL:".length()));
+                }
+                continue;
+            }
+            deduped.add(frag);
+        }
+
+        int removed = fragments.size() - deduped.size();
+        if (removed > 0) {
+            if (!duplicateFileKeys.isEmpty() || !duplicateSummaryKeys.isEmpty()) {
+                logger.debug(
+                        "Final merge de-duplicated {} fragment(s). Duplicate files: {}{}{}",
+                        removed,
+                        duplicateFileKeys.isEmpty() ? "0" : String.join(", ", duplicateFileKeys),
+                        duplicateSummaryKeys.isEmpty() ? "" : " | duplicate summaries: ",
+                        duplicateSummaryKeys.isEmpty() ? "" : String.join(", ", duplicateSummaryKeys));
+            } else {
+                logger.debug("Final merge de-duplicated {} fragment(s).", removed);
+            }
+        }
+        return deduped;
+    }
 
     private static @Nullable Llm.RichTokenUsage addTokenUsage(
             @Nullable Llm.RichTokenUsage a, @Nullable Llm.RichTokenUsage b) {
