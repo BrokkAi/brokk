@@ -1586,6 +1586,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     @Override
+    public void addNotify() {
+        super.addNotify();
+        // Re-register the listener if it was previously removed.
+        if (registeredContextManager == null) {
+            try {
+                IContextManager cm = chrome.getContextManager();
+                registeredContextManager = cm;
+                cm.addContextListener(this);
+                // Refresh tasks, in case the model changed while the panel was not showing.
+                loadTasksForCurrentSession();
+            } catch (Exception e) {
+                logger.debug("Unable to re-register TaskListPanel as context listener", e);
+            }
+        }
+    }
+
+    @Override
     public void removeNotify() {
         try {
             saveTasksForCurrentSession();
