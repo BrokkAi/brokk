@@ -204,7 +204,7 @@ public final class GitWorkflow {
                 .build();
 
         var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
-        toolSpecs.addAll(tr.getTools(this, List.of("suggestPrDetails")));
+        toolSpecs.addAll(tr.getTools(List.of("suggestPrDetails")));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 
         var llm = cm.getLlm(new Llm.Options(modelToUse, "PR-description")

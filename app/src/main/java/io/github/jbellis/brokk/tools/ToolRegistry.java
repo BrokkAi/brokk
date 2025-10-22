@@ -187,7 +187,7 @@ public class ToolRegistry {
     }
 
     /** Generates ToolSpecifications for the given list of tool names. */
-    public List<ToolSpecification> getTools(List<String> toolNames) {
+    public List<ToolSpecification> getTools(Collection<String> toolNames) {
         var present = toolNames.stream().filter(toolMap::containsKey).toList();
         var missing = toolNames.stream().filter(t -> !toolMap.containsKey(t)).toList();
         if (!missing.isEmpty()) {
@@ -209,24 +209,6 @@ public class ToolRegistry {
     /** Returns true if a global tool with the given name is registered. */
     public boolean isRegistered(String toolName) {
         return toolMap.containsKey(toolName);
-    }
-
-    /** Generates ToolSpecifications for tool methods defined as instance methods within a given object. */
-    public List<ToolSpecification> getTools(Object instance, Collection<String> toolNames) {
-        Class<?> cls = instance.getClass();
-        List<Method> annotatedMethods = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(Tool.class))
-                .filter(m -> !Modifier.isStatic(m.getModifiers()))
-                .toList();
-
-        return toolNames.stream()
-                .map(toolName -> annotatedMethods.stream()
-                        .filter(m -> m.getName().equals(toolName))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException(
-                                "No tool method found for %s in %s".formatted(toolName, instance))))
-                .map(ToolSpecifications::toolSpecificationFrom)
-                .collect(Collectors.toList());
     }
 
     /** Executes a tool exclusively from the registry (no instance tools). */

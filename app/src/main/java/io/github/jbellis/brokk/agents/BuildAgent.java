@@ -166,7 +166,7 @@ public class BuildAgent {
                     tr.getTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
-                tools.addAll(tr.getTools(this, List.of("reportBuildDetails", "abortBuildDetails")));
+                tools.addAll(tr.getTools(List.of("reportBuildDetails", "abortBuildDetails")));
             }
 
             // Make the LLM request

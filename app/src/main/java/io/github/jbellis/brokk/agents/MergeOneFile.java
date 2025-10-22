@@ -160,8 +160,7 @@ public final class MergeOneFile {
 
         var toolSpecs = new ArrayList<ToolSpecification>();
         toolSpecs.addAll(tr.getTools(allowed));
-        toolSpecs.addAll(
-                tr.getTools(this, List.of("explainCommit", "callCodeAgent", "getContentsAtRevision", "abortMerge")));
+        toolSpecs.addAll(tr.getTools(List.of("explainCommit", "callCodeAgent", "getContentsAtRevision", "abortMerge")));
 
         // Bounded loop; stop once conflicts are gone or we hit max steps
         final int MAX_STEPS = 10;

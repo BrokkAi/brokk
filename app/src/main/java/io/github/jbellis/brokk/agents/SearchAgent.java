@@ -634,7 +634,7 @@ public class SearchAgent {
         }
 
         var messages = buildInitialPruningPrompt();
-        var toolSpecs = tr.getTools(this, List.of("performedInitialReview", "dropWorkspaceFragments"));
+        var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
         var jLlm = cm.getLlm(new Llm.Options(cm.getService().getScanModel(), "Janitor: " + goal).withEcho());
