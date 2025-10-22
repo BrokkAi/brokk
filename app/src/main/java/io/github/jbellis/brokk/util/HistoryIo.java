@@ -25,6 +25,8 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+
+import io.github.jbellis.brokk.util.migrationv4.HistoryV4Migrator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -36,6 +38,8 @@ public final class HistoryIo {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
+    // TODO: [Migration4] Change to v4 when migrating
+    private static final String V4_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
     private static final String CONTENT_FILENAME = "content_metadata.json";
     private static final String CONTENT_DIR_PREFIX = "content/";
@@ -54,17 +58,27 @@ public final class HistoryIo {
         }
 
         boolean isV3 = false;
+        boolean isV4 = false;
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) isV3 = true;
+                if (entry.getName().equals(V4_FRAGMENTS_FILENAME)) isV4 = true;
             }
         }
 
         if (isV3) {
-            return readZipV3(zip, mgr);
+            HistoryV4Migrator.migrate(zip, mgr);
+            return readZipV4(zip, mgr);
+        } else if (isV4) {
+            return readZipV4(zip, mgr);
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
+    }
+
+    private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
+        // TODO: [Migration4] Handle during migration
+        return readZipV3(zip, mgr);
     }
 
     private static ContextHistory readZipV3(Path zip, IContextManager mgr) throws IOException {
@@ -317,7 +331,7 @@ public final class HistoryIo {
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
-                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
+                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 
