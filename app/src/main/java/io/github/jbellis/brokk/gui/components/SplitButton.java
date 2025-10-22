@@ -75,11 +75,12 @@ public class SplitButton extends JComponent {
         // Initialize maximum sizes to preferred sizes to avoid stretching
         updateChildMaximumSizes();
 
-        // When the action content changes, recompute and refresh layout
+        // When properties that affect width change, perform a light-weight size update
         actionButton.addPropertyChangeListener(evt -> {
             var name = evt.getPropertyName();
             if ("text".equals(name) || "icon".equals(name) || "font".equals(name) || "iconTextGap".equals(name)) {
                 updateChildMaximumSizes();
+                SplitButton.this.invalidate();
                 revalidate();
                 repaint();
             }
