@@ -979,6 +979,7 @@ public interface ContextFragment {
         private static byte[] imageToBytes(@Nullable Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
+                // TODO: [Migration4] FrozenFragments are to be phased out in migration v4
                 return FrozenFragment.imageToBytes(image);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
