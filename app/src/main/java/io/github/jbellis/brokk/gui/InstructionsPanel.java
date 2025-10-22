@@ -1827,10 +1827,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             inputLayeredPane.repaint();
         }
 
-        // Set action button foreground: black in high contrast mode, white otherwise
-        Color buttonForeground = isHighContrast ? Color.BLACK : Color.WHITE;
         if (!isActionRunning()) {
-            actionButton.setForeground(buttonForeground);
+            actionButton.setForeground(Color.WHITE);
         }
     }
 
