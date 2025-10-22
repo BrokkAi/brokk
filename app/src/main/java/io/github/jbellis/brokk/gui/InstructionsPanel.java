@@ -89,9 +89,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
 
-    private static final String PLACEHOLDER_TEXT = "Put your instructions or questions here.";
-    // Tracks the currently active placeholder text for the instructions area.
-    private String currentPlaceholderText = PLACEHOLDER_TEXT;
+    private static final String PLACEHOLDER_TEXT = """
+            Switching modes:
+            - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
+
+            Brokk action modes:
+            - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
+              Lutz mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+              It is a great way to kick off work with strong context and a clear plan.
+            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+
+            Type your prompt here. (Shift+Enter for a new line)
+            """.stripIndent();
 
     private final Chrome chrome;
     private final JTextArea instructionsArea;
@@ -298,9 +308,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Synchronize button's selected mode with loaded preference
         actionButton.setSelectedMode(storedAction);
-        // Immediately refresh mode indicator and placeholder based on selected mode
+        // Initialize mode indicator
         refreshModeIndicator();
-        updatePlaceholderForMode();
         // Initialize tooltip to reflect the selected mode
         SwingUtilities.invokeLater(actionButton::updateTooltip);
 
@@ -311,7 +320,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             MainProject.setGlobalActionMode(mode);
             chrome.getProject().saveActionMode(mode);
             refreshModeIndicator();
-            updatePlaceholderForMode();
         });
 
         modelSelector = new ModelSelector(chrome);
@@ -381,7 +389,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize mode indicator
         refreshModeIndicator();
-        updatePlaceholderForMode();
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -909,53 +916,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    // Returns true if the given text matches either the original placeholder or the current dynamic placeholder.
+    // Returns true if the given text matches the placeholder.
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT.equals(text) || currentPlaceholderText.equals(text);
-    }
-
-    // Strip HTML tags and compress whitespace for tooltip -> placeholder conversion.
-    private static String stripHtml(String html) {
-        String noTags = html.replaceAll("(?s)<[^>]*>", " ");
-        // Basic unescape for common entities we use
-        noTags = noTags.replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">");
-        return noTags.replaceAll("\\s+", " ").trim();
-    }
-
-    // Update the placeholder to mirror the currently selected mode's tooltip.
-    private void updatePlaceholderForMode() {
-        Runnable r = () -> {
-            try {
-                String html = actionButton.getModeTooltipHtml();
-                String plain = stripHtml(html);
-                if (plain.isBlank()) {
-                    plain = PLACEHOLDER_TEXT;
-                }
-
-                // Track previous placeholder to compare against current input content
-                String previous = currentPlaceholderText;
-                currentPlaceholderText = plain;
-
-                // Replace the content only if the text area is not yet active (disabled),
-                // or if it still shows a placeholder (previous or default) or is blank.
-                String current = instructionsArea.getText();
-                boolean inactive = !instructionsArea.isEnabled();
-                boolean isBlank = current == null || current.isBlank();
-                boolean isDefaultPlaceholder = PLACEHOLDER_TEXT.equals(current);
-                boolean isPreviousPlaceholder = previous.equals(current);
-
-                if (inactive || isBlank || isDefaultPlaceholder || isPreviousPlaceholder) {
-                    instructionsArea.setText(currentPlaceholderText);
-                }
-            } catch (Exception ex) {
-                logger.debug("updatePlaceholderForMode: failed to update placeholder", ex);
-            }
-        };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeLater(r);
+        return PLACEHOLDER_TEXT.equals(text);
     }
 
     public void refreshBranchUi(String branchName) {
@@ -2105,18 +2068,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         };
                 setText(displayText);
             }
-        }
-
-        // Expose the current mode's tooltip HTML (without the base shortcut/footer)
-        String getModeTooltipHtml() {
-            String modeTooltip =
-                    switch (selectedMode) {
-                        case ACTION_CODE -> MODE_TOOLTIP_CODE;
-                        case ACTION_ASK -> MODE_TOOLTIP_ASK;
-                        case ACTION_SEARCH -> MODE_TOOLTIP_LUTZ;
-                        default -> MODE_TOOLTIP_LUTZ;
-                    };
-            return modeTooltip;
         }
 
         @Override
