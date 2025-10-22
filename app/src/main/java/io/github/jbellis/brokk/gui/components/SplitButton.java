@@ -274,7 +274,7 @@ public class SplitButton extends JComponent {
     private Dimension computePreferredSplitSize() {
         int actionWidth = computeActionButtonContentWidth();
         int arrowWidth = ARROW_BUTTON_WIDTH;
-        int totalWidth = actionWidth + arrowWidth;
+        int totalWidth = actionWidth + arrowWidth + 8;
 
         int actionHeight = actionButton.getPreferredSize().height;
         int arrowHeight = arrowButton.getPreferredSize().height;
