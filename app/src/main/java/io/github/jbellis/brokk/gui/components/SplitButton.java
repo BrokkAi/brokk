@@ -95,15 +95,15 @@ public class SplitButton extends JComponent {
         // Initialize maximum sizes to preferred sizes to avoid stretching
         updateChildMaximumSizes();
 
-        // When properties that affect width change, perform a light-weight size update
+        // When properties that affect width change, perform a deferred size update to avoid race conditions
         actionButton.addPropertyChangeListener(evt -> {
             var name = evt.getPropertyName();
             if ("text".equals(name) || "icon".equals(name) || "font".equals(name) || "iconTextGap".equals(name)) {
                 SwingUtilities.invokeLater(() -> {
+                    applyArrowButtonFixedWidth();
                     updateChildMaximumSizes();
-                    SplitButton.this.invalidate();
-                    revalidate();
-                    repaint();
+                    SplitButton.this.revalidate();
+                    SplitButton.this.repaint();
                 });
             }
         });
