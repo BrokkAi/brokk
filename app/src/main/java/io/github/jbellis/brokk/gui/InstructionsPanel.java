@@ -1619,10 +1619,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void contextChanged(Context newCtx) {
         var fragments = newCtx.getAllFragmentsInDisplayOrder();
         logger.debug("Context updated: {} fragments", fragments.size());
-        workspaceItemsChipPanel.setFragments(fragments);
+        // Update chips from the selected context and toggle read-only
+        workspaceItemsChipPanel.setFragmentsForContext(newCtx);
+        boolean readOnly = !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        workspaceItemsChipPanel.setReadOnly(readOnly);
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);
-        boolean readOnly = !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
         tokenUsageBar.setReadOnly(readOnly);
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
