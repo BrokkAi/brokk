@@ -36,6 +36,34 @@ public class ToolRegistry {
     private final Map<String, ToolInvocationTarget> toolMap;
     private final boolean isRoot;
 
+    /** Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting. */
+    public String getExplanationForToolRequest(Object toolOwner, ToolExecutionRequest request) {
+        // Skip empty explanations for answer/abort
+        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
+            return "";
+        }
+        try {
+            // Resolve target and perform typed conversion via validateTool
+            var vi = validateTool(toolOwner, request);
+            var argsYaml = toYaml(vi);
+            var headline = headlineFor(request.name());
+
+            return """
+                   ### %s
+                   ```yaml
+                   %s```
+                   """
+                    .formatted(headline, argsYaml);
+        } catch (ToolValidationException e) {
+            // Log validation error but don't crash - this is just for display
+            logger.warn("Invalid tool request for display: {} - {}", request.name(), e.getMessage());
+            logger.debug("Full tool request: {}", request.arguments());
+
+            // Return empty string - validation details are logged, not shown to user
+            return "";
+        }
+    }
+
     /** Mapping of tool names to display headlines (icons removed). */
     private static final Map<String, String> HEADLINES = Map.ofEntries(
             Map.entry("searchSymbols", "Searching for symbols"),
@@ -356,6 +384,30 @@ public class ToolRegistry {
      * This method first looks for instance methods on the provided instance; if none found it falls back to the
      * registry contents.
      */
+    /**
+     * Validates a tool request against the provided instance's @Tool methods (falling back to this registry).
+     * Instance methods take precedence; if not found on the instance, falls back to the global registry.
+     */
+    public ValidatedInvocation validateTool(Object toolOwner, ToolExecutionRequest request) {
+        String toolName = request.name();
+        if (toolName.isBlank()) {
+            throw new ToolValidationException("Tool name cannot be empty");
+        }
+        if (toolOwner != null) {
+            // Search for a matching @Tool instance method on the owner first
+            for (Method m : toolOwner.getClass().getMethods()) {
+                if (m.isAnnotationPresent(Tool.class)
+                        && !Modifier.isStatic(m.getModifiers())
+                        && m.getName().equals(toolName)) {
+                    var args = parseArguments(request, m);
+                    return new ValidatedInvocation(m, toolOwner, args);
+                }
+            }
+        }
+        // Fallback to the registry
+        return validateTool(request);
+    }
+
     public ValidatedInvocation validateTool(ToolExecutionRequest request) {
         String toolName = request.name();
         if (toolName.isBlank()) {
@@ -469,7 +521,7 @@ public class ToolRegistry {
     public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
         String toolName = request.name();
 
-        ValidatedInvocation vi = validateTool(request);
+        ValidatedInvocation vi = validateTool(instance, request);
         Method method = vi.method();
         Parameter[] params = method.getParameters();
         List<Object> values = vi.parameters();
