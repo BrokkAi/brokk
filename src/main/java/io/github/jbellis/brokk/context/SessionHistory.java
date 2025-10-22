@@ -15,8 +15,10 @@ import org.apache.logging.log4j.Logger;
  *
  * Invariants/behavior:
  * - Timeline is ordered oldest -> newest.
- * - Each SessionStep contains a non-empty list of frozen Context snapshots (no dynamic fragments).
- *   The list preserves the canonical ordering within the step (first = earliest, last = most recent).
+ * - Each SessionStep contains an ordered list of frozen Context snapshots (no dynamic fragments).
+ *   For manual steps (event == null), the list contains exactly one snapshot (the produced state).
+ *   For AI steps (event != null), the list may be empty (read-only) or contain one or more produced snapshots.
+ *   The pre-context for an AI step is not duplicated in the list and can be resolved via event.beforeContextId.
  * - flattenContexts() preserves the same ordering as concatenating each step.contexts in timeline order.
  * - stepForContext(UUID) searches across all contexts and returns the first matching step, if any.
  *

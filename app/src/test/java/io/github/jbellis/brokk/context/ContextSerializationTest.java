@@ -1386,8 +1386,12 @@ public class ContextSerializationTest {
                 entry, taskFragment, CompletableFuture.completedFuture(taskResult.actionDescription()));
         var frozenCtx2 = ctx2.freeze();
 
-        var step = new SessionStep(taskResult, List.of(frozenCtx1, frozenCtx2));
-        var sessionHistory = new SessionHistory(List.of(step));
+        // Build steps following the canonical model:
+        // - Manual step (event == null) with exactly one pre-context snapshot
+        // - AI step (event != null) with post-context snapshots only (no duplication of pre-context)
+        var manualStep = new SessionStep(null, List.of(frozenCtx1));
+        var aiStep = new SessionStep(taskResult, List.of(frozenCtx2));
+        var sessionHistory = new SessionHistory(List.of(manualStep, aiStep));
         var contextHistory = new ContextHistory(sessionHistory.flattenContexts());
 
         // 2. Write: Use a new HistoryIo.writeZip overload that accepts SessionHistory
