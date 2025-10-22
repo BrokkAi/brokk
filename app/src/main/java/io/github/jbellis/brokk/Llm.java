@@ -666,18 +666,19 @@ public class Llm {
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
         // there's no reason to add a second print of it)
         if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
+            prettyPrintToolCalls(toolContext, sr.toolRequests());
         }
         return sr;
     }
 
-    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
+    private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {
         if (requests.isEmpty()) {
             return;
         }
-        var registry = contextManager.getToolRegistry();
+        var tr = toolContext.toolRegistry();
+
         var rendered = requests.stream()
-                .map(tr -> registry.getExplanationForToolRequest(toolOwner, tr))
+                .map(tr::getExplanationForToolRequest)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
@@ -769,13 +770,11 @@ public class Llm {
                 }
 
                 // Validate tool call arguments using ToolRegistry; on failure, retry with error feedback
-                var registry = contextManager.getToolRegistry();
+                var tr = toolContext.toolRegistry();
                 var validationErrors = new ArrayList<String>();
-                Object toolOwner = requireNonNull(
-                        toolContext.toolOwner(), "ToolContext.toolOwner() must be provided for tool validation");
                 for (var ter : parseResult.toolRequests()) {
                     try {
-                        registry.validateTool(toolOwner, ter);
+                        tr.validateToolGlobal(ter);
                     } catch (ToolRegistry.ToolValidationException e) {
                         validationErrors.add(ter.name() + ": " + e.getMessage());
                     }
@@ -1318,7 +1317,7 @@ public class Llm {
                     "Adding 'think' tool for non-reasoning model {}",
                     contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
-            enhancedTools.addAll(contextManager.getToolRegistry().getRegisteredTools(List.of("think")));
+            enhancedTools.addAll(contextManager.getToolRegistry().getTools(List.of("think")));
             return enhancedTools;
         }
         logger.debug(

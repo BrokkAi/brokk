@@ -28,7 +28,6 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
-import io.github.jbellis.brokk.tools.CompositeToolRegistry;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -70,7 +69,6 @@ public class SearchAgent {
     private final StreamingChatModel model;
     private final Llm llm;
     private final Llm summarizer;
-    private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
     private final String goal;
     private final Set<Terminal> allowedTerminals;
@@ -90,7 +88,6 @@ public class SearchAgent {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
-        this.toolRegistry = contextManager.getToolRegistry();
 
         this.io = contextManager.getIo();
         this.llm = contextManager.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
@@ -147,9 +144,6 @@ public class SearchAgent {
             // Create a per-turn WorkspaceTools instance bound to the agent-local Context
             var wst = new WorkspaceTools(context);
 
-            // Build a unified tool catalog via CompositeToolRegistry
-            var composite = new CompositeToolRegistry(toolRegistry, wst, this);
-
             // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
@@ -174,11 +168,15 @@ public class SearchAgent {
             allAllowed.addAll(agentTerminalTools);
             allAllowed.addAll(globalTerminals);
 
-            var toolSpecs = composite.getToolSpecifications(allAllowed);
+            // Register tools
+            var tr = cm.getToolRegistry().copy();
+            tr.register(wst);
+            tr.register(this);
+            var toolSpecs = tr.getTools(allAllowed);
 
             // Decide next action(s)
             io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
             if (result.error() != null || result.isEmpty()) {
                 var details =
                         result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
@@ -215,8 +213,7 @@ public class SearchAgent {
             for (var req : sortedCalls) {
                 ToolExecutionResult exec;
                 try {
-                    exec = new CompositeToolRegistry(toolRegistry, wst, this)
-                            .execute(req);
+                    exec = tr.executeTool(req);
                     context = wst.getContext();
                 } catch (Exception e) {
                     logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);

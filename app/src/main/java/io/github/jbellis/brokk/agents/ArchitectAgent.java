@@ -60,7 +60,6 @@ public class ArchitectAgent {
     private final ContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
-    private final ToolRegistry toolRegistry;
     private final String goal;
     // scope is explicit so we can use its changed-files-tracking feature w/ Code Agent's results
     private final ContextManager.TaskScope scope;
@@ -90,7 +89,6 @@ public class ArchitectAgent {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
-        this.toolRegistry = contextManager.getToolRegistry();
         this.goal = goal;
         this.io = contextManager.getIo();
         this.scope = scope;
@@ -341,14 +339,17 @@ public class ArchitectAgent {
             // Build the prompt messages, including history and conditional warnings
             var messages = buildPrompt(workspaceTokenSize, minInputTokenLimit, workspaceContentMessages);
 
+            // Create a local registry for this planning turn
+            var tr = cm.getToolRegistry().copy();
+            tr.register(this);
+            var wst = new WorkspaceTools(this.context);
+            tr.register(wst);
+
             // Figure out which tools are allowed in this step (hard-coded: Workspace, CodeAgent, Search (only with
             // Undo), Undo, Finish/Abort)
             var toolSpecs = new ArrayList<ToolSpecification>();
             var criticalWorkspaceSize = minInputTokenLimit < Integer.MAX_VALUE
                     && workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit);
-
-            // Create a temporary WST for tool spec population only
-            var specWst = new WorkspaceTools(this.context);
 
             if (criticalWorkspaceSize) {
                 io.showNotification(
@@ -370,8 +371,7 @@ public class ArchitectAgent {
                     allowed.add("askHuman");
                 }
 
-                var composite = new io.github.jbellis.brokk.tools.CompositeToolRegistry(toolRegistry, specWst, this);
-                toolSpecs.addAll(composite.getToolSpecifications(allowed));
+                toolSpecs.addAll(tr.getTools(allowed));
             } else {
                 // Default tool population logic
                 var allowed = new ArrayList<>(List.of(
@@ -397,12 +397,11 @@ public class ArchitectAgent {
                 allowed.add("projectFinished");
                 allowed.add("abortProject");
 
-                var composite = new io.github.jbellis.brokk.tools.CompositeToolRegistry(toolRegistry, specWst, this);
-                toolSpecs.addAll(composite.getToolSpecifications(allowed));
+                toolSpecs.addAll(tr.getTools(allowed));
             }
 
             // Ask the LLM for the next step
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             if (result.error() != null) {
                 logger.debug(
@@ -469,7 +468,7 @@ public class ArchitectAgent {
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
-                    var toolResult = toolRegistry.executeTool(this, answerReq);
+                    var toolResult = tr.executeTool(this, answerReq);
                     io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI);
                     return codeAgentSuccessResult();
                 }
@@ -483,24 +482,21 @@ public class ArchitectAgent {
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
-                    var toolResult = toolRegistry.executeTool(this, abortReq);
+                    var toolResult = tr.executeTool(this, abortReq);
                     io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI);
                     return resultWithMessages(StopReason.LLM_ABORTED);
                 }
             }
 
-            // Execute remaining tool calls in the desired order (all use isolated WST instances)
+            // Execute remaining tool calls in the desired order (all use the local registry)
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
-            var mergedContextFromOtherReqs = this.context;
             for (var req : otherReqs) {
-                var wst = new WorkspaceTools(mergedContextFromOtherReqs);
-                var composite = new io.github.jbellis.brokk.tools.CompositeToolRegistry(toolRegistry, wst, this);
-                ToolExecutionResult toolResult = composite.execute(req);
-                mergedContextFromOtherReqs = composite.getWorkspaceContext();
+                wst.setContext(context);
+                ToolExecutionResult toolResult = tr.executeTool(req);
+                context = wst.getContext();
                 architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
-            this.context = mergedContextFromOtherReqs;
 
             // Submit search agent tasks to run in the background (offered only when Undo is offered)
             // Each task gets its own isolated WorkspaceTools and Context, all seeded from the same baseContext
@@ -508,10 +504,12 @@ public class ArchitectAgent {
             var baseContextForSearch = this.context;
             for (var req : searchAgentReqs) {
                 Callable<SearchTaskResult> task = () -> {
-                    var wst = new WorkspaceTools(baseContextForSearch);
-                    var composite = new io.github.jbellis.brokk.tools.CompositeToolRegistry(toolRegistry, wst, this);
-                    var toolResult = composite.execute(req);
-                    var resultContext = composite.getWorkspaceContext();
+                    var wstSearch = new WorkspaceTools(baseContextForSearch);
+                    var trSearch = cm.getToolRegistry().copy();
+                    trSearch.register(wstSearch);
+                    trSearch.register(this);
+                    var toolResult = trSearch.executeTool(req);
+                    var resultContext = wstSearch.getContext();
                     logger.debug("Finished SearchAgent task for request: {}", req.name());
                     return new SearchTaskResult(toolResult, resultContext);
                 };
@@ -566,7 +564,7 @@ public class ArchitectAgent {
             for (var req : codeAgentReqs) {
                 ToolExecutionResult toolResult;
                 try {
-                    toolResult = toolRegistry.executeTool(this, req);
+                    toolResult = tr.executeTool(req);
                 } catch (FatalLlmException e) {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }

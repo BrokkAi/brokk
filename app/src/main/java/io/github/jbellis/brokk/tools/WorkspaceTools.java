@@ -61,6 +61,11 @@ public class WorkspaceTools {
         return context;
     }
 
+    /** Updates the working Context for this WorkspaceTools instance. */
+    public void setContext(Context newContext) {
+        this.context = newContext;
+    }
+
     // ---------------------------
     // Tools (mutate the local Context)
     // ---------------------------

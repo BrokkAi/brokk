@@ -187,6 +187,80 @@ class ToolRegistryTest {
         assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
     }
 
+    @Test
+    void validateToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
+        // "think" is registered globally in ToolRegistry constructor
+        var map = new LinkedHashMap<String, Object>();
+        map.put("reasoning", "Let me work through this");
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder().name("think").arguments(json).build();
+
+        var vi = registry.validateToolGlobal(req);
+        assertEquals("think", vi.method().getName());
+        assertEquals(1, vi.parameters().size());
+        assertEquals("Let me work through this", vi.parameters().get(0));
+    }
+
+    @Test
+    void validateToolGlobal_ThrowsForInstanceToolNotInGlobalRegistry() throws Exception {
+        // getClassSources is an instance tool on TestTools, not global
+        var map = new LinkedHashMap<String, Object>();
+        map.put("classNames", List.of("com.a.A"));
+        map.put("reasoning", "test");
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments(json)
+                .build();
+
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateToolGlobal(req));
+        assertTrue(ex.getMessage().contains("Global tool not found"));
+    }
+
+    @Test
+    void validateToolGlobal_ThrowsWhenToolNotFound() {
+        var req = ToolExecutionRequest.builder()
+                .name("noSuchTool")
+                .arguments("{}")
+                .build();
+
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateToolGlobal(req));
+        assertTrue(ex.getMessage().contains("Global tool not found"));
+    }
+
+    @Test
+    void executeToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
+        // "think" is registered globally in ToolRegistry constructor
+        var map = new LinkedHashMap<String, Object>();
+        map.put("reasoning", "Consider the options");
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder().name("think").arguments(json).build();
+
+        var result = registry.executeTool(req);
+        assertTrue(result.resultText().contains("Good thinking"));
+    }
+
+    @Test
+    void executeToolGlobal_FailsForInstanceTool() throws Exception {
+        // getClassSources is an instance tool, not global
+        var map = new LinkedHashMap<String, Object>();
+        map.put("classNames", List.of("com.a.A"));
+        map.put("reasoning", "test");
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments(json)
+                .build();
+
+        var result = registry.executeTool(req);
+        assertFalse(result.resultText().isEmpty());
+        assertTrue(result.resultText().contains("Global tool not found"));
+    }
+
     // Build a JSON args string using actual parameter names as seen by reflection,
     // to be robust regardless of -parameters compiler flag.
     private static String jsonArgs(Method m, Object... values) throws JsonProcessingException {
