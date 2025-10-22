@@ -14,14 +14,11 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
-import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.migrationv4.V3_FragmentDtos.*;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -309,71 +306,6 @@ public class V3_DtoMapper {
         };
     }
 
-    private static V3_FragmentDtos.FrozenFragmentDto toFrozenFragmentDto(
-            V3_FrozenFragment ff, V3_HistoryIo.ContentWriter writer) {
-        try {
-            String contentId = null;
-            if (ff.isText()) {
-                String singleFile = ff.files().size() == 1
-                        ? ff.files().stream()
-                                .findFirst()
-                                .map(pf -> pf.getRelPath().toString())
-                                .orElse(null)
-                        : null;
-                contentId = writer.writeContent(ff.text(), singleFile);
-            }
-            var filesDto =
-                    ff.files().stream().map(V3_DtoMapper::toProjectFileDto).collect(Collectors.toSet());
-            return new V3_FragmentDtos.FrozenFragmentDto(
-                    ff.id(),
-                    ff.getType().name(),
-                    ff.description(),
-                    ff.shortDescription(),
-                    contentId,
-                    ff.isText(),
-                    ff.syntaxStyle(),
-                    filesDto,
-                    ff.originalClassName(),
-                    ff.meta(),
-                    ff.repr());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to serialize FrozenFragment to DTO: " + ff.id(), e);
-        }
-    }
-
-    public static V3_FragmentDtos.ReferencedFragmentDto toReferencedFragmentDto(
-            ContextFragment fragment, V3_HistoryIo.ContentWriter writer) {
-        if (fragment instanceof V3_FrozenFragment ff) {
-            return toFrozenFragmentDto(ff, writer);
-        }
-        return switch (fragment) {
-            case ContextFragment.ProjectPathFragment pf -> toProjectFileDto(pf);
-            case ContextFragment.GitFileFragment gf -> {
-                var file = gf.file();
-                var fileKey =
-                        file.getRoot().toString() + ":" + file.getRelPath().toString();
-                String contentId = writer.writeContent(gf.content(), fileKey);
-                yield new V3_FragmentDtos.GitFileFragmentDto(
-                        gf.id(), file.getRoot().toString(), file.getRelPath().toString(), gf.revision(), contentId);
-            }
-            case ContextFragment.ExternalPathFragment ef ->
-                new V3_FragmentDtos.ExternalFileDto(ef.id(), ef.file().getPath().toString());
-            case ContextFragment.ImageFileFragment imf -> {
-                var file = imf.file();
-                String absPath = file.absPath().toString();
-                String fileName = file.getFileName().toLowerCase(Locale.ROOT);
-                String mediaType = null;
-                if (fileName.endsWith(".png")) mediaType = "image/png";
-                else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
-                else if (fileName.endsWith(".gif")) mediaType = "image/gif";
-                yield new V3_FragmentDtos.ImageFileDto(imf.id(), absPath, mediaType);
-            }
-            default ->
-                throw new IllegalArgumentException(
-                        "Unsupported fragment type for referenced DTO conversion: " + fragment.getClass());
-        };
-    }
-
     private static BrokkFile fromImageFileDtoToBrokkFile(V3_FragmentDtos.ImageFileDto ifd, IContextManager mgr) {
         Path path = Path.of(ifd.absPath());
         Path projectRoot = mgr.getProject().getRoot();
@@ -386,131 +318,6 @@ public class V3_DtoMapper {
             }
         }
         return new ExternalFile(path);
-    }
-
-    private static V3_FragmentDtos.ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment) {
-        var file = fragment.file();
-        return new V3_FragmentDtos.ProjectFileDto(
-                fragment.id(), file.getRoot().toString(), file.getRelPath().toString());
-    }
-
-    private static V3_FragmentDtos.ProjectFileDto toProjectFileDto(ProjectFile pf) {
-        return new V3_FragmentDtos.ProjectFileDto(
-                "0", pf.getRoot().toString(), pf.getRelPath().toString());
-    }
-
-    public static V3_FragmentDtos.VirtualFragmentDto toVirtualFragmentDto(
-            ContextFragment.VirtualFragment fragment, V3_HistoryIo.ContentWriter writer) {
-        if (fragment instanceof V3_FrozenFragment ff) {
-            return toFrozenFragmentDto(ff, writer);
-        }
-
-        return switch (fragment) {
-            case ContextFragment.SearchFragment searchFragment -> {
-                var sourcesDto = searchFragment.sources().stream()
-                        .map(V3_DtoMapper::toCodeUnitDto)
-                        .collect(Collectors.toSet());
-                var messagesDto = searchFragment.messages().stream()
-                        .map(m -> toChatMessageDto(m, writer))
-                        .toList();
-                yield new V3_FragmentDtos.SearchFragmentDto(
-                        searchFragment.id(), searchFragment.description(), "", sourcesDto, messagesDto);
-            }
-            case ContextFragment.TaskFragment tf -> toTaskFragmentDto(tf, writer);
-            case ContextFragment.StringFragment sf ->
-                new V3_FragmentDtos.StringFragmentDto(
-                        sf.id(), writer.writeContent(sf.text(), null), sf.description(), sf.syntaxStyle());
-            case ContextFragment.SkeletonFragment skf ->
-                new V3_FragmentDtos.SkeletonFragmentDto(
-                        skf.id(),
-                        skf.getTargetIdentifiers(),
-                        skf.getSummaryType().name());
-            case ContextFragment.SummaryFragment sumf ->
-                new V3_FragmentDtos.SummaryFragmentDto(
-                        sumf.id(),
-                        sumf.getTargetIdentifier(),
-                        sumf.getSummaryType().name());
-            case ContextFragment.UsageFragment uf ->
-                new V3_FragmentDtos.UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
-            case ContextFragment.PasteTextFragment ptf -> {
-                String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
-                String contentId = writer.writeContent(ptf.text(), null);
-                String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
-                yield new V3_FragmentDtos.PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
-            }
-            case ContextFragment.AnonymousImageFragment aif -> {
-                String description = getFutureDescription(aif.getDescriptionFuture(), "Paste of ");
-                yield new V3_FragmentDtos.PasteImageFragmentDto(aif.id(), description);
-            }
-            case ContextFragment.StacktraceFragment stf -> {
-                var sourcesDto =
-                        stf.sources().stream().map(V3_DtoMapper::toCodeUnitDto).collect(Collectors.toSet());
-                String originalContentId = writer.writeContent(stf.getOriginal(), null);
-                String codeContentId = writer.writeContent(stf.getCode(), null);
-                yield new V3_FragmentDtos.StacktraceFragmentDto(
-                        stf.id(), sourcesDto, originalContentId, stf.getException(), codeContentId);
-            }
-            case ContextFragment.CallGraphFragment cgf ->
-                new V3_FragmentDtos.CallGraphFragmentDto(
-                        cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
-            case ContextFragment.CodeFragment cf ->
-                new V3_FragmentDtos.CodeFragmentDto(cf.id(), toCodeUnitDto(cf.getCodeUnit()));
-            case ContextFragment.HistoryFragment hf -> {
-                var historyDto = hf.entries().stream()
-                        .map(te -> toTaskEntryDto(te, writer))
-                        .toList();
-                yield new V3_FragmentDtos.HistoryFragmentDto(hf.id(), historyDto);
-            }
-            default ->
-                throw new IllegalArgumentException("Unsupported VirtualFragment type for DTO conversion: "
-                        + fragment.getClass().getName());
-        };
-    }
-
-    private static String getFutureDescription(Future<String> future, String prefix) {
-        String description;
-        try {
-            String fullDescription = future.get(10, TimeUnit.SECONDS);
-            description =
-                    fullDescription.startsWith(prefix) ? fullDescription.substring(prefix.length()) : fullDescription;
-        } catch (Exception e) {
-            description = "(Error getting paste description: " + e.getMessage() + ")";
-        }
-        return description;
-    }
-
-    private static String getFutureSyntaxStyle(Future<String> future) {
-        try {
-            return future.get(10, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
-        }
-    }
-
-    private static V3_FragmentDtos.TaskEntryDto toTaskEntryDto(TaskEntry entry, V3_HistoryIo.ContentWriter writer) {
-        V3_FragmentDtos.TaskFragmentDto logDto = null;
-        if (entry.log() != null) {
-            logDto = toTaskFragmentDto(entry.log(), writer);
-        }
-        String summaryContentId = null;
-        if (entry.summary() != null) {
-            summaryContentId = writer.writeContent(entry.summary(), null);
-        }
-        return new V3_FragmentDtos.TaskEntryDto(entry.sequence(), logDto, summaryContentId);
-    }
-
-    public static V3_FragmentDtos.TaskFragmentDto toTaskFragmentDto(
-            ContextFragment.TaskFragment fragment, V3_HistoryIo.ContentWriter writer) {
-        var messagesDto = fragment.messages().stream()
-                .map(m -> toChatMessageDto(m, writer))
-                .toList();
-        return new V3_FragmentDtos.TaskFragmentDto(fragment.id(), messagesDto, fragment.description());
-    }
-
-    private static V3_FragmentDtos.ChatMessageDto toChatMessageDto(
-            ChatMessage message, V3_HistoryIo.ContentWriter writer) {
-        String contentId = writer.writeContent(Messages.getRepr(message), null);
-        return new V3_FragmentDtos.ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
     }
 
     private static ProjectFile fromProjectFileDto(V3_FragmentDtos.ProjectFileDto dto) {
@@ -526,14 +333,6 @@ public class V3_DtoMapper {
             case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
-    }
-
-    private static V3_FragmentDtos.CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) {
-        ProjectFile pf = codeUnit.source();
-        V3_FragmentDtos.ProjectFileDto pfd = new V3_FragmentDtos.ProjectFileDto(
-                "0", pf.getRoot().toString(), pf.getRelPath().toString());
-        return new V3_FragmentDtos.CodeUnitDto(
-                pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName());
     }
 
     private static TaskEntry _fromTaskEntryDto(
@@ -578,16 +377,6 @@ public class V3_DtoMapper {
 
     /* ───────────── entryInfos mapping ───────────── */
 
-    public static Map<String, V3_FragmentDtos.EntryInfoDto> toEntryInfosDto(
-            Map<UUID, ContextHistory.ContextHistoryEntryInfo> entryInfos) {
-        return entryInfos.entrySet().stream()
-                .collect(Collectors.toMap(
-                        e -> e.getKey().toString(),
-                        e -> new V3_FragmentDtos.EntryInfoDto(e.getValue().deletedFiles().stream()
-                                .map(V3_DtoMapper::toDeletedFileDto)
-                                .toList())));
-    }
-
     public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
             Map<String, V3_FragmentDtos.EntryInfoDto> dtoMap) {
         return dtoMap.entrySet().stream()
@@ -596,10 +385,6 @@ public class V3_DtoMapper {
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
                                 .map(V3_DtoMapper::fromDeletedFileDto)
                                 .toList())));
-    }
-
-    private static V3_FragmentDtos.DeletedFileDto toDeletedFileDto(ContextHistory.DeletedFile df) {
-        return new V3_FragmentDtos.DeletedFileDto(toProjectFileDto(df.file()), df.content(), df.wasTracked());
     }
 
     private static ContextHistory.DeletedFile fromDeletedFileDto(V3_FragmentDtos.DeletedFileDto dto) {
