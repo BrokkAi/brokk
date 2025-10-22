@@ -1,11 +1,10 @@
 package io.github.jbellis.brokk.gui.components;
 
-import org.junit.jupiter.api.Test;
-
-import javax.swing.SwingUtilities;
-import java.awt.Dimension;
-
 import static org.junit.jupiter.api.Assertions.*;
+
+import java.awt.Dimension;
+import javax.swing.SwingUtilities;
+import org.junit.jupiter.api.Test;
 
 public class SplitButtonTest {
 
@@ -57,7 +56,8 @@ public class SplitButtonTest {
         // Expect the change to be dominated by the action text width.
         final int EXPECTED_MIN_TEXT_DELTA = 10; // px
 
-        assertTrue(delta > EXPECTED_MIN_TEXT_DELTA,
+        assertTrue(
+                delta > EXPECTED_MIN_TEXT_DELTA,
                 "Width delta should be dominated by action text change (arrow area should remain stable)");
     }
 }
