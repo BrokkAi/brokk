@@ -379,8 +379,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setContentAreaFilled(false);
         goStopButton.addActionListener(e -> onGoStopButtonPressed());
 
-        int fixedHeight = Math.max(input.getPreferredSize().height, 32);
-        var prefSize = new Dimension(64, fixedHeight);
+        int fixedHeight = Math.max(goStopButton.getPreferredSize().height, ACTION_BUTTON_MIN_HEIGHT);
+        Dimension prefSize = new Dimension(ACTION_BUTTON_WIDTH, fixedHeight);
         goStopButton.setPreferredSize(prefSize);
         goStopButton.setMinimumSize(prefSize);
         goStopButton.setMaximumSize(prefSize);
