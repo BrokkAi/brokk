@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
@@ -23,6 +24,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
 import javax.swing.*;
@@ -50,6 +52,7 @@ public class CreatePullRequestDialog extends JDialog {
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
+    private JLabel gitHubRepoInstallWarningLabel;
     private MaterialLoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
@@ -148,6 +151,8 @@ public class CreatePullRequestDialog extends JDialog {
         setupInputListeners(); // Setup listeners for title and description
         updateCreatePrButtonState(); // Initial state for PR button based on (empty) title/desc
         setupFileStatusTableInteractions(); // Wire up diff viewer interactions
+        // Non-blocking preflight to warn if the app is not installed for this repo
+        scheduleRepoInstallPrecheck();
     }
 
     private void setupFileStatusTableInteractions() {
@@ -245,6 +250,31 @@ public class CreatePullRequestDialog extends JDialog {
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
 
         this.branchFlowLabel = createBranchFlowIndicator(branchPanel, row); // Assign to field
+        row++;
+
+        // Repo-install preflight warning (hidden by default). Click opens app installation page.
+        gitHubRepoInstallWarningLabel =
+                new JLabel("<html><b>Warning:</b> Brokk GitHub App is not installed for this repository. "
+                        + "<a href=\"\">Install the app</a>.</html>");
+        gitHubRepoInstallWarningLabel.setForeground(new Color(184, 134, 11)); // warning-ish color
+        gitHubRepoInstallWarningLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        gitHubRepoInstallWarningLabel.setVisible(false);
+        gitHubRepoInstallWarningLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                try {
+                    Environment.openInBrowser(
+                            "https://github.com/apps/brokkai/installations/select_target",
+                            SwingUtilities.getWindowAncestor(CreatePullRequestDialog.this));
+                } catch (Exception ex) {
+                    logger.error("Failed to open GitHub App installation page", ex);
+                }
+            }
+        });
+        var warnGbc = createGbc(0, row);
+        warnGbc.gridwidth = 2;
+        warnGbc.fill = GridBagConstraints.HORIZONTAL;
+        branchPanel.add(gitHubRepoInstallWarningLabel, warnGbc);
 
         // setupBranchListeners is now called in loadBranches after defaults are set
         // loadBranches is called after the main layout is built
@@ -274,6 +304,28 @@ public class CreatePullRequestDialog extends JDialog {
         parent.add(branchFlowLabel, gbc);
 
         return branchFlowLabel;
+    }
+
+    private void scheduleRepoInstallPrecheck() {
+        if (gitHubRepoInstallWarningLabel == null) return;
+
+        if (!GitHubAuth.tokenPresent()) {
+            SwingUtilities.invokeLater(() -> gitHubRepoInstallWarningLabel.setVisible(false));
+            return;
+        }
+
+        CompletableFuture.runAsync(() -> {
+            boolean needsInstall = false;
+            try {
+                var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+                needsInstall = !GitHubAuth.isBrokkAppInstalledForRepo(auth.getOwner(), auth.getRepoName());
+            } catch (Exception e) {
+                logger.debug("Could not preflight-check app installation for repo", e);
+                needsInstall = false; // don't show warning on unknown
+            }
+            final boolean show = needsInstall;
+            SwingUtilities.invokeLater(() -> gitHubRepoInstallWarningLabel.setVisible(show));
+        });
     }
 
     /** Simple immutable holder for commits and changed files between two branches. */
@@ -829,6 +881,26 @@ public class CreatePullRequestDialog extends JDialog {
             return;
         }
 
+        // Pre-flight: ensure GitHub account is connected
+        if (!GitHubAuth.tokenPresent()) {
+            int choice = JOptionPane.showConfirmDialog(
+                    CreatePullRequestDialog.this,
+                    """
+                    You are not connected to GitHub.
+
+                    To create a Pull Request, connect your GitHub account.
+
+                    Would you like to open Settings now?
+                    """,
+                    "Connect GitHub Account",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION) {
+                SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
+            }
+            return;
+        }
+
         createPrButton.setLoading(true, "Creating PR…");
 
         contextManager.submitExclusiveAction(() -> {
@@ -862,39 +934,6 @@ public class CreatePullRequestDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage;
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
-                        // Check if app is installed for this specific repo
-                        boolean appInstalled = false;
-                        try {
-                            var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
-                            appInstalled = GitHubAuth.isBrokkAppInstalledForRepo(auth.getOwner(), auth.getRepoName());
-                        } catch (Exception e) {
-                            logger.debug("Could not check app installation for repo", e);
-                        }
-                        if (!appInstalled && GitHubAuth.tokenPresent()) {
-                            errorMessage =
-                                    """
-                                    Push to repository was denied because the Brokk GitHub App is not installed.
-
-                                    To push to GitHub repositories, you need to:
-                                    1. Install the Brokk GitHub App for your repositories
-                                    2. Grant the app write access to this repository
-
-                                    Would you like to open Settings to install the app?
-                                    """;
-                            int choice = JOptionPane.showConfirmDialog(
-                                    CreatePullRequestDialog.this,
-                                    errorMessage,
-                                    "Brokk App Not Installed",
-                                    JOptionPane.YES_NO_OPTION,
-                                    JOptionPane.WARNING_MESSAGE);
-                            if (choice == JOptionPane.YES_OPTION) {
-                                SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
-                            }
-                            if (isDisplayable()) {
-                                createPrButton.setLoading(false, null);
-                            }
-                            return;
-                        }
                         errorMessage =
                                 """
                                 Push to repository was denied. This usually means:
@@ -904,11 +943,28 @@ public class CreatePullRequestDialog extends JDialog {
 
                                 2. You don't have write access to this repository
                                    → Verify you own or are a collaborator on this repository
+
+                                3. Brokk GitHub App is not installed for this repository
+                                   → Go to Settings → Global → GitHub to install the app
                                 """;
                     } else {
                         errorMessage = "Push failed: " + ex.getMessage();
                     }
-                    chrome.toolError(errorMessage, "Push Permission Denied");
+
+                    // Offer to open Settings if GitHub is not connected
+                    if (!GitHubAuth.tokenPresent()) {
+                        int choice = JOptionPane.showConfirmDialog(
+                                CreatePullRequestDialog.this,
+                                errorMessage + "\n\nOpen Settings to connect your GitHub account now?",
+                                "Connect GitHub Account",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.WARNING_MESSAGE);
+                        if (choice == JOptionPane.YES_OPTION) {
+                            SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
+                        }
+                    } else {
+                        chrome.toolError(errorMessage, "Push Permission Denied");
+                    }
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
                     }

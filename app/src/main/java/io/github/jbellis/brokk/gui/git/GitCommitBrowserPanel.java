@@ -1434,6 +1434,19 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             return new ButtonConfig(false, "", null);
         }
 
+        // Check if pushing to GitHub HTTPS remote and validate token presence
+        var repo = contextManager.getProject().getRepo();
+        if (repo instanceof GitRepo gitRepo) {
+            var remoteUrl = gitRepo.getRemoteUrl();
+            if (remoteUrl != null && remoteUrl.startsWith("https://") && remoteUrl.contains("github.com")) {
+                // Check if GitHub token is configured (fast, no network call)
+                if (!GitHubAuth.tokenPresent()) {
+                    return new ButtonConfig(
+                            false, "GitHub token required to push. Configure in Settings → Global → GitHub", null);
+                }
+            }
+        }
+
         boolean enabled = allowPullPush(viewKind) && canPushFromService;
         String tooltip;
         if (enabled) {
@@ -1535,39 +1548,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 SwingUtil.runOnEdt(() -> {
                     String errorMessage;
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
-                        // Check if app is installed for this specific repo
-                        boolean appInstalled = false;
-                        try {
-                            var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
-                            appInstalled = GitHubAuth.isBrokkAppInstalledForRepo(auth.getOwner(), auth.getRepoName());
-                        } catch (Exception e) {
-                            logger.debug("Could not check app installation for repo", e);
-                        }
-                        if (!appInstalled && GitHubAuth.tokenPresent()) {
-                            errorMessage = String.format(
-                                    """
-                                    Push to %s was denied because the Brokk GitHub App is not installed.
-
-                                    To push to GitHub repositories, you need to:
-                                    1. Install the Brokk GitHub App for your repositories
-                                    2. Grant the app write access to this repository
-
-                                    Would you like to open Settings to install the app?
-                                    """,
-                                    branchName);
-                            int choice = JOptionPane.showConfirmDialog(
-                                    GitCommitBrowserPanel.this,
-                                    errorMessage,
-                                    "Brokk App Not Installed",
-                                    JOptionPane.YES_NO_OPTION,
-                                    JOptionPane.WARNING_MESSAGE);
-                            if (choice == JOptionPane.YES_OPTION) {
-                                io.github.jbellis.brokk.gui.dialogs.SettingsDialog.showSettingsDialog(
-                                        chrome, io.github.jbellis.brokk.gui.dialogs.SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
-                            }
-                            pushButton.setEnabled(true);
-                            return;
-                        }
                         errorMessage = String.format(
                                 """
                                 Push to %s was denied. This usually means:
@@ -1577,6 +1557,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
                                 2. You don't have write access to this repository
                                    → Verify you own or are a collaborator on this repository
+
+                                3. Brokk GitHub App is not installed for this repository
+                                   → Go to Settings → Global → GitHub to install the app
                                 """,
                                 branchName);
                     } else {

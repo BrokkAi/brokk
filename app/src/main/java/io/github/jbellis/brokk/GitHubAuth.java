@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import org.apache.logging.log4j.LogManager;
@@ -29,6 +30,8 @@ import org.kohsuke.github.GitHubBuilder;
 public class GitHubAuth {
     private static final Logger logger = LogManager.getLogger(GitHubAuth.class);
     private static @Nullable GitHubAuth instance;
+    // One-time guard: print accessible repos via System.out once per process run
+    private static final AtomicBoolean repoAccessLogged = new AtomicBoolean(false);
 
     private final String owner;
     private final String repoName;
@@ -285,7 +288,9 @@ public class GitHubAuth {
                 }
 
                 var json = body.string();
-                logger.debug("GitHub installations API response: {}", json.length() > 800 ? json.substring(0, 800) + "..." : json);
+                logger.debug(
+                        "GitHub installations API response: {}",
+                        json.length() > 800 ? json.substring(0, 800) + "..." : json);
 
                 // Check for app_slug field in installation objects
                 var isInstalled = json.contains("\"app_slug\":\"brokkai\"") || json.contains("\"app_slug\":\"brokk\"");
@@ -299,16 +304,21 @@ public class GitHubAuth {
     }
 
     /**
-     * Checks if the Brokk GitHub App is installed for a specific repository.
-     * This requires checking if the app installation has access to the specific repo.
+     * Checks if the Brokk GitHub App is installed for the authenticated user's personal account.
+     * This is stricter than isBrokkAppInstalled(): it requires that the installation 'account'
+     * matches the authenticated username and the account type is 'User'.
      *
-     * @param owner The repository owner
-     * @param repo The repository name
-     * @return true if the Brokk app has access to this specific repo, false otherwise
+     * @return true if installed for the current user's personal account; false otherwise
      */
-    public static boolean isBrokkAppInstalledForRepo(String owner, String repo) {
+    public static boolean isBrokkAppInstalledForCurrentUser() {
         String token = getStoredToken();
         if (token.isEmpty()) {
+            return false;
+        }
+
+        String username = getAuthenticatedUsername();
+        if (username == null || username.isBlank()) {
+            logger.debug("Cannot determine authenticated username; treating user-installation check as not installed");
             return false;
         }
 
@@ -318,7 +328,295 @@ public class GitHubAuth {
                     .readTimeout(10, TimeUnit.SECONDS)
                     .build();
 
-            // Check /repos/{owner}/{repo}/installation to see if an app is installed
+            var request = new Request.Builder()
+                    .url("https://api.github.com/user/installations")
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .build();
+
+            try (var response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    logger.info("Failed to check user installations for current user: HTTP {}", response.code());
+                    return false;
+                }
+
+                var body = response.body();
+                if (body == null) {
+                    logger.info("Empty response body from /user/installations");
+                    return false;
+                }
+
+                var json = body.string();
+                logger.debug("User installations payload length: {}", json.length());
+
+                // Heuristic: locate an installation object where:
+                // - account.login == <username>
+                // - account.type == "User"
+                // - app_slug == "brokk" or "brokkai"
+                // We search windows anchored at occurrences of the authenticated username.
+                int fromIndex = 0;
+                while (true) {
+                    int loginIdx = json.indexOf("\"login\":\"" + username + "\"", fromIndex);
+                    if (loginIdx < 0) break;
+
+                    // Look in a nearby window for app_slug and account.type.
+                    int windowStart = Math.max(0, loginIdx - 500);
+                    int windowEnd = Math.min(json.length(), loginIdx + 5000);
+                    String window = json.substring(windowStart, windowEnd);
+
+                    boolean hasApp =
+                            window.contains("\"app_slug\":\"brokkai\"") || window.contains("\"app_slug\":\"brokk\"");
+                    boolean isUserType = window.contains("\"type\":\"User\"");
+                    if (hasApp && isUserType) {
+                        logger.debug("Detected Brokk app installation for personal account @{}", username);
+                        return true;
+                    }
+
+                    fromIndex = loginIdx + 1;
+                }
+
+                logger.debug("No Brokk installation found for personal account @{}", username);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.warn("Error checking Brokk app installation for current user: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if the Brokk GitHub App is installed for a specific repository
+     * using the authenticated user's token. This works by:
+     * 1) Listing the user's Brokk installations (/user/installations).
+     * 2) For each installation, listing repositories via "repositories_url" and
+     *    checking for the target "<owner>/<repo>".
+     *
+     * Note: The legacy app-scoped endpoint /repos/{owner}/{repo}/installation
+     * requires authenticating as the GitHub App. With a user token it may return
+     * 404/403 even when the app is installed. We therefore prefer the user-token
+     * approach above, and only fall back to the legacy endpoint as a best-effort.
+     *
+     * @param owner The repository owner
+     * @param repo The repository name
+     * @return true if the Brokk app (brokk or brokkai) has access to this specific repo via any of the user's installations
+     */
+    public static boolean isBrokkAppInstalledForRepo(String owner, String repo) {
+        String token = getStoredToken();
+        if (token.isEmpty()) {
+            return false;
+        }
+
+        final String fullName = owner + "/" + repo;
+
+        try {
+            var client = new OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build();
+
+            // Step 1: list user installations
+            var userInstReq = new Request.Builder()
+                    .url("https://api.github.com/user/installations")
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .build();
+
+            // Print curl so the user can reproduce exactly
+            printCurlForGet("https://api.github.com/user/installations");
+
+            try (var instResp = client.newCall(userInstReq).execute()) {
+                if (!instResp.isSuccessful() || instResp.body() == null) {
+                    logger.info("Failed to list user installations: HTTP {}", instResp.code());
+                    return fallbackRepoInstallationCheck(client, token, owner, repo);
+                }
+
+                var instJson = instResp.body().string();
+                logger.debug("User installations payload length: {}", instJson.length());
+
+                // Extract repositories_url for Brokk installations
+                var repoUrls = new java.util.LinkedHashSet<String>();
+                int fromIndex = 0;
+                while (true) {
+                    int brokkIdx =
+                            indexOfAny(instJson, fromIndex, "\"app_slug\":\"brokkai\"", "\"app_slug\":\"brokk\"");
+                    if (brokkIdx < 0) break;
+
+                    int windowStart = Math.max(0, brokkIdx - 500);
+                    int windowEnd = Math.min(instJson.length(), brokkIdx + 5000);
+                    String window = instJson.substring(windowStart, windowEnd);
+
+                    String repositoriesUrl = extractJsonStringValue(window, "\"repositories_url\":\"");
+                    if (repositoriesUrl != null && !repositoriesUrl.isBlank()) {
+                        repoUrls.add(repositoriesUrl);
+                    }
+
+                    fromIndex = brokkIdx + 1;
+                }
+
+                // If we could not find any repositories_url for Brokk installations, try legacy fallback.
+                if (repoUrls.isEmpty()) {
+                    logger.debug("No repositories_url found for Brokk installations; using legacy fallback endpoint");
+                    return fallbackRepoInstallationCheck(client, token, owner, repo);
+                }
+
+                // Collect discovered repos across installations for a one-time System.out log
+                var discoveredRepos = new java.util.LinkedHashSet<String>();
+
+                // Step 2: for each repositories_url, list repositories and look for <owner>/<repo>
+                for (String repositoriesUrl : repoUrls) {
+                    String nextUrl = repositoriesUrl + (repositoriesUrl.contains("?") ? "&" : "?") + "per_page=100";
+                    int safetyHops = 0;
+                    while (nextUrl != null && safetyHops++ < 10) { // follow pagination up to 10 pages defensively
+                        var listReq = new Request.Builder()
+                                .url(nextUrl)
+                                .header("Authorization", "Bearer " + token)
+                                .header("Accept", "application/vnd.github+json")
+                                .header("X-GitHub-Api-Version", "2022-11-28")
+                                .build();
+
+                        // Print curl for each page we query
+                        printCurlForGet(nextUrl);
+
+                        try (var listResp = client.newCall(listReq).execute()) {
+                            if (!listResp.isSuccessful() || listResp.body() == null) {
+                                logger.info(
+                                        "Failed to list installation repositories from {}: HTTP {}",
+                                        repositoriesUrl,
+                                        listResp.code());
+                                break; // go to next installation
+                            }
+
+                            var body = listResp.body().string();
+
+                            // Collect repos for one-time stdout logging
+                            var fullNames = extractAllJsonValues(body, "\"full_name\":\"");
+                            discoveredRepos.addAll(fullNames);
+
+                            if (body.contains("\"full_name\":\"" + fullName + "\"")) {
+                                logger.debug("Detected Brokk installation having access to {}", fullName);
+                                // Print discovered repos once (best effort) before returning
+                                logAccessibleReposIfFirstTime(discoveredRepos);
+                                return true;
+                            }
+
+                            // Parse Link header for pagination (look for rel="next")
+                            String link = listResp.header("Link");
+                            nextUrl = parseNextLink(link);
+                        } catch (Exception e) {
+                            logger.warn("Error listing installation repositories at {}: {}", nextUrl, e.getMessage());
+                            break; // go to next installation
+                        }
+                    }
+                }
+
+                // No match found; print discovered repos once for diagnostics
+                logAccessibleReposIfFirstTime(discoveredRepos);
+
+                logger.debug("No Brokk installation with access to {}", fullName);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.warn(
+                    "Could not check Brokk GitHub App installation status for {}/{}: {}",
+                    owner,
+                    repo,
+                    e.getMessage(),
+                    e);
+            return false;
+        }
+    }
+
+    // Returns the first index at or after 'from' where any of the needles appear, or -1 if none.
+    private static int indexOfAny(String haystack, int from, String... needles) {
+        int min = -1;
+        for (String n : needles) {
+            int idx = haystack.indexOf(n, from);
+            if (idx >= 0 && (min < 0 || idx < min)) {
+                min = idx;
+            }
+        }
+        return min;
+    }
+
+    // Print a ready-to-copy curl command that replicates the GET request we are making.
+    // Uses an environment variable for the token to avoid leaking secrets in logs.
+    private static void printCurlForGet(String url) {
+        String curl =
+                """
+                # Copy/paste to reproduce this request:
+                export GITHUB_TOKEN="<your OAuth token>"
+                curl -i \\
+                  -H "Authorization: Bearer $GITHUB_TOKEN" \\
+                  -H "Accept: application/vnd.github+json" \\
+                  -H "X-GitHub-Api-Version: 2022-11-28" \\
+                  "%s"
+                """
+                        .formatted(url)
+                        .stripIndent();
+        System.out.println(curl);
+        System.out.flush();
+    }
+
+    // Extracts the JSON string value immediately following the provided prefix within the given 'window'.
+    // This is a simple scanner that assumes no escaped quotes in the value (fits GitHub API URL strings).
+    private static @Nullable String extractJsonStringValue(String window, String prefix) {
+        int start = window.indexOf(prefix);
+        if (start < 0) return null;
+        start += prefix.length();
+        int end = window.indexOf("\"", start);
+        if (end < 0) return null;
+        return window.substring(start, end);
+    }
+
+    // Parses an HTTP Link header to find a rel="next" URL; returns null if none.
+    private static @Nullable String parseNextLink(@Nullable String linkHeader) {
+        if (linkHeader == null || linkHeader.isBlank()) return null;
+        // Typical format: <https://api.github.com/...&page=2>; rel="next", <...>; rel="last"
+        int relNextIdx = linkHeader.indexOf("rel=\"next\"");
+        if (relNextIdx < 0) return null;
+
+        // Find the preceding <...>
+        int lt = linkHeader.lastIndexOf('<', relNextIdx);
+        int gt = linkHeader.indexOf('>', lt + 1);
+        if (lt >= 0 && gt > lt) {
+            return linkHeader.substring(lt + 1, gt);
+        }
+        return null;
+    }
+
+    // Extract all occurrences of JSON string values for a given prefix within a JSON payload,
+    // e.g., prefix "\"full_name\":\"" will return a list of repo full names.
+    private static List<String> extractAllJsonValues(String json, String prefix) {
+        var results = new java.util.ArrayList<String>();
+        int idx = 0;
+        while (true) {
+            idx = json.indexOf(prefix, idx);
+            if (idx < 0) break;
+            int start = idx + prefix.length();
+            int end = json.indexOf("\"", start);
+            if (end < 0) break;
+            results.add(json.substring(start, end));
+            idx = end + 1;
+        }
+        return results;
+    }
+
+    // Print a one-time System.out dump of all repos the user's Brokk installations can access.
+    private static void logAccessibleReposIfFirstTime(java.util.Set<String> repos) {
+        if (repoAccessLogged.compareAndSet(false, true)) {
+            System.out.println("Brokk app accessible repositories for this token (" + repos.size() + "):");
+            for (String r : repos) {
+                System.out.println("  - " + r);
+            }
+            System.out.flush();
+        }
+    }
+
+    // Legacy fallback: try /repos/{owner}/{repo}/installation with user token (may be unreliable).
+    private static boolean fallbackRepoInstallationCheck(OkHttpClient client, String token, String owner, String repo) {
+        try {
             var request = new Request.Builder()
                     .url(String.format("https://api.github.com/repos/%s/%s/installation", owner, repo))
                     .header("Authorization", "Bearer " + token)
@@ -326,34 +624,30 @@ public class GitHubAuth {
                     .header("X-GitHub-Api-Version", "2022-11-28")
                     .build();
 
+            // Print curl for fallback endpoint
+            printCurlForGet(String.format("https://api.github.com/repos/%s/%s/installation", owner, repo));
+
             try (var response = client.newCall(request).execute()) {
                 if (response.code() == 404) {
-                    // No installation found for this repo
-                    logger.debug("No GitHub App installation found for {}/{}", owner, repo);
+                    logger.debug("No GitHub App installation found for {}/{} (legacy endpoint)", owner, repo);
                     return false;
                 }
-
-                if (!response.isSuccessful()) {
-                    logger.info("Failed to check GitHub App installation for {}/{}: HTTP {}", owner, repo, response.code());
+                if (!response.isSuccessful() || response.body() == null) {
+                    logger.info("Legacy installation check failed for {}/{}: HTTP {}", owner, repo, response.code());
                     return false;
                 }
-
-                var body = response.body();
-                if (body == null) {
-                    logger.info("Empty response body from /repos/{}/{}/installation", owner, repo);
-                    return false;
-                }
-
-                var json = body.string();
-                logger.debug("GitHub repo installation API response for {}/{}: {}", owner, repo, json.length() > 800 ? json.substring(0, 800) + "..." : json);
-
-                // Check if this installation is the Brokk app
-                var isInstalled = json.contains("\"app_slug\":\"brokkai\"") || json.contains("\"app_slug\":\"brokk\"");
-                logger.debug("Brokk GitHub App installation check for {}/{}: {}", owner, repo, isInstalled ? "INSTALLED" : "NOT INSTALLED");
-                return isInstalled;
+                var json = response.body().string();
+                boolean installed =
+                        json.contains("\"app_slug\":\"brokkai\"") || json.contains("\"app_slug\":\"brokk\"");
+                logger.debug(
+                        "Legacy Brokk installation check for {}/{}: {}",
+                        owner,
+                        repo,
+                        installed ? "INSTALLED" : "NOT INSTALLED");
+                return installed;
             }
         } catch (Exception e) {
-            logger.warn("Could not check GitHub App installation status for {}/{}: {}", owner, repo, e.getMessage(), e);
+            logger.warn("Legacy installation check error for {}/{}: {}", owner, repo, e.getMessage());
             return false;
         }
     }

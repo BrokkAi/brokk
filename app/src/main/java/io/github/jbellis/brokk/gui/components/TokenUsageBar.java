@@ -52,7 +52,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile Segment hoveredSegment = null;
 
     @Nullable
-    private volatile BiConsumer<Collection<ContextFragment>, Boolean> onHoverFragments = null;
+    private volatile BiConsumer<Collection<ContextFragment>, Boolean> onHoverFragments =
+    null;
 
     @Nullable
     private volatile Runnable onClick = null;
