@@ -37,6 +37,9 @@
       "git_badge_background": "#DC3545",
       "git_badge_text": "#FFFFFF",
 
+      "action_button_bg_default": "#1F6FEB",
+      "action_button_bg_stop": "#DC3545",
+
       "mode_answer_bg": "#1F6FEB",
       "mode_answer_fg": "#FFFFFF",
       "mode_answer_accent": "#1F6FEB",
