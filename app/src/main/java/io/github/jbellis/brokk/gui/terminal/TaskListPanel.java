@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.terminal;
 
-import static io.github.jbellis.brokk.gui.Constants.H_GAP;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
@@ -101,7 +100,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Chrome chrome;
     private final Color defaultGoButtonBg;
     private final Color stopButtonBg;
-    // These mirror InstructionsPanel's action button dimensions to keep Play/Stop button sizing consistent across panels.
+    // These mirror InstructionsPanel's action button dimensions to keep Play/Stop button sizing consistent across
+    // panels.
     private static final int ACTION_BUTTON_WIDTH = 140;
     private static final int ACTION_BUTTON_MIN_HEIGHT = 36;
     private final Timer runningFadeTimer;
