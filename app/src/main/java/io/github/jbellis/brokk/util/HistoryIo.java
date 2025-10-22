@@ -46,6 +46,7 @@ public final class HistoryIo {
     private static final String GIT_STATES_FILENAME = "git_states.json";
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
+    private static final String TIMELINE_FILENAME = "timeline-v4.json";
 
     private static final int CURRENT_FORMAT_VERSION = 3;
 
@@ -481,6 +482,147 @@ public final class HistoryIo {
         }
 
         return new SessionHistory(timeline);
+    }
+
+    /**
+     * Write the v4 timeline file into the session zip, alongside v3 artifacts.
+     */
+    public static void writeTimelineToZip(Path zip, SessionHistory sessionHistory) throws IOException {
+        // Serialize DTOs
+        var stepsDto = sessionHistory.timeline().stream().map(step -> {
+            // Collect context IDs as strings
+            var contextIds = step.contexts().stream().map(ctx -> ctx.id().toString()).toList();
+
+            // Map TaskResult -> TaskResultDto
+            TimelineDtos.TaskResultDto eventDto = null;
+            if (step.event() != null) {
+                var ev = step.event();
+                var stopDto = new TimelineDtos.StopDetailsDto(ev.stopDetails().reason().name(), ev.stopDetails().explanation());
+                eventDto = new TimelineDtos.TaskResultDto(
+                        ev.taskId() == null ? null : ev.taskId().toString(),
+                        ev.beforeContextId() == null ? null : ev.beforeContextId().toString(),
+                        ev.afterContextId() == null ? null : ev.afterContextId().toString(),
+                        ev.createdAtEpochMillis(),
+                        ev.summaryText(),
+                        ev.actionDescription(),
+                        ev.output() == null ? null : ev.output().id(),
+                        stopDto
+                );
+            }
+            return new TimelineDtos.SessionStepDto(contextIds, eventDto);
+        }).toList();
+
+        byte[] payload = objectMapper.writeValueAsBytes(stepsDto);
+
+        try (var fs = java.nio.file.FileSystems.newFileSystem(zip, java.util.Map.of("create", Files.notExists(zip) ? "true" : "false"))) {
+            var path = fs.getPath(TIMELINE_FILENAME);
+            Files.write(path, payload, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        }
+    }
+
+    /**
+     * Read the v4 timeline from the session zip. If absent, returns null. Requires ContextHistory to
+     * map context IDs and to compute changedFiles; uses contextManager to synthesize missing TaskFragments if needed.
+     */
+    public static @Nullable SessionHistory readTimelineFromZip(Path zip, IContextManager mgr, ContextHistory ch) throws IOException {
+        if (!Files.exists(zip)) {
+            return null;
+        }
+        java.util.List<TimelineDtos.SessionStepDto> stepsDto;
+        try (var fs = java.nio.file.FileSystems.newFileSystem(zip, java.util.Map.of())) {
+            var path = fs.getPath(TIMELINE_FILENAME);
+            if (!Files.exists(path)) {
+                return null;
+            }
+            byte[] bytes = Files.readAllBytes(path);
+            var typeRef = new TypeReference<java.util.List<TimelineDtos.SessionStepDto>>() {};
+            stepsDto = objectMapper.readValue(bytes, typeRef);
+        }
+
+        // Build context lookup by ID
+        var ctxById = ch.getHistory().stream().collect(Collectors.toMap(ctx -> ctx.id().toString(), ctx -> ctx));
+        // Build TaskFragment lookup by ID by scanning contexts
+        var tfById = new HashMap<String, ContextFragment.TaskFragment>();
+        for (var ctx : ch.getHistory()) {
+            if (ctx.getParsedOutput() != null) {
+                tfById.putIfAbsent(ctx.getParsedOutput().id(), ctx.getParsedOutput());
+            }
+            ctx.getTaskHistory().stream()
+                    .map(TaskEntry::log)
+                    .filter(Objects::nonNull)
+                    .forEach(tf -> tfById.putIfAbsent(tf.id(), tf));
+            ctx.virtualFragments()
+                    .filter(vf -> vf instanceof ContextFragment.TaskFragment)
+                    .map(vf -> (ContextFragment.TaskFragment) vf)
+                    .forEach(tf -> tfById.putIfAbsent(tf.id(), tf));
+        }
+
+        var steps = new ArrayList<SessionStep>();
+        for (var s : stepsDto) {
+            // Resolve contexts
+            var contexts = s.contextIds().stream()
+                    .map(ctxById::get)
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            TaskResult event = null;
+            if (s.event() != null) {
+                var e = s.event();
+                UUID taskId = e.taskId() == null ? null : UUID.fromString(e.taskId());
+                UUID beforeId = e.beforeContextId() == null ? null : UUID.fromString(e.beforeContextId());
+                UUID afterId = e.afterContextId() == null ? null : UUID.fromString(e.afterContextId());
+
+                // Compute changed files if both before/after are known
+                Set<ProjectFile> changedFiles = Collections.emptySet();
+                if (beforeId != null && afterId != null) {
+                    var before = ctxById.get(beforeId.toString());
+                    var after = ctxById.get(afterId.toString());
+                    if (before != null && after != null) {
+                        var diffs = after.getDiff(before);
+                        changedFiles = diffs.stream()
+                                .flatMap(de -> de.fragment().files().stream())
+                                .collect(Collectors.toUnmodifiableSet());
+                    }
+                }
+
+                // Resolve TaskFragment output
+                ContextFragment.TaskFragment output = null;
+                if (e.outputId() != null) {
+                    output = tfById.get(e.outputId());
+                }
+                if (output == null) {
+                    // Fallback: synthesize a minimal TaskFragment with empty messages and description
+                    output = new ContextFragment.TaskFragment(mgr, java.util.List.of(), e.actionDescription());
+                }
+
+                var stopReason = TaskResult.StopReason.valueOf(e.stopDetails().reason());
+                var stopDetails = new TaskResult.StopDetails(stopReason, e.stopDetails().explanation());
+
+                event = new TaskResult(
+                        e.actionDescription(),
+                        output,
+                        changedFiles,
+                        stopDetails,
+                        taskId,
+                        beforeId,
+                        afterId,
+                        e.createdAtEpochMillis(),
+                        e.summaryText()
+                );
+            }
+
+            steps.add(new SessionStep(event, contexts));
+        }
+
+        return new SessionHistory(steps);
+    }
+
+    /**
+     * Convenience: write v3 and v4 artifacts together. Writes v3 ContextHistory entirely, then writes timeline-v4.json.
+     */
+    public static void writeZip(ContextHistory ch, SessionHistory sessionHistory, Path target) throws IOException {
+        writeZip(ch, target);
+        writeTimelineToZip(target, sessionHistory);
     }
 
     public static class ContentWriter {

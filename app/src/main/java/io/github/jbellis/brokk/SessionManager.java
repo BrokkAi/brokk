@@ -6,6 +6,7 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.SessionHistory;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.tasks.TaskList;
@@ -84,12 +85,15 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+    // In-memory timeline cache per session. When present, saveHistory will persist it as timeline-v4.json.
+    private final Map<UUID, SessionHistory> sessionTimelines;
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
         this.sessionExecutor = Executors.newFixedThreadPool(3, new SessionExecutorThreadFactory());
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
+        this.sessionTimelines = new ConcurrentHashMap<>();
     }
 
     private Map<UUID, SessionInfo> loadSessions() {
@@ -450,6 +454,16 @@ public class SessionManager implements AutoCloseable {
                                 ioe.getMessage());
                     }
                 }
+
+                // If we have a timeline cached for this session, persist it alongside v3 artifacts
+                var timeline = sessionTimelines.get(sessionId);
+                if (timeline != null) {
+                    try {
+                        HistoryIo.writeTimelineToZip(sessionHistoryPath, timeline);
+                    } catch (IOException ioe) {
+                        logger.warn("Failed writing timeline-v4.json for session {}: {}", sessionId, ioe.getMessage());
+                    }
+                }
             } catch (IOException e) {
                 logger.error(
                         "Error saving context history or updating manifest for session {}: {}",
@@ -635,6 +649,77 @@ public class SessionManager implements AutoCloseable {
                 logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
                 return new TaskList.TaskListData(List.of());
             }
+        });
+    }
+
+    /**
+     * Load the SessionHistory (v4) for a session. If timeline-v4.json is present in the zip, it is used.
+     * Otherwise, a canonical timeline is derived from the legacy v3 ContextHistory.
+     *
+     * Note: This method synchronizes on the per-session executor and may block for I/O.
+     */
+    public @Nullable SessionHistory readSessionHistory(UUID sessionId, IContextManager contextManager) {
+        var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            // Load v3 ContextHistory (and quarantine if unreadable)
+            ContextHistory ch = loadHistoryOrQuarantine(sessionId, contextManager);
+            // Attempt to read v4 timeline
+            SessionHistory sh = null;
+            try {
+                sh = HistoryIo.readTimelineFromZip(getSessionHistoryPath(sessionId), contextManager, ch);
+            } catch (IOException e) {
+                logger.warn("Error reading timeline-v4.json for session {}: {}", sessionId, e.getMessage());
+            }
+            if (sh == null) {
+                // Derive from v3
+                sh = HistoryIo.deriveTimeline(ch);
+            }
+            sessionTimelines.put(sessionId, sh);
+            return sh;
+        });
+
+        try {
+            return future.get();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while loading session history for {}", sessionId);
+            return null;
+        } catch (ExecutionException ee) {
+            logger.warn("Error waiting for session history to load for {}: {}", sessionId, ee.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Persist the provided SessionHistory as timeline-v4.json alongside the existing v3 artifacts.
+     * Also updates the session manifest modified time.
+     */
+    public void saveSessionHistory(SessionHistory sessionHistory, UUID sessionId) {
+        // Cache in memory; saveHistory(...) will also consult this map when writing v3
+        sessionTimelines.put(sessionId, sessionHistory);
+
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            Path zipPath = getSessionHistoryPath(sessionId);
+            try {
+                // Ensure the zip exists; if not, create an empty v3 history first
+                if (!Files.exists(zipPath)) {
+                    Files.createDirectories(zipPath.getParent());
+                    HistoryIo.writeZip(new ContextHistory(Context.EMPTY), zipPath);
+                }
+
+                // Write the timeline file
+                HistoryIo.writeTimelineToZip(zipPath, sessionHistory);
+
+                // Update manifest modified timestamp if we have session info
+                SessionInfo oldInfo = sessionsCache.get(sessionId);
+                if (oldInfo != null) {
+                    var updated = new SessionInfo(oldInfo.id(), oldInfo.name(), oldInfo.created(), System.currentTimeMillis());
+                    sessionsCache.put(sessionId, updated);
+                    writeSessionInfoToZip(zipPath, updated);
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to write timeline-v4.json or update manifest for session {}: {}", sessionId, e.getMessage());
+            }
+            return null;
         });
     }
 

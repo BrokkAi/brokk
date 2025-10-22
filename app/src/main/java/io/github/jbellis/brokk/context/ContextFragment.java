@@ -1961,6 +1961,11 @@ public interface ContextFragment {
         }
 
         @Override
+        public String shortDescription() {
+            return "Task";
+        }
+
+        @Override
         public String text() {
             // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
