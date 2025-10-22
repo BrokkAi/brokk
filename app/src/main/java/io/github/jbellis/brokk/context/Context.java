@@ -28,7 +28,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -638,7 +637,9 @@ public class Context {
             return other;
         }
 
-        var combined = addPathFragments(other.fileFragments().map(cf -> (ContextFragment.PathFragment) cf).toList());
+        var combined = addPathFragments(other.fileFragments()
+                .map(cf -> (ContextFragment.PathFragment) cf)
+                .toList());
         combined = addVirtualFragments(other.virtualFragments().toList());
         return combined;
     }

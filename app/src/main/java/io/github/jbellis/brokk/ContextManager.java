@@ -2009,16 +2009,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             // If there is literally nothing to record (no messages and no context/file changes), skip
-            if (result.output().messages().isEmpty() && !result.context().freeze().equals(topContext())) {
+            if (result.output().messages().isEmpty()
+                    && !result.context().freeze().equals(topContext())) {
                 logger.debug("Empty TaskResult");
                 return;
             }
 
             var action = result.actionDescription();
-            logger.debug(
-                    "Adding session result to history. Action: '{}', Reason: {}",
-                    action,
-                    result.stopDetails());
+            logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
 
             Future<String> actionFuture = submitSummarizeTaskForConversation(action);
             pushContext(currentLiveCtx -> {
@@ -2031,8 +2029,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Auto-rename session if it still has the default name
             var sessionManager = project.getSessionManager();
             var sessions = sessionManager.listSessions();
-            var currentSession =
-                    sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
+            var currentSession = sessions.stream()
+                    .filter(s -> s.id().equals(currentSessionId))
+                    .findFirst();
 
             if (currentSession.isPresent()
                     && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
