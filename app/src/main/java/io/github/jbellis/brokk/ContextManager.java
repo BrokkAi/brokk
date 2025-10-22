@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
 import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.SessionHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitDistance;
@@ -2171,6 +2172,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public ContextHistory getContextHistory() {
         return contextHistory;
+    }
+
+    // Return canonical v4 SessionHistory for current session. Always non-null.
+    public SessionHistory getSessionHistory() {
+        var sessionManager = project.getSessionManager();
+        var sh = sessionManager.readSessionHistory(currentSessionId, this);
+        if (sh != null) {
+            return sh;
+        }
+        // Fallback: derive from in-memory v3 ContextHistory if v4 not present or unreadable
+        return HistoryIo.deriveTimeline(contextHistory);
+    }
+
+    // Alias for UI code expecting a timeline accessor
+    public SessionHistory getTimeline() {
+        return getSessionHistory();
     }
 
     public UUID getCurrentSessionId() {
