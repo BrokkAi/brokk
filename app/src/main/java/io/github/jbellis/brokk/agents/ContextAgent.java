@@ -186,8 +186,8 @@ public class ContextAgent {
      *
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
-    public RecommendationResult getRecommendations() throws InterruptedException {
-        var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext());
+    public RecommendationResult getRecommendations(Context context) throws InterruptedException {
+        var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(context);
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -203,7 +203,7 @@ public class ContextAgent {
         }
 
         // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
-        var existingFiles = cm.liveContext()
+        var existingFiles = context
                 .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                         || f.getType() == ContextFragment.FragmentType.SKELETON)
@@ -214,7 +214,7 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            candidates = cm.topContext().getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
+            candidates = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
                     .filter(f -> !existingFiles.contains(f))
                     .sorted()
                     .toList();
