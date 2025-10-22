@@ -4,8 +4,8 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
@@ -112,8 +112,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
      * Sets the fragments from a Context (historical or live). Safe to call from any thread.
      */
     public void setFragmentsForContext(Context context) {
-        List<ContextFragment> frags =
-                (context == null) ? List.of() : context.getAllFragmentsInDisplayOrder();
+        List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
         SwingUtilities.invokeLater(() -> updateChips(frags));
     }
 
@@ -842,7 +841,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -856,7 +856,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -898,7 +899,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -912,7 +914,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -925,7 +928,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (readOnly) {
-                    chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
                 executeCloseChip(fragment);
@@ -996,7 +1000,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1011,7 +1016,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1029,7 +1035,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
                     executeCloseChip(fragment);
@@ -1074,7 +1081,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1088,7 +1096,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1148,7 +1157,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1162,7 +1172,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1175,7 +1186,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (readOnly) {
-                    chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
                 boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
@@ -1249,7 +1261,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }
@@ -1263,7 +1276,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     if (readOnly) {
-                        chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         e.consume();
                         return;
                     }

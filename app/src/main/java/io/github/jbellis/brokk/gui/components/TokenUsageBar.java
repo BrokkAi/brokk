@@ -2,8 +2,8 @@ package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FragmentColorUtils;
 import io.github.jbellis.brokk.gui.GuiTheme;

@@ -345,8 +345,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
 
-        
-
         // --- Autocomplete Setup ---
         instructionCompletionProvider = new InstructionsCompletionProvider();
         instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
@@ -1622,7 +1620,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.debug("Context updated: {} fragments", fragments.size());
         // Update chips from the selected context and toggle read-only
         workspaceItemsChipPanel.setFragmentsForContext(newCtx);
-        boolean readOnly = !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        boolean readOnly =
+                !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
         workspaceItemsChipPanel.setReadOnly(readOnly);
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);
