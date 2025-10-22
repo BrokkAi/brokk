@@ -283,6 +283,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Synchronize button's selected mode with loaded preference
         actionButton.setSelectedMode(storedAction);
+        // Immediately refresh mode indicator and placeholder based on selected mode
+        refreshModeIndicator();
+        updatePlaceholderForMode();
         // Initialize tooltip to reflect the selected mode
         SwingUtilities.invokeLater(actionButton::updateTooltip);
 
