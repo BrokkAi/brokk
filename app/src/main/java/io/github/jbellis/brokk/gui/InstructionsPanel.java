@@ -345,8 +345,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
 
-        // Add this panel as a listener to context changes
-        this.contextManager.addContextListener(this);
+        
 
         // --- Autocomplete Setup ---
         instructionCompletionProvider = new InstructionsCompletionProvider();
