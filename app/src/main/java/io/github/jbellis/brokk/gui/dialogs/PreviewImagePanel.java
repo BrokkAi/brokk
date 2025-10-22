@@ -111,6 +111,46 @@ public class PreviewImagePanel extends JPanel {
         frame.setVisible(true);
     }
 
+    /**
+     * Gets the BrokkFile associated with this preview panel.
+     *
+     * @return The BrokkFile, or null if this preview is not associated with a file
+     */
+    @Nullable
+    public BrokkFile getFile() {
+        return file;
+    }
+
+    /** Refreshes the image from disk if the file has changed. */
+    public void refreshFromDisk() {
+        if (file == null) {
+            return;
+        }
+
+        try {
+            // Check if file still exists
+            if (!java.nio.file.Files.exists(file.absPath())) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(
+                            this, "Image file has been deleted: " + file, "File Deleted", JOptionPane.WARNING_MESSAGE);
+                });
+                return;
+            }
+
+            // Reload the image
+            var newImage = ImageIO.read(file.absPath().toFile());
+            if (newImage == null) {
+                return; // Could not read image, keep current one
+            }
+
+            // Update the displayed image
+            setImage(newImage);
+
+        } catch (IOException e) {
+            // Silently fail - keep existing image displayed
+        }
+    }
+
     /** Registers ESC key to close the preview panel */
     private void registerEscapeKey() {
         // Register ESC key to close the dialog

@@ -61,7 +61,6 @@ public final class MainProject extends AbstractProject {
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
-    private static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
@@ -353,6 +352,16 @@ public final class MainProject extends AbstractProject {
         return detailsFuture;
     }
 
+    /**
+     * Blocking call that waits for build details to be available.
+     *
+     * <p>Important: this must NOT be invoked on the Swing Event Dispatch Thread (EDT) as it will
+     * block the UI and can deadlock. From the EDT, prefer {@link #getBuildDetailsFuture()} and
+     * update the UI when the future completes.
+     *
+     * @return the resolved build details
+     * @throws IllegalStateException if called on the Swing EDT
+     */
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
         try {
@@ -480,26 +489,6 @@ public final class MainProject extends AbstractProject {
             logger.warn("Unable to determine size of file {}: {}", pf, e.getMessage());
             return 0L;
         }
-    }
-
-    /**
-     * Detects the primary Language used by a dependency directory by scanning file extensions inside it and selecting
-     * the most frequently occurring language. Falls back to Language.NONE if none detected.
-     */
-    private static Language detectLanguageForDependency(ProjectFile depDir) {
-        var counts = new IProject.Dependency(depDir, Languages.NONE)
-                .files().stream()
-                        .map(pf -> com.google.common.io.Files.getFileExtension(
-                                pf.absPath().toString()))
-                        .filter(ext -> !ext.isEmpty())
-                        .map(Languages::fromExtension)
-                        .filter(lang -> lang != Languages.NONE)
-                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
-
-        return counts.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(Languages.NONE);
     }
 
     @Override
@@ -1103,6 +1092,21 @@ public final class MainProject extends AbstractProject {
     public static void setCodeBlockWrapMode(boolean wrap) {
         var props = loadGlobalProperties();
         props.setProperty("wordWrap", String.valueOf(wrap));
+        saveGlobalProperties(props);
+    }
+
+    public static String getGlobalActionMode() {
+        var props = loadGlobalProperties();
+        return props.getProperty("actionMode", "");
+    }
+
+    public static void setGlobalActionMode(String mode) {
+        var props = loadGlobalProperties();
+        if (mode.isEmpty()) {
+            props.remove("actionMode");
+        } else {
+            props.setProperty("actionMode", mode);
+        }
         saveGlobalProperties(props);
     }
 

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
+import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -21,9 +22,14 @@ import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import java.awt.*;
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.*;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
@@ -91,6 +97,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     // Build panel instance (extracted)
     private SettingsProjectBuildPanel buildPanelInstance;
 
+    @Nullable
+    private LanguagesTableModel languagesTableModel;
+
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -137,6 +146,30 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     public JTabbedPane getProjectSubTabbedPane() {
         return projectSubTabbedPane;
+    }
+
+    // Update CI exclusions list model safely and consistently (EDT, sorted, deduped case-insensitively)
+    public void updateExcludedDirectories(@Nullable Collection<String> dirs) {
+        Runnable r = () -> {
+            try {
+                var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                if (dirs != null) {
+                    unique.addAll(dirs);
+                }
+                excludedDirectoriesListModel.clear();
+                for (String d : unique) {
+                    excludedDirectoriesListModel.addElement(d);
+                }
+            } catch (Exception ex) {
+                logger.warn("Failed to update CI exclusions list model: {}", ex.getMessage(), ex);
+                excludedDirectoriesListModel.clear();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     private JPanel createGeneralPanel() {
@@ -528,69 +561,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         }
 
-        // Table model for languages
-        class LanguagesTableModel extends AbstractTableModel {
-            private final List<Language> rows;
-
-            LanguagesTableModel(List<Language> rows) {
-                this.rows = rows;
-            }
-
-            @Override
-            public int getRowCount() {
-                return rows.size();
-            }
-
-            @Override
-            public int getColumnCount() {
-                return 2; // Live, Language
-            }
-
-            @Override
-            public String getColumnName(int column) {
-                return switch (column) {
-                    case 0 -> "Live";
-                    case 1 -> "Language";
-                    default -> "";
-                };
-            }
-
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                return switch (columnIndex) {
-                    case 0 -> Boolean.class;
-                    default -> String.class;
-                };
-            }
-
-            @Override
-            public boolean isCellEditable(int rowIndex, int columnIndex) {
-                return columnIndex == 0; // only the checkbox is editable
-            }
-
-            @Override
-            public Object getValueAt(int rowIndex, int columnIndex) {
-                var lang = rows.get(rowIndex);
-                return switch (columnIndex) {
-                    case 0 -> currentAnalyzerLanguagesForDialog.contains(lang);
-                    case 1 -> lang.name();
-                    default -> "";
-                };
-            }
-
-            @Override
-            public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-                if (columnIndex != 0) return;
-                var lang = rows.get(rowIndex);
-                boolean live = Boolean.TRUE.equals(aValue);
-                if (live) currentAnalyzerLanguagesForDialog.add(lang);
-                else currentAnalyzerLanguagesForDialog.remove(lang);
-                fireTableCellUpdated(rowIndex, 0);
-            }
-        }
-
-        var tableModel = new LanguagesTableModel(languagesToShow);
-        var table = new JTable(tableModel);
+        languagesTableModel = new LanguagesTableModel(languagesToShow);
+        var table = new JTable(languagesTableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
@@ -615,9 +587,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         pref = Math.max(pref, headerComp.getPreferredSize().width);
 
         // Cells width
-        for (int r = 0; r < tableModel.getRowCount(); r++) {
+        for (int r = 0; r < languagesTableModel.getRowCount(); r++) {
             var comp = table.getCellRenderer(r, 1)
-                    .getTableCellRendererComponent(table, tableModel.getValueAt(r, 1), false, false, r, 1);
+                    .getTableCellRendererComponent(table, languagesTableModel.getValueAt(r, 1), false, false, r, 1);
             pref = Math.max(pref, comp.getPreferredSize().width);
         }
 
@@ -657,7 +629,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         });
         toolbar.add(refreshBtn);
 
-        // CI Exclusions panel (moved to build panel)
+        // User-configured CI Exclusions are stored in BuildDetails and can be edited here.
         var ciPanel = new JPanel(new GridBagLayout());
         var gbcCi = new GridBagConstraints();
         gbcCi.insets = new Insets(2, 2, 2, 2);
@@ -668,7 +640,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.gridy = ciRow;
         gbcCi.weightx = 0.0;
         gbcCi.anchor = GridBagConstraints.NORTHWEST;
-        ciPanel.add(new JLabel("CI Exclusions:"), gbcCi);
+        var ciExclusionsLabel = new JLabel("CI Exclusions:");
+        ciExclusionsLabel.setToolTipText(
+                "<html>User-configured directories to exclude from Code Intelligence.<br>Additional exclusions from .gitignore and for unmanaged dependencies are applied automatically.</html>");
+        ciPanel.add(ciExclusionsLabel, gbcCi);
         excludedDirectoriesList.setVisibleRowCount(3);
         gbcCi.gridx = 1;
         gbcCi.gridy = ciRow++;
@@ -692,7 +667,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.anchor = GridBagConstraints.WEST;
         ciPanel.add(excludedButtonsPanel2, gbcCi);
 
-        // Wire add/remove actions for the exclusions buttons (kept for compatibility; real store occurs in build panel)
+        // Wire add/remove actions for the exclusions buttons.
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
                     parentDialog,
@@ -780,7 +755,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         panel.add(centerPanel, BorderLayout.CENTER);
 
         // Preselect the language with the most associated files so details show immediately.
-        if (tableModel.getRowCount() > 0) {
+        if (languagesTableModel.getRowCount() > 0) {
             int maxModelIdx = 0;
             int maxCount = -1;
             for (int i = 0; i < languagesToShow.size(); i++) {
@@ -805,6 +780,66 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         panel.add(ciPanel, BorderLayout.SOUTH);
 
         return panel;
+    }
+
+    private class LanguagesTableModel extends AbstractTableModel {
+        private final List<Language> rows;
+
+        LanguagesTableModel(List<Language> rows) {
+            this.rows = rows;
+        }
+
+        @Override
+        public int getRowCount() {
+            return rows.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return 2; // Live, Language
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return switch (column) {
+                case 0 -> "Live";
+                case 1 -> "Language";
+                default -> "";
+            };
+        }
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            return switch (columnIndex) {
+                case 0 -> Boolean.class;
+                default -> String.class;
+            };
+        }
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return columnIndex == 0; // only the checkbox is editable
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            var lang = rows.get(rowIndex);
+            return switch (columnIndex) {
+                case 0 -> currentAnalyzerLanguagesForDialog.contains(lang);
+                case 1 -> lang.name();
+                default -> "";
+            };
+        }
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+            if (columnIndex != 0) return;
+            var lang = rows.get(rowIndex);
+            boolean live = Boolean.TRUE.equals(aValue);
+            if (live) currentAnalyzerLanguagesForDialog.add(lang);
+            else currentAnalyzerLanguagesForDialog.remove(lang);
+            fireTableCellUpdated(rowIndex, 0);
+        }
     }
 
     private void testJiraConnectionAction() {
@@ -933,8 +968,31 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
 
+        loadCodeIntelligenceSettings();
+        loadCiExclusionsFromBuildDetails();
+
         // Build Tab - delegate to buildPanelInstance
         buildPanelInstance.loadBuildPanelSettings();
+    }
+
+    private void loadCodeIntelligenceSettings() {
+        var project = chrome.getProject();
+        currentAnalyzerLanguagesForDialog.clear();
+        currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
+        if (languagesTableModel != null) {
+            languagesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void loadCiExclusionsFromBuildDetails() {
+        var project = chrome.getProject();
+        try {
+            BuildDetails details = project.loadBuildDetails();
+            updateExcludedDirectories(details.excludedDirectories());
+        } catch (Exception ex) {
+            logger.warn("Failed to load BuildDetails for CI exclusions: {}", ex.getMessage(), ex);
+            updateExcludedDirectories(List.of());
+        }
     }
 
     public boolean applySettings() {
@@ -975,6 +1033,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
         project.setIssuesProvider(newProviderToSet);
 
+        // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
+        saveCiExclusions();
+
         // Delegate build-related persistence to extracted build panel
         try {
             buildPanelInstance.applySettings();
@@ -983,11 +1044,57 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         // Data Retention Tab and Analyzer-specific settings are handled elsewhere (if present)
+        setAnalyzerLanguages();
+
         for (AnalyzerSettingsPanel panel : analyzerSettingsCache.values()) {
             panel.saveSettings();
         }
 
         return true;
+    }
+
+    private void saveCiExclusions() {
+        var project = chrome.getProject();
+        try {
+            var currentDetails = project.loadBuildDetails();
+
+            Set<String> excludesSet = Collections.list(excludedDirectoriesListModel.elements()).stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(s -> {
+                        try {
+                            return Path.of(s).normalize().toString();
+                        } catch (InvalidPathException ex) {
+                            return s;
+                        }
+                    })
+                    .collect(Collectors.toCollection(() -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+
+            var newDetails = new BuildDetails(
+                    currentDetails.buildLintCommand(),
+                    currentDetails.testAllCommand(),
+                    currentDetails.testSomeCommand(),
+                    excludesSet,
+                    currentDetails.environmentVariables());
+
+            if (!newDetails.equals(currentDetails)) {
+                project.saveBuildDetails(newDetails);
+                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: {}", excludesSet);
+            }
+
+            // Refresh the UI to reflect canonicalized values
+            updateExcludedDirectories(excludesSet);
+        } catch (Exception e) {
+            logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
+        }
+    }
+
+    private void setAnalyzerLanguages() {
+        var project = chrome.getProject();
+        Set<Language> currentLangs = project.getAnalyzerLanguages();
+        if (!currentLangs.equals(currentAnalyzerLanguagesForDialog)) {
+            project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
+        }
     }
 
     public void showBuildBanner() {

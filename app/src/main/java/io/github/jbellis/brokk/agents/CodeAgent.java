@@ -240,11 +240,6 @@ public class CodeAgent {
                 stopDetails = fatalApply.stopDetails();
                 break;
             }
-            if (applyOutcome instanceof Step.Retry retryApply) {
-                cs = retryApply.cs();
-                es = retryApply.es();
-                continue; // Restart main loop
-            }
             cs = applyOutcome.cs();
             es = applyOutcome.es();
 
@@ -268,6 +263,12 @@ public class CodeAgent {
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
                 context = context.addPathFragments(newFrags);
+            }
+
+            if (applyOutcome instanceof Step.Retry retryApply) {
+                cs = retryApply.cs();
+                es = retryApply.es();
+                continue; // Restart main loop
             }
 
             // After a successful apply, consider compacting the turn into a clean, synthetic summary.
@@ -502,9 +503,7 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
         coder.setOutput(io);
 
-        // Use up to 5 related classes as context
-        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment
-        // directly
+        // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents = file.read().orElse("");

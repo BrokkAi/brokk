@@ -374,7 +374,7 @@ public final class BrokkCli implements Callable<Integer> {
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
+                            cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
                         default -> cm.addSummaries(fragment.files(), Set.of());

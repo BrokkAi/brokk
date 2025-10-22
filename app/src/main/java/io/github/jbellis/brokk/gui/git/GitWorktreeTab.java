@@ -508,11 +508,8 @@ public class GitWorktreeTab extends JPanel {
 
         contextManager.submitContextTask(() -> {
             if (!(repo instanceof GitRepo gitRepo)) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        this,
-                        "Worktree operations are only supported for Git repositories.",
-                        "Error",
-                        JOptionPane.ERROR_MESSAGE));
+                chrome.toolError(
+                        "Worktree operations are only supported for Git repositories.", "Unsupported Repository Type");
                 return;
             }
 
@@ -531,20 +528,16 @@ public class GitWorktreeTab extends JPanel {
                         .toList();
 
                 if (availableBranches.isEmpty()) {
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                            this,
-                            "No available branches to create a worktree from.",
-                            "Info",
-                            JOptionPane.INFORMATION_MESSAGE));
+                    chrome.toolError(
+                            "No available branches to create a worktree from. All local branches are already in use by worktrees.",
+                            "No Available Branches");
                     return;
                 }
             } catch (GitAPIException e) {
                 logger.error("Error fetching initial branch information for add worktree", e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        this,
-                        "Error fetching branch information: " + e.getMessage(),
-                        "Git Error",
-                        JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Failed to fetch branch information from Git repository:\n" + e.getMessage(),
+                        "Git Repository Error"));
                 return;
             }
 
@@ -702,30 +695,22 @@ public class GitWorktreeTab extends JPanel {
 
                 if (isCreatingNewBranch) {
                     if (branchForWorktree.isEmpty()) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                GitWorktreeTab.this,
-                                "New branch name cannot be empty.",
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE));
+                        chrome.toolError(
+                                "New branch name cannot be empty. Please provide a valid branch name.",
+                                "Invalid Branch Name");
                         return;
                     }
                     try {
                         branchForWorktree =
                                 gitRepo.sanitizeBranchName(branchForWorktree); // Sanitize on background thread
                     } catch (GitAPIException e) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                GitWorktreeTab.this,
-                                "Error sanitizing branch name: " + e.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE));
+                        chrome.toolError(
+                                "Failed to sanitize branch name:\n" + e.getMessage(), "Branch Name Validation Error");
                         return;
                     }
                     if (sourceBranchForNew.isEmpty()) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                GitWorktreeTab.this,
-                                "A source branch must be selected to create a new branch.",
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE));
+                        chrome.toolError(
+                                "A source branch must be selected to create a new branch.", "Missing Source Branch");
                         return;
                     }
                 } else { // Using existing branch
@@ -752,7 +737,8 @@ public class GitWorktreeTab extends JPanel {
                                 IConsoleIO.NotificationRole.INFO,
                                 "Successfully opened worktree: " + newWorktreePath.getFileName());
                     } else {
-                        chrome.toolError("Error opening worktree " + newWorktreePath.getFileName());
+                        chrome.toolError(
+                                "Error opening worktree " + newWorktreePath.getFileName(), "Worktree Open Error");
                     }
                     SwingUtilities.invokeLater(this::loadWorktrees);
                 });
@@ -763,18 +749,19 @@ public class GitWorktreeTab extends JPanel {
 
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error during add worktree dialog processing or future execution", e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        GitWorktreeTab.this,
-                        "Error processing worktree addition: " + e.getMessage(),
-                        "Error",
-                        JOptionPane.ERROR_MESSAGE));
+                chrome.toolError(
+                        "Failed to process worktree addition dialog:\n" + e.getMessage(), "Dialog Processing Error");
             } catch (GitAPIException | IOException e) { // Catches from setupNewGitWorktree or sanitizeBranchName
                 logger.error("Error creating worktree", e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        GitWorktreeTab.this,
-                        "Error creating worktree: " + e.getMessage(),
-                        "Git Error",
-                        JOptionPane.ERROR_MESSAGE));
+                String errorDetail = e.getMessage();
+                final String contextualMessage;
+                if (e instanceof GitAPIException && errorDetail != null && errorDetail.contains("LOCK_FAILURE")) {
+                    contextualMessage =
+                            "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
+                } else {
+                    contextualMessage = "Failed to create worktree:\n" + errorDetail;
+                }
+                chrome.toolError(contextualMessage, "Worktree Creation Failed");
             }
         });
     }
@@ -805,11 +792,8 @@ public class GitWorktreeTab extends JPanel {
         IGitRepo repo = project.getRepo();
 
         if (!(repo instanceof GitRepo)) { // Should not happen if buttons are correctly disabled by buildUnsupportedUI
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Worktree operations are only supported for Git repositories.",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE);
+            chrome.toolError(
+                    "Worktree operations are only supported for Git repositories.", "Unsupported Repository Type");
             return;
         }
 
@@ -967,11 +951,7 @@ public class GitWorktreeTab extends JPanel {
 
     private void reportRemoveError(Path worktreePath, Exception e) {
         final String pathName = worktreePath.getFileName().toString();
-        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                this,
-                "Error during removal of worktree " + pathName + ":\n" + e.getMessage(),
-                "Worktree Removal Error",
-                JOptionPane.ERROR_MESSAGE));
+        chrome.toolError("Failed to remove worktree '" + pathName + "':\n" + e.getMessage(), "Worktree Removal Error");
     }
 
     public void refresh() {
@@ -1130,11 +1110,11 @@ public class GitWorktreeTab extends JPanel {
                     String conflictDetails = mergeResult.getConflicts() != null
                             ? String.join(", ", mergeResult.getConflicts().keySet())
                             : "unknown conflicts";
-                    String errorMessage = "Merge failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: "
+                    String errorMessage = "Merge of '" + worktreeBranchName + "' into '" + targetBranch
+                            + "' failed with status: " + mergeResult.getMergeStatus() + ".\n\nConflicting files: "
                             + conflictDetails;
                     logger.error(errorMessage);
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                            GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
+                    chrome.toolError(errorMessage, "Merge Failed");
                     return null; // Exit the task, finally block will still run
                 }
 
@@ -1168,15 +1148,12 @@ public class GitWorktreeTab extends JPanel {
                             }
                         });
                     } catch (GitAPIException e) {
-                        String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName()
-                                + " during merge cleanup: " + e.getMessage();
+                        String wtDeleteError = "Failed to delete worktree '" + worktreePath.getFileName()
+                                + "' during post-merge cleanup:\n" + e.getMessage()
+                                + "\n\nYou may need to manually remove this worktree.";
                         logger.error(wtDeleteError, e);
                         // Inform user, but proceed with other cleanup if possible
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                GitWorktreeTab.this,
-                                wtDeleteError,
-                                "Worktree Deletion Failed (Cleanup)",
-                                JOptionPane.WARNING_MESSAGE));
+                        chrome.toolError(wtDeleteError, "Worktree Deletion Failed");
                     }
 
                     if (deleteBranch) {
@@ -1186,27 +1163,24 @@ public class GitWorktreeTab extends JPanel {
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO, "Branch " + worktreeBranchName + " deleted.");
                         } catch (GitAPIException e) {
-                            String branchDeleteError =
-                                    "Failed to delete branch " + worktreeBranchName + ": " + e.getMessage();
+                            String branchDeleteError = "Failed to delete branch '" + worktreeBranchName
+                                    + "' during post-merge cleanup:\n" + e.getMessage()
+                                    + "\n\nYou may need to manually delete this branch.";
                             logger.error(branchDeleteError, e);
-                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                    GitWorktreeTab.this,
-                                    branchDeleteError,
-                                    "Branch Deletion Failed",
-                                    JOptionPane.ERROR_MESSAGE));
+                            chrome.toolError(branchDeleteError, "Branch Deletion Failed");
                         }
                     }
                 }
             } catch (GitAPIException e) {
-                String errorMessage = "Error during merge operation: " + e.getMessage();
+                String errorMessage = "Git error during merge of '" + worktreeBranchName + "' into '" + targetBranch
+                        + "':\n" + e.getMessage();
                 logger.error(errorMessage, e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        GitWorktreeTab.this, errorMessage, "Merge Operation Failed", JOptionPane.ERROR_MESSAGE));
+                chrome.toolError(errorMessage, "Merge Operation Failed");
             } catch (Exception e) {
-                String errorMessage = "Unexpected error during merge operation: " + e.getMessage();
+                String errorMessage = "Unexpected error during merge of '" + worktreeBranchName + "' into '"
+                        + targetBranch + "':\n" + e.getMessage();
                 logger.error(errorMessage, e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        GitWorktreeTab.this, errorMessage, "Unexpected Error", JOptionPane.ERROR_MESSAGE));
+                chrome.toolError(errorMessage, "Unexpected Merge Error");
             } finally {
                 if (originalParentBranch != null) {
                     try {
@@ -1216,14 +1190,12 @@ public class GitWorktreeTab extends JPanel {
                                 IConsoleIO.NotificationRole.INFO,
                                 "Switched parent repository back to branch: " + originalParentBranch);
                     } catch (GitAPIException e) {
-                        String restoreError = "Critical: Failed to switch parent repository back to original branch '"
-                                + originalParentBranch + "': " + e.getMessage();
+                        String restoreError = "CRITICAL: Failed to restore parent repository to original branch '"
+                                + originalParentBranch + "':\n" + e.getMessage()
+                                + "\n\nThe repository may be in an unexpected state. "
+                                + "Please manually checkout the correct branch.";
                         logger.error(restoreError, e);
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                GitWorktreeTab.this,
-                                restoreError,
-                                "Repository State Error",
-                                JOptionPane.ERROR_MESSAGE));
+                        chrome.toolError(restoreError, "Repository State Error");
                     }
                 }
                 loadWorktrees(); // Refresh this tab

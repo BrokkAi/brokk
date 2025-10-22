@@ -179,8 +179,7 @@ public class ContextAgent {
                             fragment.description());
                 }
             } else if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-                var skeletonFragment = (ContextFragment.SkeletonFragment) fragment;
-                totalTokens += Messages.getApproximateTokens(skeletonFragment.text());
+                totalTokens += Messages.getApproximateTokens(fragment.text());
             } else {
                 logger.warn("Unhandled ContextFragment type for token calculation: {}", fragment.getClass());
             }
@@ -269,17 +268,15 @@ public class ContextAgent {
 
         Thread t2 = Thread.ofVirtual().start(() -> {
             try {
-                results[1] = new RecommendationResult(true, List.of(), "No unanalyzed files", null);
-                // TODO add this back when we are blocking excluded files from getAllFiles
-                //                results[1] = processGroup(
-                //                        GroupType.UNANALYZED,
-                //                        unAnalyzedFiles,
-                //                        Map.of(),
-                //                        workspaceRepresentation,
-                //                        allowSkipPruning,
-                //                        evalBudgetRemaining,
-                //                        pruneBudgetRemaining,
-                //                        existingFiles);
+                results[1] = processGroup(
+                        GroupType.UNANALYZED,
+                        unAnalyzedFiles,
+                        Map.of(),
+                        workspaceRepresentation,
+                        allowSkipPruning,
+                        evalBudgetRemaining,
+                        pruneBudgetRemaining,
+                        existingFiles);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -326,8 +323,7 @@ public class ContextAgent {
         // Build initial payload preview for token estimation
         int initialTokens;
         if (type == GroupType.ANALYZED) {
-            var groupSummaries = filterSummariesByFiles(allSummariesForAnalyzed, groupFiles);
-            initialTokens = Messages.getApproximateTokens(groupSummaries.values());
+            initialTokens = Messages.getApproximateTokens(allSummariesForAnalyzed.values());
         } else {
             var contentsMap = readFileContents(groupFiles);
             initialTokens = Messages.getApproximateTokens(contentsMap.values());
@@ -337,13 +333,11 @@ public class ContextAgent {
 
         // If small, include everything without LLM
         if (allowSkipPruning && initialTokens <= skipPruningBudget) {
-            LlmRecommendation rec = (type == GroupType.ANALYZED)
-                    ? new LlmRecommendation(
-                            List.of(),
-                            new ArrayList<>(filterSummariesByFiles(allSummariesForAnalyzed, groupFiles)
-                                    .keySet()),
-                            "Under skip-pruning budget (" + type + ")")
-                    : new LlmRecommendation(groupFiles, List.of(), "Under skip-pruning budget (" + type + ")");
+            // Under skip-pruning budget
+            LlmRecommendation rec;
+            rec = type == GroupType.ANALYZED
+                    ? new LlmRecommendation(List.of(), new ArrayList<>(allSummariesForAnalyzed.keySet()), "")
+                    : new LlmRecommendation(groupFiles, List.of(), "");
             return createResult(rec, existingFiles);
         }
 
@@ -394,13 +388,6 @@ public class ContextAgent {
         return createResult(evalRec, existingFiles);
     }
 
-    private Map<CodeUnit, String> filterSummariesByFiles(Map<CodeUnit, String> allSummaries, List<ProjectFile> files) {
-        Set<ProjectFile> fileSet = new HashSet<>(files);
-        return allSummaries.entrySet().stream()
-                .filter(e -> fileSet.contains(e.getKey().source()))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
-
     private LlmRecommendation evaluateWithHalving(
             GroupType type,
             List<ProjectFile> files,
@@ -410,8 +397,7 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<CodeUnit, String> summaries =
-                    (type == GroupType.ANALYZED) ? filterSummariesByFiles(allSummariesForAnalyzed, current) : Map.of();
+            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? allSummariesForAnalyzed : Map.of();
 
             Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
 
@@ -473,22 +459,22 @@ public class ContextAgent {
                 recommendedContentTokens,
                 totalRecommendedTokens);
 
-        var skeletonFragments = skeletonPerSummary(cm, recommendedSummaries);
+        var summaryFragments = summaryPerCodeUnit(cm, recommendedSummaries);
         var pathFragments = filteredFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
-                .toList();
+        var combinedFragments =
+                Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
 
         return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
     }
 
-    /** one SkeletonFragment per summary so ArchitectAgent can easily ask user which ones to include */
-    private static List<ContextFragment> skeletonPerSummary(
+    /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
+    private static List<ContextFragment> summaryPerCodeUnit(
             IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
         return relevantSummaries.keySet().stream()
-                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(
-                        contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .map(cu -> (ContextFragment) new ContextFragment.SummaryFragment(
+                        contextManager, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }
 

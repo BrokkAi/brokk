@@ -50,7 +50,7 @@ public abstract class CodePrompts {
             before immediately jumping into taking further action.
             """;
 
-    public static final String GPT5_MARKDOWN_REMINDER =
+    public static final String MARKDOWN_REMINDER =
             """
             <persistence>
             ## Markdown Formatting
@@ -123,31 +123,15 @@ public abstract class CodePrompts {
 
     public String codeReminder(Service service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+        return baseReminder + "\n" + MARKDOWN_REMINDER;
     }
 
-    public String architectReminder(Service service, StreamingChatModel model) {
-        var baseReminder = ARCHITECT_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+    public String architectReminder() {
+        return ARCHITECT_REMINDER + "\n" + MARKDOWN_REMINDER;
     }
 
-    public String askReminder(IContextManager cm, StreamingChatModel model) {
-        var service = cm.getService();
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return GPT5_MARKDOWN_REMINDER;
-        }
-        return "";
+    public String askReminder() {
+        return MARKDOWN_REMINDER;
     }
 
     /**
@@ -204,9 +188,9 @@ public abstract class CodePrompts {
         messages.add(systemMessage(cm, ctx, reminder));
         // FIXME we're supposed to leave the unchanged files in their original position
         if (changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(ctx));
+            messages.addAll(getWorkspaceContentsMessages(ctx, true));
         } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true));
         }
         messages.addAll(prologue);
 
@@ -260,7 +244,7 @@ public abstract class CodePrompts {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(systemMessage(cm, askReminder(cm, model)));
+        messages.add(systemMessage(cm, askReminder()));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
         messages.addAll(getHistoryMessages(cm.topContext()));
         messages.add(askRequest(input));
@@ -516,14 +500,34 @@ public abstract class CodePrompts {
     /**
      * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
      * include editable content or related classes.
+     *
+     * @param ctx The context to process.
+     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @return A collection of ChatMessages (empty if no content).
      */
-    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx) {
+    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx, boolean combineSummaries) {
         var allContents = new ArrayList<Content>();
+
+        // --- Partition Read-Only Fragments ---
+        var readOnlyFragments = ctx.getReadOnlyFragments().toList();
+        var summaryFragments = combineSummaries
+                ? readOnlyFragments.stream()
+                        .filter(ContextFragment.SummaryFragment.class::isInstance)
+                        .map(ContextFragment.SummaryFragment.class::cast)
+                        .toList()
+                : List.<ContextFragment.SummaryFragment>of();
+        var otherFragments = combineSummaries
+                ? readOnlyFragments.stream()
+                        .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                        .toList()
+                : readOnlyFragments;
 
         // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
         var readOnlyTextFragments = new StringBuilder();
         var readOnlyImageFragments = new ArrayList<ImageContent>();
-        ctx.getReadOnlyFragments().forEach(fragment -> {
+
+        // Process non-summary fragments
+        otherFragments.forEach(fragment -> {
             if (fragment.isText()) {
                 // Handle text-based fragments
                 String formatted = fragment.format(); // No analyzer
@@ -554,6 +558,19 @@ public abstract class CodePrompts {
                 }
             }
         });
+
+        // Process and aggregate SummaryFragments
+        if (!summaryFragments.isEmpty()) {
+            var combinedText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var combinedBlock =
+                    """
+                    <api_summaries fragmentid="api_summaries">
+                    %s
+                    </api_summaries>
+                    """
+                            .formatted(combinedText);
+            readOnlyTextFragments.append(combinedBlock).append("\n\n");
+        }
 
         if (readOnlyTextFragments.isEmpty() && readOnlyImageFragments.isEmpty()) {
             return List.of();
@@ -620,14 +637,20 @@ public abstract class CodePrompts {
      * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable
      * files/fragments). Handles both text and image fragments, creating a multimodal UserMessage if necessary.
      *
+     * @param ctx The context to process.
+     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
      * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
      *     empty if no content.
      */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx);
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, boolean combineSummaries) {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
         return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
+    }
+
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
+        return getWorkspaceContentsMessages(ctx, false);
     }
 
     private List<ChatMessage> getWorkspaceContentsMessages(

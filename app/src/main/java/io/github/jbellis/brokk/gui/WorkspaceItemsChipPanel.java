@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.gui.theme.ThemeAware;
@@ -15,10 +16,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.*;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -29,6 +32,7 @@ import javax.swing.border.MatteBorder;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -47,7 +51,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
-    private Collection<ContextFragment> hoveredFragments = List.of();
+    private Set<ContextFragment> hoveredFragments = Set.of();
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -113,23 +117,50 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onHover = listener;
     }
 
-    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+    public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragments = targets;
-        repaint();
+        for (var component : getComponents()) {
+            if (component instanceof JComponent jc) {
+                jc.repaint();
+            }
+        }
+    }
+
+    // Overload to support existing callers that pass a Collection
+    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+        applyGlobalStyling(Set.copyOf(targets));
     }
 
     /**
      * Highlight or clear highlight for a collection of fragments' chips.
      * Safe to call from any thread; will marshal to the EDT.
      */
-    public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {}
+    public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {
+        if (highlight) {
+            applyGlobalStyling(Set.copyOf(fragments));
+        } else {
+            applyGlobalStyling(Set.of());
+        }
+    }
 
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
         chipById.clear();
 
-        for (var fragment : fragments) {
+        // Partition into summaries vs others
+        var summaries =
+                fragments.stream().filter(f -> classify(f) == ChipKind.SUMMARY).toList();
+        var others =
+                fragments.stream().filter(f -> classify(f) != ChipKind.SUMMARY).toList();
+
+        // Add individual chips for non-summaries
+        for (var fragment : others) {
             add(createChip(fragment));
+        }
+
+        // Add synthetic summary chip if we have summaries
+        if (!summaries.isEmpty()) {
+            add(createSyntheticSummaryChip(summaries));
         }
 
         // Re-layout this panel
@@ -173,10 +204,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
-                    var myFragment = (ContextFragment) getClientProperty("brokk.fragment");
-                    if (myFragment != null) {
-                        boolean isHovered = parentPanel.hoveredFragments.contains(myFragment);
-                        boolean isDimmed = !parentPanel.hoveredFragments.isEmpty() && !isHovered;
+                    Object obj = getClientProperty("brokk.fragments");
+                    if (obj instanceof Set<?> myFragments && !myFragments.isEmpty()) {
+                        boolean hasHover = !parentPanel.hoveredFragments.isEmpty();
+                        boolean isHovered =
+                                hasHover && !Collections.disjoint(myFragments, parentPanel.hoveredFragments);
+                        boolean isDimmed = hasHover && !isHovered;
                         if (isDimmed) {
                             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
                         }
@@ -352,6 +385,52 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             // Best effort; if anything goes wrong, just return no metrics
         }
         return "";
+    }
+
+    private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
+        var allFiles = summaries.stream()
+                .flatMap(f -> f.files().stream())
+                .map(ProjectFile::toString)
+                .distinct()
+                .sorted()
+                .toList();
+
+        StringBuilder body = new StringBuilder();
+
+        // Aggregate metrics (LOC + tokens) across all summaries
+        int totalLoc = 0;
+        int totalTokens = 0;
+        try {
+            for (var summary : summaries) {
+                String text = summary.text();
+                totalLoc += text.split("\\r?\\n", -1).length;
+                totalTokens += Messages.getApproximateTokens(text);
+            }
+            body.append("<div>")
+                    .append(formatCount(totalLoc))
+                    .append(" LOC \u2022 ~")
+                    .append(formatCount(totalTokens))
+                    .append(" tokens</div><br/>");
+        } catch (Exception e) {
+            logger.error(e);
+        }
+
+        // Header and divider
+        body.append("<div><b>Summaries</b></div>");
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+
+        if (allFiles.isEmpty()) {
+            body.append("Multiple summaries");
+        } else {
+            body.append("<ul style='margin:0;padding-left:16px'>");
+            for (var f : allFiles) {
+                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+            }
+            body.append("</ul>");
+        }
+
+        body.append("<br/><i>Click to preview all contents</i>");
+        return wrapTooltipHtml(body.toString(), 420);
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
@@ -571,6 +650,84 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return menu;
     }
 
+    private String buildIndividualDropLabel(ContextFragment fragment) {
+        var files = fragment.files().stream()
+                .map(pf -> {
+                    String path = pf.toString();
+                    int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                    return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                })
+                .toList();
+
+        if (files.isEmpty()) {
+            return "Drop: no files";
+        }
+
+        StringBuilder label = new StringBuilder("Drop: ");
+        int charCount = 0;
+        int filesAdded = 0;
+
+        for (String file : files) {
+            if (filesAdded > 0) {
+                if (charCount + 2 + file.length() > 20) {
+                    label.append("...");
+                    break;
+                }
+                label.append(", ");
+                charCount += 2;
+            }
+
+            if (charCount + file.length() > 20) {
+                // Truncate this filename
+                int remaining = 20 - charCount;
+                if (remaining > 3) {
+                    label.append(file, 0, remaining - 3).append("...");
+                } else {
+                    label.append("...");
+                }
+                break;
+            }
+
+            label.append(file);
+            charCount += file.length();
+            filesAdded++;
+        }
+
+        // Add ellipsis if there are more files we didn't include
+        if (filesAdded < files.size() && !label.toString().endsWith("...")) {
+            label.append("...");
+        }
+
+        return label.toString();
+    }
+
+    private JPopupMenu buildSyntheticChipContextMenu(List<ContextFragment> fragments) {
+        JPopupMenu menu = new JPopupMenu();
+        var scenario = new WorkspacePanel.MultiFragment(fragments);
+        var actions = scenario.getActions(chrome.getContextPanel());
+        for (var action : actions) {
+            menu.add(action);
+        }
+
+        // Add separator
+        menu.addSeparator();
+
+        // Add individual drop actions for each fragment
+        for (var fragment : fragments) {
+            String label = buildIndividualDropLabel(fragment);
+            JMenuItem item = new JMenuItem(label);
+            item.addActionListener(e -> executeCloseChip(fragment));
+            menu.add(item);
+        }
+
+        try {
+            chrome.themeManager.registerPopupMenu(menu);
+        } catch (Exception ex) {
+            logger.debug("Failed to register chip popup menu with theme manager", ex);
+        }
+        return menu;
+    }
+
     private void executeCloseChip(ContextFragment fragment) {
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
@@ -708,8 +865,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.add(close);
 
-        // Keep a handle to the fragment and close button so theme changes can restyle accurately
-        chip.putClientProperty("brokk.fragment", fragment);
+        // Keep a handle to the fragments and close button so theme changes can restyle accurately
+        chip.putClientProperty("brokk.fragments", Set.of(fragment));
         chip.putClientProperty("brokk.chip.closeButton", close);
         chip.putClientProperty("brokk.chip.label", label);
         // Track by id for grouped-segment multi-highlight
@@ -795,6 +952,247 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return chip;
     }
 
+    private Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
+        var chip = new RoundedChipPanel();
+        chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        chip.setOpaque(false);
+
+        // Label: aggregate count
+        int totalFiles = (int) summaries.stream()
+                .flatMap(f -> f.files().stream())
+                .map(ProjectFile::toString)
+                .distinct()
+                .count();
+        String labelText = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+        var label = new JLabel(labelText);
+
+        // Aggregated tooltip
+        try {
+            label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+        } catch (Exception ex) {
+            logger.debug("Failed to set synthetic chip tooltip", ex);
+        }
+
+        // Click to preview all summaries
+        label.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    menu.show(label, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                    int totalFiles = (int) summaries.stream()
+                            .flatMap(f -> f.files().stream())
+                            .map(ProjectFile::toString)
+                            .distinct()
+                            .count();
+                    String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+
+                    // Concatenate all summary text like the copy operation does
+                    StringBuilder combinedText = new StringBuilder();
+                    for (var summary : summaries) {
+                        combinedText.append(summary.text()).append("\n\n");
+                    }
+
+                    // Display in a regular PreviewTextPanel like other text content
+                    var previewPanel = new PreviewTextPanel(
+                            chrome.getContextManager(),
+                            null,
+                            combinedText.toString(),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            chrome.getTheme(),
+                            null);
+                    chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                }
+            }
+        });
+
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        var close = new MaterialButton("");
+        close.setFocusable(false);
+        close.setOpaque(false);
+        close.setContentAreaFilled(false);
+        close.setBorderPainted(false);
+        close.setFocusPainted(false);
+        close.setMargin(new Insets(0, 0, 0, 0));
+        close.setPreferredSize(new Dimension(14, 14));
+        close.setToolTipText("Remove all summaries from Workspace");
+        try {
+            close.getAccessibleContext().setAccessibleName("Remove all summaries");
+        } catch (Exception e) {
+            logger.error(e);
+        }
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    menu.show(close, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+                if (!onLatest) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+
+                contextManager.submitContextTask(() -> {
+                    contextManager.dropWithHistorySemantics(summaries);
+                });
+            }
+        });
+
+        chip.add(label);
+
+        // Add a slim vertical divider between label and close button
+        var sep = new JPanel();
+        sep.putClientProperty("brokk.chip.separator", true);
+        sep.setOpaque(true);
+        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
+        sep.setMinimumSize(new Dimension(1, 10));
+        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
+        chip.add(sep);
+
+        chip.add(close);
+
+        chip.putClientProperty("brokk.fragments", Set.copyOf(summaries));
+        chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+        chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
+        styleChip(chip, label, null);
+
+        // Hover handlers for the synthetic chip
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0 && onHover != null) {
+                    for (var summary : summaries) {
+                        try {
+                            onHover.accept(summary, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
+                    for (var summary : summaries) {
+                        try {
+                            onHover.accept(summary, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+        };
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        close.addMouseListener(hoverAdapter);
+        sep.addMouseListener(hoverAdapter);
+
+        chip.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    menu.show(chip, e.getX(), e.getY());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.isConsumed()) return;
+                int clickX = e.getX();
+                int separatorEndX = sep.getX() + sep.getWidth();
+                if (clickX > separatorEndX) {
+                    boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+                    if (!onLatest) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
+
+                    contextManager.submitContextTask(() -> {
+                        contextManager.dropWithHistorySemantics(summaries);
+                    });
+                } else {
+                    if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                        int totalFiles = (int) summaries.stream()
+                                .flatMap(f -> f.files().stream())
+                                .map(ProjectFile::toString)
+                                .distinct()
+                                .count();
+                        String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+
+                        // Concatenate all summary text like the copy operation does
+                        StringBuilder combinedText = new StringBuilder();
+                        for (var summary : summaries) {
+                            combinedText.append(summary.text()).append("\n\n");
+                        }
+
+                        // Display in a regular PreviewTextPanel like other text content
+                        var previewPanel = new PreviewTextPanel(
+                                chrome.getContextManager(),
+                                null,
+                                combinedText.toString(),
+                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                                chrome.getTheme(),
+                                null);
+                        chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                    }
+                }
+            }
+        });
+
+        return chip;
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         applyTheme(guiTheme, false);
@@ -805,7 +1203,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         SwingUtilities.invokeLater(() -> {
             restyleAllChips();
             // Defer a second pass to catch any late UIManager icon changes after LAF/theme switch
-            SwingUtilities.invokeLater(() -> restyleAllChips());
+            SwingUtilities.invokeLater(this::restyleAllChips);
         });
     }
 
@@ -820,8 +1218,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     }
                 }
                 if (label != null) {
-                    var fragObj = chip.getClientProperty("brokk.fragment");
-                    ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                    var fragsObj = chip.getClientProperty("brokk.fragments");
+                    ContextFragment fragment = null;
+                    if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
+                        fragment = (ContextFragment) fragSet.iterator().next();
+                    }
                     // styleChip() now updates the close button icon with proper background color
                     styleChip(chip, label, fragment);
                 }

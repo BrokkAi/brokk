@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -63,7 +64,8 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
+public class Chrome
+        implements AutoCloseable, IConsoleIO, IContextManager.ContextListener, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Track open Chrome instances for window cascading
@@ -87,6 +89,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
     private @Nullable Rectangle dependenciesDialogBounds = null;
+
+    // Track preview windows by ProjectFile for refresh on file changes
+    private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -540,11 +545,25 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (selected == instructionsPanel) {
                 // Move shared Context area back to Instructions
                 taskListPanel.restoreControls();
-                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
-                instructionsPanel.revalidate();
-                instructionsPanel.repaint();
+                try {
+                    // Remove from any existing parent first
+                    var currentParent = contextAreaContainer.getParent();
+                    if (currentParent != null) {
+                        currentParent.remove(contextAreaContainer);
+                        currentParent.revalidate();
+                        currentParent.repaint();
+                    }
+                    // Insert just below the command input (index 1 is safe for current layout)
+                    var center = instructionsPanel.getCenterPanel();
+                    int targetIndex = Math.min(1, Math.max(0, center.getComponentCount()));
+                    center.add(contextAreaContainer, targetIndex);
+                    center.revalidate();
+                    center.repaint();
+                } catch (Exception ex) {
+                    logger.debug("Unable to move Context area back to Instructions", ex);
+                }
 
-                // Move shared ModelSelector back to Instructions bottom bar
+                // Move shared ModelSelector back to Instructions bottom bar (always try this)
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 // Move shared Context area to Tasks
@@ -662,8 +681,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             globalToggleMicAction.updateEnabledState();
         });
 
-        // Listen for context changes (Chrome already implements IContextManager.ContextListener)
+        // Listen for context changes and analyzer events
         contextManager.addContextListener(this);
+        contextManager.addAnalyzerCallback(this);
 
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
@@ -822,6 +842,34 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
+
+                // Open commit dialog with prebaked message for project files
+                SwingUtilities.invokeLater(() -> {
+                    // Get the files that were just staged (including .gitignore if it was added)
+                    var filesToCommit = new ArrayList<ProjectFile>();
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+                    // Open commit dialog with prebaked message
+                    var dialog = new CommitDialog(
+                            frame,
+                            this,
+                            contextManager,
+                            new GitWorkflow(contextManager),
+                            filesToCommit,
+                            "Add Brokk project files", // Pre-filled message
+                            commitResult -> {
+                                showNotification(
+                                        NotificationRole.INFO,
+                                        "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                                                + commitResult.firstLine());
+                                updateCommitPanel();
+                                updateLogTab();
+                            });
+                    dialog.setVisible(true);
+                });
             } catch (Exception e) {
                 logger.error(e);
                 toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
@@ -1495,6 +1543,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    @Override
+    public void onTrackedFileChange() {
+        // Refresh preview windows when tracked files change
+        // Get all currently open preview files
+        Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
+        logger.debug("onTrackedFileChange called - open preview files: {}", openPreviewFiles);
+        if (!openPreviewFiles.isEmpty()) {
+            refreshPreviewsForFiles(openPreviewFiles);
+        }
+    }
+
     /**
      * Creates a searchable content panel with a MarkdownOutputPanel and integrated search bar. This is shared
      * functionality used by both preview windows and detached output windows.
@@ -1720,15 +1779,34 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
 
-        // Add window cleanup listener to remove from tracking map when window is disposed
+        // Track ProjectFile mapping if this is a file preview
+        ProjectFile projectFile = null;
+        if (contentComponent instanceof PreviewTextPanel textPanel) {
+            projectFile = textPanel.getFile();
+        } else if (contentComponent instanceof PreviewImagePanel imagePanel) {
+            var brokkFile = imagePanel.getFile();
+            if (brokkFile instanceof ProjectFile pf) {
+                projectFile = pf;
+            }
+        }
+
+        if (projectFile != null) {
+            projectFileToPreviewWindow.put(projectFile, previewFrame);
+        }
+
+        // Add window cleanup listener to remove from tracking maps when window is disposed
         final String finalWindowKey = windowKey;
         final JFrame finalPreviewFrame = previewFrame;
+        final ProjectFile finalProjectFile = projectFile;
         if (isNewWindow) {
             previewFrame.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosed(WindowEvent e) {
-                    // Remove from tracking map when window is closed
+                    // Remove from tracking maps when window is closed
                     activePreviewWindows.remove(finalWindowKey, finalPreviewFrame);
+                    if (finalProjectFile != null) {
+                        projectFileToPreviewWindow.remove(finalProjectFile, finalPreviewFrame);
+                    }
                 }
             });
         }
@@ -1780,7 +1858,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
+    /**
+     * Closes all active preview windows and clears the tracking maps. Useful for cleanup or when switching projects.
+     */
     public void closeAllPreviewWindows() {
         for (JFrame frame : activePreviewWindows.values()) {
             if (frame.isDisplayable()) {
@@ -1788,6 +1868,58 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
         activePreviewWindows.clear();
+        projectFileToPreviewWindow.clear();
+    }
+
+    /**
+     * Refreshes preview windows that display the given files. Called when files change on disk (external edits or
+     * internal saves).
+     *
+     * @param changedFiles The set of files that have changed
+     */
+    public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles) {
+        refreshPreviewsForFiles(changedFiles, null);
+    }
+
+    /**
+     * Refreshes preview windows that display the given files, optionally excluding a specific frame. Called when files
+     * change on disk (external edits or internal saves).
+     *
+     * @param changedFiles The set of files that have changed
+     * @param excludeFrame Optional frame to exclude from refresh (typically the one that just saved)
+     */
+    public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
+        logger.debug("refreshPreviewsForFiles called with files: {}, excludeFrame: {}", changedFiles, excludeFrame);
+        SwingUtilities.invokeLater(() -> {
+            for (ProjectFile file : changedFiles) {
+                JFrame previewFrame = projectFileToPreviewWindow.get(file);
+                logger.debug("Preview frame for {}: {}", file, previewFrame);
+                if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
+                    // Get the content panel from the frame
+                    Container contentPane = previewFrame.getContentPane();
+
+                    // Refresh based on panel type
+                    if (contentPane instanceof PreviewTextPanel textPanel) {
+                        logger.debug("Refreshing PreviewTextPanel for {}", file);
+                        textPanel.refreshFromDisk();
+                    } else if (contentPane instanceof PreviewImagePanel imagePanel) {
+                        logger.debug("Refreshing PreviewImagePanel for {}", file);
+                        imagePanel.refreshFromDisk();
+                    } else {
+                        // Content might be nested in a BorderLayout
+                        Component centerComponent =
+                                ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+                        if (centerComponent instanceof PreviewTextPanel textPanel) {
+                            logger.debug("Refreshing nested PreviewTextPanel for {}", file);
+                            textPanel.refreshFromDisk();
+                        } else if (centerComponent instanceof PreviewImagePanel imagePanel) {
+                            logger.debug("Refreshing nested PreviewImagePanel for {}", file);
+                            imagePanel.refreshFromDisk();
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /**

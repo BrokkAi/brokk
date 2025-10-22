@@ -205,17 +205,24 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             logger.warn("Failed to load persisted test runs: {}", e.getMessage(), e);
         }
 
+        // Initialize Run All button state and enable asynchronously once build details are available
+        runAllButton.setEnabled(false);
         // Enable/disable Run All based on current build details availability
         if (chrome != null) {
-            try {
-                var details = chrome.getProject().awaitBuildDetails();
-                runAllButton.setEnabled(!details.equals(BuildAgent.BuildDetails.EMPTY)
-                        && !details.testAllCommand().isBlank());
-            } catch (Exception ex) {
-                runAllButton.setEnabled(false);
-            }
-        } else {
-            runAllButton.setEnabled(false);
+            chrome.getProject()
+                    .getBuildDetailsFuture()
+                    .thenAccept((details) -> {
+                        SwingUtilities.invokeLater(() -> {
+                            boolean validDetails = !details.equals(BuildAgent.BuildDetails.EMPTY)
+                                    && !details.testAllCommand().isBlank();
+                            runAllButton.setEnabled(validDetails);
+                        });
+                    })
+                    .exceptionally(ex -> {
+                        SwingUtilities.invokeLater(() -> runAllButton.setEnabled(false));
+                        logger.error("Failed to load build details for Run All button: {}", ex.getMessage(), ex);
+                        return null;
+                    });
         }
     }
 

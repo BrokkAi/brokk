@@ -85,6 +85,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
 
     @Nullable
+    private DocumentListener saveButtonDocumentListener;
+
+    @Nullable
     private final Future<Set<CodeUnit>> fileDeclarations;
 
     @Nullable
@@ -182,7 +185,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         if (saveButton != null) {
             // Use the final reference created for the ActionListener
             final MaterialButton finalSaveButtonRef = saveButton;
-            textArea.getDocument().addDocumentListener(new DocumentListener() {
+            saveButtonDocumentListener = new DocumentListener() {
                 @Override
                 public void insertUpdate(DocumentEvent e) {
                     finalSaveButtonRef.setEnabled(true);
@@ -197,7 +200,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 public void changedUpdate(DocumentEvent e) {
                     finalSaveButtonRef.setEnabled(true);
                 }
-            });
+            };
+            textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
         }
 
         // Put the text area in a scroll pane
@@ -1082,6 +1086,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 }
                 quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
                 logger.debug("File saved: " + file);
+
+                // Notify other preview windows to refresh (but not this one)
+                SwingUtilities.invokeLater(() -> {
+                    if (cm.getIo() instanceof io.github.jbellis.brokk.gui.Chrome chrome) {
+                        var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                        chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
+                    }
+                });
+
                 return true; // Save successful
 
             } catch (IOException ex) {
@@ -1135,6 +1148,100 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         return "**Quick Edit Request:**\n\n" + "**Goal:** "
                 + goal + "\n\n" + "**Target code:**\n```\n"
                 + target + "\n```";
+    }
+
+    /**
+     * Gets the ProjectFile associated with this preview panel.
+     *
+     * @return The ProjectFile, or null if this preview is not associated with a file
+     */
+    @Nullable
+    public ProjectFile getFile() {
+        return file;
+    }
+
+    /**
+     * Refreshes the content from disk if the file has changed. Preserves caret position and viewport position when
+     * possible. Does not refresh if there are unsaved changes.
+     */
+    public void refreshFromDisk() {
+        logger.debug("refreshFromDisk() called for file: {}", file);
+        if (file == null) {
+            logger.debug("Skipping refresh - file is null");
+            return;
+        }
+
+        // Don't refresh if there are unsaved changes
+        if (saveButton != null && saveButton.isEnabled()) {
+            logger.debug("Skipping refresh of {} - unsaved changes present", file);
+            return;
+        }
+
+        logger.debug("Attempting to refresh {} from disk", file);
+        try {
+            // Check if file still exists
+            if (!java.nio.file.Files.exists(file.absPath())) {
+                logger.debug("File no longer exists: {}", file);
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(
+                            this, "File has been deleted: " + file, "File Deleted", JOptionPane.WARNING_MESSAGE);
+                });
+                return;
+            }
+
+            // Read new content
+            var newContent = file.read();
+            if (newContent.isEmpty()) {
+                logger.warn("Could not read file for refresh: {}", file);
+                return;
+            }
+
+            var newContentStr = newContent.get();
+            var currentContent = textArea.getText();
+
+            // Skip refresh if content hasn't changed
+            if (currentContent.equals(newContentStr)) {
+                logger.debug("Content unchanged for {}, skipping refresh", file);
+                return;
+            }
+
+            logger.info("Refreshing preview content for: {} (content changed)", file);
+
+            // Save current state
+            int caretPos = textArea.getCaretPosition();
+            Point viewportPos = scrollPane.getViewport().getViewPosition();
+
+            // Temporarily remove document listener to avoid triggering save button during programmatic update
+            if (saveButtonDocumentListener != null) {
+                textArea.getDocument().removeDocumentListener(saveButtonDocumentListener);
+            }
+
+            try {
+                // Update content
+                textArea.setText(newContentStr);
+            } finally {
+                // Re-add document listener
+                if (saveButtonDocumentListener != null) {
+                    textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
+                }
+            }
+
+            // Restore position (best effort)
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    int newLength = textArea.getDocument().getLength();
+                    textArea.setCaretPosition(Math.min(caretPos, newLength));
+                    scrollPane.getViewport().setViewPosition(viewportPos);
+                } catch (Exception e) {
+                    // Position restoration failed, just scroll to top
+                    logger.debug("Could not restore caret position after refresh", e);
+                    textArea.setCaretPosition(0);
+                }
+            });
+
+        } catch (Exception e) {
+            logger.error("Error refreshing preview from disk for {}", file, e);
+        }
     }
 
     /**

@@ -50,6 +50,17 @@ public class ThemeColors {
     public static final String GIT_BADGE_BACKGROUND = "git_badge_background";
     public static final String GIT_BADGE_TEXT = "git_badge_text";
 
+    // Mode indicator colors
+    public static final String MODE_ANSWER_BG = "mode_answer_bg";
+    public static final String MODE_ANSWER_FG = "mode_answer_fg";
+    public static final String MODE_ANSWER_ACCENT = "mode_answer_accent";
+    public static final String MODE_CODE_BG = "mode_code_bg";
+    public static final String MODE_CODE_FG = "mode_code_fg";
+    public static final String MODE_CODE_ACCENT = "mode_code_accent";
+    public static final String MODE_LUTZ_BG = "mode_lutz_bg";
+    public static final String MODE_LUTZ_FG = "mode_lutz_fg";
+    public static final String MODE_LUTZ_ACCENT = "mode_lutz_accent";
+
     // File reference badge colors
     public static final String BADGE_BORDER = "badge_border";
     public static final String BADGE_FOREGROUND = "badge_foreground";

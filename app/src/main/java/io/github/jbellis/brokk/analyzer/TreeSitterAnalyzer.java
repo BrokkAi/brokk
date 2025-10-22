@@ -1580,6 +1580,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs)));
         }
 
+        // Deduplicate top-level CodeUnits to avoid downstream duplicate-key issues
+        var duplicatesByCodeUnit =
+                localTopLevelCUs.stream().collect(Collectors.groupingBy(cu -> cu, Collectors.counting()));
+        var duplicatedCUs = duplicatesByCodeUnit.entrySet().stream()
+                .filter(e -> e.getValue() > 1)
+                .toList();
+        if (!duplicatedCUs.isEmpty()) {
+            var diagnostics = duplicatedCUs.stream()
+                    .map(e -> String.format(
+                            "fqName=%s, kind=%s, count=%d",
+                            e.getKey().fqName(), e.getKey().kind(), e.getValue()))
+                    .collect(Collectors.joining("; "));
+            log.error("Unexpected duplicate top-level CodeUnits in file {}: [{}]", file, diagnostics);
+        }
+        var finalLocalTopLevelCUs = localTopLevelCUs.stream().distinct().toList();
+
         long __processEnd = System.nanoTime();
         if (timing != null) {
             timing.processStageNanos().addAndGet(__processEnd - __processStart);
@@ -1587,7 +1603,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
         }
         return new FileAnalysisResult(
-                Collections.unmodifiableList(localTopLevelCUs),
+                Collections.unmodifiableList(finalLocalTopLevelCUs),
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements),

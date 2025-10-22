@@ -20,7 +20,6 @@ import io.github.jbellis.brokk.gui.components.ModelBenchmarkData;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
-import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.components.TokenUsageBar;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
@@ -57,6 +56,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -65,7 +65,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.MatteBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -93,30 +93,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static final String PLACEHOLDER_TEXT = "Put your instructions or questions here.";
 
-    private final Color defaultActionButtonBg;
-    private final Color secondaryActionButtonBg;
-
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
-    private final JCheckBox modeSwitch;
-    private final JCheckBox searchProjectCheckBox;
-    // Labels flanking the mode switch; bold the selected side
-    private final JLabel codeModeLabel = new JLabel("Code");
-    private final JLabel answerModeLabel = new JLabel("Ask");
-    private final MaterialButton actionButton;
+    private final ActionSplitButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
     private final TokenUsageBar tokenUsageBar;
     private String storedAction;
+    private SplitButton historyDropdown;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private final JPanel centerPanel;
-    private final ContextAreaContainer contextAreaContainer;
-    private @Nullable JPanel modeIndicatorPanel;
-    private @Nullable JLabel modeBadge;
+    private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
-    private ActionGroupPanel actionGroupPanel;
+    private @Nullable JLabel modeBadge;
+    private final Color defaultActionButtonBg;
+    private final Color secondaryActionButtonBg;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -227,10 +220,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
     }
 
-    // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
-    private @Nullable JPanel optionsPanel;
-    private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
-    private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
@@ -252,8 +241,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         setFocusTraversalPolicy(new InstructionsPanelFocusTraversalPolicy());
         setFocusCycleRoot(true);
         setFocusTraversalPolicyProvider(true);
-
         // Initialize components
+        this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
         wandButton = new WandButton(
                 contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
@@ -267,62 +256,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
 
-        // Initialize Action Selection UI
-        modeSwitch = new JCheckBox();
-        KeyStroke toggleKs = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
-        String tooltipText =
-                """
-                <html>
-                <b>Code Mode:</b> For generating or modifying code based on your instructions.<br>
-                <b>Ask Mode:</b> For answering questions about your project or general programming topics.<br>
-                <br>
-                Click to toggle between Code and Ask modes (%s).
-                </html>
-                """
-                        .formatted(formatKeyStroke(toggleKs));
-        modeSwitch.setToolTipText(tooltipText);
-        // Also show the same tooltip when hovering the labels to improve discoverability.
-        codeModeLabel.setToolTipText(tooltipText);
-        answerModeLabel.setToolTipText(tooltipText);
-        // Keep tooltips visible longer (30 seconds) so users have time to read the HTML content.
-        ToolTipManager.sharedInstance().setDismissDelay(30_000);
-        var switchIcon = new SwitchIcon();
-        modeSwitch.setIcon(switchIcon);
-        modeSwitch.setSelectedIcon(switchIcon);
-        modeSwitch.setFocusPainted(true);
-        modeSwitch.setFocusable(true);
-        modeSwitch.setBorderPainted(false);
-        modeSwitch.setBorder(BorderFactory.createEmptyBorder());
-        modeSwitch.setContentAreaFilled(false);
-        modeSwitch.setOpaque(false);
-        modeSwitch.setIconTextGap(0);
-        modeSwitch.setRolloverEnabled(false);
-        modeSwitch.setMargin(new Insets(0, 0, 0, 0));
-        modeSwitch.setText("");
-
-        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
-        KeyStroke toggleSearchKs = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
-
-        searchProjectCheckBox = new JCheckBox("Search");
-        searchProjectCheckBox.setFocusable(true);
-
-        // Append the shortcut to the tooltip for discoverability
-        searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
-                + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
-                + "<li><b>unchecked:</b> Asks using only the Workspace (faster for follow-ups)</li>"
-                + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
-
-        KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(),
-                toggleSearchKs,
-                "ToggleSearchFirst",
-                () -> SwingUtilities.invokeLater(() -> {
-                    // Toggle "Search First" when in Answer mode; no-op in Code mode.
-                    if (modeSwitch.isSelected()) {
-                        searchProjectCheckBox.doClick();
-                    }
-                }));
-
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
         KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
@@ -330,64 +263,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "attachContext",
                 () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
 
-        // Load persisted checkbox states (default to checked)
-        var proj = chrome.getProject();
-        modeSwitch.setSelected(proj.getInstructionsAskMode());
-        searchProjectCheckBox.setSelected(proj.getSearch());
-
-        // default stored action: Search (Ask + Search)
-        storedAction = ACTION_SEARCH;
-
-        // Toggle listeners update visibility and storedAction
-        modeSwitch.addItemListener(e2 -> {
-            boolean askMode = modeSwitch.isSelected();
-            if (askMode) {
-                // Show the ASK card (search checkbox)
-                if (optionsPanel != null) {
-                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
-                }
-                searchProjectCheckBox.setEnabled(true);
-                // Checked => Search, Unchecked => Answer
-                storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
-            } else {
-                // Show the CODE card
-                if (optionsPanel != null) {
-                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
-                }
-                // Default to Code action in Code mode
-                storedAction = ACTION_CODE;
-            }
-            // Update label emphasis
-            updateModeLabels();
-            refreshModeIndicator();
-            try {
-                chrome.getProject().setInstructionsAskMode(askMode);
-            } catch (Exception ex) {
-                logger.warn("Unable to persist instructions mode", ex);
-            }
-        });
-
-        searchProjectCheckBox.addActionListener(e -> {
-            if (modeSwitch.isSelected()) {
-                storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
-            }
-            proj.setSearch(searchProjectCheckBox.isSelected());
-        });
-
-        // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
+        // Load stored action with cascading fallback: project → global → default
+        storedAction = loadActionMode();
 
         this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
-        // this is when the button is in the blocking state
         this.secondaryActionButtonBg = UIManager.getColor("Button.background");
-        // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
-        actionButton = new ThemeAwareRoundedButton(
-                () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
-        KeyStroke submitKs = GlobalUiSettings.getKeybinding(
-                "instructions.submit",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+        // Create split action button with dropdown
+        actionButton = new ActionSplitButton(() -> isActionRunning(), ACTION_SEARCH); // Default to Search
+
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
         actionButton.setFocusPainted(true);
@@ -396,6 +280,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
         actionButton.setBackground(this.defaultActionButtonBg);
+
+        // Synchronize button's selected mode with loaded preference
+        actionButton.setSelectedMode(storedAction);
+        // Initialize tooltip to reflect the selected mode
+        SwingUtilities.invokeLater(actionButton::updateTooltip);
+
+        // Listen for mode changes from the dropdown
+        actionButton.addModeChangeListener(mode -> {
+            storedAction = mode;
+            // Save to both global and project preferences
+            MainProject.setGlobalActionMode(mode);
+            chrome.getProject().saveActionMode(mode);
+            refreshModeIndicator();
+        });
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
@@ -433,6 +331,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
 
+        this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
         add(topBarPanel, BorderLayout.NORTH);
@@ -444,13 +343,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Bottom Bar (Mic, Model, Actions) (South)
         JPanel bottomPanel = buildBottomPanel();
         add(bottomPanel, BorderLayout.SOUTH);
-        // Ensure initial label bolding matches current mode
-        updateModeLabels();
-        refreshModeIndicator();
-
-        // Initialize the workspace chips area below the command input
-        this.contextAreaContainer = createContextAreaContainer();
-        centerPanel.add(contextAreaContainer, 2);
 
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
@@ -470,6 +362,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initial compute of the token/cost indicator
         updateTokenCostIndicator();
+
+        // Initialize mode indicator
+        refreshModeIndicator();
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -569,51 +464,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildTopBarPanel() {
-        // Restored History dropdown alongside branch split button.
         // Replaced history dropdown with compact branch split button in top bar
-        JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
+        var topBarPanel = new JPanel();
+        topBarPanel.setLayout(new BoxLayout(topBarPanel, BoxLayout.X_AXIS));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // Initialize mode badge
+        modeBadge = new JLabel("LUTZ MODE");
+        modeBadge.setOpaque(true);
+        modeBadge.setFont(modeBadge.getFont().deriveFont(Font.BOLD, 10f));
+        modeBadge.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        modeBadge.setHorizontalAlignment(SwingConstants.CENTER);
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        // Set mic button size
-        var micPref = micButton.getPreferredSize();
-        int micHeight = micPref.height;
-        var micDim = new Dimension(micHeight, micHeight);
-        micButton.setPreferredSize(micDim);
-        micButton.setMinimumSize(micDim);
-        micButton.setMaximumSize(micDim);
-
-        leftPanel.add(micButton);
-
-        topBarPanel.add(leftPanel, BorderLayout.WEST);
-
-        // Center placeholder — header with branch selector has been moved to the main window (Chrome).
-        JPanel centerPanel = new JPanel();
-        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.LINE_AXIS));
-        centerPanel.add(Box.createHorizontalGlue());
-        topBarPanel.add(centerPanel, BorderLayout.CENTER);
-
-        // Right panel with history and wand button
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-
-        var historyDropdown = createHistoryDropdown();
-        historyDropdown.setPreferredSize(new Dimension(120, micHeight));
-        historyDropdown.setMinimumSize(new Dimension(120, micHeight));
-        historyDropdown.setMaximumSize(new Dimension(400, micHeight));
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        var wandDim = new Dimension(micHeight, micHeight);
-        wandButton.setPreferredSize(wandDim);
-        wandButton.setMinimumSize(wandDim);
-        wandButton.setMaximumSize(wandDim);
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        rightPanel.add(historyDropdown);
-        rightPanel.add(Box.createHorizontalStrut(H_GAP));
-        rightPanel.add(wandButton);
-
-        topBarPanel.add(rightPanel, BorderLayout.EAST);
+        topBarPanel.add(modeBadge);
+        topBarPanel.add(Box.createHorizontalGlue());
+        topBarPanel.add(historyDropdown);
+        topBarPanel.add(wandButton);
+        topBarPanel.add(micButton);
 
         return topBarPanel;
     }
@@ -625,21 +497,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Command Input Field
         JScrollPane commandScrollPane = new JScrollPane(instructionsArea);
         commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        commandScrollPane.setPreferredSize(new Dimension(600, 80)); // Use preferred size for layout
-        // Make the scroll area the flexible piece so chips + toolbar remain visible under tight space
+        commandScrollPane.setPreferredSize(new Dimension(600, 80));
         commandScrollPane.setMinimumSize(new Dimension(100, 0));
 
         // Create layered pane with overlay
         this.inputLayeredPane = commandInputOverlay.createLayeredPane(commandScrollPane);
-        this.inputLayeredPane.setBorder(new EmptyBorder(0, H_PAD, 0, H_PAD));
 
-        panel.add(buildModeIndicatorPanel()); // Mode badge
-
-        // Add the layered input directly (drawer will host tool panels)
         panel.add(this.inputLayeredPane);
 
-        // Reference-file table will be inserted just below the command input (now layeredPane)
-        // by initializeReferenceFileTable()
+        // Context area below the input
+        panel.add(this.contextAreaContainer);
 
         return panel;
     }
@@ -859,141 +726,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return titledContainer;
     }
 
-    // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
-    private void updateModeLabels() {
-        boolean askMode = modeSwitch.isSelected();
-
-        // Base and dimmed colors (theme-aware via UIManager)
-        Color base = UIManager.getColor("Label.foreground");
-        if (base == null) base = codeModeLabel.getForeground();
-
-        boolean isDark = UIManager.getBoolean("laf.dark");
-        Color dim = isDark
-                ? darkenColor(base, 0.6f) // darken for dark theme
-                : lightenColor(base, 0.4f); // lighten for light theme
-
-        // Keep fonts consistent (plain) to prevent layout shifts
-        Font baseFont = codeModeLabel.getFont().deriveFont(Font.PLAIN);
-        codeModeLabel.setFont(baseFont);
-        answerModeLabel.setFont(baseFont);
-
-        if (askMode) {
-            codeModeLabel.setForeground(dim);
-            answerModeLabel.setForeground(base);
-        } else {
-            codeModeLabel.setForeground(base);
-            answerModeLabel.setForeground(dim);
-        }
-    }
-
-    private static Color lightenColor(Color base, float amount) {
-        amount = Math.max(0f, Math.min(1f, amount));
-        int r = Math.round(base.getRed() + (255 - base.getRed()) * amount);
-        int g = Math.round(base.getGreen() + (255 - base.getGreen()) * amount);
-        int b = Math.round(base.getBlue() + (255 - base.getBlue()) * amount);
-        r = Math.max(0, Math.min(255, r));
-        g = Math.max(0, Math.min(255, g));
-        b = Math.max(0, Math.min(255, b));
-        return new Color(r, g, b);
-    }
-
-    private static Color darkenColor(Color base, float factor) {
-        factor = Math.max(0f, Math.min(1f, factor));
-        int r = Math.round(base.getRed() * factor);
-        int g = Math.round(base.getGreen() * factor);
-        int b = Math.round(base.getBlue() * factor);
-        r = Math.max(0, Math.min(255, r));
-        g = Math.max(0, Math.min(255, g));
-        b = Math.max(0, Math.min(255, b));
-        return new Color(r, g, b);
-    }
-
-    private JPanel buildModeIndicatorPanel() {
-        if (modeIndicatorPanel != null) return modeIndicatorPanel;
-
-        var panel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
-        panel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
-        panel.setOpaque(false);
-
-        modeBadge = new JLabel("CODE MODE") {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    Color bg = getBackground();
-                    int arc = Math.max(getHeight(), 16);
-                    g2.setColor(bg);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                } finally {
-                    g2.dispose();
-                }
-                super.paintComponent(g);
-            }
-        };
-        modeBadge.setOpaque(false); // we paint background ourselves
-        modeBadge.setBorder(BorderFactory.createEmptyBorder(2, 10, 2, 10));
-        modeBadge.setFont(
-                modeBadge.getFont().deriveFont(Font.BOLD, modeBadge.getFont().getSize2D()));
-        // initial colors will be set by refreshModeIndicator()
-        panel.add(modeBadge);
-        // Hide the mode badge to avoid confusion; keep component in hierarchy so layout indices remain stable
-        panel.setVisible(false);
-
-        modeIndicatorPanel = panel;
-        return panel;
-    }
-
-    private void refreshModeIndicator() {
-        boolean askMode = modeSwitch.isSelected();
-        boolean isDark = UIManager.getBoolean("laf.dark");
-
-        Color badgeBg = null;
-        Color badgeFg = null;
-        Color accent = null;
-
-        try {
-            if (askMode) {
-                badgeBg = ThemeColors.getColor(isDark, "mode_answer_bg");
-                badgeFg = ThemeColors.getColor(isDark, "mode_answer_fg");
-                accent = ThemeColors.getColor(isDark, "mode_answer_accent");
-            } else {
-                badgeBg = ThemeColors.getColor(isDark, "mode_code_bg");
-                badgeFg = ThemeColors.getColor(isDark, "mode_code_fg");
-                accent = ThemeColors.getColor(isDark, "mode_code_accent");
-            }
-        } catch (Exception ex) {
-            // Log at debug and fall back to defaults below
-            logger.debug("Theme color lookup failed; using fallback colors", ex);
-        }
-        if (badgeBg == null) {
-            badgeBg = askMode ? new Color(0x1F6FEB) : new Color(0x2EA043);
-        }
-        if (badgeFg == null) {
-            badgeFg = isDark ? Color.WHITE : new Color(0x0A0A0A);
-        }
-        if (accent == null) {
-            accent = askMode ? new Color(0x1F6FEB) : new Color(0x2EA043);
-        }
-
-        if (modeBadge != null) {
-            modeBadge.setText(askMode ? "ASK MODE" : "CODE MODE");
-            modeBadge.setBackground(badgeBg);
-            modeBadge.setForeground(badgeFg);
-            modeBadge.repaint();
-        }
-
-        if (inputLayeredPane != null) {
-            var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
-            var stripe = new MatteBorder(0, 4, 0, 0, accent);
-            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(stripe, inner));
-            inputLayeredPane.revalidate();
-            inputLayeredPane.repaint();
-        }
-
-        actionGroupPanel.setAccentColor(accent);
-    }
-
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
@@ -1185,90 +917,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-        // Action selector group: Code/Answer switch inside a bordered panel
-        this.actionGroupPanel = new ActionGroupPanel(codeModeLabel, modeSwitch, answerModeLabel);
-        this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Visually highlight Code/Ask group when the switch gains focus
-        modeSwitch.addFocusListener(new FocusAdapter() {
-            @Override
-            public void focusGained(FocusEvent e) {
-                actionGroupPanel.setAccentColor(new Color(0x1F6FEB));
-            }
-
-            @Override
-            public void focusLost(FocusEvent e) {
-                // Restore mode accent
-                refreshModeIndicator();
-            }
-        });
-
-        bottomPanel.add(this.actionGroupPanel);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
-        optionsPanel = new JPanel(new CardLayout());
-
-        // Create a CODE card (no additional options after removing Plan First).
-        JPanel codeOptionsPanel = new JPanel();
-        codeOptionsPanel.setOpaque(false);
-        codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
-        codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // (Plan First checkbox removed)
-
-        optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
-        optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
-
-        // Group the card panel so it stays aligned with other toolbar controls.
-        Box optionGroup = Box.createHorizontalBox();
-        optionGroup.setOpaque(false);
-        optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
-        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        int planFixedHeight = Math.max(
-                Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
-
-        // Ensure the card panel has enough width for its widest child (e.g., "Search") and allow horizontal growth.
-        int optWidth = Math.max(optionsPanel.getPreferredSize().width, searchProjectCheckBox.getPreferredSize().width);
-        if (optWidth <= 0) {
-            optWidth = searchProjectCheckBox.getPreferredSize().width + H_GAP;
-        }
-        optionsPanel.setPreferredSize(new Dimension(optWidth, planFixedHeight));
-        optionsPanel.setMinimumSize(new Dimension(optWidth, planFixedHeight));
-        optionsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, planFixedHeight));
-        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Add the composite card panel; the PLAN button lives inside the CODE card now.
-        optionGroup.add(optionsPanel);
-
-        bottomPanel.add(optionGroup);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Ensure the initial visible card matches the current mode
-        if (optionsPanel != null) {
-            ((CardLayout) optionsPanel.getLayout())
-                    .show(optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
-        }
-
-        // Flexible space between action controls and Go/Stop
+        // Flexible space before model selector and action button
         bottomPanel.add(Box.createHorizontalGlue());
 
         // Model selector on the right
         var modelComp = modelSelector.getComponent();
         modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
-        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP + 120));
+        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP));
         bottomPanel.add(modelComp);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Action button (Go/Stop toggle) on the right
+        // Action split button (with integrated mode dropdown) on the right
         actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Make the action button slightly smaller while keeping a fixed minimum height
-        int fixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
-        var prefSize = new Dimension(64, fixedHeight);
+        // Make the button bigger to accommodate text + dropdown
+        int fixedHeight = Math.max(actionButton.getPreferredSize().height, 36);
+        var prefSize = new Dimension(140, fixedHeight);
         actionButton.setPreferredSize(prefSize);
         actionButton.setMinimumSize(prefSize);
         actionButton.setMaximumSize(prefSize);
-        actionButton.setMargin(new Insets(4, 10, 4, 10));
+        actionButton.setMargin(new Insets(4, 4, 4, 10));
+        actionButton.setIconTextGap(0);
+        actionButton.setHorizontalTextPosition(SwingConstants.RIGHT);
 
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new FocusAdapter() {
@@ -1292,41 +961,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    /** Opens the Plan Options: ensures the correct card is visible and focuses the primary control. */
-    public void openPlanOptions() {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                boolean askMode = modeSwitch.isSelected();
-                if (askMode) {
-                    if (optionsPanel != null) {
-                        ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
-                    }
-                    searchProjectCheckBox.requestFocusInWindow();
-                } else {
-                    if (optionsPanel != null) {
-                        ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
-                    }
-                    instructionsArea.requestFocusInWindow();
-                }
-                refreshModeIndicator();
-            } catch (Exception ex) {
-                logger.debug("openPlanOptions failed (non-fatal)", ex);
-            }
-        });
-    }
-
-    @SuppressWarnings("unused")
     private SplitButton createHistoryDropdown() {
-        final var placeholder = "History";
         final var noHistory = "(No history items)";
 
         var project = chrome.getProject();
-
-        var dropdown = new SplitButton(placeholder);
-        dropdown.setUnifiedHover(true);
-        dropdown.setToolTipText("Select a previous instruction from history");
-        dropdown.setFocusable(true);
-
+        // this is a dirty hack since the flow layout breaks the split button
+        var dropdown = new SplitButton("____", true);
+        dropdown.setToolTipText("History");
+        SwingUtilities.invokeLater(() -> {
+            dropdown.setIcon(Icons.HISTORY);
+            dropdown.setText("");
+        });
         // Build popup menu on demand, same pattern as branch button
         Supplier<JPopupMenu> historyMenuSupplier = () -> {
             var menu = new JPopupMenu();
@@ -1487,16 +1132,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Toggle between Code and Answer modes by flipping the modeSwitch. This reuses the existing ItemListener on
-     * modeSwitch so storedAction, checkbox visibility and labels are updated consistently.
+     * Toggle between Code/Ask/Search modes via the split button dropdown.
+     * Cycles through modes in order: Code → Ask → Search → Code.
      */
     public void toggleCodeAnswerMode() {
         SwingUtilities.invokeLater(() -> {
-            // Flip the checkbox; its ItemListener will update storedAction and UI
-            boolean newAsk = !modeSwitch.isSelected();
-            modeSwitch.setSelected(newAsk);
-            // Ensure labels are updated immediately
-            updateModeLabels();
+            String current = actionButton.getSelectedMode();
+            String next =
+                    switch (current) {
+                        case ACTION_CODE -> ACTION_ASK;
+                        case ACTION_ASK -> ACTION_SEARCH;
+                        case ACTION_SEARCH -> ACTION_CODE;
+                        default -> ACTION_SEARCH;
+                    };
+            actionButton.setSelectedMode(next);
+            storedAction = next;
             // Place focus back in the command input for convenience
             requestCommandInputFocus();
         });
@@ -1917,14 +1567,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Methods to disable and enable buttons.
     void disableButtons() {
         SwingUtilities.invokeLater(() -> {
-            // Disable ancillary controls only; leave the action button alone so it can become "Stop"
-            modeSwitch.setEnabled(false);
-            searchProjectCheckBox.setEnabled(false);
-
             // Keep the action button usable for "Stop" while a task is running.
             if (isActionRunning()) {
-                actionButton.setIcon(Icons.STOP);
-                actionButton.setText(null);
+                actionButton.showStopMode();
                 actionButton.setEnabled(true);
                 actionButton.setToolTipText("Cancel the current operation");
                 // always use the off red of the light theme
@@ -1934,6 +1579,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // If there is no running action, keep the action button enabled so the user can start an action.
                 actionButton.setEnabled(true);
                 actionButton.setBackground(defaultActionButtonBg);
+                // Ensure combined tooltip (mode-specific + base) is shown initially
+                actionButton.updateTooltip();
             }
 
             // Wand is disabled while any action is running
@@ -1947,37 +1594,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
-            // Toggle
-            modeSwitch.setEnabled(true);
-
-            // Checkbox visibility and enablement
-            if (!modeSwitch.isSelected()) {
-                // Show the CODE card
-                if (optionsPanel != null) {
-                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
-                }
-            } else {
-                // Show the ASK card
-                if (optionsPanel != null) {
-                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
-                }
-                searchProjectCheckBox.setEnabled(true);
-            }
-
             // Action button reflects current running state
-            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
-                    "instructions.submit",
-                    KeyStroke.getKeyStroke(
-                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
             if (isActionRunning()) {
-                actionButton.setIcon(Icons.STOP);
-                actionButton.setText(null);
+                actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
                 actionButton.setBackground(secondaryActionButtonBg);
             } else {
-                actionButton.setIcon(Icons.ARROW_WARM_UP);
-                actionButton.setText(null);
-                actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+                actionButton.showNormalMode();
+                // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
+                actionButton.updateTooltip();
                 actionButton.setBackground(defaultActionButtonBg);
             }
             actionButton.setEnabled(true);
@@ -1985,22 +1610,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Enable/disable wand depending on running state
             wandButton.setEnabled(!isActionRunning());
 
-            // Ensure the action button is the root pane's default button so Enter triggers it by default.
-            // This mirrors the intended "default" behavior for the Go action.
-            // Intentionally avoid setting a root default button to keep Enter key
-            // behavior local to the focused component.
-
-            // Ensure storedAction is consistent with current UI
-            if (!modeSwitch.isSelected()) {
-                storedAction = ACTION_CODE;
-            } else {
-                // Ask-mode: checked => Search, unchecked => Ask/Answer
-                storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
-            }
-
-            // Keep label emphasis in sync with selected mode
-            updateModeLabels();
-            refreshModeIndicator();
+            // Ensure storedAction is consistent with split button's selected mode
+            storedAction = actionButton.getSelectedMode();
 
             chrome.enableHistoryPanel();
         });
@@ -2020,6 +1631,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
         updateButtonStates();
+    }
+
+    private String loadActionMode() {
+        // 1. Try project-specific first
+        Optional<String> projectMode = chrome.getProject().getActionMode();
+        if (projectMode.isPresent() && isValidMode(projectMode.get())) {
+            logger.debug("Loading action mode from project settings: {}", projectMode.get());
+            return projectMode.get();
+        }
+
+        // 2. Fall back to global
+        String globalMode = MainProject.getGlobalActionMode();
+        if (!globalMode.isEmpty() && isValidMode(globalMode)) {
+            logger.debug("Loading action mode from global settings: {}", globalMode);
+            return globalMode;
+        }
+
+        // 3. Final fallback to default
+        logger.debug("No saved action mode found, using default: {}", ACTION_SEARCH);
+        return ACTION_SEARCH;
+    }
+
+    private boolean isValidMode(String mode) {
+        return ACTION_CODE.equals(mode) || ACTION_ASK.equals(mode) || ACTION_SEARCH.equals(mode);
     }
 
     private void notifyActionComplete(String actionName) {
@@ -2046,6 +1681,73 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
         // Always return focus to the instructions area to avoid re-triggering with Enter on the button
         requestCommandInputFocus();
+    }
+
+    private void refreshModeIndicator() {
+        String mode = actionButton.getSelectedMode();
+        boolean isDark = UIManager.getBoolean("laf.dark");
+        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+
+        Color badgeBg;
+        Color badgeFg;
+        Color accent;
+        String badgeText;
+
+        try {
+            switch (mode) {
+                case ACTION_CODE -> {
+                    badgeText = "CODE MODE";
+                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
+                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
+                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
+                }
+                case ACTION_ASK -> {
+                    badgeText = "ASK MODE";
+                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
+                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
+                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
+                }
+                case ACTION_SEARCH -> {
+                    badgeText = "LUTZ MODE";
+                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
+                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
+                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
+                }
+                default -> {
+                    badgeText = "LUTZ MODE";
+                    badgeBg = new Color(0xF4C430);
+                    badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
+                    accent = new Color(0xF4C430);
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Theme color lookup failed; using fallback colors", ex);
+            badgeText = "LUTZ MODE";
+            badgeBg = new Color(0xF4C430);
+            badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
+            accent = new Color(0xF4C430);
+        }
+
+        if (modeBadge != null) {
+            modeBadge.setText(badgeText);
+            modeBadge.setBackground(badgeBg);
+            modeBadge.setForeground(badgeFg);
+            modeBadge.repaint();
+        }
+
+        if (inputLayeredPane != null) {
+            var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
+            var stripe = new javax.swing.border.MatteBorder(0, 4, 0, 0, accent);
+            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(stripe, inner));
+            inputLayeredPane.revalidate();
+            inputLayeredPane.repaint();
+        }
+
+        // Set action button foreground: black in high contrast mode, white otherwise
+        Color buttonForeground = isHighContrast ? Color.BLACK : Color.WHITE;
+        if (!isActionRunning()) {
+            actionButton.setForeground(buttonForeground);
+        }
     }
 
     public void populateInstructionsArea(String text) {
@@ -2197,35 +1899,178 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.addSelectionListener(listener);
     }
 
-    private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
+    /**
+     * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
+     * The main button area executes the selected action, while the dropdown arrow shows mode options.
+     */
+    private static class ActionSplitButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;
         private final Supplier<Boolean> isActionRunning;
-        private final Color secondaryActionButtonBg;
-        private final Color defaultActionButtonBg;
         private @Nullable Icon originalIcon;
+        private String selectedMode;
+        private final List<Consumer<String>> modeChangeListeners = new ArrayList<>();
+        private boolean inStopMode = false;
+        private static final int DROPDOWN_WIDTH = 30;
+        private @Nullable Icon dropdownIcon;
+        private final String baseTooltip;
+        private static final String MODE_TOOLTIP_CODE =
+                "<b>Code Mode:</b> The Code agent executes your instructions to directly modify the code files currently in the context.";
+        private static final String MODE_TOOLTIP_ASK =
+                "<b>Ask mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
+        private static final String MODE_TOOLTIP_LUTZ =
+                "<b>Lutz mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
 
-        public ThemeAwareRoundedButton(
-                Supplier<Boolean> isActionRunning, Color secondaryActionButtonBg, Color defaultActionButtonBg) {
+        public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
             super();
             this.isActionRunning = isActionRunning;
-            this.secondaryActionButtonBg = secondaryActionButtonBg;
-            this.defaultActionButtonBg = defaultActionButtonBg;
+            this.selectedMode = defaultMode;
             this.originalIcon = null;
+            this.dropdownIcon = null;
+
+            // Build base tooltip with keybinding info
+            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
+                    "instructions.submit",
+                    KeyStroke.getKeyStroke(
+                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+            this.baseTooltip = "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")";
+
+            updateButtonText();
+            updateTooltip();
+
+            // Override border to eliminate left padding (0px instead of default 8px)
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor == null) borderColor = Color.GRAY;
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor, 1, true), BorderFactory.createEmptyBorder(4, 0, 4, 8)));
+
+            // Set initial tooltip based on default mode
+            updateTooltip();
+
+            // Defer icon loading until EDT is ready
+            SwingUtilities.invokeLater(() -> {
+                this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+            });
+
+            // Change cursor when hovering the dropdown area on the right
+            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    boolean inDropdown = e.getX() >= getWidth() - DROPDOWN_WIDTH;
+                    setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+                }
+            });
+        }
+
+        public void addModeChangeListener(Consumer<String> listener) {
+            modeChangeListeners.add(listener);
+        }
+
+        public String getSelectedMode() {
+            return selectedMode;
+        }
+
+        public void setSelectedMode(String mode) {
+            if (!this.selectedMode.equals(mode)) {
+                this.selectedMode = mode;
+                updateButtonText();
+                updateTooltip();
+                for (var listener : modeChangeListeners) {
+                    listener.accept(mode);
+                }
+            }
+        }
+
+        public void updateTooltip() {
+            String modeTooltip =
+                    switch (selectedMode) {
+                        case ACTION_CODE -> MODE_TOOLTIP_CODE;
+                        case ACTION_ASK -> MODE_TOOLTIP_ASK;
+                        case ACTION_SEARCH -> MODE_TOOLTIP_LUTZ;
+                        default -> MODE_TOOLTIP_LUTZ;
+                    };
+            setToolTipText("<html><body style='width: 350px;'>" + modeTooltip
+                    + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>" + baseTooltip
+                    + "</body></html>");
+        }
+
+        public void showStopMode() {
+            inStopMode = true;
+            setIcon(Icons.STOP);
+            setText(null);
+            repaint();
+        }
+
+        public void showNormalMode() {
+            inStopMode = false;
+            setIcon(Icons.ARROW_WARM_UP);
+            updateButtonText();
+            repaint();
+        }
+
+        private void updateButtonText() {
+            if (!inStopMode) {
+                String displayText =
+                        switch (selectedMode) {
+                            case ACTION_CODE -> "Code";
+                            case ACTION_ASK -> "Ask";
+                            case ACTION_SEARCH -> "Lutz";
+                            default -> "Lutz";
+                        };
+                setText(displayText);
+            }
+        }
+
+        @Override
+        protected void processMouseEvent(MouseEvent e) {
+            int x = e.getX();
+            int y = e.getY();
+            boolean inDropdown = x >= getWidth() - DROPDOWN_WIDTH && x <= getWidth() && y >= 0 && y <= getHeight();
+            if (inDropdown && isEnabled()) {
+                // Swallow events in dropdown area and show menu on press
+                if (e.getID() == MouseEvent.MOUSE_PRESSED) {
+                    showDropdownMenu();
+                }
+                return; // Do not pass to super; prevents main action from firing
+            }
+            super.processMouseEvent(e);
+        }
+
+        private void showDropdownMenu() {
+            JPopupMenu menu = new JPopupMenu();
+
+            JMenuItem codeItem = new JMenuItem("Code");
+            codeItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Code Mode:</b> The Code agent executes your instructions to directly modify the code files currently in the context.</body></html>");
+            codeItem.addActionListener(ev -> setSelectedMode(ACTION_CODE));
+            menu.add(codeItem);
+
+            JMenuItem askItem = new JMenuItem("Ask");
+            askItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Ask mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.</body></html>");
+            askItem.addActionListener(ev -> setSelectedMode(ACTION_ASK));
+            menu.add(askItem);
+
+            JMenuItem searchItem = new JMenuItem("Lutz");
+            searchItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Lutz mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.</body></html>");
+            searchItem.addActionListener(ev -> setSelectedMode(ACTION_SEARCH));
+            menu.add(searchItem);
+
+            int menuHeight = menu.getPreferredSize().height;
+            menu.show(this, getWidth() - DROPDOWN_WIDTH, -menuHeight);
         }
 
         @Override
         public void setIcon(@Nullable Icon icon) {
             this.originalIcon = icon;
             // Apply high-contrast processing if needed
-            boolean isHighContrast = io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(
-                    MainProject.getTheme());
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }
 
         @Override
         protected void paintComponent(Graphics g) {
-            // Paint rounded background (same behavior as previous anonymous class)
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2241,6 +2086,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+
+                // Draw divider line if not in stop mode
+                if (!inStopMode) {
+                    int dropdownX = getWidth() - DROPDOWN_WIDTH;
+                    boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+                    g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
+                    g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
+
+                    // Lazy-load and paint dropdown icon centered in the dropdown area
+                    if (dropdownIcon == null) {
+                        dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+                    }
+                    if (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon) {
+                        themedIcon.ensureResolved();
+                    }
+                    Icon iconToPaint = (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon)
+                            ? themedIcon.delegate()
+                            : dropdownIcon;
+                    // Apply high-contrast processing to dropdown icon
+                    iconToPaint = ColorUtil.createHighContrastIcon(iconToPaint, getBackground(), isHighContrast);
+                    if (iconToPaint != null) {
+                        int iw = iconToPaint.getIconWidth();
+                        int ih = iconToPaint.getIconHeight();
+                        int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
+                        int iy = Math.max(0, (getHeight() - ih) / 2);
+                        iconToPaint.paintIcon(this, g2, ix, iy);
+                    }
+                }
             } finally {
                 g2.dispose();
             }
@@ -2255,7 +2128,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 int arc = 12;
                 Color borderColor;
                 if (isFocusOwner()) {
-                    // Use a blue focus color for visibility when focused
                     borderColor = new Color(0x1F6FEB);
                 } else {
                     borderColor = UIManager.getColor("Component.borderColor");
@@ -2270,31 +2142,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            // Re-read colors from UIManager instead of using cached values
+            Color currentDefaultBg = UIManager.getColor("Button.default.background");
+            Color currentSecondaryBg = UIManager.getColor("Button.background");
+
+            // Set background FIRST so icon processing can read the correct background
             if (this.isActionRunning.get()) {
-                setBackground(this.secondaryActionButtonBg);
+                setBackground(currentSecondaryBg);
             } else {
-                setBackground(this.defaultActionButtonBg);
+                setBackground(currentDefaultBg);
             }
 
-            // Re-apply icon with the new theme's high-contrast settings
+            // Now update icon - this will trigger high-contrast processing with the new background
             if (this.originalIcon != null) {
                 setIcon(this.originalIcon);
             }
 
-            // Update visuals
             revalidate();
             repaint();
         }
 
-        /**
-         * Backwards-compatible single-argument applyTheme method.
-         *
-         * <p>Some ThemeAware interface variants (depending on codebase versions) declare a single-argument
-         * applyTheme(GuiTheme). Provide this overload so the class fulfills that contract as well.
-         */
         @Override
         public void applyTheme(GuiTheme guiTheme) {
-            // Delegate to the two-argument variant with a sensible default for wordWrap.
             applyTheme(guiTheme, false);
         }
     }
@@ -2376,49 +2245,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public Component getComponentAfter(Container aContainer, Component aComponent) {
             if (aComponent == instructionsArea) {
-                return actionButton;
-            } else if (aComponent == actionButton) {
-                return modeSwitch;
-            } else if (aComponent == modeSwitch) {
-                // Return the appropriate control based on current mode
-                return modeSwitch.isSelected() ? searchProjectCheckBox : micButton;
-            } else if (aComponent == searchProjectCheckBox) {
                 return micButton;
             } else if (aComponent == micButton) {
                 return modelSelector.getComponent();
             } else if (aComponent == modelSelector.getComponent()) {
-                // Find history dropdown in the top bar
+                return actionButton;
+            } else if (aComponent == actionButton) {
                 return findHistoryDropdown();
             } else if (aComponent == findHistoryDropdown()) {
-                // Find branch split button in the top bar
                 return findBranchSplitButton();
             } else if (aComponent == findBranchSplitButton()) {
-                // Return to main window or next focusable component
                 return getNextFocusableComponent();
             }
-            return actionButton; // Fallback to action button
+            return instructionsArea;
         }
 
         @Override
         public Component getComponentBefore(Container aContainer, Component aComponent) {
-            if (aComponent == actionButton) {
+            if (aComponent == micButton) {
                 return instructionsArea;
-            } else if (aComponent == modeSwitch) {
-                return actionButton;
-            } else if (aComponent == searchProjectCheckBox) {
-                return modeSwitch;
-            } else if (aComponent == micButton) {
-                return modeSwitch.isSelected() ? searchProjectCheckBox : modeSwitch;
             } else if (aComponent == modelSelector.getComponent()) {
                 return micButton;
-            } else if (aComponent == findHistoryDropdown()) {
+            } else if (aComponent == actionButton) {
                 return modelSelector.getComponent();
+            } else if (aComponent == findHistoryDropdown()) {
+                return actionButton;
             } else if (aComponent == findBranchSplitButton()) {
                 return findHistoryDropdown();
             } else if (aComponent == getNextFocusableComponent()) {
                 return findBranchSplitButton();
             }
-            return actionButton; // Fallback to action button
+            return instructionsArea;
         }
 
         @Override
@@ -2437,23 +2294,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         private Component findHistoryDropdown() {
-            // Search for history dropdown in the top bar
-            return findComponentInHierarchy(
-                    InstructionsPanel.this,
-                    comp -> comp instanceof SplitButton splitButton && "History".equals(splitButton.getText()),
-                    actionButton);
+            return historyDropdown;
         }
 
         private Component findBranchSplitButton() {
-            // Search for branch split button in the top bar
             return findComponentInHierarchy(
                     InstructionsPanel.this,
-                    comp -> comp instanceof SplitButton splitButton && !"History".equals(splitButton.getText()),
-                    actionButton);
+                    comp -> comp instanceof SplitButton && comp != historyDropdown,
+                    instructionsArea);
         }
 
         private Component getNextFocusableComponent() {
-            // Return the next focusable component in the main window
             Container parent = InstructionsPanel.this.getParent();
             while (parent != null && !(parent instanceof Window)) {
                 parent = parent.getParent();
@@ -2461,7 +2312,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (parent instanceof Window) {
                 return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
             }
-            return actionButton; // Fallback to action button
+            return instructionsArea;
         }
 
         private Component findComponentInHierarchy(
