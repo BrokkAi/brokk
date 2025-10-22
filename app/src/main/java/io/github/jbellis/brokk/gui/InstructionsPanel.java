@@ -2193,15 +2193,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             // Re-read colors from UIManager instead of using cached values
             Color currentDefaultBg = UIManager.getColor("Button.default.background");
             Color currentSecondaryBg = UIManager.getColor("Button.background");
 
             // Set background FIRST so icon processing can read the correct background
-            if (this.isActionRunning.get()) {
-                setBackground(currentSecondaryBg);
+            if (isHighContrast) {
+                if (this.isActionRunning.get()) {
+                    Color hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
+                    setBackground(hcStop != null ? hcStop : currentSecondaryBg);
+                } else {
+                    Color hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
+                    setBackground(hcDefault != null ? hcDefault : currentDefaultBg);
+                }
             } else {
-                setBackground(currentDefaultBg);
+                if (this.isActionRunning.get()) {
+                    setBackground(currentSecondaryBg);
+                } else {
+                    setBackground(currentDefaultBg);
+                }
             }
 
             // Now update icon - this will trigger high-contrast processing with the new background
