@@ -55,7 +55,7 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
 
             var toolSpec = ToolSpecifications.toolSpecificationsFrom(this).get(0);
 
-            var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, this);
+            var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, cm.getToolRegistry());
 
             var messages = new ArrayList<ChatMessage>();
             var prompt =

@@ -143,7 +143,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final ServiceWrapper service;
 
     @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
-    private final AbstractProject project;
+    private final IProject project;
 
     // Cached exception reporter for this context
     private final ExceptionReporter exceptionReporter;
@@ -222,7 +222,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Minimal constructor called from Brokk */
-    public ContextManager(AbstractProject project) {
+    public ContextManager(IProject project) {
         this.project = project;
 
         this.contextHistory = new ContextHistory(new Context(this, null));
@@ -266,7 +266,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private void initializeCurrentSessionAndHistory(boolean forceNew) {
         // load last active session, if present
-        var lastActiveSessionId = project.getLastActiveSession();
+        var lastActiveSessionId = ((AbstractProject) project).getLastActiveSession();
         var sessionManager = project.getSessionManager();
         var sessions = sessionManager.listSessions();
         UUID sessionIdToLoad;
@@ -568,7 +568,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public AbstractProject getProject() {
+    public IProject getProject() {
         return project;
     }
 
@@ -808,7 +808,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io, project);
+        UndoResult result = contextHistory.undo(1, io, (AbstractProject) project);
         if (result.wasUndone()) {
             notifyContextListeners(topContext());
             project.getSessionManager()
@@ -822,7 +822,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, project);
+            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, (AbstractProject) project);
             if (result.wasUndone()) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -837,7 +837,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            boolean wasRedone = contextHistory.redo(io, project);
+            boolean wasRedone = contextHistory.redo(io, (AbstractProject) project);
             if (wasRedone) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -2142,7 +2142,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void updateActiveSession(UUID sessionId) {
         currentSessionId = sessionId;
         SessionRegistry.update(project.getRoot(), sessionId);
-        project.setLastActiveSession(sessionId);
+        ((AbstractProject) project).setLastActiveSession(sessionId);
     }
 
     public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {

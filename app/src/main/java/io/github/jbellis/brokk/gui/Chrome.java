@@ -744,7 +744,7 @@ public class Chrome
     }
 
     public AbstractProject getProject() {
-        return contextManager.getProject();
+        return (AbstractProject) contextManager.getProject();
     }
 
     /** Sets up .gitignore entries and adds .brokk project files to git */

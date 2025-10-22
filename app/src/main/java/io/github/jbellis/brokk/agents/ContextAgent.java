@@ -675,6 +675,8 @@ public class ContextAgent {
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
+        var tr = cm.getToolRegistry();
+        tr.register(contextTool);
         var toolSpecs = ToolSpecifications.toolSpecificationsFrom(contextTool);
         assert toolSpecs.size() == 1 : "Expected exactly one tool specification from ContextRecommendationTool";
 
@@ -759,7 +761,7 @@ public class ContextAgent {
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         logger.debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
-        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, contextTool));
+        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         var tokenUsage = result.tokenUsage();
         if (result.error() != null) {
             var error = result.error();

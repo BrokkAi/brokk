@@ -11,8 +11,9 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
-import io.github.jbellis.brokk.testutil.TestContextManager;
+import io.github.jbellis.brokk.testutil.TestProject;
 import io.github.jbellis.brokk.util.Messages;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -36,7 +37,7 @@ public class LlmTest {
     static void setUp() {
         // Create ContextManager, which initializes Models internally
         var consoleIO = new NoOpConsoleIO();
-        contextManager = new TestContextManager(tempDir, consoleIO);
+        contextManager = new ContextManager(new TestProject(tempDir, Languages.JAVA));
     }
 
     // Simple tool for testing
@@ -112,7 +113,7 @@ public class LlmTest {
     }
 
     // uncomment when you need it, this makes live API calls
-    //    @Test
+    @Test
     void testToolCalling() {
         var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
@@ -121,6 +122,8 @@ public class LlmTest {
 
         var weatherTool = new WeatherTool();
         var toolSpecifications = ToolSpecifications.toolSpecificationsFrom(weatherTool);
+        var tr = contextManager.getToolRegistry();
+        tr.register(weatherTool);
 
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
 
@@ -136,7 +139,7 @@ public class LlmTest {
                         var messages = new ArrayList<ChatMessage>();
                         messages.add(new UserMessage("What is the weather like in London?"));
                         var result = coder.sendRequest(
-                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, weatherTool));
+                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, tr));
 
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);
@@ -158,12 +161,11 @@ public class LlmTest {
                         System.out.println("Tool call requested successfully by " + modelName);
 
                         // check that we can send the result back
-                        var tr =
-                                result.originalMessage().toolExecutionRequests().getFirst();
+                        var req = result.originalMessage().toolExecutionRequests().getFirst();
                         // NB: this is a quick hack that does not actually pass arguments from the tool call
                         messages.add(result.originalMessage());
                         var term = new ToolExecutionResultMessage(
-                                tr.id(), tr.name(), new WeatherTool().getWeather("London"));
+                                req.id(), req.name(), new WeatherTool().getWeather("London"));
                         messages.add(term);
                         messages.add(new UserMessage("Given what you know about London, is this unusual?"));
                         result = coder.sendRequest(messages);

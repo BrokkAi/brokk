@@ -11,11 +11,8 @@ import java.util.List;
 public record ToolContext(
         List<ToolSpecification> toolSpecifications, ToolChoice toolChoice, ToolRegistry toolRegistry) {
 
-    /**
-     * Backward-compatible constructor without a ToolRegistry; equivalent to passing null as toolRegistry.
-     */
-    public ToolContext(List<ToolSpecification> toolSpecifications, ToolChoice toolChoice, Object toolOwner) {
-        this(toolSpecifications, toolChoice, null);
+    public ToolContext {
+        assert toolRegistry != null;
     }
 
     public static ToolContext empty() {
