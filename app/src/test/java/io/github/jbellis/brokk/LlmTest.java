@@ -123,8 +123,8 @@ public class LlmTest {
 
         var weatherTool = new WeatherTool();
         var toolSpecifications = ToolSpecifications.toolSpecificationsFrom(weatherTool);
-        var tr = contextManager.getToolRegistry();
-        tr.register(weatherTool);
+        var tr =
+                contextManager.getToolRegistry().builder().register(weatherTool).build();
 
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
 

@@ -28,7 +28,6 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
-import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
@@ -345,10 +344,8 @@ public class ArchitectAgent {
             var messages = buildPrompt(workspaceTokenSize, minInputTokenLimit, workspaceContentMessages);
 
             // Create a local registry for this planning turn
-            var tr = cm.getToolRegistry().copy();
-            tr.register(this);
             var wst = new WorkspaceTools(this.context);
-            tr.register(wst);
+            var tr = cm.getToolRegistry().builder().register(this).register(wst).build();
 
             // Figure out which tools are allowed in this step (hard-coded: Workspace, CodeAgent, Search (only with
             // Undo), Undo, Finish/Abort)
@@ -425,7 +422,7 @@ public class ArchitectAgent {
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
             // Add the request and response to message history
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+            var aiMessage = tr.removeDuplicateToolRequests(result.aiMessage());
             architectMessages.add(messages.getLast());
             architectMessages.add(aiMessage);
 

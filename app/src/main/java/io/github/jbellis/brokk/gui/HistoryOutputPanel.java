@@ -1867,9 +1867,12 @@ public class HistoryOutputPanel extends JPanel {
                                 .formatted(captureText));
 
                 // Register tool providers
-                var tr = contextManager.getToolRegistry().copy();
-                tr.register(this);
-                tr.register(new io.github.jbellis.brokk.tools.WorkspaceTools(contextManager));
+                var tr = contextManager
+                        .getToolRegistry()
+                        .builder()
+                        .register(this)
+                        .register(new io.github.jbellis.brokk.tools.WorkspaceTools(contextManager))
+                        .build();
 
                 var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
                 toolSpecs.addAll(tr.getTools(List.of("createTaskList")));

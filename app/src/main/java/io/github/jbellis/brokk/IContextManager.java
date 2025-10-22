@@ -208,6 +208,19 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    /** Adds any virtual fragment directly to the live context. */
+    default void addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return;
+        }
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
+    }
+
+    /** Adds any virtual fragment directly to the live context. */
+    default void addVirtualFragment(ContextFragment.VirtualFragment fragment) {
+        addVirtualFragments(List.of(fragment));
+    }
+
     /** Create a new LLM instance for the given model and description */
     default Llm getLlm(StreamingChatModel model, String taskDescription) {
         return getLlm(new Llm.Options(model, taskDescription));

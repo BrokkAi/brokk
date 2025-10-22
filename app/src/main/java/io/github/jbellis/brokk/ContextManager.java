@@ -233,8 +233,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.exceptionReporter = new ExceptionReporter(this.service::get);
 
         // set up global tools
-        this.toolRegistry = new ToolRegistry();
-        this.toolRegistry.register(new SearchTools(this));
+        this.toolRegistry =
+                ToolRegistry.empty().builder().register(new SearchTools(this)).build();
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
         // immediately during construction, which means our own reference to it will still be null
@@ -985,19 +985,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         IConsoleIO.NotificationRole.INFO, "Copying context items from historical state canceled.");
             }
         });
-    }
-
-    /** Adds any virtual fragment directly to the live context. */
-    public void addVirtualFragments(Collection<? extends VirtualFragment> fragments) {
-        if (fragments.isEmpty()) {
-            return;
-        }
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
-    }
-
-    /** Adds any virtual fragment directly to the live context. */
-    public void addVirtualFragment(VirtualFragment fragment) {
-        addVirtualFragments(List.of(fragment));
     }
 
     /**

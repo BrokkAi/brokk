@@ -197,9 +197,11 @@ public final class GitWorkflow {
         }
 
         // Register tool providers
-        var tr = cm.getToolRegistry().copy();
-        tr.register(this);
-        tr.register(new io.github.jbellis.brokk.tools.WorkspaceTools((io.github.jbellis.brokk.ContextManager) cm));
+        var tr = cm.getToolRegistry()
+                .builder()
+                .register(this)
+                .register(new io.github.jbellis.brokk.tools.WorkspaceTools((io.github.jbellis.brokk.ContextManager) cm))
+                .build();
 
         var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
         toolSpecs.addAll(tr.getTools(this, List.of("suggestPrDetails")));

@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo.ModifiedFile;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /* Added imports for referenced helpers/agents. These are typically in the same package;
@@ -460,14 +462,20 @@ public class MergeAgent {
     /** Add a summary as a text fragment to the Workspace via the workspace tool. */
     private void addTextToWorkspace(String title, String text) {
         try {
+            var fragment = new ContextFragment.StringFragment(cm, text, title, SyntaxConstants.SYNTAX_STYLE_NONE);
+            cm.addVirtualFragment(fragment);
             var mapper = new ObjectMapper();
             var args = mapper.writeValueAsString(Map.of("description", title, "content", text));
             var req = ToolExecutionRequest.builder()
                     .name("addTextToWorkspace")
                     .arguments(args)
                     .build();
-            var tr = cm.getToolRegistry().executeTool(req);
-            logger.debug("addTextToWorkspace: {} {} ", tr.status(), tr.resultText());
+            var localTr = cm.getToolRegistry()
+                    .builder()
+                    .register(new WorkspaceTools((ContextManager) cm))
+                    .build();
+            var ter = localTr.executeTool(req);
+            logger.debug("addTextToWorkspace: {} {} ", ter.status(), ter.resultText());
         } catch (JsonProcessingException e) {
             logger.warn("Failed to serialize addTextToWorkspace args: {}", e.toString());
         } catch (Exception e) {

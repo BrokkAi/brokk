@@ -130,11 +130,9 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        var tr = cm.getToolRegistry().copy();
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
-        tr.register(wst);
-        tr.register(this);
+        var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
         // Single pruning turn if workspace is not empty
         performInitialPruningTurn(tr);

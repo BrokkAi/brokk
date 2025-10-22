@@ -152,9 +152,11 @@ public final class MergeOneFile {
         }
 
         // Register tools
-        var tr = cm.getToolRegistry().copy();
-        tr.register(new io.github.jbellis.brokk.tools.WorkspaceTools((ContextManager) cm));
-        tr.register(this);
+        var tr = cm.getToolRegistry()
+                .builder()
+                .register(new io.github.jbellis.brokk.tools.WorkspaceTools((ContextManager) cm))
+                .register(this)
+                .build();
 
         var toolSpecs = new ArrayList<ToolSpecification>();
         toolSpecs.addAll(tr.getTools(allowed));

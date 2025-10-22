@@ -93,8 +93,7 @@ public class BuildAgent {
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
-        var tr = globalRegistry.copy();
-        tr.register(this);
+        var tr = globalRegistry.builder().register(this).build();
 
         // build message containing root directory contents
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()

@@ -203,8 +203,7 @@ public class ContextAgent {
         }
 
         // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
-        var existingFiles = context
-                .allFragments()
+        var existingFiles = context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                         || f.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(f -> f.files().stream())
@@ -653,8 +652,7 @@ public class ContextAgent {
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
-        var tr = cm.getToolRegistry().copy();
-        tr.register(contextTool);
+        var tr = cm.getToolRegistry().builder().register(contextTool).build();
         var toolSpecs = ToolSpecifications.toolSpecificationsFrom(contextTool);
         assert toolSpecs.size() == 1 : "Expected exactly one tool specification from ContextRecommendationTool";
 
