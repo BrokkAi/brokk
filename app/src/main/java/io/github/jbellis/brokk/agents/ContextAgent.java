@@ -653,7 +653,7 @@ public class ContextAgent {
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
-        var tr = cm.getToolRegistry();
+        var tr = cm.getToolRegistry().copy();
         tr.register(contextTool);
         var toolSpecs = ToolSpecifications.toolSpecificationsFrom(contextTool);
         assert toolSpecs.size() == 1 : "Expected exactly one tool specification from ContextRecommendationTool";

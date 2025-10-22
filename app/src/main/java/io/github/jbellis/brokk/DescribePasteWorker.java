@@ -54,7 +54,6 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
             }
 
             var toolSpec = ToolSpecifications.toolSpecificationsFrom(this).get(0);
-
             var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, cm.getToolRegistry());
 
             var messages = new ArrayList<ChatMessage>();
@@ -68,7 +67,8 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
             messages.add(new UserMessage(prompt));
 
             var llm = cm.getLlm(cm.getService().quickestModel(), "Describe pasted text");
-            var toolRegistry = cm.getToolRegistry();
+            var tr = cm.getToolRegistry().copy();
+            tr.register(this);
 
             int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -87,7 +87,7 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
                 // Execute tool calls, which will populate instance fields
                 try {
                     for (var request : result.toolRequests()) {
-                        toolRegistry.executeTool(request);
+                        tr.executeTool(request);
                     }
                 } catch (Exception e) {
                     messages.add(result.aiMessage());
