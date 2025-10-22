@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.gui.highcontrast;
 
-import io.github.jbellis.brokk.gui.borders.ThemeBorderManager;
+import io.github.jbellis.brokk.gui.theme.ThemeBorderManager;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;

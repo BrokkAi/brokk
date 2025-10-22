@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
-import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.util.List;
 import java.util.Set;

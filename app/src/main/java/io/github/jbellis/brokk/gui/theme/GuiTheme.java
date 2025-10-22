@@ -1,13 +1,13 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.theme;
 
 import com.formdev.flatlaf.FlatDarculaLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.gui.borders.ThemeBorderManager;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.titlebar.ThemeTitleBarManager;
 import java.awt.*;
 import java.io.IOException;
 import java.net.URL;
@@ -150,7 +150,7 @@ public class GuiTheme {
         }
     }
 
-    private void applyThemeToChromeComponents() {
+    public void applyThemeToChromeComponents() {
         // Update the UI
         SwingUtilities.updateComponentTreeUI(frame);
 

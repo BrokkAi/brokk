@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui.borders;
+package io.github.jbellis.brokk.gui.theme;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
@@ -7,6 +7,7 @@ import java.awt.*;
 import java.awt.event.AWTEventListener;
 import java.awt.event.WindowEvent;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -144,10 +145,6 @@ public final class ThemeBorderManager {
             int cornerRadius = getThemeInt("Brokk.windowBorder.cornerRadius", 0);
 
             Color color = parseColor(colorHex);
-            if (color == null) {
-                logger.warn("Invalid border color '{}' for theme '{}', using default", colorHex, themeName);
-                color = new Color(192, 192, 192); // Light gray fallback
-            }
 
             BorderConfig config = new BorderConfig(enabled, color, width, cornerRadius);
             logger.debug("Loaded border configuration for theme '{}': {}", themeName, config);
@@ -222,14 +219,10 @@ public final class ThemeBorderManager {
 
     /**
      * Parse a hex color string to a Color object.
+     * Returns a default light gray color if parsing fails.
      */
-    @Nullable
     private Color parseColor(String colorHex) {
         try {
-            if (colorHex == null || colorHex.trim().isEmpty()) {
-                return null;
-            }
-
             String hex = colorHex.trim();
             if (hex.startsWith("#")) {
                 hex = hex.substring(1);
@@ -248,10 +241,11 @@ public final class ThemeBorderManager {
                 return new Color(r, g, b, a);
             }
 
-            return null;
+            logger.debug("Invalid color format '{}', using default", colorHex);
+            return new Color(192, 192, 192); // Light gray fallback
         } catch (Exception e) {
-            logger.debug("Failed to parse color '{}': {}", colorHex, e.getMessage());
-            return null;
+            logger.debug("Failed to parse color '{}': {}, using default", colorHex, e.getMessage());
+            return new Color(192, 192, 192); // Light gray fallback
         }
     }
 
@@ -427,17 +421,17 @@ public final class ThemeBorderManager {
         @Override
         public boolean equals(Object obj) {
             if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
+            if (getClass() != obj.getClass()) return false;
             BorderConfig that = (BorderConfig) obj;
             return enabled == that.enabled
                     && width == that.width
                     && cornerRadius == that.cornerRadius
-                    && java.util.Objects.equals(color, that.color);
+                    && Objects.equals(color, that.color);
         }
 
         @Override
         public int hashCode() {
-            return java.util.Objects.hash(enabled, color, width, cornerRadius);
+            return Objects.hash(enabled, color, width, cornerRadius);
         }
 
         @Override

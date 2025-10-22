@@ -7,6 +7,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -494,7 +496,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         int targetH = 10;
 
         // In high-contrast mode, draw a theme-aware × with proper contrast against the chip background
-        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+        boolean isHighContrast =
+                io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
         if (isHighContrast) {
             BufferedImage icon = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2 = icon.createGraphics();

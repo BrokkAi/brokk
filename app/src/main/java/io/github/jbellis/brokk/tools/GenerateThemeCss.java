@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.tools;
 
-import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import java.awt.Color;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,7 +25,7 @@ public final class GenerateThemeCss {
         // Generate CSS for all three themes
         String darkBlock = toCssVariables(GuiTheme.THEME_DARK);
         String lightBlock = toCssVariables(GuiTheme.THEME_LIGHT);
-        String highContrastBlock = toCssVariables(GuiTheme.THEME_HIGH_CONTRAST);
+        String highContrastBlock = toCssVariables(io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST);
 
         String banner =
                 """

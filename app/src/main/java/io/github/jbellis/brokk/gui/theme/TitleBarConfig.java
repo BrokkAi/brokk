@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui.titlebar;
+package io.github.jbellis.brokk.gui.theme;
 
 import java.awt.Color;
 import org.jetbrains.annotations.Nullable;

@@ -1,8 +1,7 @@
-package io.github.jbellis.brokk.gui.titlebar;
+package io.github.jbellis.brokk.gui.theme;
 
 import com.formdev.flatlaf.util.SystemInfo;
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.gui.GuiTheme;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
