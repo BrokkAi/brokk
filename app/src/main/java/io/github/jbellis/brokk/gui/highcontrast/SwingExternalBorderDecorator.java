@@ -13,9 +13,9 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Decorator that installs a non-opaque overlay into a Window's layered pane and paints a themed border
+ * Decorator that installs a non-opaque overlay into a Window's layered pane (PALETTE_LAYER) and paints a themed border
  * at the very edge (inset by stroke/2). The overlay is mouse-transparent (contains() returns false) so events fall
- * through to underlying components.
+ * through to underlying components. The PALETTE_LAYER ensures the border draws above content but below popups.
  */
 public final class SwingExternalBorderDecorator {
 
@@ -68,7 +68,7 @@ public final class SwingExternalBorderDecorator {
         };
     }
 
-    /** Install overlay into the window's layered pane (POPUP_LAYER). Safe to call from any thread. */
+    /** Install overlay into the window's layered pane (PALETTE_LAYER). Safe to call from any thread. */
     public void install() {
         if (installed) {
             return;
@@ -128,7 +128,7 @@ public final class SwingExternalBorderDecorator {
 
                 // Add overlay at a high z-order so it draws above content but below popups
                 try {
-                    layered.add(overlay, JLayeredPane.POPUP_LAYER);
+                    layered.add(overlay, JLayeredPane.PALETTE_LAYER);
                     layered.revalidate();
                     layered.repaint();
 
