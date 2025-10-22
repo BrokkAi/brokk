@@ -21,11 +21,31 @@ import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A compact split button built from two MaterialButtons: - left: main action (supports text and/or icon) - right:
- * dropdown arrow (Icons.KEYBOARD_DOWN) that shows a popup menu
+ * A compact split button composed of two child buttons: an action button (left) and a dropdown/arrow button
+ * (right).
  *
- * <p>Requirements: - no divider line - not based on FlatLaf split button UI - separate rollover animations for each
- * half - zero padding and zero margins for extreme compactness
+ * <p>Sizing and layout behavior:
+ * <ul>
+ *   <li>The component computes its preferred size by measuring the action button's content (text and optional
+ *       icon) directly using font metrics rather than relying on a cached child preferred size. This ensures
+ *       that changes to the action button's text, icon, iconTextGap, or font immediately affect the computed
+ *       preferred width of the whole split control.</li>
+ *   <li>The dropdown arrow area is intentionally fixed to a small constant width (see {@code ARROW_BUTTON_WIDTH}).
+ *       Keeping the arrow area size stable prevents unpredictable growth of the right-side area when menu labels
+ *       or action text change; it makes the control's expansion dominated by the left (action) text content.</li>
+ *   <li>To avoid horizontal stretching from the enclosing {@link javax.swing.BoxLayout}, each child button's
+ *       maximum size is constrained to its current preferred size and both children use
+ *       {@link java.awt.Component#LEFT_ALIGNMENT} for X alignment. A property change listener on the action
+ *       button (listening for "text", "icon", "font", and "iconTextGap") triggers a lightweight
+ *       revalidation/repaint so the SplitButton updates its layout when display-affecting properties change.</li>
+ * </ul>
+ *
+ * <p>Other notes:
+ * <ul>
+ *   <li>The arrow icon continues to be rendered via a scaled wrapper to keep consistent icon sizing across themes.</li>
+ *   <li>The change is intentionally minimal and localized to sizing / layout behavior; visual behavior and
+ *       event handling remain unchanged.</li>
+ * </ul>
  */
 public class SplitButton extends JComponent {
     private final MaterialButton actionButton;
