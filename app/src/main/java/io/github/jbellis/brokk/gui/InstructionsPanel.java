@@ -2066,7 +2066,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Expose the current mode's tooltip HTML (without the base shortcut/footer)
-        public String getModeTooltipHtml() {
+        String getModeTooltipHtml() {
             String modeTooltip =
                     switch (selectedMode) {
                         case ACTION_CODE -> MODE_TOOLTIP_CODE;
