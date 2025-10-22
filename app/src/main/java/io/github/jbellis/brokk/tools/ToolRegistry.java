@@ -12,7 +12,6 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.AiMessage;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.util.*;
@@ -284,23 +283,6 @@ public class ToolRegistry {
         }
     }
 
-    /** Validate against provided instance first, then fall back to this registry. */
-    public ValidatedInvocation validateTool(Object toolOwner, ToolExecutionRequest request) {
-        String toolName = request.name();
-        if (toolName.isBlank()) {
-            throw new ToolValidationException("Tool name cannot be empty");
-        }
-        for (Method m : toolOwner.getClass().getMethods()) {
-            if (m.isAnnotationPresent(Tool.class)
-                    && !Modifier.isStatic(m.getModifiers())
-                    && m.getName().equals(toolName)) {
-                var args = parseArguments(request, m);
-                return new ValidatedInvocation(m, toolOwner, args);
-            }
-        }
-        return validateTool(request);
-    }
-
     /** Validate against this registry. */
     public ValidatedInvocation validateTool(ToolExecutionRequest request) {
         String toolName = request.name();
@@ -400,7 +382,7 @@ public class ToolRegistry {
     public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
         String toolName = request.name();
 
-        ValidatedInvocation vi = validateTool(instance, request);
+        ValidatedInvocation vi = validateTool(request);
         Method method = vi.method();
         Parameter[] params = method.getParameters();
         List<Object> values = vi.parameters();

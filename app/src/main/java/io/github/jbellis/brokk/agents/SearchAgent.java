@@ -204,7 +204,7 @@ public class SearchAgent {
                 return errorResult(new TaskResult.StopDetails(
                         TaskResult.StopReason.LLM_ERROR, "No tool requests found in LLM response."));
             }
-            var next = parseResponseToRequests(ai);
+            var next = parseResponseToRequests(ai, tr);
             if (next.isEmpty()) {
                 // If everything got filtered (e.g., only terminal tool kept), force beast mode next turn if needed
                 beastMode = true;
@@ -218,6 +218,9 @@ public class SearchAgent {
             var sortedCalls = next.stream()
                     .sorted(Comparator.comparingInt(req -> priority(req.name())))
                     .toList();
+            var contextAtTurnStart = context;
+            boolean executedWorkspaceResearch = false;
+            boolean executedNonWorkspaceResearch = false;
             String executedFinalTool = null;
             String executedFinalText = "";
             for (var req : sortedCalls) {
@@ -244,6 +247,16 @@ public class SearchAgent {
                 // Write to visible transcript and to Context history
                 sessionMessages.add(ToolExecutionResultMessage.from(req, display));
 
+                // Track research categories to decide later if finalization is permitted
+                var category = categorizeTool(req.name());
+                if (category == ToolCategory.RESEARCH) {
+                    if (isWorkspaceTool(req, tr)) {
+                        executedWorkspaceResearch = true;
+                    } else {
+                        executedNonWorkspaceResearch = true;
+                    }
+                }
+
                 // Track if we executed a final tool; finalize after the loop
                 if (req.name().equals("answer")
                         || req.name().equals("createTaskList")
@@ -260,7 +273,14 @@ public class SearchAgent {
                     var explain = executedFinalText.isBlank() ? "No explanation provided by agent." : executedFinalText;
                     return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explain));
                 } else {
-                    return createResult();
+                    boolean contextChanged = !context.equals(contextAtTurnStart);
+                    if (executedNonWorkspaceResearch) {
+                        logger.info("Deferring finalization; non-workspace research tools were executed this turn.");
+                    } else if (executedWorkspaceResearch && contextChanged) {
+                        logger.info("Deferring finalization; workspace changed during this turn.");
+                    } else {
+                        return createResult();
+                    }
                 }
             }
         }
@@ -570,7 +590,17 @@ public class SearchAgent {
         };
     }
 
-    private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response) {
+    private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
+        try {
+            var vi = tr.validateTool(request);
+            return vi.instance() instanceof WorkspaceTools;
+        } catch (Exception e) {
+            // If validation fails, fall back to conservative assumption (not a workspace tool)
+            return false;
+        }
+    }
+
+    private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response, ToolRegistry tr) {
         if (!response.hasToolExecutionRequests()) {
             return List.of();
         }
@@ -590,6 +620,16 @@ public class SearchAgent {
         // Rule: Terminal actions can coexist with workspace hygiene, but not with research/blocking tools.
         // This ensures research results are evaluated before finalization.
         if (!researchOrBlocking.isEmpty()) {
+            boolean allWorkspace = researchOrBlocking.stream().allMatch(r -> isWorkspaceTool(r, tr));
+            if (allWorkspace && !terminals.isEmpty()) {
+                // Allow terminal to coexist with workspace tools; finalization will occur only if no net changes are
+                // made.
+                var result = new ArrayList<>(researchOrBlocking);
+                result.addAll(hygiene);
+                result.add(terminals.getFirst());
+                return result;
+            }
+
             if (!terminals.isEmpty()) {
                 logger.info(
                         "Final tool requested alongside research/blocking tools; deferring final to a later turn. Finals present: {}",
