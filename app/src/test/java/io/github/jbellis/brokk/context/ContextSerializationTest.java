@@ -1435,4 +1435,63 @@ public class ContextSerializationTest {
         assertEquals("Test Task", loadedEntry.log().description());
         assertEquals(2, loadedEntry.log().messages().size());
     }
+
+    @Test
+    void testDeriveTimeline() throws IOException {
+        // Setup a file that will be changed
+        var projectFile = new ProjectFile(tempDir, "Test.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class Test {}");
+
+        // Ctx1: Manual, initial state with file
+        var pfFragment1 = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+        var ctx1 = new Context(mockContextManager, "Manual step 1").addPathFragments(List.of(pfFragment1)).freeze();
+
+        // Ctx2: AI step, file is modified, and a TaskEntry is added
+        Files.writeString(projectFile.absPath(), "class Test { int x; }");
+        var pfFragment2 = new ContextFragment.ProjectPathFragment(
+                projectFile, mockContextManager); // Represents the new state
+        var taskFragment1 = new ContextFragment.TaskFragment(mockContextManager, List.of(), "AI Task 1");
+        var taskEntry1 = new TaskEntry(1, taskFragment1, null);
+        var liveCtx2 = new Context(
+                mockContextManager,
+                List.of(pfFragment2),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("ignored"))
+                .addHistoryEntry(taskEntry1, taskFragment1, CompletableFuture.completedFuture("action"));
+        var ctx2 = liveCtx2.freeze();
+
+        // Ctx3: Manual step, no changes to task history
+        var ctx3 = Context.unfreeze(ctx2).withAction(CompletableFuture.completedFuture("manual action")).freeze();
+
+        var contextHistory = new ContextHistory(List.of(ctx1, ctx2, ctx3));
+
+        // 2. Derive timeline
+        SessionHistory sessionHistory = HistoryIo.deriveTimeline(contextHistory);
+
+        // 3. Assertions
+        var timeline = sessionHistory.timeline();
+        assertEquals(3, timeline.size());
+
+        // Step 1: Manual
+        var step1 = timeline.get(0);
+        assertNull(step1.event());
+        assertEquals(ctx1.id(), step1.contexts().getFirst().id());
+
+        // Step 2: AI
+        var step2 = timeline.get(1);
+        assertNotNull(step2.event());
+        assertNull(step2.event().summaryText());
+        assertEquals(ctx1.id(), step2.event().beforeContextId());
+        assertEquals(ctx2.id(), step2.event().afterContextId());
+        assertEquals(1, step2.event().changedFiles().size());
+        assertEquals(projectFile, step2.event().changedFiles().iterator().next());
+        assertEquals(ctx2.id(), step2.contexts().getFirst().id());
+
+        // Step 3: Manual
+        var step3 = timeline.get(2);
+        assertNull(step3.event());
+        assertEquals(ctx3.id(), step3.contexts().getFirst().id());
+    }
 }

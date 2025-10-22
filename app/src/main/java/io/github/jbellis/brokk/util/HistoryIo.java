@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.*;
 import io.github.jbellis.brokk.context.ContentDtos.ContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.DiffContentMetadataDto;
@@ -20,6 +22,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -396,6 +399,88 @@ public final class HistoryIo {
                 }
             }
         });
+    }
+
+    /**
+     * Derives a canonical v4 {@link SessionHistory} timeline from a legacy v3 {@link ContextHistory}.
+     * This method scans the chronological list of context snapshots and infers session steps.
+     *
+     * <p>Algorithm:
+     *
+     * <ul>
+     *   <li>If a context introduces new {@link TaskEntry} items compared to its predecessor, it is
+     *       treated as an AI step. A {@link SessionStep} is created for each new task, containing a
+     *       synthesized {@link TaskResult}. The {@code changedFiles} for the event are computed by
+     *       diffing the context with its predecessor.
+     *   <li>If a context has the same number of tasks as its predecessor, it is treated as a manual
+     *       user step. A manual {@link SessionStep} (with a null event) is created for this context.
+     * </ul>
+     */
+    public static SessionHistory deriveTimeline(ContextHistory ch) {
+        var timeline = new ArrayList<SessionStep>();
+        Context prevCtx = null;
+        int prevTaskCount = 0;
+        var pendingManualContexts = new ArrayList<Context>();
+
+        for (var ctx : ch.getHistory()) {
+            int currentTaskCount = ctx.getTaskHistory().size();
+            if (currentTaskCount > prevTaskCount) {
+                // New TaskEntry(s) found. Flush any pending manual contexts first.
+                for (var manualCtx : pendingManualContexts) {
+                    timeline.add(new SessionStep(null, List.of(manualCtx)));
+                }
+                pendingManualContexts.clear();
+
+                // All new tasks in this context share the same before/after state transition.
+                // Compute changed files based on this transition.
+                Set<ProjectFile> changedFiles = Collections.emptySet();
+                if (prevCtx != null) {
+                    var diffs = ctx.getDiff(prevCtx);
+                    changedFiles = diffs.stream()
+                            .flatMap(de -> de.fragment().files().stream())
+                            .collect(Collectors.toUnmodifiableSet());
+                }
+
+                var beforeId = (prevCtx != null) ? prevCtx.id() : null;
+                var afterId = ctx.id();
+
+                // Create a SessionStep for each new TaskEntry.
+                for (int i = prevTaskCount; i < currentTaskCount; i++) {
+                    var te = ctx.getTaskHistory().get(i);
+                    var output = te.log();
+                    var actionDescription = (output != null) ? output.description() : ctx.getAction();
+                    var summaryText = te.summary();
+                    long createdAt = System.currentTimeMillis(); // Best-effort for legacy data
+
+                    var synthesizedResult = new TaskResult(
+                            actionDescription,
+                            output,
+                            changedFiles,
+                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
+                            null, // taskId
+                            beforeId,
+                            afterId,
+                            createdAt,
+                            summaryText);
+
+                    // For derived events, the step contains only the post-task context.
+                    timeline.add(new SessionStep(synthesizedResult, List.of(ctx)));
+                }
+            } else {
+                // No new TaskEntry; this is a manual context change.
+                pendingManualContexts.add(ctx);
+            }
+
+            prevCtx = ctx;
+            prevTaskCount = currentTaskCount;
+        }
+
+        // Flush any remaining manual contexts at the end.
+        for (var manualCtx : pendingManualContexts) {
+            timeline.add(new SessionStep(null, List.of(manualCtx)));
+        }
+
+        return new SessionHistory(timeline);
     }
 
     public static class ContentWriter {
