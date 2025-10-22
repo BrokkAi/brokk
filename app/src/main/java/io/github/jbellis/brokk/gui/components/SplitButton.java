@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
@@ -20,11 +21,31 @@ import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A compact split button built from two MaterialButtons: - left: main action (supports text and/or icon) - right:
- * dropdown arrow (Icons.KEYBOARD_DOWN) that shows a popup menu
+ * A compact split button composed of two child buttons: an action button (left) and a dropdown/arrow button
+ * (right).
  *
- * <p>Requirements: - no divider line - not based on FlatLaf split button UI - separate rollover animations for each
- * half - zero padding and zero margins for extreme compactness
+ * <p>Sizing and layout behavior:
+ * <ul>
+ *   <li>The component computes its preferred size by measuring the action button's content (text and optional
+ *       icon) directly using font metrics rather than relying on a cached child preferred size. This ensures
+ *       that changes to the action button's text, icon, iconTextGap, or font immediately affect the computed
+ *       preferred width of the whole split control.</li>
+ *   <li>The dropdown arrow area is intentionally fixed to a small constant width (see {@code ARROW_BUTTON_WIDTH}).
+ *       Keeping the arrow area size stable prevents unpredictable growth of the right-side area when menu labels
+ *       or action text change; it makes the control's expansion dominated by the left (action) text content.</li>
+ *   <li>To avoid horizontal stretching from the enclosing {@link javax.swing.BoxLayout}, each child button's
+ *       maximum size is constrained to its current preferred size and both children use
+ *       {@link java.awt.Component#LEFT_ALIGNMENT} for X alignment. A property change listener on the action
+ *       button (listening for "text", "icon", "font", and "iconTextGap") triggers a lightweight
+ *       revalidation/repaint so the SplitButton updates its layout when display-affecting properties change.</li>
+ * </ul>
+ *
+ * <p>Other notes:
+ * <ul>
+ *   <li>The arrow icon continues to be rendered via a scaled wrapper to keep consistent icon sizing across themes.</li>
+ *   <li>The change is intentionally minimal and localized to sizing / layout behavior; visual behavior and
+ *       event handling remain unchanged.</li>
+ * </ul>
  */
 public class SplitButton extends JComponent {
     private final MaterialButton actionButton;
@@ -35,6 +56,7 @@ public class SplitButton extends JComponent {
 
     private boolean unifiedHover;
     private @Nullable MouseAdapter hoverListener;
+    private static final int ARROW_BUTTON_WIDTH = 20;
 
     public SplitButton(String text) {
         this(text, false);
@@ -48,7 +70,16 @@ public class SplitButton extends JComponent {
 
         actionButton = new MaterialButton(text);
         arrowButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> arrowButton.setIcon(new ScaledIcon(Icons.KEYBOARD_DOWN, 0.7)));
+        // Apply initial fixed width on the arrow button before icon is set
+        applyArrowButtonFixedWidth();
+        SwingUtilities.invokeLater(() -> {
+            arrowButton.setIcon(new ScaledIcon(Icons.KEYBOARD_DOWN, 0.7));
+            // Icon affects preferred size; fix width and refresh maximums to avoid stretching
+            applyArrowButtonFixedWidth();
+            updateChildMaximumSizes();
+            revalidate();
+            repaint();
+        });
 
         applyCompactStyling(actionButton);
         applyCompactStyling(arrowButton);
@@ -56,6 +87,26 @@ public class SplitButton extends JComponent {
         // Alignments for compact look
         actionButton.setHorizontalAlignment(SwingConstants.LEFT);
         arrowButton.setHorizontalAlignment(SwingConstants.CENTER);
+
+        // Prevent BoxLayout horizontal stretching by aligning children to the left
+        actionButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        arrowButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Initialize maximum sizes to preferred sizes to avoid stretching
+        updateChildMaximumSizes();
+
+        // When properties that affect width change, perform a deferred size update to avoid race conditions
+        actionButton.addPropertyChangeListener(evt -> {
+            var name = evt.getPropertyName();
+            if ("text".equals(name) || "icon".equals(name) || "font".equals(name) || "iconTextGap".equals(name)) {
+                SwingUtilities.invokeLater(() -> {
+                    applyArrowButtonFixedWidth();
+                    updateChildMaximumSizes();
+                    SplitButton.this.revalidate();
+                    SplitButton.this.repaint();
+                });
+            }
+        });
 
         // Right side click shows dropdown
         arrowButton.addActionListener(e -> showPopupMenuInternal());
@@ -182,10 +233,14 @@ public class SplitButton extends JComponent {
     // Convenience: support text or icon on the left action button
     public void setText(@Nullable String text) {
         actionButton.setText(text);
+        revalidate();
+        repaint();
     }
 
     public void setIcon(@Nullable Icon icon) {
         actionButton.setIcon(icon);
+        revalidate();
+        repaint();
     }
 
     public @Nullable String getText() {
@@ -198,23 +253,78 @@ public class SplitButton extends JComponent {
 
     @Override
     public Dimension getMinimumSize() {
-        var left = actionButton.getMinimumSize();
-        var right = arrowButton.getMinimumSize();
-        return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+        return computePreferredSplitSize();
     }
 
     @Override
     public Dimension getPreferredSize() {
-        var left = actionButton.getPreferredSize();
-        var right = arrowButton.getPreferredSize();
-        return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+        return computePreferredSplitSize();
     }
 
     @Override
     public Dimension getMaximumSize() {
-        var left = actionButton.getMaximumSize();
-        var right = arrowButton.getMaximumSize();
-        return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+        return computePreferredSplitSize();
+    }
+
+    /**
+     * Computes the preferred size of the split button based on the current content of the action button
+     * (text + optional icon) and the arrow button's preferred width. Height is the max of the two buttons'
+     * preferred heights.
+     */
+    private Dimension computePreferredSplitSize() {
+        int actionWidth = computeActionButtonContentWidth();
+        int arrowWidth = ARROW_BUTTON_WIDTH;
+        int totalWidth = actionWidth + arrowWidth + 8;
+
+        int actionHeight = actionButton.getPreferredSize().height;
+        int arrowHeight = arrowButton.getPreferredSize().height;
+        int totalHeight = Math.max(actionHeight, arrowHeight);
+
+        return new Dimension(totalWidth, totalHeight);
+    }
+
+    /**
+     * Calculates the content width of the action button:
+     *   insets.left + textWidth + (iconWidth [+ iconTextGap if text present]) + insets.right
+     */
+    private int computeActionButtonContentWidth() {
+        Insets insets = actionButton.getInsets();
+        int width = (insets != null ? insets.left + insets.right : 0);
+
+        @Nullable Icon icon = actionButton.getIcon();
+        int iconWidth = (icon != null) ? icon.getIconWidth() : 0;
+
+        @Nullable String text = actionButton.getText();
+        int textWidth = 0;
+        if (text != null && !text.isEmpty()) {
+            FontMetrics fm = actionButton.getFontMetrics(actionButton.getFont());
+            textWidth = fm.stringWidth(text);
+        }
+
+        // If both text and icon are present, add iconTextGap
+        int gap = (iconWidth > 0 && textWidth > 0) ? Math.max(0, actionButton.getIconTextGap()) : 0;
+
+        width += iconWidth + gap + textWidth;
+        return Math.max(0, width);
+    }
+
+    private void applyArrowButtonFixedWidth() {
+        Dimension ps = arrowButton.getPreferredSize();
+        int height = ps != null ? ps.height : 0;
+        if (height <= 0) {
+            // Fallback to action button height if arrow has not computed yet
+            height = actionButton.getPreferredSize().height;
+        }
+        // Fix the arrow width while respecting current preferred height
+        Dimension fixed = new Dimension(ARROW_BUTTON_WIDTH, Math.max(1, height));
+        arrowButton.setMinimumSize(fixed);
+        arrowButton.setPreferredSize(fixed);
+    }
+
+    private void updateChildMaximumSizes() {
+        // Prevent BoxLayout from stretching the arrow button horizontally by constraining its maximum size.
+        // The action button is left flexible to fill available space.
+        arrowButton.setMaximumSize(arrowButton.getPreferredSize());
     }
 
     // Lightweight wrapper to scale any Icon by a given factor.

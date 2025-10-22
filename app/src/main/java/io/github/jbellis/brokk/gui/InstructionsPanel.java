@@ -89,7 +89,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
 
-    private static final String PLACEHOLDER_TEXT = "Put your instructions or questions here.";
+    private static final String PLACEHOLDER_TEXT =
+            """
+            Switching modes:
+            - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
+
+            Brokk action modes:
+            - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
+              Lutz mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+              It is a great way to kick off work with strong context and a clear plan.
+            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+
+            Type your prompt here. (Shift+Enter for a new line)
+            """
+                    .stripIndent();
 
     private final Chrome chrome;
     private final JTextArea instructionsArea;
@@ -112,6 +126,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
         private TokenUsageBar.WarningLevel warningLevel = TokenUsageBar.WarningLevel.NONE;
+        private boolean readOnly = false;
 
         public ContextAreaContainer() {
             super(new BorderLayout());
@@ -133,6 +148,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         private void updateBorderColor() {
+            String title = readOnly ? "Context (Read-only)" : "Context";
+            applyTitledBorder(title);
+        }
+
+        private void applyTitledBorder(String title) {
             Color borderColor = UIManager.getColor("Component.borderColor");
             int thickness = 1;
             if (warningLevel == TokenUsageBar.WarningLevel.RED) {
@@ -142,11 +162,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 borderColor = new Color(0xFFA500);
                 thickness = 3;
             }
-
             var lineBorder = BorderFactory.createLineBorder(borderColor, thickness);
-            var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+            var titledBorder = BorderFactory.createTitledBorder(lineBorder, title);
             var marginBorder = BorderFactory.createEmptyBorder(8, 8, 8, 8);
             setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
+        }
+
+        public void setReadOnly(boolean readOnly) {
+            SwingUtilities.invokeLater(() -> {
+                if (this.readOnly != readOnly) {
+                    this.readOnly = readOnly;
+                    updateBorderColor();
+                    repaint();
+                }
+            });
         }
 
         @Override
@@ -281,6 +310,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Synchronize button's selected mode with loaded preference
         actionButton.setSelectedMode(storedAction);
+        // Initialize mode indicator
+        refreshModeIndicator();
         // Initialize tooltip to reflect the selected mode
         SwingUtilities.invokeLater(actionButton::updateTooltip);
 
@@ -344,9 +375,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
-
-        // Add this panel as a listener to context changes
-        this.contextManager.addContextListener(this);
 
         // --- Autocomplete Setup ---
         instructionCompletionProvider = new InstructionsCompletionProvider();
@@ -610,14 +638,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
+                // Block popup when read-only (tokenUsageBar is disabled)
+                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
                     tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
                 }
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
+                // Block popup when read-only (tokenUsageBar is disabled)
+                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
                     tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
                 }
             }
@@ -888,6 +918,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
+    // Returns true if the given text matches the placeholder.
+    private boolean isPlaceholderText(String text) {
+        return PLACEHOLDER_TEXT.equals(text);
+    }
+
     public void refreshBranchUi(String branchName) {
         // Delegate to Chrome which now owns the BranchSelectorButton
         chrome.refreshBranchUi(branchName);
@@ -1108,7 +1143,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public String getInstructions() {
         var v = SwingUtil.runOnEdt(
                 () -> {
-                    return instructionsArea.getText().equals(PLACEHOLDER_TEXT) ? "" : instructionsArea.getText();
+                    String t = instructionsArea.getText();
+                    return isPlaceholderText(t) ? "" : t;
                 },
                 "");
         return castNonNull(v);
@@ -1620,11 +1656,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void contextChanged(Context newCtx) {
         var fragments = newCtx.getAllFragmentsInDisplayOrder();
         logger.debug("Context updated: {} fragments", fragments.size());
-        workspaceItemsChipPanel.setFragments(fragments);
-        // Feed per-fragment data to the token bar
-        tokenUsageBar.setFragments(fragments);
+        // Update chips from the selected context and toggle read-only
+        workspaceItemsChipPanel.setFragmentsForContext(newCtx);
+        boolean readOnly =
+                !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        workspaceItemsChipPanel.setReadOnly(readOnly);
+        // Feed per-fragment data to the token bar from the selected context and toggle read-only
+        tokenUsageBar.setFragmentsForContext(newCtx);
+        tokenUsageBar.setReadOnly(readOnly);
+        // Update the titled border to reflect read-only state
+        contextAreaContainer.setReadOnly(readOnly);
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
+    }
+
+    /**
+     * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
+     */
+    public void setContextReadOnly(boolean readOnly) {
+        SwingUtilities.invokeLater(() -> {
+            workspaceItemsChipPanel.setReadOnly(readOnly);
+            tokenUsageBar.setReadOnly(readOnly);
+            contextAreaContainer.setReadOnly(readOnly);
+        });
     }
 
     void enableButtons() {
@@ -1752,7 +1806,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first
-            if (instructionsArea.getText().equals(PLACEHOLDER_TEXT) || !instructionsArea.isEnabled()) {
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
                 activateCommandInput(); // This enables, clears placeholder, requests focus
             }
             SwingUtilities.invokeLater(() -> {
@@ -1773,7 +1827,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
         // Clear placeholder only if it's still present
-        if (instructionsArea.getText().equals(PLACEHOLDER_TEXT)) {
+        if (isPlaceholderText(instructionsArea.getText())) {
             clearCommandInput();
         }
         instructionsArea.requestFocusInWindow(); // Give it focus

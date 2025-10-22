@@ -8,7 +8,6 @@ import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Ascii;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -1103,7 +1102,8 @@ public class Llm {
      * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests. Expects the top-level to
      * have a "tool_calls" array (or the root might be that array).
      */
-    private NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
+    @VisibleForTesting
+    NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
         // In the primary call path (emulateToolsCommon), if result.error() is null,
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
@@ -1111,33 +1111,30 @@ public class Llm {
         String rawText = requireNonNull(cResponse.text());
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
+        // First try to parse the entire response as JSON
         JsonNode root;
         try {
             root = mapper.readTree(rawText);
-        } catch (JsonProcessingException e) {
-            // Sometimes the model wraps the JSON in markdown fences ```json ... ```
-            int firstFence = rawText.indexOf("```");
-            // Find the closing fence after the opening one
-            int lastFence = rawText.lastIndexOf("```");
-            if (lastFence <= firstFence) {
-                logger.debug("Invalid JSON", e);
-                throw new IllegalArgumentException("Invalid JSON response: " + e.getMessage());
+        } catch (JsonProcessingException initialParseError) {
+            // If direct parsing fails, extract JSON from text by finding the first '{' and last '}'
+            int firstBrace = rawText.indexOf('{');
+            int lastBrace = rawText.lastIndexOf('}');
+
+            if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
+                logger.debug("Invalid JSON: no braces found in response", initialParseError);
+                throw new IllegalArgumentException("Invalid JSON response: " + initialParseError.getMessage());
             }
 
-            // Extract text between fences, removing potential language identifier and trimming whitespace
-            String fencedText = rawText.substring(firstFence + 3, lastFence).strip();
-            // Handle optional language identifier like "json"
-            if (Ascii.toLowerCase(fencedText).startsWith("json")) {
-                fencedText = fencedText.substring(4).stripLeading();
-            }
+            // Extract text between braces, inclusive
+            String extractedJson = rawText.substring(firstBrace, lastBrace + 1);
 
-            // Try parsing the fenced content
+            // Try parsing the extracted content
             try {
-                root = mapper.readTree(fencedText);
-            } catch (JsonProcessingException e2) {
-                // Fenced content is also invalid JSON
-                logger.debug("Invalid JSON inside fences", e2);
-                throw new IllegalArgumentException("Invalid JSON inside ``` fences: " + e2.getMessage());
+                root = mapper.readTree(extractedJson);
+            } catch (JsonProcessingException extractionParseError) {
+                // Extracted content is also invalid JSON
+                logger.debug("Invalid JSON extracted from response", extractionParseError);
+                throw new IllegalArgumentException("Invalid JSON in response: " + extractionParseError.getMessage());
             }
         }
 
@@ -1178,6 +1175,8 @@ public class Llm {
                             "Found 'think' tool call without a textual 'reasoning' argument at index " + i);
                 }
                 thinkReasoning.add(arguments.get("reasoning").asText());
+                // Don't add "think" to actual tool execution requests
+                continue;
             }
             var toolExecutionRequest = ToolExecutionRequest.builder()
                     .id(String.valueOf(toolRequestIdSeq.getAndIncrement()))
@@ -1188,16 +1187,15 @@ public class Llm {
         }
         logger.trace("Generated tool execution requests: {}", toolExecutionRequests);
 
-        String aiMessageText;
+        String mergedReasoning;
         if (thinkReasoning.isEmpty()) {
-            aiMessageText = "";
+            mergedReasoning = null;
         } else {
-            aiMessageText = String.join("\n\n", thinkReasoning); // Merged reasoning becomes the message text
+            mergedReasoning = String.join("\n\n", thinkReasoning); // Merged reasoning from think tool
         }
 
         // Pass the original raw response alongside the parsed one
-        return new NullSafeResponse(
-                aiMessageText, cResponse.reasoningContent(), toolExecutionRequests, result.originalResponse());
+        return new NullSafeResponse("", mergedReasoning, toolExecutionRequests, result.originalResponse());
     }
 
     private static String getInstructions(

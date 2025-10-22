@@ -912,6 +912,10 @@ public class Chrome
             isEditable = latestContext.equals(ctx);
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
+            // Toggle read-only state for InstructionsPanel UI (chips + token bar)
+            instructionsPanel.setContextReadOnly(!isEditable);
+            // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
+            instructionsPanel.contextChanged(ctx);
             if (updateOutput) {
                 var taskHistory = ctx.getTaskHistory();
                 if (taskHistory.isEmpty()) {

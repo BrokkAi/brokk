@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -74,9 +73,6 @@ public class ContextAgent {
     private final IAnalyzer analyzer;
     private final StreamingChatModel model;
 
-    /** If the entire group fits under this, we can skip LLM pruning/eval and include everything. */
-    private final int skipPruningBudget;
-
     /** Budget for the evaluate-for-relevance stage (uncapped *0.65 of input). */
     private final int evaluationBudget;
 
@@ -104,16 +100,13 @@ public class ContextAgent {
         this.llm = contextManager.getLlm(options);
 
         // Token budgets
-        int maxInputTokens = contextManager.getService().getMaxInputTokens(model);
-        this.skipPruningBudget = min(32_000, maxInputTokens / 4);
         int outputTokens = model.defaultRequestParameters().maxCompletionTokens();
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
         this.evaluationBudget = (int) (actualInputTokens * 0.65);
         this.filesPruningBudget = min(100_000, evaluationBudget);
         logger.debug(
-                "ContextAgent initialized. Budgets: SkipPruning={}, FilesPruning={}, Evaluation={}",
-                skipPruningBudget,
+                "ContextAgent initialized. Budgets: FilesPruning={}, Evaluation={}",
                 filesPruningBudget,
                 evaluationBudget);
     }
@@ -191,11 +184,9 @@ public class ContextAgent {
      * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
      * separate LLM context windows and processing them in parallel.
      *
-     * @param allowSkipPruning If true, allows the agent to skip LLM-based pruning if a group's data fits
-     *     {@code skipPruningBudget}.
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
-    public RecommendationResult getRecommendations(boolean allowSkipPruning) throws InterruptedException {
+    public RecommendationResult getRecommendations() throws InterruptedException {
         var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext());
 
         // Subtract workspace tokens from both budgets.
@@ -257,7 +248,6 @@ public class ContextAgent {
                         analyzedFiles,
                         allSummaries,
                         workspaceRepresentation,
-                        allowSkipPruning,
                         evalBudgetRemaining,
                         pruneBudgetRemaining,
                         existingFiles);
@@ -273,7 +263,6 @@ public class ContextAgent {
                         unAnalyzedFiles,
                         Map.of(),
                         workspaceRepresentation,
-                        allowSkipPruning,
                         evalBudgetRemaining,
                         pruneBudgetRemaining,
                         existingFiles);
@@ -309,7 +298,6 @@ public class ContextAgent {
             List<ProjectFile> groupFiles,
             Map<CodeUnit, String> allSummariesForAnalyzed,
             Collection<ChatMessage> workspaceRepresentation,
-            boolean allowSkipPruning,
             int evalBudgetRemaining,
             int pruneBudgetRemaining,
             Set<ProjectFile> existingFiles)
@@ -330,16 +318,6 @@ public class ContextAgent {
         }
 
         logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
-
-        // If small, include everything without LLM
-        if (allowSkipPruning && initialTokens <= skipPruningBudget) {
-            // Under skip-pruning budget
-            LlmRecommendation rec;
-            rec = type == GroupType.ANALYZED
-                    ? new LlmRecommendation(List.of(), new ArrayList<>(allSummariesForAnalyzed.keySet()), "")
-                    : new LlmRecommendation(groupFiles, List.of(), "");
-            return createResult(rec, existingFiles);
-        }
 
         List<ProjectFile> workingFiles = groupFiles;
 
@@ -510,7 +488,7 @@ public class ContextAgent {
         return askLlmDeepPruneFilenames(filenames, workspaceRepresentation);
     }
 
-    private @NotNull LlmRecommendation askLlmDeepPruneFilenames(
+    private LlmRecommendation askLlmDeepPruneFilenames(
             List<String> filenames, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
 
         var systemPrompt =

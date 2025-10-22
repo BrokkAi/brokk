@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -46,10 +48,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     // Logger for defensive debug logging in catch blocks (avoid empty catches)
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
 
+    private static final String READ_ONLY_TIP = "Select latest activity to enable";
+
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
+    private boolean readOnly = false;
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -76,6 +81,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void handleBlankSpaceRightClick(MouseEvent e) {
+        if (readOnly) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
+            return;
+        }
         // Check if click is on blank space (not within any chip component)
         Component clickTarget = getComponentAt(e.getPoint());
         if (clickTarget != null && clickTarget != WorkspaceItemsChipPanel.this) {
@@ -100,6 +109,38 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     /**
+     * Sets the fragments from a Context (historical or live). Safe to call from any thread.
+     */
+    public void setFragmentsForContext(Context context) {
+        List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
+        SwingUtilities.invokeLater(() -> updateChips(frags));
+    }
+
+    /**
+     * Enable or disable interactive behavior and visuals for read-only mode. Runs on the EDT.
+     */
+    public void setReadOnly(boolean readOnly) {
+        SwingUtilities.invokeLater(() -> {
+            this.readOnly = readOnly;
+            // Clear hover effects when switching to read-only
+            if (readOnly) {
+                this.hoveredFragments = Set.of();
+            }
+            // Disable close buttons on all chips (but keep labels clickable for preview)
+            for (var component : getComponents()) {
+                if (component instanceof JComponent chip) {
+                    var closeObj = chip.getClientProperty("brokk.chip.closeButton");
+                    if (closeObj instanceof AbstractButton btn) {
+                        btn.setEnabled(!readOnly);
+                    }
+                }
+            }
+            revalidate();
+            repaint();
+        });
+    }
+
+    /**
      * Sets a listener invoked when a chip's remove button is clicked. If not set, the panel will default to removing
      * from the ContextManager.
      */
@@ -116,7 +157,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
-        this.hoveredFragments = targets;
+        // Suppress hover highlighting in read-only mode
+        this.hoveredFragments = readOnly ? Set.of() : targets;
         for (var component : getComponents()) {
             if (component instanceof JComponent jc) {
                 jc.repaint();
@@ -134,6 +176,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
      * Safe to call from any thread; will marshal to the EDT.
      */
     public void highlightFragments(Collection<ContextFragment> fragments, boolean highlight) {
+        if (readOnly) {
+            applyGlobalStyling(Set.of());
+            return;
+        }
         if (highlight) {
             applyGlobalStyling(Set.copyOf(fragments));
         } else {
@@ -201,7 +247,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         public void paint(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
+                float alpha = 1.0f;
                 if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
+                    // Dim all chips in read-only mode
+                    if (parentPanel.readOnly) {
+                        alpha = Math.min(alpha, 0.6f);
+                    }
                     Object obj = getClientProperty("brokk.fragments");
                     if (obj instanceof Set<?> myFragments && !myFragments.isEmpty()) {
                         boolean hasHover = !parentPanel.hoveredFragments.isEmpty();
@@ -209,9 +260,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                                 hasHover && !Collections.disjoint(myFragments, parentPanel.hoveredFragments);
                         boolean isDimmed = hasHover && !isHovered;
                         if (isDimmed) {
-                            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                            alpha = Math.min(alpha, 0.5f);
                         }
                     }
+                }
+                if (alpha < 1.0f) {
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
                 }
                 super.paint(g2);
             } finally {
@@ -726,6 +780,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void executeCloseChip(ContextFragment fragment) {
+        if (readOnly) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
+            return;
+        }
         // Enforce latest-context gating (read-only when viewing historical context)
         boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
         if (!onLatest) {
@@ -782,6 +840,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
@@ -791,6 +855,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
@@ -828,6 +898,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
@@ -837,6 +913,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
@@ -845,6 +927,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
+                if (readOnly) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
                 executeCloseChip(fragment);
             }
         });
@@ -912,6 +999,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
@@ -922,6 +1015,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildChipContextMenu(fragment);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
@@ -935,6 +1034,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
                     executeCloseChip(fragment);
                 } else {
                     // Open preview on left-click anywhere on the chip (excluding close button which handles its own
@@ -976,6 +1080,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
@@ -985,6 +1095,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
@@ -1040,6 +1156,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
@@ -1049,6 +1171,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
@@ -1057,6 +1185,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
+                if (readOnly) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
                 boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
                 if (!onLatest) {
                     chrome.systemNotify(
@@ -1127,6 +1260,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
@@ -1136,6 +1275,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        e.consume();
+                        return;
+                    }
                     JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
@@ -1148,6 +1293,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
+                    if (readOnly) {
+                        chrome.systemNotify(
+                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
                     boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
                     if (!onLatest) {
                         chrome.systemNotify(

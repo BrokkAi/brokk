@@ -121,11 +121,22 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
+        var tr = cm.getToolRegistry().copy();
+        // Create a per-turn WorkspaceTools instance bound to the agent-local Context
+        var wst = new WorkspaceTools(context);
+        tr.register(wst);
+        tr.register(this);
+
+        // Single pruning turn if workspace is not empty
+        performInitialPruningTurn(tr);
+
+        // Expand Workspace with ContextAgent scan
         addInitialContextToWorkspace();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
+            wst.setContext(context);
+
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
             var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
@@ -140,9 +151,6 @@ public class SearchAgent {
             // Build prompt and allowed tools
             var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages);
             var allowedToolNames = calculateAllowedToolNames();
-
-            // Create a per-turn WorkspaceTools instance bound to the agent-local Context
-            var wst = new WorkspaceTools(context);
 
             // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
@@ -167,11 +175,6 @@ public class SearchAgent {
             allAllowed.addAll(allowedToolNames);
             allAllowed.addAll(agentTerminalTools);
             allAllowed.addAll(globalTerminals);
-
-            // Register tools
-            var tr = cm.getToolRegistry().copy();
-            tr.register(wst);
-            tr.register(this);
             var toolSpecs = tr.getTools(allAllowed);
 
             // Decide next action(s)
@@ -617,15 +620,75 @@ public class SearchAgent {
         };
     }
 
-    // =======================
-    // Initial context seeding
-    // =======================
+    private void performInitialPruningTurn(ToolRegistry tr) throws InterruptedException {
+        // Skip if workspace is empty
+        if (cm.liveContext().isEmpty()) {
+            return;
+        }
+
+        var messages = buildInitialPruningPrompt();
+        var toolSpecs = tr.getTools(this, List.of("performedInitialReview", "dropWorkspaceFragments"));
+
+        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
+        var jLlm = cm.getLlm(new Llm.Options(cm.getService().getScanModel(), "Janitor: " + goal).withEcho());
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
+        if (result.error() != null || result.isEmpty()) {
+            return;
+        }
+
+        // Record the turn
+        sessionMessages.add(new UserMessage("Review the current workspace. If relevant, prune irrelevant fragments."));
+        sessionMessages.add(result.aiMessage());
+
+        // Execute tool requests
+        var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+        for (var req : ai.toolExecutionRequests()) {
+            try {
+                tr.executeTool(req);
+            } catch (Exception e) {
+                logger.warn("Tool execution failed during initial pruning for {}: {}", req.name(), e.getMessage());
+            }
+        }
+    }
+
+    private List<ChatMessage> buildInitialPruningPrompt() {
+        var messages = new ArrayList<ChatMessage>();
+
+        var sys = new SystemMessage(
+                """
+                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
+                fragments before proceeding; they are highly distracting to the other Agents.
+
+                Your task:
+                  - Evaluate the current workspace contents.
+                  - Call dropWorkspaceFragments to remove irrelevant fragments.
+                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
+                """);
+        messages.add(sys);
+
+        // Current Workspace contents
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+
+        // Goal and project context
+        messages.add(new UserMessage(
+                """
+                <goal>
+                %s
+                </goal>
+
+                Review the Workspace above. Remove ALL fragments that are not directly useful for accomplishing the goal.
+                If the workspace is already well-curated, you're done!
+                """
+                        .formatted(goal)));
+
+        return messages;
+    }
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
-        var recommendation = contextAgent.getRecommendations(true);
+        var recommendation = contextAgent.getRecommendations();
         if (!recommendation.reasoning().isEmpty()) {
             io.llmOutput(
                     "\n\nReasoning for contextual insights: \n" + recommendation.reasoning(), ChatMessageType.CUSTOM);
@@ -685,6 +748,12 @@ public class SearchAgent {
     // =======================
     // Answer/abort tools
     // =======================
+
+    @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
+    public String performedInitialReview() {
+        logger.debug("performedInitialReview: workspace is already well-curated");
+        return "Initial review complete; workspace is well-curated.";
+    }
 
     @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
     public String answer(

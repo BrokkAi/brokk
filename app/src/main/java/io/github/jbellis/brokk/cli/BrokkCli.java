@@ -390,7 +390,7 @@ public final class BrokkCli implements Callable<Integer> {
                     .findFirst()
                     .orElseThrow();
             var agent = new ContextAgent(cm, planModel, goalForScan);
-            var recommendations = agent.getRecommendations(false);
+            var recommendations = agent.getRecommendations();
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
 
