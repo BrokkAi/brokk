@@ -28,7 +28,6 @@ import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.web.WebView;
 import javax.swing.*;
-import netscape.javascript.JSObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -180,8 +179,7 @@ public final class MOPWebViewHost extends JPanel {
             // Expose Java object to JS after the page loads
             view.getEngine().getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
                 if (newState == Worker.State.SUCCEEDED) {
-                    var window = (JSObject) view.getEngine().executeScript("window");
-                    window.setMember("javaBridge", bridge);
+                    exposeJavaBridge(view, bridge);
 
                     for (var l : searchListeners) {
                         bridge.addSearchStateListener(l);
@@ -379,6 +377,12 @@ public final class MOPWebViewHost extends JPanel {
             pendingCommands.add(new HostCommand.SetTheme(themeName, isDevMode, wrapMode, zoom));
         }
         applyTheme(Theme.create(isDark));
+    }
+
+    @SuppressWarnings({"removal"})
+    private static void exposeJavaBridge(WebView view, MOPBridge bridge) {
+        var window = (netscape.javascript.JSObject) view.getEngine().executeScript("window");
+        window.setMember("javaBridge", bridge);
     }
 
     private void applyTheme(Theme theme) {
