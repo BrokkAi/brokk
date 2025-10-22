@@ -16,6 +16,6 @@ public record ToolContext(
     }
 
     public static ToolContext empty() {
-        return new ToolContext(List.of(), ToolChoice.AUTO, null);
+        return new ToolContext(List.of(), ToolChoice.AUTO, ToolRegistry.empty());
     }
 }

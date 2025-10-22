@@ -166,6 +166,10 @@ public class ToolRegistry {
         }
     }
 
+    public static ToolRegistry empty() {
+        return new ToolRegistry(Map.of(), true);
+    }
+
     /** Generates ToolSpecifications for the given list of tool names.
      *
      * @param toolNames A list of tool names to get specifications for.
@@ -430,30 +434,6 @@ public class ToolRegistry {
         } catch (JsonProcessingException | IllegalArgumentException e) {
             throw new ToolValidationException("Error parsing arguments json: " + e.getMessage());
         }
-    }
-
-    /**
-     * Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting.
-     *
-     * This overload validates against a specific owner (instance) and uses that validation path.
-     */
-    public String getExplanationForToolRequest(Object toolOwner, ToolExecutionRequest request) {
-        // Skip empty explanations for answer/abort
-        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
-            return "";
-        }
-
-        // Resolve target and perform typed conversion via validateTool; let ToolValidationException propagate.
-        var vi = validateTool(request);
-        var argsYaml = toYaml(vi);
-        var headline = headlineFor(request.name());
-
-        return """
-               ### %s
-               ```yaml
-               %s```
-               """
-                .formatted(headline, argsYaml);
     }
 
     /**

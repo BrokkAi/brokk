@@ -201,7 +201,7 @@ public final class MergeOneFile {
                     return new Outcome(Status.INTERRUPTED, null);
                 }
 
-                var explanation = tr.getExplanationForToolRequest(this, req);
+                var explanation = tr.getExplanationForToolRequest(req);
                 if (!explanation.isBlank()) {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }
