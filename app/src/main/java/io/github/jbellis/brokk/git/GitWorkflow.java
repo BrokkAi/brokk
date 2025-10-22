@@ -219,7 +219,7 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM did not call the suggestPrDetails tool");
         }
 
-        tr.executeTool(this, result.toolRequests().getFirst());
+        tr.executeTool(result.toolRequests().getFirst());
 
         String title = prTitle;
         String description = prDescription;

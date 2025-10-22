@@ -228,41 +228,6 @@ public class ToolRegistry {
     }
 
     /**
-     * Executes a tool defined as an instance method on the provided object.
-     *
-     * @param instance The object instance containing the @Tool annotated method.
-     * @param request The ToolExecutionRequest from the LLM.
-     * @return A ToolExecutionResult indicating success or failure.
-     */
-    public ToolExecutionResult executeTool(Object instance, ToolExecutionRequest request) throws InterruptedException {
-        ValidatedInvocation validated;
-        try {
-            validated = validateTool(instance, request);
-        } catch (ToolValidationException e) {
-            return ToolExecutionResult.failure(request, e.getMessage());
-        }
-
-        try {
-            logger.debug("Invoking tool '{}' with args: {}", request.name(), validated.parameters());
-            Object resultObject = validated
-                    .method()
-                    .invoke(validated.instance(), validated.parameters().toArray());
-            String resultString = resultObject != null ? resultObject.toString() : "";
-            return ToolExecutionResult.success(request, resultString);
-        } catch (InvocationTargetException e) {
-            // some code paths will wrap IE in RuntimeException, so check the entire Cause hierarchy
-            for (var e2 = (Throwable) e; e2 != null; e2 = e2.getCause()) {
-                if (e2 instanceof InterruptedException ie) {
-                    throw ie;
-                }
-            }
-            throw new RuntimeException(e);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
      * Executes a tool exclusively from the global registry (no instance tools).
      *
      * @param request The ToolExecutionRequest from the LLM.
@@ -271,7 +236,7 @@ public class ToolRegistry {
     public ToolExecutionResult executeTool(ToolExecutionRequest request) throws InterruptedException {
         ValidatedInvocation validated;
         try {
-            validated = validateToolGlobal(request);
+            validated = validateTool(request);
         } catch (ToolValidationException e) {
             return ToolExecutionResult.failure(request, e.getMessage());
         }
@@ -387,57 +352,15 @@ public class ToolRegistry {
      * This method first looks for instance methods on the provided instance; if none found it falls back to the
      * registry contents.
      */
-    public ValidatedInvocation validateTool(Object instance, ToolExecutionRequest request) {
+    public ValidatedInvocation validateTool(ToolExecutionRequest request) {
         String toolName = request.name();
         if (toolName.isBlank()) {
             throw new ToolValidationException("Tool name cannot be empty");
         }
 
-        // first check the instance
-        Class<?> cls = instance.getClass();
-        Method targetMethod = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(Tool.class))
-                .filter(m -> !Modifier.isStatic(m.getModifiers()))
-                .filter(m -> {
-                    String name = m.getName();
-                    return name.equals(toolName);
-                })
-                .findFirst()
-                .orElse(null);
-
-        // then check THIS registry
-        ToolInvocationTarget target =
-                (targetMethod != null) ? new ToolInvocationTarget(targetMethod, instance) : toolMap.get(request.name());
+        ToolInvocationTarget target = toolMap.get(request.name());
         if (target == null) {
             throw new ToolValidationException("Tool not found: " + request.name());
-        }
-
-        var args = parseArguments(request, target.method());
-        return new ValidatedInvocation(target.method(), target.instance(), args);
-    }
-
-    /**
-     * Validates a tool request exclusively against THIS registry.
-     *
-     * @param request The ToolExecutionRequest to validate.
-     * @return A ValidatedInvocation for the registry tool.
-     * @throws ToolValidationException if the tool is not found in this registry or validation fails.
-     */
-    public ValidatedInvocation validateToolGlobal(ToolExecutionRequest request) {
-        String toolName = request.name();
-        if (toolName.isBlank()) {
-            throw new ToolValidationException("Tool name cannot be empty");
-        }
-
-        ToolInvocationTarget target = toolMap.get(toolName);
-        if (target == null) {
-            throw new ToolValidationException("Global tool not found: " + toolName);
-        }
-
-        // In the root registry, only tools provided by the registry itself are considered "global".
-        // Instance tools registered onto the root should NOT be invokable via the global path.
-        if (isRoot && target.instance() != this) {
-            throw new ToolValidationException("Global tool not found: " + toolName);
         }
 
         var args = parseArguments(request, target.method());
@@ -521,7 +444,7 @@ public class ToolRegistry {
         }
 
         // Resolve target and perform typed conversion via validateTool; let ToolValidationException propagate.
-        var vi = validateTool(toolOwner, request);
+        var vi = validateTool(request);
         var argsYaml = toYaml(vi);
         var headline = headlineFor(request.name());
 
@@ -543,7 +466,7 @@ public class ToolRegistry {
             return "";
         }
 
-        var vi = validateToolGlobal(request);
+        var vi = validateTool(request);
         var argsYaml = toYaml(vi);
         var headline = headlineFor(request.name());
 
@@ -566,7 +489,7 @@ public class ToolRegistry {
     public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
         String toolName = request.name();
 
-        ValidatedInvocation vi = validateTool(instance, request);
+        ValidatedInvocation vi = validateTool(request);
         Method method = vi.method();
         Parameter[] params = method.getParameters();
         List<Object> values = vi.parameters();

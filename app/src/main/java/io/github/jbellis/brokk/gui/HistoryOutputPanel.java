@@ -1892,7 +1892,7 @@ public class HistoryOutputPanel extends JPanel {
                         if (!"createTaskList".equals(req.name())) {
                             continue;
                         }
-                        var ter = tr.executeTool(HistoryOutputPanel.this, req);
+                        var ter = tr.executeTool(req);
                         if (ter.status() == ToolExecutionResult.Status.FAILURE) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                         }

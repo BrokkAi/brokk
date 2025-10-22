@@ -774,7 +774,7 @@ public class ContextAgent {
         var toolRequests = result.toolRequests();
         logger.debug("LLM ToolRequests: {}", toolRequests);
         for (var request : toolRequests) {
-            cm.getToolRegistry().executeTool(contextTool, request);
+            tr.executeTool(request);
         }
 
         var projectFiles = toProjectFiles(contextTool.getRecommendedFiles());

@@ -130,12 +130,12 @@ public class Llm {
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
-    private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
+    private final int MAX_ATTEMPTS = 8;
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
-    private final boolean echo; // New class field
+    private final boolean echo;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -774,7 +774,7 @@ public class Llm {
                 var validationErrors = new ArrayList<String>();
                 for (var ter : parseResult.toolRequests()) {
                     try {
-                        tr.validateToolGlobal(ter);
+                        tr.validateTool(ter);
                     } catch (ToolRegistry.ToolValidationException e) {
                         validationErrors.add(ter.name() + ": " + e.getMessage());
                     }

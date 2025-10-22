@@ -113,7 +113,9 @@ public class LlmTest {
     }
 
     // uncomment when you need it, this makes live API calls
-    @Test
+    // you will also need to set the ContextManager to a live one:
+    // contextManager = new ContextManager(new TestProject(tempDir, Languages.JAVA));
+    //        @Test
     void testToolCalling() {
         var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
@@ -128,7 +130,6 @@ public class LlmTest {
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
 
         availableModels.keySet().parallelStream()
-                .filter(k -> !k.contains("R1")) // R1 doesn't support tool calling OR json output
                 .forEach(modelName -> {
                     try {
                         System.out.println("Testing tool calling for model: " + modelName);
@@ -138,8 +139,8 @@ public class LlmTest {
 
                         var messages = new ArrayList<ChatMessage>();
                         messages.add(new UserMessage("What is the weather like in London?"));
-                        var result = coder.sendRequest(
-                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, tr));
+                        var tc = new ToolContext(toolSpecifications, ToolChoice.REQUIRED, tr);
+                        var result = coder.sendRequest(messages, tc);
 
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);
@@ -155,20 +156,20 @@ public class LlmTest {
 
                         // ASSERTION 1: Check if a tool execution was requested
                         assertTrue(
-                                result.originalMessage().hasToolExecutionRequests(),
+                                !result.chatResponse().toolRequests().isEmpty(),
                                 "Model " + modelName + " did not request tool execution. Response: "
                                         + chatResponse.text());
                         System.out.println("Tool call requested successfully by " + modelName);
 
                         // check that we can send the result back
-                        var req = result.originalMessage().toolExecutionRequests().getFirst();
+                        var req = result.chatResponse().toolRequests().getFirst();
                         // NB: this is a quick hack that does not actually pass arguments from the tool call
                         messages.add(result.originalMessage());
                         var term = new ToolExecutionResultMessage(
                                 req.id(), req.name(), new WeatherTool().getWeather("London"));
                         messages.add(term);
                         messages.add(new UserMessage("Given what you know about London, is this unusual?"));
-                        result = coder.sendRequest(messages);
+                        result = coder.sendRequest(messages, tc);
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);
                         if (result.error() != null) {

@@ -87,7 +87,7 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
                 // Execute tool calls, which will populate instance fields
                 try {
                     for (var request : result.toolRequests()) {
-                        toolRegistry.executeTool(this, request);
+                        toolRegistry.executeTool(request);
                     }
                 } catch (Exception e) {
                     messages.add(result.aiMessage());

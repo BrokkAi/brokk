@@ -468,7 +468,7 @@ public class ArchitectAgent {
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
-                    var toolResult = tr.executeTool(this, answerReq);
+                    var toolResult = tr.executeTool(answerReq);
                     io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI);
                     return codeAgentSuccessResult();
                 }
@@ -482,7 +482,7 @@ public class ArchitectAgent {
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
-                    var toolResult = tr.executeTool(this, abortReq);
+                    var toolResult = tr.executeTool(abortReq);
                     io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI);
                     return resultWithMessages(StopReason.LLM_ABORTED);
                 }

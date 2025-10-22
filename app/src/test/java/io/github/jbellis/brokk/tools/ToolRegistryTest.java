@@ -130,7 +130,7 @@ class ToolRegistryTest {
                 .arguments(json)
                 .build();
 
-        var vi = registry.validateTool(tools, req);
+        var vi = registry.validateTool(req);
         assertEquals("getClassSources", vi.method().getName());
         assertSame(tools, vi.instance());
         assertEquals(2, vi.parameters().size());
@@ -153,7 +153,7 @@ class ToolRegistryTest {
                 .name("getClassSources")
                 .arguments(json)
                 .build();
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
         assertTrue(ex.getMessage().contains("Missing required parameter: 'reasoning'"));
     }
 
@@ -163,14 +163,14 @@ class ToolRegistryTest {
                 .name("noSuchTool")
                 .arguments("{}")
                 .build();
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
         assertTrue(ex.getMessage().contains("Tool not found"));
     }
 
     @Test
     void validateTool_ThrowsOnBlankToolName() {
         var req = ToolExecutionRequest.builder().name("").arguments("{}").build();
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
         assertTrue(ex.getMessage().contains("Tool name cannot be empty"));
     }
 
@@ -184,7 +184,7 @@ class ToolRegistryTest {
 
         var req =
                 ToolExecutionRequest.builder().name("listInts").arguments(json).build();
-        assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
     }
 
     @Test
@@ -196,27 +196,10 @@ class ToolRegistryTest {
 
         var req = ToolExecutionRequest.builder().name("think").arguments(json).build();
 
-        var vi = registry.validateToolGlobal(req);
+        var vi = registry.validateTool(req);
         assertEquals("think", vi.method().getName());
         assertEquals(1, vi.parameters().size());
         assertEquals("Let me work through this", vi.parameters().get(0));
-    }
-
-    @Test
-    void validateToolGlobal_ThrowsForInstanceToolNotInGlobalRegistry() throws Exception {
-        // getClassSources is an instance tool on TestTools, not global
-        var map = new LinkedHashMap<String, Object>();
-        map.put("classNames", List.of("com.a.A"));
-        map.put("reasoning", "test");
-        var json = MAPPER.writeValueAsString(map);
-
-        var req = ToolExecutionRequest.builder()
-                .name("getClassSources")
-                .arguments(json)
-                .build();
-
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateToolGlobal(req));
-        assertTrue(ex.getMessage().contains("Global tool not found"));
     }
 
     @Test
@@ -226,8 +209,7 @@ class ToolRegistryTest {
                 .arguments("{}")
                 .build();
 
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateToolGlobal(req));
-        assertTrue(ex.getMessage().contains("Global tool not found"));
+        assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
     }
 
     @Test
@@ -241,24 +223,6 @@ class ToolRegistryTest {
 
         var result = registry.executeTool(req);
         assertTrue(result.resultText().contains("Good thinking"));
-    }
-
-    @Test
-    void executeToolGlobal_FailsForInstanceTool() throws Exception {
-        // getClassSources is an instance tool, not global
-        var map = new LinkedHashMap<String, Object>();
-        map.put("classNames", List.of("com.a.A"));
-        map.put("reasoning", "test");
-        var json = MAPPER.writeValueAsString(map);
-
-        var req = ToolExecutionRequest.builder()
-                .name("getClassSources")
-                .arguments(json)
-                .build();
-
-        var result = registry.executeTool(req);
-        assertFalse(result.resultText().isEmpty());
-        assertTrue(result.resultText().contains("Global tool not found"));
     }
 
     // Build a JSON args string using actual parameter names as seen by reflection,

@@ -466,7 +466,7 @@ public class MergeAgent {
                     .name("addTextToWorkspace")
                     .arguments(args)
                     .build();
-            var tr = cm.getToolRegistry().executeTool(this, req);
+            var tr = cm.getToolRegistry().executeTool(req);
             logger.debug("addTextToWorkspace: {} {} ", tr.status(), tr.resultText());
         } catch (JsonProcessingException e) {
             logger.warn("Failed to serialize addTextToWorkspace args: {}", e.toString());
