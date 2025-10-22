@@ -280,15 +280,17 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             }
 
             // Check app installation in background to avoid blocking EDT
+            // Use a stricter check: installed for the current user's personal account.
             if (connected) {
-                CompletableFuture.supplyAsync(GitHubAuth::isBrokkAppInstalled).thenAccept(appInstalled -> {
-                    SwingUtilities.invokeLater(() -> {
-                        if (gitHubInstallAppLabel != null && gitHubAppInstalledLabel != null) {
-                            gitHubInstallAppLabel.setVisible(!appInstalled);
-                            gitHubAppInstalledLabel.setVisible(appInstalled);
-                        }
-                    });
-                });
+                CompletableFuture.supplyAsync(GitHubAuth::isBrokkAppInstalledForCurrentUser)
+                        .thenAccept(appInstalledForUser -> {
+                            SwingUtilities.invokeLater(() -> {
+                                if (gitHubInstallAppLabel != null && gitHubAppInstalledLabel != null) {
+                                    gitHubInstallAppLabel.setVisible(!appInstalledForUser);
+                                    gitHubAppInstalledLabel.setVisible(appInstalledForUser);
+                                }
+                            });
+                        });
             } else {
                 gitHubInstallAppLabel.setVisible(false);
                 gitHubAppInstalledLabel.setVisible(false);
