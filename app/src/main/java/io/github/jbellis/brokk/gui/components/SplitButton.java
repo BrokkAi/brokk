@@ -322,9 +322,8 @@ public class SplitButton extends JComponent {
     }
 
     private void updateChildMaximumSizes() {
-        // Prevent BoxLayout from stretching children horizontally:
-        // constrain each child's maximum size to its current preferred size.
-        actionButton.setMaximumSize(actionButton.getPreferredSize());
+        // Prevent BoxLayout from stretching the arrow button horizontally by constraining its maximum size.
+        // The action button is left flexible to fill available space.
         arrowButton.setMaximumSize(arrowButton.getPreferredSize());
     }
 
