@@ -610,14 +610,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
+                // Block popup when read-only (tokenUsageBar is disabled)
+                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
                     tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
                 }
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
+                // Block popup when read-only (tokenUsageBar is disabled)
+                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
                     tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
                 }
             }
@@ -1628,6 +1630,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setReadOnly(readOnly);
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
+    }
+
+    /**
+     * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
+     */
+    public void setContextReadOnly(boolean readOnly) {
+        SwingUtilities.invokeLater(() -> {
+            workspaceItemsChipPanel.setReadOnly(readOnly);
+            tokenUsageBar.setReadOnly(readOnly);
+        });
     }
 
     void enableButtons() {
