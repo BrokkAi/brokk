@@ -2,8 +2,15 @@ package io.github.jbellis.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.git.GitRepo;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
+import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class BuildAgentTest {
     @Test
@@ -54,5 +61,117 @@ class BuildAgentTest {
         String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
 
         assertEquals("go test -run ' TestFoo'", result);
+    }
+
+    @Test
+    void testGitignoreProcessingSkipsGlobPatterns(@TempDir Path tempDir) throws Exception {
+        // Create a git repo with complex .gitignore containing glob patterns
+        var gitignoreContent =
+                """
+                GPATH
+                GRTAGS
+                GTAGS
+                **/*dependency-reduced-pom.xml
+                **/*flattened-pom.xml
+                **/target/
+                report
+                *.ipr
+                *.iws
+                **/*.iml
+                **/*.lock.db
+                **/.checkstyle
+                **/.classpath
+                **/.idea/
+                **/.project
+                **/.settings
+                **/bin/
+                **/derby.log
+                *.tokens
+                .clover
+                ^build
+                out
+                *~
+                test-output
+                travis-settings*.xml
+                .build-oracle
+                .factorypath
+                .brokk/**
+                /.brokk/workspace.properties
+                /.brokk/sessions/
+                /.brokk/dependencies/
+                /.brokk/history.zip
+                !.brokk/style.md
+                !.brokk/review.md
+                !.brokk/project.properties
+                """;
+
+        // Initialize git repo properly
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            // Write .gitignore
+            Files.writeString(tempDir.resolve(".gitignore"), gitignoreContent);
+
+            // Create the directories that should be extracted
+            Files.createDirectories(tempDir.resolve(".brokk/sessions"));
+            Files.createDirectories(tempDir.resolve(".brokk/dependencies"));
+            Files.createDirectory(tempDir.resolve("out"));
+            Files.createDirectory(tempDir.resolve("report"));
+
+            // Make initial commit
+            git.add().addFilepattern(".gitignore").call();
+            git.commit().setMessage("Initial commit").call();
+        }
+
+        // Get the ignored patterns from GitRepo
+        var gitRepo = new GitRepo(tempDir);
+        var ignoredPatterns = gitRepo.getIgnoredPatterns();
+
+        // Helper to detect glob patterns
+        Predicate<String> containsGlobPattern =
+                s -> s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
+
+        // Simulate BuildAgent's gitignore processing logic (SHOULD skip globs explicitly)
+        var extractedDirectories = new ArrayList<String>();
+        for (var pattern : ignoredPatterns) {
+            // Skip glob patterns explicitly (don't rely on Path.of() throwing - it doesn't on Unix!)
+            if (containsGlobPattern.test(pattern)) {
+                continue;
+            }
+
+            Path path;
+            try {
+                path = tempDir.resolve(pattern);
+            } catch (Exception e) {
+                // Skip invalid paths
+                continue;
+            }
+
+            var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
+            if (!pattern.startsWith("!") && isDirectory) {
+                extractedDirectories.add(pattern);
+            }
+        }
+
+        // Verify only literal directory paths were extracted, not glob patterns
+        assertTrue(extractedDirectories.contains("/.brokk/sessions/"), "Should extract /.brokk/sessions/");
+        assertTrue(extractedDirectories.contains("/.brokk/dependencies/"), "Should extract /.brokk/dependencies/");
+
+        // Verify glob patterns were NOT extracted
+        assertFalse(
+                extractedDirectories.stream().anyMatch(d -> d.contains("**/")), "Should not extract patterns with **/");
+        assertFalse(
+                extractedDirectories.stream().anyMatch(d -> d.contains("*")),
+                "Should not extract patterns with wildcards");
+        assertFalse(extractedDirectories.contains("**/.idea/"), "Should not extract **/.idea/");
+        assertFalse(extractedDirectories.contains("**/target/"), "Should not extract **/target/");
+        assertFalse(extractedDirectories.contains("**/bin/"), "Should not extract **/bin/");
+
+        // Verify negation patterns were NOT extracted
+        assertFalse(
+                extractedDirectories.stream().anyMatch(d -> d.startsWith("!")), "Should not extract negation patterns");
     }
 }

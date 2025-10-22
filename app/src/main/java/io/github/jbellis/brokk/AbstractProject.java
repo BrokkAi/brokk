@@ -535,6 +535,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile IgnoreNode ignoreNodeCache;
 
+    @Nullable
+    private volatile List<String> ignorePatternsCacheContents;
+
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
@@ -574,55 +577,59 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         try {
-            // Use cached IgnoreNode if available, otherwise load and parse .gitignore patterns
-            IgnoreNode ignoreNode = ignoreNodeCache;
+            // Determine gitignore patterns and refresh cache if they changed
+            var ignoredPatterns = gitRepo.getIgnoredPatterns();
+            boolean patternsChanged =
+                    ignorePatternsCacheContents == null || !ignorePatternsCacheContents.equals(ignoredPatterns);
 
-            if (ignoreNode == null) {
-                var ignoredPatterns = gitRepo.getIgnoredPatterns();
-
-                if (!ignoredPatterns.isEmpty()) {
-                    // Create IgnoreNode and parse patterns
-                    ignoreNode = new IgnoreNode();
+            IgnoreNode ignoreNode;
+            if (ignoreNodeCache == null || patternsChanged) {
+                if (ignoredPatterns.isEmpty()) {
+                    ignoreNode = null;
+                    ignoreNodeCache = null;
+                    ignorePatternsCacheContents = null;
+                } else {
+                    var newNode = new IgnoreNode();
                     var patternsBuilder = new StringBuilder();
                     for (var pattern : ignoredPatterns) {
                         patternsBuilder.append(pattern.trim()).append('\n');
                     }
-
                     try (var inputStream = new java.io.ByteArrayInputStream(
                             patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
-                        ignoreNode.parse(inputStream);
-                        ignoreNodeCache = ignoreNode; // Cache the parsed IgnoreNode
+                        newNode.parse(inputStream);
+                        ignoreNodeCache = newNode;
+                        ignorePatternsCacheContents = new ArrayList<>(ignoredPatterns);
+                        ignoreNode = newNode;
                     } catch (Exception e) {
                         logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
                         ignoreNode = null; // Treat as if no .gitignore exists
+                        ignoreNodeCache = null;
+                        ignorePatternsCacheContents = null;
                     }
                 }
+            } else {
+                ignoreNode = ignoreNodeCache;
             }
 
             // Apply baseline exclusions from build details (even if no .gitignore)
-            var baselineExclusions = new HashSet<>(loadBuildDetails().excludedDirectories());
+            var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
+                    .map(s -> s.replace('\\', '/').trim())
+                    .map(s -> s.startsWith("./") ? s.substring(2) : s)
+                    .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
 
             // Filter files
             var filteredFiles = new HashSet<ProjectFile>();
             for (var file : files) {
-                var relativePath = file.toString().replace('\\', '/');
+                final var relativePathRaw = file.toString().replace('\\', '/');
+                final String relativePath =
+                        relativePathRaw.startsWith("./") ? relativePathRaw.substring(2) : relativePathRaw;
 
                 // Check baseline exclusions first
-                boolean isBaselineExcluded = baselineExclusions.stream().anyMatch(exclusion -> {
-                    var exclusionPath = exclusion.replace('\\', '/');
-
-                    // Check if file is inside the excluded directory (with directory boundary)
-                    if (relativePath.startsWith(exclusionPath + "/")) {
-                        return true;
-                    }
-
-                    // Check if file exactly matches the exclusion
-                    if (relativePath.equals(exclusionPath)) {
-                        return true;
-                    }
-
-                    return false;
-                });
+                boolean isBaselineExcluded = baselineExclusions.stream()
+                        .anyMatch(exclusion ->
+                                relativePath.equals(exclusion) || relativePath.startsWith(exclusion + "/"));
 
                 if (isBaselineExcluded) {
                     continue;
@@ -681,6 +688,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
         ignoreNodeCache = null;
+        ignorePatternsCacheContents = null;
     }
 
     @Override

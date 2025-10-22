@@ -129,11 +129,17 @@ public class BuildAgent {
             var ignoredPatterns = gitRepo.getIgnoredPatterns();
             var addedFromGitignore = new ArrayList<String>();
             for (var pattern : ignoredPatterns) {
+                // Skip glob patterns explicitly - they're handled by AbstractProject's IgnoreNode filtering
+                // Note: Path.of() doesn't throw on Unix/macOS for glob chars, so we check explicitly
+                if (containsGlobPattern(pattern)) {
+                    continue;
+                }
+
                 Path path;
                 try {
                     path = project.getRoot().resolve(pattern);
                 } catch (InvalidPathException e) {
-                    // for now we only support literal paths, not globs
+                    // Skip invalid paths
                     continue;
                 }
                 // include non-existing paths if they end with `/` in case they get created later
@@ -296,6 +302,8 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore.
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
+                IMPORTANT: Only provide literal directory paths (e.g., "build", "target", ".gradle"). DO NOT use glob patterns
+                (e.g., "**/target", "**/.idea") - these are already handled by .gitignore processing.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
@@ -327,9 +335,11 @@ public class BuildAgent {
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
                     List<String> excludedDirectories) {
         // Combine baseline excluded directories with those suggested by the LLM
+        // Filter out glob patterns defensively - they're handled by AbstractProject's IgnoreNode filtering
         var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
+                .filter(s -> !containsGlobPattern(s))
                 .map(s -> Path.of(s).normalize())
                 .map(Path::toString)
                 .collect(Collectors.toSet());
@@ -348,6 +358,10 @@ public class BuildAgent {
         this.abortReason = explanation;
         logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
         return "Abort signal received and processed.";
+    }
+
+    private static boolean containsGlobPattern(String s) {
+        return s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
     }
 
     /** Holds semi-structured information about a project's build process */
