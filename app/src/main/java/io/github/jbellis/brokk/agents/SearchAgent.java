@@ -85,6 +85,15 @@ public class SearchAgent {
 
     public SearchAgent(
             String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
+        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext());
+    }
+
+    public SearchAgent(
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            Context initialContext) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
@@ -107,7 +116,7 @@ public class SearchAgent {
             }
         }
         this.mcpTools = List.copyOf(tools);
-        this.context = contextManager.liveContext();
+        this.context = initialContext;
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
