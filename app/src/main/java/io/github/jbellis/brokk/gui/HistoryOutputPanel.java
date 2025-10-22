@@ -717,90 +717,72 @@ public class HistoryOutputPanel extends JPanel {
      */
     public void updateHistoryTable(@Nullable Context contextToSelect) {
         logger.debug(
-                "Updating context history table with context {}",
+                "Updating context history table (timeline) with context {}",
                 contextToSelect != null ? contextToSelect.getAction() : "null");
         assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
-            // Recompute previous-context map for diffing AI result contexts
+            // Build previous-context map from canonical timeline flatten
             {
-                var list = contextManager.getContextHistoryList();
+                var sh = contextManager.getSessionHistory();
+                var flat = sh.flattenContexts();
                 var map = new HashMap<UUID, Context>();
-                for (int i = 1; i < list.size(); i++) {
-                    map.put(list.get(i).id(), list.get(i - 1));
+                for (int i = 1; i < flat.size(); i++) {
+                    map.put(flat.get(i).id(), flat.get(i - 1));
                 }
                 previousContextMap = map;
+
+                // Proactively compute diffs for all visible contexts
+                for (var c : flat) {
+                    scheduleDiffComputation(c);
+                }
             }
+
             historyModel.setRowCount(0);
 
             int rowToSelect = -1;
             int currentRow = 0;
 
-            var contexts = contextManager.getContextHistoryList();
-            // Proactively compute diffs so grouping can reflect file-diff boundaries
-            for (var c : contexts) {
-                scheduleDiffComputation(c);
-            }
-            boolean lastIsNonLlm = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
+            var steps = contextManager.getSessionHistory().timeline();
+            for (int i = 0; i < steps.size(); i++) {
+                var step = steps.get(i);
 
-            for (int i = 0; i < contexts.size(); i++) {
-                var ctx = contexts.get(i);
-                if (isGroupingBoundary(ctx)) {
-                    Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
-                    if (ctx.equals(contextToSelect)) {
-                        rowToSelect = currentRow;
+                if (step.event() == null) {
+                    // Manual placeholder step: render the (single) context as a normal row
+                    if (!step.contexts().isEmpty()) {
+                        var ctx = step.contexts().getFirst();
+                        historyModel.addRow(new Object[] {null, ctx.getAction(), ctx});
+                        if (ctx.equals(contextToSelect)) {
+                            rowToSelect = currentRow;
+                        }
+                        currentRow++;
                     }
-                    currentRow++;
-                } else {
-                    int j = i;
-                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
-                        j++;
-                    }
-                    var children = contexts.subList(i, j);
-                    if (children.size() == 1) {
-                        var child = children.get(0);
-                        // Render single-entry groups as a normal top-level entry
-                        historyModel.addRow(new Object[] {null, child.getAction(), child});
+                    continue;
+                }
+
+                // AI step: render a collapsible group header + child Context rows (may be empty)
+                var key = groupKeyFor(step);
+                boolean isLastGroup = i == steps.size() - 1;
+                boolean expandedDefault = isLastGroup;
+                boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
+
+                boolean containsClearHistory = step.contexts().stream()
+                        .anyMatch(c -> ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+
+                String title = step.event().actionDescription();
+                var groupRow = new GroupRow(key, expanded, containsClearHistory);
+                historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
+                currentRow++;
+
+                if (expanded) {
+                    for (var child : step.contexts()) {
+                        String childText = "   " + child.getAction();
+                        historyModel.addRow(new Object[] {null, childText, child});
                         if (child.equals(contextToSelect)) {
                             rowToSelect = currentRow;
                         }
                         currentRow++;
-                    } else { // children.size() >= 2
-                        String title;
-                        if (children.size() == 2) {
-                            title = firstWord(children.get(0).getAction()) + " + "
-                                    + firstWord(children.get(1).getAction());
-                        } else {
-                            title = children.size() + " actions";
-                        }
-                        var first = children.get(0); // For key and other metadata
-                        var key = first.id();
-                        boolean isLastGroup = j == contexts.size();
-                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
-                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
-
-                        boolean containsClearHistory = children.stream()
-                                .anyMatch(c ->
-                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
-
-                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
-                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
-                        currentRow++;
-
-                        if (expanded) {
-                            for (var child : children) {
-                                String childText = "   " + child.getAction();
-                                historyModel.addRow(new Object[] {null, childText, child});
-                                if (child.equals(contextToSelect)) {
-                                    rowToSelect = currentRow;
-                                }
-                                currentRow++;
-                            }
-                        }
                     }
-
-                    i = j - 1;
                 }
             }
 
@@ -820,7 +802,6 @@ public class HistoryOutputPanel extends JPanel {
 
             if (pendingSelectionType == PendingSelectionType.CLEAR) {
                 historyTable.clearSelection();
-                // Do not auto-select any row when collapsing a group
             } else if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
                 if (!suppress) {
@@ -2343,27 +2324,24 @@ public class HistoryOutputPanel extends JPanel {
                 }
             }
 
-            // 2) Build helper data from the full context history to determine group membership
-            var contexts = contextManager.getContextHistoryList();
-            Map<UUID, Integer> idToIndex = new HashMap<>();
-            for (int i = 0; i < contexts.size(); i++) {
-                idToIndex.put(contexts.get(i).id(), i);
+            // 2) Build helper data from session timeline: key -> child context IDs
+            var steps = contextManager.getSessionHistory().timeline();
+            Map<UUID, List<UUID>> stepKeyToContextIds = new HashMap<>();
+            for (var step : steps) {
+                var key = groupKeyFor(step);
+                var ids = step.contexts().stream().map(Context::id).toList();
+                stepKeyToContextIds.put(key, ids);
             }
 
-            // 3) Second pass: for collapsed groups, map their children context IDs to the group header row
+            // 3) For collapsed groups, map their children context IDs to the group header row
             for (int row = 0; row < model.getRowCount(); row++) {
                 var val = model.getValueAt(row, 2);
                 if (val instanceof GroupRow gr && !gr.expanded()) {
-                    Integer startIdx = idToIndex.get(gr.key());
-                    if (startIdx == null) {
-                        continue;
-                    }
-                    int j = startIdx;
-                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
-                        UUID ctxId = contexts.get(j).id();
-                        // Only map if not already visible; collapsed children should anchor to the header row
-                        contextIdToRow.putIfAbsent(ctxId, row);
-                        j++;
+                    var ids = stepKeyToContextIds.get(gr.key());
+                    if (ids != null) {
+                        for (var cid : ids) {
+                            contextIdToRow.putIfAbsent(cid, row);
+                        }
                     }
                 }
             }
@@ -2415,9 +2393,7 @@ public class HistoryOutputPanel extends JPanel {
 
             // Don't draw if either point is outside the visible viewport
             if (!c.getVisibleRect().contains(sourcePoint) && !c.getVisibleRect().contains(targetPoint)) {
-                // a bit of a hack -- if just one is visible, we still want to draw part of the arrow
-                if (c.getVisibleRect().contains(sourcePoint)
-                        || c.getVisibleRect().contains(targetPoint)) {
+                if (c.getVisibleRect().contains(sourcePoint) || c.getVisibleRect().contains(targetPoint)) {
                     // one is visible, fall through
                 } else {
                     return;
@@ -2426,31 +2402,28 @@ public class HistoryOutputPanel extends JPanel {
 
             int iconColWidth = table.getColumnModel().getColumn(0).getWidth();
             int arrowHeadLength = 5;
-            int arrowLeadIn = 1; // length of the line segment before the arrowhead
-            int arrowRightMargin = -2; // margin from the right edge of the column
+            int arrowLeadIn = 1;
+            int arrowRightMargin = -2;
 
             int tipX = sourcePoint.x + iconColWidth - arrowRightMargin;
             int baseX = tipX - arrowHeadLength;
             int verticalLineX = baseX - arrowLeadIn;
 
-            // Define the path for the arrow shaft
             Path2D.Double path = new Path2D.Double();
-            path.moveTo(tipX, sourcePoint.y); // Start at source, aligned with the eventual arrowhead tip
-            path.lineTo(verticalLineX, sourcePoint.y); // Horizontal segment at source row
-            path.lineTo(verticalLineX, targetPoint.y); // Vertical segment connecting rows
-            path.lineTo(baseX, targetPoint.y); // Horizontal segment leading to arrowhead base
+            path.moveTo(tipX, sourcePoint.y);
+            path.lineTo(verticalLineX, sourcePoint.y);
+            path.lineTo(verticalLineX, targetPoint.y);
+            path.lineTo(baseX, targetPoint.y);
             g2.draw(path);
 
-            // Draw the arrowhead at the target, pointing left-to-right
             drawArrowHead(g2, new Point(tipX, targetPoint.y), arrowHeadLength);
         }
 
         private void drawArrowHead(Graphics2D g2, Point to, int size) {
-            // The arrow is always horizontal, left-to-right. Build an isosceles triangle.
             int tipX = to.x;
             int midY = to.y;
             int baseX = to.x - size;
-            int halfHeight = (int) Math.round(size * 0.6); // Make it slightly wider than it is long
+            int halfHeight = (int) Math.round(size * 0.6);
 
             var head = new Polygon(
                     new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
@@ -2527,20 +2500,25 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
-    private boolean isGroupingBoundary(Context ctx) {
-        // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result, or an explicit "dropped all context" separator.
-        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
+
+    // Stable UUID key for a timeline step to drive expand/collapse state and arrow mapping.
+    private UUID groupKeyFor(io.github.jbellis.brokk.context.SessionStep step) {
+        if (!step.contexts().isEmpty()) {
+            return step.contexts().getFirst().id();
+        }
+        var ev = step.event();
+        if (ev != null) {
+            if (ev.afterContextId() != null) return ev.afterContextId();
+            if (ev.beforeContextId() != null) return ev.beforeContextId();
+            if (ev.taskId() != null) return ev.taskId();
+            var seed = (ev.actionDescription() + ":" + ev.createdAtEpochMillis()).getBytes(StandardCharsets.UTF_8);
+            return UUID.nameUUIDFromBytes(seed);
+        }
+        // Manual empty step should not occur; derive a deterministic fallback.
+        var seed = ("manual:" + System.identityHashCode(step)).getBytes(StandardCharsets.UTF_8);
+        return UUID.nameUUIDFromBytes(seed);
     }
 
-    private static String firstWord(String text) {
-        if (text.isBlank()) {
-            return "";
-        }
-        var trimmed = text.trim();
-        int idx = trimmed.indexOf(' ');
-        return idx < 0 ? trimmed : trimmed.substring(0, idx);
-    }
 
     private void toggleGroupRow(int row) {
         var val = historyModel.getValueAt(row, 2);
