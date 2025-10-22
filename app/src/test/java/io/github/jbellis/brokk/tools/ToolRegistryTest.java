@@ -23,7 +23,7 @@ class ToolRegistryTest {
 
     @BeforeEach
     void setup() {
-        registry = new ToolRegistry(null);
+        registry = new ToolRegistry();
         tools = new TestTools();
         registry.register(tools);
     }

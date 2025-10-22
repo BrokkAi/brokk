@@ -13,6 +13,8 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo.ModifiedFile;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
@@ -147,7 +149,7 @@ public class MergeAgent {
                                 cm,
                                 "Merge",
                                 List.of(new AiMessage("Non-text conflicts resolved; verification passed.")),
-                                Set.of(),
+                                cm.topContext(),
                                 new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
                     }
                     logger.debug(
@@ -345,11 +347,26 @@ public class MergeAgent {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
             logger.debug("MergeAgent.execute() completed successfully. Returning success result.");
+
+            // Build a resulting context representing annotatedConflicts' files added to current topContext
+            var top = cm.topContext();
+            var existingEditableFiles = top.fileFragments()
+                    .filter(cf -> cf.getType().isEditable())
+                    .flatMap(cf -> cf.files().stream())
+                    .collect(Collectors.toSet());
+
+            var fragmentsToAdd = changedFiles.stream()
+                    .filter(pf -> !existingEditableFiles.contains(pf))
+                    .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
+                    .toList();
+
+            Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addPathFragments(fragmentsToAdd);
+
             return new TaskResult(
                     cm,
                     "Merge",
                     List.of(new AiMessage(msg)),
-                    changedFiles,
+                    resultingCtx,
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
         }
 
@@ -733,11 +750,24 @@ public class MergeAgent {
     }
 
     private TaskResult interruptedResult(String message) {
+        // Build resulting context that contains all conflict files
+        var top = cm.topContext();
+        var conflictFiles = allConflictFilesInWorkspace();
+        var existingEditableFiles = top.fileFragments()
+                .filter(cf -> cf.getType().isEditable())
+                .flatMap(cf -> cf.files().stream())
+                .collect(Collectors.toSet());
+        var fragmentsToAdd = conflictFiles.stream()
+                .filter(pf -> !existingEditableFiles.contains(pf))
+                .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
+                .toList();
+        Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addPathFragments(fragmentsToAdd);
+
         return new TaskResult(
                 cm,
                 "Merge",
                 List.of(new AiMessage(message)),
-                allConflictFilesInWorkspace(),
+                resultingCtx,
                 new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
     }
 

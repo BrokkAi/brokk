@@ -3,7 +3,6 @@ package io.github.jbellis.brokk;
 import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -31,7 +30,6 @@ import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.UiTools;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
 import java.awt.Image;
@@ -236,9 +234,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.exceptionReporter = new ExceptionReporter(this.service::get);
 
         // set up global tools
-        this.toolRegistry = new ToolRegistry(this);
+        this.toolRegistry = new ToolRegistry();
         this.toolRegistry.register(new SearchTools(this));
-        this.toolRegistry.register(new WorkspaceTools(this));
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
         // immediately during construction, which means our own reference to it will still be null
@@ -693,24 +690,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     @Override
     public void addFiles(Collection<ProjectFile> files) {
-        var filesByType = files.stream().collect(Collectors.partitioningBy(BrokkFile::isText));
-
-        var textFiles = castNonNull(filesByType.get(true));
-        var binaryFiles = castNonNull(filesByType.get(false));
-
-        var textFragments = textFiles.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
-                .toList();
-        if (!textFragments.isEmpty()) {
-            addPathFragments(textFragments);
-        }
-
-        var binaryFragments = binaryFiles.stream()
-                .map(pf -> new ContextFragment.ImageFileFragment(pf, this))
-                .toList();
-        if (!binaryFragments.isEmpty()) {
-            addPathFragments(binaryFragments);
-        }
+        addPathFragments(toPathFragments(files));
     }
 
     /** Add the given files to editable. */
@@ -2009,7 +1989,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return beginTask(input, compressAtCommit, MergeAgent.NonTextResolutionMode.OFF);
     }
 
-    /** Aggregating scope that collects messages/files and commits once. */
+    /**
+     * Aggregating scope that collects messages/files and commits once.
+     * By design, this keeps only the Context from the final TaskResult in the Scope.
+     * This means it is the agent's responsibility to propagate any sub-agents' Contexts
+     * without losing important history.
+     */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
         private final MergeAgent.NonTextResolutionMode nonTextMode;
@@ -2041,51 +2026,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return;
                 }
 
-                if (results.size() == 1) {
-                    var only = results.getFirst();
-                    if (!only.changedFiles().isEmpty()) {
-                        addFiles(only.changedFiles());
-                    }
-                    // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(only, compressResults);
-                    return;
-                }
-
-                // Don't aggregate stop details (presumably all success except possibly the last)
-                var lastStop = results.getLast().stopDetails();
-                // Aggregate changed files
-                var aggregatedFiles =
-                        results.stream().flatMap(r -> r.changedFiles().stream()).collect(Collectors.toSet());
-                // Aggregate all messages across results (input are expected to be the first message)
-                var aggregatedMessages = results.stream()
-                        .flatMap(r -> r.output().messages().stream())
-                        .toList();
-                // Action description
-                String actionDescription;
-                if (results.size() == 1) {
-                    actionDescription = results.getFirst().actionDescription();
-                } else {
-                    // Construct synthetic description from first UserMessage and the last AiMessage
-                    var firstUserOpt = aggregatedMessages.stream()
-                            .filter(m -> m instanceof UserMessage)
-                            .findFirst();
-                    var lastAiOpt = IntStream.iterate(aggregatedMessages.size() - 1, i -> i - 1)
-                            .limit(aggregatedMessages.size())
-                            .mapToObj(aggregatedMessages::get)
-                            .filter(m -> m instanceof AiMessage)
-                            .findFirst();
-                    if (firstUserOpt.isPresent() && lastAiOpt.isPresent()) {
-                        var selected = List.of(firstUserOpt.get(), lastAiOpt.get());
-                        actionDescription =
-                                selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
-                    } else {
-                        actionDescription = results.getFirst().actionDescription();
-                    }
-                }
-
-                var finalResult = new TaskResult(
-                        ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
-                pushFinalHistory(finalResult, compressResults);
+                // Use the most recent result
+                pushFinalHistory(results.getLast(), compressResults);
             } finally {
                 io.blockLlmOutput(false);
             }
@@ -2094,58 +2036,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Single entry-point to actually push a TaskResult to history (used by TaskScope). */
     private void pushFinalHistory(TaskResult result, boolean compress) {
+        // If interrupted before any LLM output, skip
         if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                 && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
             logger.debug("Command cancelled before LLM responded");
             return;
         }
-        if (result.output().messages().isEmpty() && result.changedFiles().isEmpty()) {
+
+        // If there is literally nothing to record (no messages and no context/file changes), skip
+        if (result.output().messages().isEmpty() && !result.context().freeze().equals(topContext())) {
             logger.debug("Empty TaskResult");
             return;
         }
 
         var action = result.actionDescription();
         logger.debug(
-                "Adding session result to history. Action: '{}', Changed files: {}, Reason: {}",
+                "Adding session result to history. Action: '{}', Reason: {}",
                 action,
-                result.changedFiles(),
                 result.stopDetails());
 
         Future<String> actionFuture = submitSummarizeTaskForConversation(action);
-
-        /*
-         * Perform ALL mutations to the context in a single pushContext call:
-         *   1.  Make every changed file editable (if not already).
-         *   2.  Create and append the TaskEntry.
-         * This guarantees the changed files are present in the frozen snapshot
-         * created by pushContext, so undo/redo can restore them correctly.
-         */
         pushContext(currentLiveCtx -> {
-            Context updated = currentLiveCtx;
-
-            // Step 1: ensure changed files are tracked as editable
-            if (!result.changedFiles().isEmpty()) {
-                // Capture current editable files once to keep the lambda valid
-                var existingEditableFiles = updated.fileFragments()
-                        .filter(cf -> cf.getType().isEditable())
-                        .flatMap(cf -> cf.files().stream())
-                        .collect(Collectors.toSet());
-
-                var fragmentsToAdd = result.changedFiles().stream()
-                        // avoid duplicates – only add if not already editable
-                        .filter(pf -> !existingEditableFiles.contains(pf))
-                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
-                        .toList();
-
-                if (!fragmentsToAdd.isEmpty()) {
-                    updated = updated.addPathFragments(fragmentsToAdd);
-                }
-            }
-
-            // Step 2: build TaskEntry *after* editable-file update
+            var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
             TaskEntry finalEntry = compress ? compressHistory(entry) : entry;
-
             return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
         });
 

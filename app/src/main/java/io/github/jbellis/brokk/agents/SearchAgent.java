@@ -22,13 +22,16 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
+import io.github.jbellis.brokk.tools.CompositeToolRegistry;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -73,6 +76,9 @@ public class SearchAgent {
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
 
+    // Local working context snapshot for this agent
+    private Context context;
+
     // Session-local conversation for this agent
     private final List<ChatMessage> sessionMessages = new ArrayList<>();
 
@@ -104,6 +110,7 @@ public class SearchAgent {
             }
         }
         this.mcpTools = List.copyOf(tools);
+        this.context = contextManager.liveContext();
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -124,8 +131,7 @@ public class SearchAgent {
         while (true) {
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages =
-                    new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -137,7 +143,12 @@ public class SearchAgent {
             // Build prompt and allowed tools
             var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages);
             var allowedToolNames = calculateAllowedToolNames();
-            var toolSpecs = new ArrayList<>(toolRegistry.getRegisteredTools(allowedToolNames));
+
+            // Create a per-turn WorkspaceTools instance bound to the agent-local Context
+            var wst = new WorkspaceTools(context);
+
+            // Build a unified tool catalog via CompositeToolRegistry
+            var composite = new CompositeToolRegistry(toolRegistry, wst, this);
 
             // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
@@ -149,12 +160,21 @@ public class SearchAgent {
             }
             // Always allow abort
             agentTerminalTools.add("abortSearch");
-            toolSpecs.addAll(toolRegistry.getTools(this, agentTerminalTools));
 
             // Global terminal tool(s) implemented outside SearchAgent (e.g., in SearchTools)
+            var globalTerminals = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.TASK_LIST)) {
-                toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("createTaskList")));
+                globalTerminals.add("createTaskList");
             }
+
+            // Merge allowed names with agent terminals and global terminals
+            var allAllowed =
+                    new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size() + globalTerminals.size());
+            allAllowed.addAll(allowedToolNames);
+            allAllowed.addAll(agentTerminalTools);
+            allAllowed.addAll(globalTerminals);
+
+            var toolSpecs = composite.getToolSpecifications(allAllowed);
 
             // Decide next action(s)
             io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
@@ -195,7 +215,9 @@ public class SearchAgent {
             for (var req : sortedCalls) {
                 ToolExecutionResult exec;
                 try {
-                    exec = toolRegistry.executeTool(this, req);
+                    exec = new io.github.jbellis.brokk.tools.CompositeToolRegistry(toolRegistry, wst, this)
+                            .execute(req);
+                    context = wst.getContext();
                 } catch (Exception e) {
                     logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
                     exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
@@ -293,7 +315,7 @@ public class SearchAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related classes (auto-context) like Architect
-        var acList = cm.liveContext().buildAutoContext(10);
+        var acList = context.buildAutoContext(10);
         var ac = ContextFragment.SummaryFragment.combinedText(acList);
         if (!ac.isBlank()) {
             messages.add(new UserMessage(
@@ -651,7 +673,7 @@ public class SearchAgent {
             logger.debug(
                     "Adding selected ProjectPathFragments: {}",
                     pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
-            cm.addPathFragments(pathFragments);
+            context = context.addPathFragments(pathFragments);
         }
 
         // Process SkeletonFragments
@@ -659,7 +681,7 @@ public class SearchAgent {
                 .map(ContextFragment.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
-            cm.addVirtualFragments(skeletonFragments);
+            context = context.addVirtualFragments(skeletonFragments);
         }
     }
 
@@ -742,7 +764,7 @@ public class SearchAgent {
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
 
-        return new TaskResult(action, fragment, Set.of(), stopDetails);
+        return new TaskResult(action, fragment, context, stopDetails);
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
@@ -755,7 +777,7 @@ public class SearchAgent {
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
 
-        return new TaskResult(action, fragment, Set.of(), details);
+        return new TaskResult(action, fragment, context, details);
     }
 
     // =======================

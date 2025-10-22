@@ -5,13 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.testutil.TestProject;
+import io.github.jbellis.brokk.testutil.TestService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
@@ -21,7 +27,18 @@ class BlitzForgeTest {
 
     private static IContextManager stubCm() {
         // Use interface defaults; no special behavior needed for this minimal test
-        return new IContextManager() {};
+        return new IContextManager() {
+            @Override
+            public Context topContext() {
+                // Return an empty Context for test purposes
+                return new Context(this, null);
+            }
+        };
+    }
+
+    private static IProject stubProject() throws Exception {
+        var root = Files.createTempDirectory("bftest-");
+        return new TestProject(root);
     }
 
     @Test
@@ -42,7 +59,7 @@ class BlitzForgeTest {
 
         class StubListener implements BlitzForge.Listener {
             final AtomicInteger starts = new AtomicInteger();
-            final AtomicInteger progresses = new AtomicInteger();
+            final Map<ProjectFile, Boolean> filesEdited = new ConcurrentHashMap<>();
             TaskResult done;
 
             @Override
@@ -58,27 +75,26 @@ class BlitzForgeTest {
             @Override
             public void onFileResult(
                     ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {
-                progresses.incrementAndGet();
+                filesEdited.put(file, edited);
             }
 
             @Override
-            public void onFileComplete(TaskResult result) {
+            public void onComplete(TaskResult result) {
                 done = result;
             }
         }
 
         var listener = new StubListener();
-        var engine = new BlitzForge(stubCm(), null, cfg, listener);
-
-        var result = engine.executeParallel(
+        var service = new TestService(stubProject());
+        var engine = new BlitzForge(stubCm(), service, cfg, listener);
+        engine.executeParallel(
                 List.of(f1, f2), file -> new BlitzForge.FileResult(file, true, null, "OK " + file.getFileName()));
 
         assertEquals(2, listener.starts.get(), "onStart should receive total file count");
-        assertEquals(2, listener.progresses.get(), "Should have processed both files");
+        assertEquals(2, listener.filesEdited.size(), "Should have processed both files");
         assertNotNull(listener.done, "onDone should provide a TaskResult");
         assertEquals(TaskResult.StopReason.SUCCESS, listener.done.stopDetails().reason());
         // changed files set contains both inputs
-        Set<ProjectFile> changed = listener.done.changedFiles();
-        assertEquals(Set.of(f1, f2), changed);
+        assertEquals(Set.of(f1, f2), listener.filesEdited.keySet());
     }
 }

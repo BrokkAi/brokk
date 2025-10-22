@@ -1070,8 +1070,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
                         messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
+                        // Build resulting Context by adding the saved file if it is not already editable
+                        var ctx = cm.topContext().addPathFragments(cm.toPathFragments(List.of(file)));
                         var saveResult = new TaskResult(
-                                cm, actionDescription, messagesForHistory, Set.of(file), TaskResult.StopReason.SUCCESS);
+                                cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTask("", false)) {
                             scope.append(saveResult);
                         }

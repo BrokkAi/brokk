@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.AiMessage;
-import io.github.jbellis.brokk.ContextManager;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -335,7 +334,7 @@ public class ToolRegistry {
     }
 
     /** Creates a new ToolRegistry and self-registers internal tools. */
-    public ToolRegistry(ContextManager contextManagerIgnored) {
+    public ToolRegistry() {
         register(this);
     }
 
@@ -382,15 +381,27 @@ public class ToolRegistry {
      * @return A list of ToolSpecification objects. Returns an empty list if a name is not found.
      */
     public List<ToolSpecification> getRegisteredTools(List<String> toolNames) {
-        var missingTools =
-                toolNames.stream().filter(tool -> !toolMap.containsKey(tool)).toList();
-        if (!missingTools.isEmpty()) {
-            logger.error("Missing tools: '{}'", missingTools); // let it throw NPE below
+        var present = toolNames.stream().filter(toolMap::containsKey).toList();
+        var missing = toolNames.stream().filter(t -> !toolMap.containsKey(t)).toList();
+        if (!missing.isEmpty()) {
+            logger.warn("Some requested global tools are not registered and will be skipped: {}", missing);
         }
-        return toolNames.stream()
+        return present.stream()
                 .map(toolMap::get)
                 .map(target -> ToolSpecifications.toolSpecificationFrom(target.method()))
                 .collect(Collectors.toList());
+    }
+
+    /** Returns a single global tool specification if registered; empty if missing (no error logging). */
+    public Optional<ToolSpecification> getRegisteredTool(String toolName) {
+        var target = toolMap.get(toolName);
+        if (target == null) return Optional.empty();
+        return Optional.of(ToolSpecifications.toolSpecificationFrom(target.method()));
+    }
+
+    /** Returns true if a global tool with the given name is registered. */
+    public boolean isRegistered(String toolName) {
+        return toolMap.containsKey(toolName);
     }
 
     /**

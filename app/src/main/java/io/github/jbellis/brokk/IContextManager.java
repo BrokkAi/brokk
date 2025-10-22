@@ -1,10 +1,15 @@
 package io.github.jbellis.brokk;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
+import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.io.File;
@@ -16,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -164,6 +170,18 @@ public interface IContextManager {
 
     default IAnalyzer getAnalyzerUninterrupted() {
         throw new UnsupportedOperationException();
+    }
+
+    default List<? extends ContextFragment.PathFragment> toPathFragments(Collection<ProjectFile> files) {
+        var filesByType = files.stream().collect(Collectors.partitioningBy(BrokkFile::isText));
+
+        var textFiles = castNonNull(filesByType.get(true));
+        var binaryFiles = castNonNull(filesByType.get(false));
+
+        return Streams.concat(
+                        textFiles.stream().map(pf -> new ContextFragment.ProjectPathFragment(pf, this)),
+                        binaryFiles.stream().map(pf -> new ContextFragment.ImageFileFragment(pf, this)))
+                .toList();
     }
 
     default void requestRebuild() {}

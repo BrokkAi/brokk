@@ -1164,12 +1164,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 }
             }
 
+            // Build resulting Context by adding any changed files that are not already editable in the top context
+            var top = contextManager.topContext();
+            var resultingCtx = top.addPathFragments(contextManager.toPathFragments(changedFiles));
+
             var result = new TaskResult(
-                    contextManager,
-                    actionDescription,
-                    messages,
-                    Set.copyOf(changedFiles),
-                    TaskResult.StopReason.SUCCESS);
+                    contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
 
             // Add a single history entry for the whole batch
             try (var scope = contextManager.beginTask(actionDescription, false)) {
