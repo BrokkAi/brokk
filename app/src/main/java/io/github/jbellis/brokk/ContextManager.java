@@ -2010,7 +2010,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // If there is literally nothing to record (no messages and no context/file changes), skip
             if (result.output().messages().isEmpty()
-                    && !result.context().freeze().equals(topContext())) {
+                    && result.context().freeze().equals(topContext())) {
                 logger.debug("Empty TaskResult");
                 return;
             }

@@ -640,7 +640,7 @@ public class Context {
         var combined = addPathFragments(other.fileFragments()
                 .map(cf -> (ContextFragment.PathFragment) cf)
                 .toList());
-        combined = addVirtualFragments(other.virtualFragments().toList());
+        combined = combined.addVirtualFragments(other.virtualFragments().toList());
         return combined;
     }
 
