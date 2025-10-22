@@ -112,6 +112,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
         private TokenUsageBar.WarningLevel warningLevel = TokenUsageBar.WarningLevel.NONE;
+        private boolean readOnly = false;
 
         public ContextAreaContainer() {
             super(new BorderLayout());
@@ -133,6 +134,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         private void updateBorderColor() {
+            String title = readOnly ? "Context (Read-only)" : "Context";
+            applyTitledBorder(title);
+        }
+
+        private void applyTitledBorder(String title) {
             Color borderColor = UIManager.getColor("Component.borderColor");
             int thickness = 1;
             if (warningLevel == TokenUsageBar.WarningLevel.RED) {
@@ -142,11 +148,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 borderColor = new Color(0xFFA500);
                 thickness = 3;
             }
-
             var lineBorder = BorderFactory.createLineBorder(borderColor, thickness);
-            var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
+            var titledBorder = BorderFactory.createTitledBorder(lineBorder, title);
             var marginBorder = BorderFactory.createEmptyBorder(8, 8, 8, 8);
             setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
+        }
+
+        public void setReadOnly(boolean readOnly) {
+            Runnable r = () -> {
+                if (this.readOnly != readOnly) {
+                    this.readOnly = readOnly;
+                    updateBorderColor();
+                    repaint();
+                }
+            };
+            if (SwingUtilities.isEventDispatchThread()) r.run();
+            else SwingUtilities.invokeLater(r);
         }
 
         @Override
@@ -1626,6 +1643,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);
         tokenUsageBar.setReadOnly(readOnly);
+        // Update the titled border to reflect read-only state
+        contextAreaContainer.setReadOnly(readOnly);
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
     }
@@ -1637,6 +1656,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> {
             workspaceItemsChipPanel.setReadOnly(readOnly);
             tokenUsageBar.setReadOnly(readOnly);
+            contextAreaContainer.setReadOnly(readOnly);
         });
     }
 
