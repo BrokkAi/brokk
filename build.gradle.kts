@@ -4,6 +4,7 @@ fun getVersionFromGit(): String {
 
     try {
         // Get current git HEAD (works for both regular repos and worktrees)
+        // anod other changes 
         val currentGitHead = getCurrentGitHead()
 
         // Check if we can use cached version
