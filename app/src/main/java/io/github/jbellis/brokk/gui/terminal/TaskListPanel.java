@@ -120,8 +120,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
-        this.defaultGoButtonBg = UIManager.getColor("Button.default.background");
-        this.stopButtonBg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
+        var hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
+        this.defaultGoButtonBg = (hcDefault != null) ? hcDefault : UIManager.getColor("Button.default.background");
+        var hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
+        this.stopButtonBg = (hcStop != null) ? hcStop : ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
