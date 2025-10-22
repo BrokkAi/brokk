@@ -99,10 +99,12 @@ public class SplitButton extends JComponent {
         actionButton.addPropertyChangeListener(evt -> {
             var name = evt.getPropertyName();
             if ("text".equals(name) || "icon".equals(name) || "font".equals(name) || "iconTextGap".equals(name)) {
-                updateChildMaximumSizes();
-                SplitButton.this.invalidate();
-                revalidate();
-                repaint();
+                SwingUtilities.invokeLater(() -> {
+                    updateChildMaximumSizes();
+                    SplitButton.this.invalidate();
+                    revalidate();
+                    repaint();
+                });
             }
         });
 
@@ -278,8 +280,6 @@ public class SplitButton extends JComponent {
         int arrowHeight = arrowButton.getPreferredSize().height;
         int totalHeight = Math.max(actionHeight, arrowHeight);
 
-        // Keep children from being stretched by BoxLayout
-        updateChildMaximumSizes();
         return new Dimension(totalWidth, totalHeight);
     }
 
