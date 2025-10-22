@@ -1601,18 +1601,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Methods to disable and enable buttons.
     void disableButtons() {
         SwingUtilities.invokeLater(() -> {
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             // Keep the action button usable for "Stop" while a task is running.
             if (isActionRunning()) {
                 actionButton.showStopMode();
                 actionButton.setEnabled(true);
                 actionButton.setToolTipText("Cancel the current operation");
-                // always use the off red of the light theme
-                Color badgeBackgroundColor = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
-                actionButton.setBackground(badgeBackgroundColor);
+
+                Color bg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
+                if (isHighContrast) {
+                    var hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
+                    if (hcStop != null) {
+                        bg = hcStop;
+                    }
+                    actionButton.setForeground(Color.WHITE);
+                }
+                actionButton.setBackground(bg);
             } else {
                 // If there is no running action, keep the action button enabled so the user can start an action.
                 actionButton.setEnabled(true);
-                actionButton.setBackground(defaultActionButtonBg);
+                Color bg = defaultActionButtonBg;
+                if (isHighContrast) {
+                    var hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
+                    if (hcDefault != null) {
+                        bg = hcDefault;
+                    }
+                }
+                actionButton.setBackground(bg);
                 // Ensure combined tooltip (mode-specific + base) is shown initially
                 actionButton.updateTooltip();
             }
@@ -1628,16 +1643,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             // Action button reflects current running state
             if (isActionRunning()) {
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
-                actionButton.setBackground(secondaryActionButtonBg);
+                Color bg = secondaryActionButtonBg;
+                if (isHighContrast) {
+                    var hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
+                    if (hcStop != null) {
+                        bg = hcStop;
+                    }
+                    actionButton.setForeground(Color.WHITE);
+                }
+                actionButton.setBackground(bg);
             } else {
                 actionButton.showNormalMode();
                 // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
                 actionButton.updateTooltip();
-                actionButton.setBackground(defaultActionButtonBg);
+                Color bg = defaultActionButtonBg;
+                if (isHighContrast) {
+                    var hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
+                    if (hcDefault != null) {
+                        bg = hcDefault;
+                    }
+                    actionButton.setForeground(Color.WHITE);
+                }
+                actionButton.setBackground(bg);
             }
             actionButton.setEnabled(true);
 
