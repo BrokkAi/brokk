@@ -238,7 +238,7 @@ public class ContextAgent {
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
         // Process each group in parallel
-        RecommendationResult[] results = new RecommendationResult[2];
+        LlmRecommendation[] results = new LlmRecommendation[2];
         Throwable[] errors = new Throwable[2];
 
         Thread t1 = Thread.ofVirtual().start(() -> {
@@ -249,8 +249,7 @@ public class ContextAgent {
                         allSummaries,
                         workspaceRepresentation,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                        pruneBudgetRemaining);
             } catch (Throwable t) {
                 errors[0] = t;
             }
@@ -264,8 +263,7 @@ public class ContextAgent {
                         Map.of(),
                         workspaceRepresentation,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                        pruneBudgetRemaining);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -277,42 +275,48 @@ public class ContextAgent {
         if (errors[0] != null) throw new RuntimeException(errors[0]);
         if (errors[1] != null) throw new RuntimeException(errors[1]);
 
-        var analyzedResult = results[0];
-        var unAnalyzedResult = results[1];
+        var analyzedRec = results[0];
+        var unAnalyzedRec = results[1];
 
-        boolean success = analyzedResult.success || unAnalyzedResult.success;
+        boolean success = !analyzedRec.recommendedFiles().isEmpty()
+                || !analyzedRec.recommendedClasses().isEmpty()
+                || !unAnalyzedRec.recommendedFiles().isEmpty()
+                || !unAnalyzedRec.recommendedClasses().isEmpty();
 
-        // Merge fragments from both groups, then de-duplicate.
-        // Rationale: each group is processed independently; the LLM may recommend the same file
-        // in both groups. We normalize here to avoid duplicate ProjectPathFragments in the Workspace.
-        var merged = Stream.concat(analyzedResult.fragments.stream(), unAnalyzedResult.fragments.stream())
-                .toList();
-        // De-duplicate after merging analyzed and un-analyzed groups. The LLM may select the same file in both.
-        var dedupedFragments = deduplicateMergedFragments(merged);
+        // Union files and classes from both groups. Since both groups are processed independently,
+        // the LLM may recommend the same file/class in both. We use HashSet to automatically deduplicate
+        // at the semantic level (canonical ProjectFile and CodeUnit objects).
+        var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
+        mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
 
-        var combinedReasoning = Stream.of(analyzedResult.reasoning, unAnalyzedResult.reasoning)
+        var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
+        mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
+
+        var combinedReasoning = Stream.of(analyzedRec.reasoning(), unAnalyzedRec.reasoning())
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
-        var combinedUsage = addTokenUsage(analyzedResult.tokenUsage, unAnalyzedResult.tokenUsage);
+        var combinedUsage = addTokenUsage(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
 
-        return new RecommendationResult(success, dedupedFragments, combinedReasoning, combinedUsage);
+        var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, combinedReasoning, combinedUsage);
+        var result = createResult(unifiedRec, existingFiles);
+
+        return new RecommendationResult(success, result, combinedReasoning, combinedUsage);
     }
 
     // --- Group processing ---
 
-    private RecommendationResult processGroup(
+    private LlmRecommendation processGroup(
             GroupType type,
             List<ProjectFile> groupFiles,
             Map<CodeUnit, String> allSummariesForAnalyzed,
             Collection<ChatMessage> workspaceRepresentation,
             int evalBudgetRemaining,
-            int pruneBudgetRemaining,
-            Set<ProjectFile> existingFiles)
+            int pruneBudgetRemaining)
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
             String msg = "No " + type.name().toLowerCase(Locale.ROOT) + " items to process.";
-            return new RecommendationResult(true, List.of(), msg, null);
+            return new LlmRecommendation(Set.of(), Set.of(), msg, null);
         }
 
         // Build initial payload preview for token estimation
@@ -349,8 +353,8 @@ public class ContextAgent {
 
             if (workingFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
-                return new RecommendationResult(
-                        true, List.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
+                return new LlmRecommendation(
+                        Set.of(), Set.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
             }
         }
 
@@ -370,7 +374,7 @@ public class ContextAgent {
                     evalRec.recommendedFiles(), evalRec.recommendedClasses(), evalRec.reasoning(), usage);
         }
 
-        return createResult(evalRec, existingFiles);
+        return evalRec;
     }
 
     private LlmRecommendation evaluateWithHalving(
@@ -404,7 +408,7 @@ public class ContextAgent {
 
     // --- Result assembly ---
 
-    private RecommendationResult createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
+    private List<ContextFragment> createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
         var originalFiles = llmRecommendation.recommendedFiles();
         var filteredFiles =
                 originalFiles.stream().filter(f -> !existingFiles.contains(f)).toList();
@@ -427,7 +431,6 @@ public class ContextAgent {
                     recommendedClasses.size());
         }
 
-        var reasoning = llmRecommendation.reasoning();
         var recommendedSummaries = getSummaries(recommendedClasses);
 
         int recommendedSummaryTokens = Messages.getApproximateTokens(String.join("\n", recommendedSummaries.values()));
@@ -448,10 +451,7 @@ public class ContextAgent {
         var pathFragments = filteredFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        var combinedFragments =
-                Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
-
-        return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
+        return Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
     }
 
     /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
@@ -819,54 +819,6 @@ public class ContextAgent {
     }
 
     // --- Helper methods ---
-    /**
-     * Final de-duplication after merging analyzed and un-analyzed groups.
-     * Rationale: both groups are processed independently and the LLM may recommend the same file in both.
-     * We keep the first occurrence and drop subsequent duplicates; we also log what was removed.
-     */
-    private List<ContextFragment> deduplicateMergedFragments(Collection<ContextFragment> fragments) {
-        var seenKeys = new HashSet<String>();
-        var deduped = new ArrayList<ContextFragment>();
-        var duplicateFileKeys = new ArrayList<String>();
-        var duplicateSummaryKeys = new ArrayList<String>();
-
-        for (var frag : fragments) {
-            String key;
-            if (frag.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && frag instanceof ContextFragment.ProjectPathFragment ppf) {
-                key = "PATH:" + ppf.file().toString();
-            } else if (frag.getType() == ContextFragment.FragmentType.SKELETON) {
-                key = "SKEL:" + frag.description();
-            } else {
-                key = frag.getType() + ":" + frag.description();
-            }
-
-            if (!seenKeys.add(key)) {
-                if (key.startsWith("PATH:")) {
-                    duplicateFileKeys.add(key.substring("PATH:".length()));
-                } else if (key.startsWith("SKEL:")) {
-                    duplicateSummaryKeys.add(key.substring("SKEL:".length()));
-                }
-                continue;
-            }
-            deduped.add(frag);
-        }
-
-        int removed = fragments.size() - deduped.size();
-        if (removed > 0) {
-            if (!duplicateFileKeys.isEmpty() || !duplicateSummaryKeys.isEmpty()) {
-                logger.debug(
-                        "Final merge de-duplicated {} fragment(s). Duplicate files: {}{}{}",
-                        removed,
-                        duplicateFileKeys.isEmpty() ? "0" : String.join(", ", duplicateFileKeys),
-                        duplicateSummaryKeys.isEmpty() ? "" : " | duplicate summaries: ",
-                        duplicateSummaryKeys.isEmpty() ? "" : String.join(", ", duplicateSummaryKeys));
-            } else {
-                logger.debug("Final merge de-duplicated {} fragment(s).", removed);
-            }
-        }
-        return deduped;
-    }
 
     private static @Nullable Llm.RichTokenUsage addTokenUsage(
             @Nullable Llm.RichTokenUsage a, @Nullable Llm.RichTokenUsage b) {
