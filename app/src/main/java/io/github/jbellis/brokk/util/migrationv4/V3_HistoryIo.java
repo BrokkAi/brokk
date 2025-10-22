@@ -23,7 +23,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 public final class V3_HistoryIo {
     private static final Logger logger = LogManager.getLogger(V3_HistoryIo.class);
@@ -196,61 +195,6 @@ public final class V3_HistoryIo {
         entryInfoDtos.forEach((key, value) -> entryInfos.put(UUID.fromString(key), value));
 
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
-    }
-
-    public static class ContentWriter {
-        private final Map<String, ContentDtos.ContentMetadataDto> contentMetadata = new HashMap<>();
-        private final Map<String, byte[]> contentBytes = new HashMap<>();
-        private final Map<String, String> fileKeyToLastContentId = new HashMap<>();
-        private final Map<String, String> idToFullContent = new HashMap<>();
-
-        public String writeContent(String content, @Nullable String fileKey) {
-            byte[] fullContentBytes = content.getBytes(StandardCharsets.UTF_8);
-            var contentId = UUID.nameUUIDFromBytes(fullContentBytes).toString();
-
-            if (idToFullContent.containsKey(contentId)) {
-                if (fileKey != null) {
-                    fileKeyToLastContentId.put(fileKey, contentId);
-                }
-                return contentId;
-            }
-
-            idToFullContent.put(contentId, content);
-
-            int revision = 1;
-            if (fileKey != null) {
-                var lastContentId = fileKeyToLastContentId.get(fileKey);
-                fileKeyToLastContentId.put(fileKey, contentId);
-                if (lastContentId != null) {
-                    var lastContent = idToFullContent.get(lastContentId);
-                    var lastMetadata = contentMetadata.get(lastContentId);
-                    if (lastContent != null && lastMetadata != null) {
-                        revision = lastMetadata.revision() + 1;
-                        var diff = ContentDiffUtils.diff(lastContent, content);
-                        var diffRatio = (double) diff.length() / content.length();
-                        if (diffRatio < 0.75) {
-                            contentMetadata.put(
-                                    contentId, new ContentDtos.DiffContentMetadataDto(revision, lastContentId));
-                            contentBytes.put(contentId, diff.getBytes(StandardCharsets.UTF_8));
-                            return contentId;
-                        }
-                    }
-                }
-            }
-
-            contentMetadata.put(contentId, new ContentDtos.FullContentMetadataDto(revision));
-            contentBytes.put(contentId, fullContentBytes);
-
-            return contentId;
-        }
-
-        public Map<String, ContentDtos.ContentMetadataDto> getContentMetadata() {
-            return contentMetadata;
-        }
-
-        public Map<String, byte[]> getContentBytes() {
-            return contentBytes;
-        }
     }
 
     public static class ContentReader {
