@@ -101,6 +101,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Chrome chrome;
     private final Color defaultGoButtonBg;
     private final Color stopButtonBg;
+    // These mirror InstructionsPanel's action button dimensions to keep Play/Stop button sizing consistent across panels.
+    private static final int ACTION_BUTTON_WIDTH = 140;
+    private static final int ACTION_BUTTON_MIN_HEIGHT = 36;
     private final Timer runningFadeTimer;
     private final JComponent controls;
     private final JPanel southPanel;
