@@ -124,7 +124,8 @@ public class MergeAgent {
                         "Preparing %d conflicted files for AI merge...".formatted(conflicts.size()));
 
         // Heuristic non-text resolution phase (rename/delete/mode/dir collisions, etc.)
-        if (scope.nonTextMode() != NonTextResolutionMode.OFF) {
+        // TODO wire up NonTextResolutionMode
+        if (true) {
             try {
                 resolveNonTextConflicts(this.conflict, repo);
             } catch (InterruptedException ie) {

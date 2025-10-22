@@ -9,7 +9,6 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -1974,21 +1973,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
+    public TaskScope beginTask(String input, boolean compressAtCommit) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
         var history = topContext().getTaskHistory();
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
-        return new TaskScope(compressAtCommit, nonTextMode);
+        return new TaskScope(compressAtCommit);
     }
-
-    /** Backwards-compatible overload: defaults non-text handling to OFF. */
-    public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, MergeAgent.NonTextResolutionMode.OFF);
-    }
-
+    
     /**
      * Aggregating scope that collects messages/files and commits once.
      * By design, this keeps only the Context from the final TaskResult in the Scope.
@@ -1997,24 +1991,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
-        private final MergeAgent.NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressResults, MergeAgent.NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressResults) {
             io.blockLlmOutput(true);
             this.compressResults = compressResults;
-            this.nonTextMode = nonTextMode;
             this.results = new ArrayList<>();
         }
 
         public void append(TaskResult result) {
             assert !closed : "TaskScope already closed";
             results.add(result);
-        }
-
-        public MergeAgent.NonTextResolutionMode nonTextMode() {
-            return nonTextMode;
         }
 
         @Override
