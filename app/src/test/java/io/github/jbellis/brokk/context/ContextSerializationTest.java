@@ -28,6 +28,17 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import io.github.jbellis.brokk.TaskResult;
+import java.util.Collections;
+import java.util.UUID;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
@@ -1272,5 +1283,81 @@ public class ContextSerializationTest {
         } else {
             fail("Expected SummaryFragment or FrozenFragment, got: " + loadedRawFragment2.getClass());
         }
+    }
+
+    @Test
+    void testTaskResultSerialization() throws Exception {
+        var objectMapper = new ObjectMapper()
+                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        var module = new SimpleModule();
+        // For test purposes, serialize TaskFragment by its description.
+        // In real serialization, this would be handled by DtoMapper.
+        module.addSerializer(ContextFragment.TaskFragment.class, new StdSerializer<ContextFragment.TaskFragment>(ContextFragment.TaskFragment.class) {
+            @Override
+            public void serialize(ContextFragment.TaskFragment value, JsonGenerator gen, SerializerProvider provider) throws IOException {
+                gen.writeString(value.description());
+            }
+        });
+        // A deserializer that creates a dummy TaskFragment
+        module.addDeserializer(ContextFragment.TaskFragment.class, new StdDeserializer<ContextFragment.TaskFragment>(ContextFragment.TaskFragment.class) {
+            @Override
+            public ContextFragment.TaskFragment deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+                String description = p.getText();
+                return new ContextFragment.TaskFragment(mockContextManager, Collections.emptyList(), description);
+            }
+        });
+        objectMapper.registerModule(module);
+
+        // --- Part 1: Round-trip with all fields ---
+        var taskId = UUID.randomUUID();
+        var beforeContextId = UUID.randomUUID();
+        var afterContextId = UUID.randomUUID();
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, List.of(UserMessage.from("test")), "description");
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+
+        var fullTaskResult = new TaskResult(
+                "description",
+                taskFragment,
+                Collections.emptySet(),
+                stopDetails,
+                taskId,
+                beforeContextId,
+                afterContextId,
+                1234567890L,
+                "summary"
+        );
+
+        String json = objectMapper.writeValueAsString(fullTaskResult);
+        var deserializedResult = objectMapper.readValue(json, TaskResult.class);
+
+        // Full equality will fail due to dummy TaskFragment, so compare fields.
+        assertEquals(fullTaskResult.actionDescription(), deserializedResult.actionDescription());
+        assertEquals(fullTaskResult.output().description(), deserializedResult.output().description());
+        assertEquals(fullTaskResult.changedFiles(), deserializedResult.changedFiles());
+        assertEquals(fullTaskResult.stopDetails(), deserializedResult.stopDetails());
+        assertEquals(fullTaskResult.taskId(), deserializedResult.taskId());
+        assertEquals(fullTaskResult.beforeContextId(), deserializedResult.beforeContextId());
+        assertEquals(fullTaskResult.afterContextId(), deserializedResult.afterContextId());
+        assertEquals(fullTaskResult.createdAtEpochMillis(), deserializedResult.createdAtEpochMillis());
+        assertEquals(fullTaskResult.summaryText(), deserializedResult.summaryText());
+
+        // --- Part 2: Backward compatibility (deserializing old format) ---
+        String oldJson = """
+        {
+          "actionDescription": "old task",
+          "output": "dummy fragment",
+          "changedFiles": [],
+          "stopDetails": { "reason": "SUCCESS", "explanation": "" }
+        }
+        """;
+        var deserializedOld = objectMapper.readValue(oldJson, TaskResult.class);
+
+        assertEquals("old task", deserializedOld.actionDescription());
+        assertNull(deserializedOld.taskId());
+        assertNull(deserializedOld.beforeContextId());
+        assertNull(deserializedOld.afterContextId());
+        assertNull(deserializedOld.summaryText());
+        assertEquals(0L, deserializedOld.createdAtEpochMillis()); // Default for long when missing
     }
 }

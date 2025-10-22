@@ -5,6 +5,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents the outcome of a CodeAgent session, containing all necessary information to update the context history.
@@ -13,7 +15,35 @@ public record TaskResult(
         String actionDescription,
         ContextFragment.TaskFragment output,
         Set<ProjectFile> changedFiles,
-        StopDetails stopDetails) {
+        StopDetails stopDetails,
+        @Nullable UUID taskId,
+        @Nullable UUID beforeContextId,
+        @Nullable UUID afterContextId,
+        long createdAtEpochMillis,
+        @Nullable String summaryText) {
+
+    /**
+     * Preserves binary compatibility for existing call sites of the old 4-argument canonical constructor.
+     * This constructor delegates to the new canonical constructor with default values.
+     */
+    public TaskResult(
+            String actionDescription,
+            ContextFragment.TaskFragment output,
+            Set<ProjectFile> changedFiles,
+            StopDetails stopDetails) {
+        this(
+                actionDescription,
+                output,
+                changedFiles,
+                stopDetails,
+                null, // taskId
+                null, // beforeContextId
+                null, // afterContextId
+                System.currentTimeMillis(),
+                null // summaryText
+                );
+    }
+
     public TaskResult(
             IContextManager contextManager,
             String actionDescription,
@@ -46,7 +76,12 @@ public record TaskResult(
                 base.actionDescription(),
                 new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
                 base.changedFiles(),
-                base.stopDetails());
+                base.stopDetails(),
+                base.taskId(),
+                base.beforeContextId(),
+                base.afterContextId(),
+                base.createdAtEpochMillis(),
+                base.summaryText());
     }
 
     /** Enum representing the reason a CodeAgent session concluded. */
