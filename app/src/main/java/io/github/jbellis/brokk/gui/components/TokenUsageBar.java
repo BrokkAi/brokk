@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.components;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FragmentColorUtils;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -67,6 +68,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile List<Segment> segments = List.of();
     private final ConcurrentHashMap<String, Integer> tokenCache = new ConcurrentHashMap<>();
     private volatile Set<ContextFragment> hoveredFragments = Set.of();
+    private volatile boolean readOnly = false;
 
     // Tooltip for unfilled part (model/max/cost)
     @Nullable
@@ -84,7 +86,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         MouseAdapter mouseAdapter = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (isEnabled() && SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
+                if (!isEnabled() || readOnly) {
+                    return;
+                }
+                if (SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
                     Segment seg = findSegmentAt(e.getX());
                     if (seg != null && !seg.fragments.isEmpty()) {
                         if (seg.isSummaryGroup) {
@@ -143,7 +148,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             public void mouseExited(MouseEvent e) {
                 Segment prev = hoveredSegment;
                 hoveredSegment = null;
-                if (prev != null && onHoverFragments != null) {
+                if (prev != null && onHoverFragments != null && isEnabled() && !readOnly) {
                     try {
                         onHoverFragments.accept(prev.getFragments(), false);
                     } catch (Exception ex) {
@@ -154,6 +159,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
             @Override
             public void mouseMoved(MouseEvent e) {
+                if (!isEnabled() || readOnly) {
+                    return;
+                }
                 Segment seg = findSegmentAt(e.getX());
                 if (!Objects.equals(seg, hoveredSegment)) {
                     Segment prev = hoveredSegment;
@@ -255,6 +263,25 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
         repaint();
+    }
+
+    /**
+     * Update the bar with fragments from the given Context. Runs on the EDT.
+     */
+    public void setFragmentsForContext(Context context) {
+        List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
+        SwingUtilities.invokeLater(() -> setFragments(frags));
+    }
+
+    /**
+     * Enable or disable interactive behavior and visuals for read-only mode. Runs on the EDT.
+     */
+    public void setReadOnly(boolean readOnly) {
+        SwingUtilities.invokeLater(() -> {
+            this.readOnly = readOnly;
+            setEnabled(!readOnly);
+            repaint();
+        });
     }
 
     public void setWarningLevel(WarningLevel level, @Nullable Service.ModelConfig config) {
@@ -395,6 +422,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     segs.isEmpty() ? 0 : segs.get(segs.size() - 1).startX + segs.get(segs.size() - 1).widthPx;
             int usedTokens = computeUsedTokens();
             drawText(g2d, width, height, fillPixelEnd, usedTokens);
+
+            // Dim overlay when disabled/read-only to provide a visual cue
+            if (!isEnabled() || readOnly) {
+                Composite orig = g2d.getComposite();
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
+                g2d.setColor(new Color(0, 0, 0, 120));
+                g2d.fillRoundRect(0, 0, width, height, ARC, ARC);
+                g2d.setComposite(orig);
+            }
         } finally {
             g2d.dispose();
         }
