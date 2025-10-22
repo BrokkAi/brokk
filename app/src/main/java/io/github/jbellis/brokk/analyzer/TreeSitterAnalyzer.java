@@ -230,27 +230,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var failedFiles = new AtomicInteger(0);
 
         // Collect files to process using gitignore-filtered analyzable files
-        // Prefer reusing existing ProjectFile instances from the project to preserve correct roots
-        List<ProjectFile> filesToProcess = project.getAnalyzableFiles(language).stream()
-                .map(absPath -> {
-                    // Try to find the matching ProjectFile already known to the project
-                    var existing = project.getAllFiles().stream()
-                            .filter(pf -> pf.absPath().equals(absPath))
-                            .findFirst();
-                    if (existing.isPresent()) {
-                        return existing.get();
-                    }
-                    // Fallback: create a ProjectFile, being careful if the path is not under the project root
-                    Path rel;
-                    try {
-                        rel = project.getRoot().relativize(absPath);
-                    } catch (IllegalArgumentException e) {
-                        // Not under project root; use filename as a minimal relative label
-                        rel = absPath.getFileName();
-                    }
-                    return new ProjectFile(project.getRoot(), rel);
-                })
-                .toList();
+        List<ProjectFile> filesToProcess = project.getAnalyzableFiles(language);
 
         var timing = ConstructionTiming.create();
         // Local mutable maps to accumulate analysis results, then snapshotted into immutable PMaps

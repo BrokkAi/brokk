@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Languages;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,8 +41,8 @@ class ProjectFilteringGitRepoTest {
         Files.writeString(file, content);
     }
 
-    private static String normalize(String path) {
-        return path.replace('\\', '/');
+    private static String normalize(ProjectFile pf) {
+        return pf.toString().replace('\\', '/');
     }
 
     private static void trackFiles(Path tempDir) throws Exception {
@@ -81,9 +82,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include all tracked files
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("build/Generated.java")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("test/Test.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/Generated.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("test/Test.java")));
 
         project.close();
     }
@@ -105,9 +106,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include .java but not .class or .log
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).contains(".class")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).contains(".log")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).contains(".class")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).contains(".log")));
 
         project.close();
     }
@@ -130,9 +131,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include src/ but not build/ or target/
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).startsWith("build/")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).startsWith("target/")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("build/")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("target/")));
 
         project.close();
     }
@@ -155,9 +156,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include app.py and important.pyc, but not app.pyc
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("app.py")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("important.pyc")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("app.pyc")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("app.py")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("important.pyc")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("app.pyc")));
 
         project.close();
     }
@@ -180,9 +181,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include src/ and build/keep/, but not other build/ files
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("build/keep/Important.java")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("build/Generated.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/keep/Important.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/Generated.java")));
 
         project.close();
     }
@@ -206,10 +207,10 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should only include logs/important/ files
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("logs/debug.log")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("logs/error.log")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("logs/important/critical.log")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("logs/important/audit.log")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("logs/debug.log")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("logs/error.log")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("logs/important/critical.log")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("logs/important/audit.log")));
 
         project.close();
     }
@@ -232,9 +233,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should only include src/important/*.pyc
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("app.pyc")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/module.pyc")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/important/critical.pyc")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("app.pyc")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/module.pyc")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/important/critical.pyc")));
 
         project.close();
     }
@@ -258,9 +259,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should exclude baseline-excluded directories
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).startsWith("generated/")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).startsWith("vendor/")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("generated/")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("vendor/")));
 
         project.close();
     }
@@ -287,9 +288,9 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should exclude both gitignore and baseline exclusions
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).startsWith("build/")));
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).startsWith("vendor/")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("build/")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("vendor/")));
 
         project.close();
     }
@@ -310,8 +311,8 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include all files when gitignore is empty
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("build/Generated.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/Generated.java")));
 
         project.close();
     }
@@ -376,8 +377,8 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Should include all files when not a git repo
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("src/Main.java")));
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf.toString()).equals("build/Generated.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/Generated.java")));
 
         project.close();
     }
@@ -402,12 +403,12 @@ class ProjectFilteringGitRepoTest {
         // Get Java files
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("Main.java")));
 
         // Get Python files
         var pythonFiles = project.getAnalyzableFiles(Languages.PYTHON);
         assertEquals(1, pythonFiles.size());
-        assertTrue(pythonFiles.stream().anyMatch(p -> p.endsWith("app.py")));
+        assertTrue(pythonFiles.stream().anyMatch(p -> p.getRelPath().endsWith("app.py")));
 
         project.close();
     }
@@ -430,7 +431,7 @@ class ProjectFilteringGitRepoTest {
 
         // Should only include src/Main.java
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("src/Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("src/Main.java")));
         assertFalse(javaFiles.stream().anyMatch(p -> p.toString().contains("build/")));
 
         project.close();
@@ -455,7 +456,7 @@ class ProjectFilteringGitRepoTest {
 
         // Should only include src/Main.java
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("src/Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("src/Main.java")));
         assertFalse(javaFiles.stream().anyMatch(p -> p.toString().contains("generated/")));
 
         project.close();
@@ -485,10 +486,10 @@ class ProjectFilteringGitRepoTest {
 
         // Should only include src/Main.java (filtered by gitignore, baseline, and extension)
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("src/Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("src/Main.java")));
         assertFalse(javaFiles.stream().anyMatch(p -> p.toString().contains("build/")));
         assertFalse(javaFiles.stream().anyMatch(p -> p.toString().contains("vendor/")));
-        assertFalse(javaFiles.stream().anyMatch(p -> p.endsWith(".py")));
+        assertFalse(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith(".py")));
 
         project.close();
     }
@@ -511,9 +512,9 @@ class ProjectFilteringGitRepoTest {
 
         // Should include src/Main.java and build/keep/Important.java
         assertEquals(2, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("src/Main.java")));
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("build/keep/Important.java")));
-        assertFalse(javaFiles.stream().anyMatch(p -> p.endsWith("build/Generated.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("src/Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("build/keep/Important.java")));
+        assertFalse(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("build/Generated.java")));
 
         project.close();
     }
@@ -536,11 +537,11 @@ class ProjectFilteringGitRepoTest {
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("Main.java")));
 
         var pythonFiles = project.getAnalyzableFiles(Languages.PYTHON);
         assertEquals(1, pythonFiles.size());
-        assertTrue(pythonFiles.stream().anyMatch(p -> p.endsWith("app.py")));
+        assertTrue(pythonFiles.stream().anyMatch(p -> p.getRelPath().endsWith("app.py")));
 
         project.close();
     }
@@ -580,8 +581,8 @@ class ProjectFilteringGitRepoTest {
 
         // Should include both src files but not target
         assertEquals(2, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("App.java")));
-        assertTrue(javaFiles.stream().anyMatch(p -> p.endsWith("AppTest.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("App.java")));
+        assertTrue(javaFiles.stream().anyMatch(p -> p.getRelPath().endsWith("AppTest.java")));
         assertFalse(javaFiles.stream().anyMatch(p -> p.toString().contains("target/")));
 
         project.close();
@@ -601,7 +602,7 @@ class ProjectFilteringGitRepoTest {
 
         // getFiles() should also respect filtering
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(pf -> normalize(pf.toString()).endsWith("Main.java")));
+        assertTrue(javaFiles.stream().anyMatch(pf -> normalize(pf).endsWith("Main.java")));
 
         project.close();
     }
@@ -623,8 +624,8 @@ class ProjectFilteringGitRepoTest {
 
         // getFiles() should respect gitignore
         assertEquals(1, javaFiles.size());
-        assertTrue(javaFiles.stream().anyMatch(pf -> normalize(pf.toString()).endsWith("src/Main.java")));
-        assertFalse(javaFiles.stream().anyMatch(pf -> normalize(pf.toString()).contains("build/")));
+        assertTrue(javaFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
+        assertFalse(javaFiles.stream().anyMatch(pf -> normalize(pf).contains("build/")));
 
         project.close();
     }

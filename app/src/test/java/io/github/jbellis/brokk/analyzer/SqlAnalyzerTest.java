@@ -37,11 +37,10 @@ class SqlAnalyzerTest {
             }
 
             @Override
-            public List<Path> getAnalyzableFiles(Language language) {
+            public List<ProjectFile> getAnalyzableFiles(Language language) {
                 var extensions = language.getExtensions();
                 return getAllFiles().stream()
                         .filter(pf -> extensions.contains(pf.extension()))
-                        .map(ProjectFile::absPath)
                         .collect(Collectors.toList());
             }
         };
@@ -239,13 +238,12 @@ class SqlAnalyzerTest {
             }
 
             @Override
-            public List<Path> getAnalyzableFiles(Language language) {
+            public List<ProjectFile> getAnalyzableFiles(Language language) {
                 var extensions = language.getExtensions();
                 // Only return the included file, simulating gitignore filtering
                 return getAllFiles().stream()
                         .filter(pf -> extensions.contains(pf.extension()))
                         .filter(pf -> !pf.absPath().toString().contains("excluded_dir"))
-                        .map(ProjectFile::absPath)
                         .collect(Collectors.toList());
             }
         };

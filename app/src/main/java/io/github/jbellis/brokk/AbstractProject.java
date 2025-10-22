@@ -621,14 +621,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // Filter files
             var filteredFiles = new HashSet<ProjectFile>();
             for (var file : files) {
-                final var relativePathRaw = file.toString().replace('\\', '/');
-                final String relativePath =
-                        relativePathRaw.startsWith("./") ? relativePathRaw.substring(2) : relativePathRaw;
-
-                // Check baseline exclusions first
-                boolean isBaselineExcluded = baselineExclusions.stream()
-                        .anyMatch(exclusion ->
-                                relativePath.equals(exclusion) || relativePath.startsWith(exclusion + "/"));
+                // Check baseline exclusions first (using Path comparison)
+                boolean isBaselineExcluded = baselineExclusions.stream().anyMatch(exclusion -> {
+                    var filePath = file.getRelPath();
+                    var exclusionPath = Path.of(exclusion);
+                    return filePath.equals(exclusionPath) || filePath.startsWith(exclusionPath);
+                });
 
                 if (isBaselineExcluded) {
                     continue;
@@ -637,22 +635,24 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 // Check gitignore rules (only if .gitignore exists)
                 if (ignoreNode != null) {
                     boolean isDirectory = Files.isDirectory(file.absPath());
-                    var gitIgnoreResult = ignoreNode.isIgnored(relativePath, isDirectory);
+                    // Convert to Unix string only for JGit API call
+                    var gitIgnoreResult = ignoreNode.isIgnored(file.toUnixString(), isDirectory);
                     if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
                         continue;
                     }
 
                     // Check ancestor directories for ignored patterns
-                    Path parent = Path.of(relativePath).getParent();
+                    Path parent = file.getRelPath().getParent();
                     while (parent != null) {
-                        var parentRel = parent.toString().replace('\\', '/');
-                        var match = ignoreNode.isIgnored(parentRel, true);
+                        // Convert to Unix string only for JGit API call
+                        var parentUnixStr = parent.toString().replace('\\', '/');
+                        var match = ignoreNode.isIgnored(parentUnixStr, true);
 
                         if (match == IgnoreNode.MatchResult.IGNORED) {
                             logger.trace(
                                     "Skipping file because ancestor dir ignored by .gitignore: {} (ancestor {})",
-                                    relativePath,
-                                    parentRel);
+                                    file,
+                                    parent);
                             gitIgnoreResult = IgnoreNode.MatchResult.IGNORED;
                             break;
                         } else if (match == IgnoreNode.MatchResult.NOT_IGNORED) {
@@ -660,8 +660,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                             // Stop checking further ancestors and include the file
                             logger.trace(
                                     "Including file because ancestor dir explicitly un-ignored: {} (ancestor {})",
-                                    relativePath,
-                                    parentRel);
+                                    file,
+                                    parent);
                             break;
                         }
 
