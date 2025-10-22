@@ -1526,6 +1526,14 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handlePushAction(String branchName) {
+        // Capture current focused window to prevent stealing focus from worktree windows
+        Window currentFocusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                .getFocusedWindow();
+        System.out.println("=== Push button clicked ===");
+        System.out.println("Current focused window: " + (currentFocusedWindow != null
+                ? currentFocusedWindow.getClass().getSimpleName() + " - " + currentFocusedWindow.getName()
+                : "null"));
+
         pushButton.setEnabled(false);
         contextManager.submitExclusiveAction(() -> {
             try {
@@ -1581,6 +1589,24 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     chrome.toolError("Unexpected error pushing " + branchName + ": " + ex.getMessage());
                     pushButton.setEnabled(true);
                 });
+            }
+        });
+
+        // Restore focus if it was stolen (macOS can sometimes bring parent window forward)
+        SwingUtilities.invokeLater(() -> {
+            Window nowFocusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                    .getFocusedWindow();
+            System.out.println("After push action started, focused window: " + (nowFocusedWindow != null
+                    ? nowFocusedWindow.getClass().getSimpleName() + " - " + nowFocusedWindow.getName()
+                    : "null"));
+
+            if (currentFocusedWindow != null && currentFocusedWindow != nowFocusedWindow) {
+                System.out.println("*** Focus was stolen! Restoring focus to: "
+                        + currentFocusedWindow.getClass().getSimpleName());
+                currentFocusedWindow.toFront();
+                currentFocusedWindow.requestFocus();
+            } else {
+                System.out.println("Focus remained on the same window - no restoration needed");
             }
         });
     }
