@@ -36,6 +36,7 @@ public class SplitButton extends JComponent {
 
     private boolean unifiedHover;
     private @Nullable MouseAdapter hoverListener;
+    private static final int ARROW_BUTTON_WIDTH = 20;
 
     public SplitButton(String text) {
         this(text, false);
@@ -49,10 +50,15 @@ public class SplitButton extends JComponent {
 
         actionButton = new MaterialButton(text);
         arrowButton = new MaterialButton();
+        // Apply initial fixed width on the arrow button before icon is set
+        applyArrowButtonFixedWidth();
         SwingUtilities.invokeLater(() -> {
             arrowButton.setIcon(new ScaledIcon(Icons.KEYBOARD_DOWN, 0.7));
-            // Icon affects preferred size; refresh maximums to avoid stretching
+            // Icon affects preferred size; fix width and refresh maximums to avoid stretching
+            applyArrowButtonFixedWidth();
             updateChildMaximumSizes();
+            revalidate();
+            repaint();
         });
 
         applyCompactStyling(actionButton);
@@ -244,7 +250,7 @@ public class SplitButton extends JComponent {
      */
     private Dimension computePreferredSplitSize() {
         int actionWidth = computeActionButtonContentWidth();
-        int arrowWidth = Math.max(0, arrowButton.getPreferredSize().width);
+        int arrowWidth = ARROW_BUTTON_WIDTH;
         int totalWidth = actionWidth + arrowWidth;
 
         int actionHeight = actionButton.getPreferredSize().height;
@@ -279,6 +285,19 @@ public class SplitButton extends JComponent {
 
         width += iconWidth + gap + textWidth;
         return Math.max(0, width);
+    }
+
+    private void applyArrowButtonFixedWidth() {
+        Dimension ps = arrowButton.getPreferredSize();
+        int height = ps != null ? ps.height : 0;
+        if (height <= 0) {
+            // Fallback to action button height if arrow has not computed yet
+            height = actionButton.getPreferredSize().height;
+        }
+        // Fix the arrow width while respecting current preferred height
+        Dimension fixed = new Dimension(ARROW_BUTTON_WIDTH, Math.max(1, height));
+        arrowButton.setMinimumSize(fixed);
+        arrowButton.setPreferredSize(fixed);
     }
 
     private void updateChildMaximumSizes() {
