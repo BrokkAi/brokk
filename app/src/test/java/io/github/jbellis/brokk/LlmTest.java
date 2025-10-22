@@ -13,6 +13,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.testutil.TestProject;
 import io.github.jbellis.brokk.util.Messages;
 import java.nio.file.Path;
@@ -37,7 +38,7 @@ public class LlmTest {
     static void setUp() {
         // Create ContextManager, which initializes Models internally
         var consoleIO = new NoOpConsoleIO();
-        contextManager = new ContextManager(new TestProject(tempDir, Languages.JAVA));
+        contextManager = new TestContextManager(tempDir, consoleIO);
     }
 
     // Simple tool for testing
