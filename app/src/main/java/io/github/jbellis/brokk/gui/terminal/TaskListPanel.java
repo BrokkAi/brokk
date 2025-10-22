@@ -388,7 +388,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         goStopButton.setIconTextGap(0);
         goStopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        controls.add(Box.createHorizontalStrut(H_GAP));
+        controls.add(Box.createHorizontalStrut(8));
         controls.add(goStopButton);
 
         removeBtn.setIcon(Icons.REMOVE);
@@ -1115,7 +1115,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 controls.add(Box.createHorizontalGlue());
                 comp.setAlignmentY(Component.CENTER_ALIGNMENT);
                 controls.add(comp);
-                controls.add(Box.createHorizontalStrut(H_GAP));
+                controls.add(Box.createHorizontalStrut(8));
                 controls.add(goStopButton);
 
                 controls.revalidate();
