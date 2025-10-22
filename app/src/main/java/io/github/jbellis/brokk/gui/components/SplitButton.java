@@ -7,6 +7,7 @@ import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.FontMetrics;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -182,10 +183,14 @@ public class SplitButton extends JComponent {
     // Convenience: support text or icon on the left action button
     public void setText(@Nullable String text) {
         actionButton.setText(text);
+        revalidate();
+        repaint();
     }
 
     public void setIcon(@Nullable Icon icon) {
         actionButton.setIcon(icon);
+        revalidate();
+        repaint();
     }
 
     public @Nullable String getText() {
@@ -198,23 +203,59 @@ public class SplitButton extends JComponent {
 
     @Override
     public Dimension getMinimumSize() {
-        var left = actionButton.getMinimumSize();
-        var right = arrowButton.getMinimumSize();
-        return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+        return computePreferredSplitSize();
     }
 
     @Override
     public Dimension getPreferredSize() {
-        var left = actionButton.getPreferredSize();
-        var right = arrowButton.getPreferredSize();
-        return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+        return computePreferredSplitSize();
     }
 
     @Override
     public Dimension getMaximumSize() {
-        var left = actionButton.getMaximumSize();
-        var right = arrowButton.getMaximumSize();
-        return new Dimension(left.width + right.width, Math.max(left.height, right.height));
+        return computePreferredSplitSize();
+    }
+
+    /**
+     * Computes the preferred size of the split button based on the current content of the action button
+     * (text + optional icon) and the arrow button's preferred width. Height is the max of the two buttons'
+     * preferred heights.
+     */
+    private Dimension computePreferredSplitSize() {
+        int actionWidth = computeActionButtonContentWidth();
+        int arrowWidth = Math.max(0, arrowButton.getPreferredSize().width);
+        int totalWidth = actionWidth + arrowWidth;
+
+        int actionHeight = actionButton.getPreferredSize().height;
+        int arrowHeight = arrowButton.getPreferredSize().height;
+        int totalHeight = Math.max(actionHeight, arrowHeight);
+
+        return new Dimension(totalWidth, totalHeight);
+    }
+
+    /**
+     * Calculates the content width of the action button:
+     *   insets.left + textWidth + (iconWidth [+ iconTextGap if text present]) + insets.right
+     */
+    private int computeActionButtonContentWidth() {
+        Insets insets = actionButton.getInsets();
+        int width = (insets != null ? insets.left + insets.right : 0);
+
+        @Nullable Icon icon = actionButton.getIcon();
+        int iconWidth = (icon != null) ? icon.getIconWidth() : 0;
+
+        @Nullable String text = actionButton.getText();
+        int textWidth = 0;
+        if (text != null && !text.isEmpty()) {
+            FontMetrics fm = actionButton.getFontMetrics(actionButton.getFont());
+            textWidth = fm.stringWidth(text);
+        }
+
+        // If both text and icon are present, add iconTextGap
+        int gap = (iconWidth > 0 && textWidth > 0) ? Math.max(0, actionButton.getIconTextGap()) : 0;
+
+        width += iconWidth + gap + textWidth;
+        return Math.max(0, width);
     }
 
     // Lightweight wrapper to scale any Icon by a given factor.
