@@ -49,7 +49,11 @@ public class SplitButton extends JComponent {
 
         actionButton = new MaterialButton(text);
         arrowButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> arrowButton.setIcon(new ScaledIcon(Icons.KEYBOARD_DOWN, 0.7)));
+        SwingUtilities.invokeLater(() -> {
+            arrowButton.setIcon(new ScaledIcon(Icons.KEYBOARD_DOWN, 0.7));
+            // Icon affects preferred size; refresh maximums to avoid stretching
+            updateChildMaximumSizes();
+        });
 
         applyCompactStyling(actionButton);
         applyCompactStyling(arrowButton);
@@ -57,6 +61,23 @@ public class SplitButton extends JComponent {
         // Alignments for compact look
         actionButton.setHorizontalAlignment(SwingConstants.LEFT);
         arrowButton.setHorizontalAlignment(SwingConstants.CENTER);
+
+        // Prevent BoxLayout horizontal stretching by aligning children to the left
+        actionButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        arrowButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Initialize maximum sizes to preferred sizes to avoid stretching
+        updateChildMaximumSizes();
+
+        // When the action content changes, recompute and refresh layout
+        actionButton.addPropertyChangeListener(evt -> {
+            var name = evt.getPropertyName();
+            if ("text".equals(name) || "icon".equals(name) || "font".equals(name) || "iconTextGap".equals(name)) {
+                updateChildMaximumSizes();
+                revalidate();
+                repaint();
+            }
+        });
 
         // Right side click shows dropdown
         arrowButton.addActionListener(e -> showPopupMenuInternal());
@@ -230,6 +251,8 @@ public class SplitButton extends JComponent {
         int arrowHeight = arrowButton.getPreferredSize().height;
         int totalHeight = Math.max(actionHeight, arrowHeight);
 
+        // Keep children from being stretched by BoxLayout
+        updateChildMaximumSizes();
         return new Dimension(totalWidth, totalHeight);
     }
 
@@ -256,6 +279,13 @@ public class SplitButton extends JComponent {
 
         width += iconWidth + gap + textWidth;
         return Math.max(0, width);
+    }
+
+    private void updateChildMaximumSizes() {
+        // Prevent BoxLayout from stretching children horizontally:
+        // constrain each child's maximum size to its current preferred size.
+        actionButton.setMaximumSize(actionButton.getPreferredSize());
+        arrowButton.setMaximumSize(arrowButton.getPreferredSize());
     }
 
     // Lightweight wrapper to scale any Icon by a given factor.
