@@ -106,6 +106,7 @@ treesitter-php = "io.github.bonede:tree-sitter-php:0.23.11"
 treesitter-python = { module = "io.github.bonede:tree-sitter-python", version.ref = "treesitter-lang" }
 treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
 treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
+treesitter-scala = "io.github.bonede:tree-sitter-scala:0.23.3"
 
 # Eclipse JDT
 eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.43.0"
@@ -132,7 +133,7 @@ junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-plat
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 apache = ["apache-compress", "apache-commons-text"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]

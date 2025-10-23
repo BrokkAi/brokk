@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.scala.ScalaLanguage;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import java.nio.file.Path;
@@ -554,6 +555,9 @@ public class Languages {
             return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
         }
     };
+
+    public static final Language SCALA = new ScalaLanguage();
+
     public static final List<Language> ALL_LANGUAGES = List.of(
             C_SHARP,
             JAVA,
@@ -565,6 +569,7 @@ public class Languages {
             RUST,
             PHP,
             TYPESCRIPT, // Now TYPESCRIPT is declared before this list
+            SCALA,
             SQL, // SQL is now defined and can be included
             NONE);
 
