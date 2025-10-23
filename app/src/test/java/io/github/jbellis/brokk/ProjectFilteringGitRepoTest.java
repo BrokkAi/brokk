@@ -730,4 +730,226 @@ class ProjectFilteringGitRepoTest {
 
         project.close();
     }
+
+    /**
+     * Test monorepo scenario where project root is a subdirectory within a larger git repository.
+     * Structure:
+     * /monorepo/.gitignore (ignores *.log, node_modules/)
+     * /monorepo/backend/ (PROJECT ROOT)
+     * /monorepo/backend/.gitignore (ignores target/, !target/classes/)
+     * /monorepo/frontend/ (other project, not part of this project)
+     */
+    @Test
+    void getAllFiles_handles_monorepo_subdirectory_project(@TempDir Path tempDir) throws Exception {
+        // Initialize git repo at monorepo root
+        initGitRepo(tempDir);
+
+        // Create root .gitignore
+        Files.writeString(tempDir.resolve(".gitignore"), "*.log\nnode_modules/\n");
+
+        // Create files in frontend (not part of backend project)
+        createFile(tempDir, "frontend/package.json", "{}");
+        createFile(tempDir, "frontend/src/App.tsx", "export const App = () => {};");
+        createFile(tempDir, "frontend/node_modules/react/index.js", "module.exports = {};");
+
+        // Create files in backend (our project root)
+        createFile(tempDir, "backend/src/Main.java", "class Main {}");
+        createFile(tempDir, "backend/debug.log", "debug logs");
+        createFile(tempDir, "backend/target/classes/Main.class", "compiled class");
+        createFile(tempDir, "backend/target/generated/Gen.java", "generated code");
+        createFile(tempDir, "backend/README.md", "backend readme");
+
+        // Create backend .gitignore
+        createFile(tempDir, "backend/.gitignore", "target/*\n!target/classes/\n");
+
+        trackFiles(tempDir);
+
+        // Open project with backend as root (subdirectory of git repo)
+        var backendRoot = tempDir.resolve("backend");
+        var project = new MainProject(backendRoot);
+        var allFiles = project.getAllFiles();
+
+        // Root .gitignore should exclude *.log files (even though we're in a subdirectory)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("debug.log")),
+                "Root .gitignore should exclude debug.log in backend/");
+
+        // Backend .gitignore should exclude target/* except target/classes/
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).contains("target/generated")),
+                "Backend .gitignore should exclude target/generated/");
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).contains("target/classes")),
+                "Backend .gitignore negation should include target/classes/");
+
+        // Files from backend should be included
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "backend/src/Main.java should be included");
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")),
+                "backend/README.md should be included");
+
+        // Note: We don't test that frontend files are excluded here because getAllFilesRaw()
+        // behavior with monorepo subdirectories is outside the scope of gitignore filtering.
+        // The gitignore implementation correctly handles the files it receives.
+
+        project.close();
+    }
+
+    /**
+     * Test that monorepo subdirectory projects respect both root and nested gitignore files.
+     * This is a more complex scenario with multiple levels of gitignore.
+     */
+    @Test
+    void getAllFiles_monorepo_respects_multiple_gitignore_levels(@TempDir Path tempDir) throws Exception {
+        // Initialize git repo at monorepo root
+        initGitRepo(tempDir);
+
+        // Create root .gitignore (applies to entire monorepo)
+        Files.writeString(tempDir.resolve(".gitignore"), "*.secret\n.env\n");
+
+        // Create projects directory .gitignore
+        Files.createDirectories(tempDir.resolve("projects"));
+        Files.writeString(tempDir.resolve("projects/.gitignore"), "*.tmp\n");
+
+        // Create files in our project (projects/service/)
+        createFile(tempDir, "projects/service/src/Main.java", "class Main {}");
+        createFile(tempDir, "projects/service/config.secret", "secret data");
+        createFile(tempDir, "projects/service/.env", "ENV=dev");
+        createFile(tempDir, "projects/service/cache.tmp", "temp cache");
+        createFile(tempDir, "projects/service/README.md", "readme");
+
+        // Create service .gitignore
+        createFile(tempDir, "projects/service/.gitignore", "build/\n");
+        createFile(tempDir, "projects/service/build/output.jar", "jar file");
+
+        trackFiles(tempDir);
+
+        // Open project with projects/service as root
+        var serviceRoot = tempDir.resolve("projects/service");
+        var project = new MainProject(serviceRoot);
+        var allFiles = project.getAllFiles();
+
+        // Root .gitignore should exclude *.secret and .env
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("config.secret")),
+                "Root .gitignore should exclude *.secret");
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith(".env")),
+                "Root .gitignore should exclude .env");
+
+        // projects/.gitignore should exclude *.tmp
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("cache.tmp")),
+                "projects/.gitignore should exclude *.tmp");
+
+        // service/.gitignore should exclude build/
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).contains("build/")),
+                "service/.gitignore should exclude build/");
+
+        // Other files should be included
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
+
+        project.close();
+    }
+
+    /**
+     * Test Git's rule that you cannot un-ignore a file if its parent directory is ignored.
+     * According to Git documentation:
+     * "It is not possible to re-include a file if a parent directory of that file is excluded."
+     *
+     * Test case:
+     * .gitignore contains:
+     *   build/
+     *   !build/app.java
+     *
+     * Result: build/app.java should STILL BE IGNORED because build/ is ignored.
+     *
+     * To properly un-ignore build/app.java, you would need:
+     *   build/*
+     *   !build/app.java
+     * OR:
+     *   build/
+     *   !build/
+     *   !build/app.java
+     */
+    @Test
+    void getAllFiles_cannot_unignore_file_in_ignored_directory(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "build/classes/App.class", "compiled");
+        createFile(tempDir, "build/app.java", "source in build dir");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Create .gitignore that tries (but fails) to un-ignore a file in an ignored directory
+        Files.writeString(tempDir.resolve(".gitignore"),
+                "build/\n" +
+                "!build/app.java\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // build/ directory is ignored, so ALL files inside it should be ignored
+        // The negation pattern !build/app.java does NOT work because the parent directory is ignored
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).contains("build/")),
+                "All files in build/ should be ignored (cannot un-ignore file in ignored directory)");
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/app.java")),
+                "build/app.java should be ignored despite !build/app.java pattern");
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/classes/App.class")),
+                "build/classes/App.class should be ignored");
+
+        // Other files should be included
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
+
+        project.close();
+    }
+
+    /**
+     * Test the correct way to un-ignore specific files: use wildcards instead of directory ignore.
+     * Using build/* instead of build/ allows negation patterns to work.
+     */
+    @Test
+    void getAllFiles_unignore_file_with_wildcard_pattern(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "build/classes/App.class", "compiled");
+        createFile(tempDir, "build/app.java", "source in build dir");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Create .gitignore using build/* (not build/) so negation works
+        Files.writeString(tempDir.resolve(".gitignore"),
+                "build/*\n" +
+                "!build/app.java\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // build/* ignores contents of build/ but not the directory itself
+        // So !build/app.java can successfully un-ignore the file
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/app.java")),
+                "build/app.java should be un-ignored with build/* and !build/app.java");
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/classes/App.class")),
+                "build/classes/App.class should still be ignored by build/*");
+
+        // Other files should be included
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
+
+        project.close();
+    }
 }
