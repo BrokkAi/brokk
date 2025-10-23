@@ -117,6 +117,32 @@ public class ProjectWatchService implements IWatchService {
         }
     }
 
+    /**
+     * Checks if a gitignore-related file change should trigger cache invalidation.
+     * This targets untracked .gitignore files and .git/info/exclude which are not
+     * covered by git metadata watching.
+     */
+    private boolean shouldInvalidateForGitignoreChange(Path eventPath) {
+        var fileName = eventPath.getFileName().toString();
+
+        // .git/info/exclude is never tracked by git
+        if (fileName.equals("exclude") && eventPath.toString().contains("/.git/info/")) {
+            logger.debug("Git info exclude file changed: {}", eventPath);
+            return true;
+        }
+
+        // For .gitignore files, only trigger if they're likely untracked
+        // (tracked .gitignore changes are handled by git metadata watching)
+        if (fileName.equals(".gitignore")) {
+            // We can't easily determine if it's tracked here, so we'll be conservative
+            // and invalidate. The performance impact is minimal since this is rare.
+            logger.debug("Gitignore file changed: {}", eventPath);
+            return true;
+        }
+
+        return false;
+    }
+
     private void collectEventsFromKey(WatchKey key, WatchService watchService, EventBatch batch) {
         Path watchPath = (Path) key.watchable();
         for (WatchEvent<?> event : key.pollEvents()) {
@@ -133,6 +159,12 @@ public class ProjectWatchService implements IWatchService {
 
             // convert to ProjectFile
             Path eventPath = watchPath.resolve(ctx);
+
+            // Check if this is an untracked gitignore change that should invalidate cache
+            if (shouldInvalidateForGitignoreChange(eventPath)) {
+                batch.untrackedGitignoreChanged = true;
+            }
+
             batch.files.add(new ProjectFile(root, root.relativize(eventPath)));
 
             // If it's a directory creation, register it so we can watch its children

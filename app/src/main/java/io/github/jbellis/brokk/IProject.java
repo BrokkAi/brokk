@@ -56,20 +56,6 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Gets all files in the project that match the given language's extensions. This is a convenience method that
-     * filters getAllFiles() by the language's file extensions.
-     *
-     * @param language The language to filter files for
-     * @return Set of ProjectFiles that match the language's extensions
-     */
-    default Set<ProjectFile> getFiles(Language language) {
-        var extensions = language.getExtensions();
-        return getAllFiles().stream()
-                .filter(pf -> extensions.contains(pf.extension()))
-                .collect(Collectors.toSet());
-    }
-
-    /**
      * Gets all analyzable files for the given language after gitignore and baseline filtering.
      * This method returns files that should be analyzed by the language-specific analyzer,
      * excluding files that are ignored by .gitignore or baseline exclusions.

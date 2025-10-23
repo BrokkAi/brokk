@@ -115,14 +115,21 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         int trackedFileChangeCallbacks = 0;
 
         logger.debug(
-                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, watchingGitMeta={}, gitMetaDir={}",
+                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, dueToGitMeta={}, watchingGitMeta={}, gitMetaDir={}",
                 batch.files.size(),
                 batch.isOverflowed,
+                batch.untrackedGitignoreChanged,
                 dueToGitMeta,
                 watchingGitMeta,
                 (gitMetaRel != null ? gitMetaRel : "(none)"));
 
-        // 1) Possibly refresh Git
+        // 1) Handle untracked gitignore file changes by invalidating project cache
+        if (batch.untrackedGitignoreChanged) {
+            logger.debug("Untracked gitignore files changed, invalidating project file cache");
+            project.invalidateAllFiles();
+        }
+
+        // 2) Possibly refresh Git
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
             boolean gitMetaTouched =
@@ -279,7 +286,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                 continue;
             }
             // Filter tracked files relevant to this language
-            List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
+            List<ProjectFile> tracked = project.getAnalyzableFiles(lang);
             if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 

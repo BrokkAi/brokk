@@ -12,14 +12,26 @@ import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.EnvironmentJava;
 import java.awt.Rectangle;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
-import javax.swing.*;
+import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.ignore.IgnoreNode;
+import org.eclipse.jgit.ignore.IgnoreNode.MatchResult;
+import org.eclipse.jgit.util.FS;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -148,7 +160,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             logger.error("Error loading text history: {}", e.getMessage(), e);
         }
         logger.trace("No text history found, returning empty list");
-        return new ArrayList<>();
+        return List.of();
     }
 
     @Override
@@ -555,19 +567,82 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
-        // Convert from projectRoot-relative to gitTopLevel-relative
-        // Since we can't access projectRoot directly, we need to calculate it
         Path gitTopLevel = gitRepo.getGitTopLevel();
-        Path projectRoot = root; // AbstractProject.root is the project root
-
-        Path projectAbsPath = projectRoot.resolve(projectRelPath);
+        Path projectAbsPath = root.resolve(projectRelPath);
         Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
         return gitRelPath.toString().replace('\\', '/');
     }
 
     /**
+     * Gets the global gitignore file path using JGit's configuration APIs.
+     * Checks in order:
+     * 1. core.excludesfile from git config (with tilde expansion)
+     * 2. XDG standard location: ~/.config/git/ignore
+     * 3. Legacy location: ~/.gitignore_global
+     *
+     * @param gitRepo The git repository
+     * @return Optional containing the path to the global gitignore file, or empty if not found
+     */
+    private Optional<Path> getGlobalGitignoreFile(GitRepo gitRepo) {
+        try {
+            // Use JGit's Repository config
+            var config = gitRepo.getGit().getRepository().getConfig();
+
+            // Check core.excludesfile setting
+            String configPath = config.getString("core", null, "excludesfile");
+            if (configPath != null && !configPath.isEmpty()) {
+                // Use JGit's FS to resolve paths (handles ~/ expansion properly)
+                var fs = FS.DETECTED;
+                Path globalIgnore;
+
+                if (configPath.startsWith("~/")) {
+                    // JGit pattern: resolve relative to user home
+                    File resolved = fs.resolve(fs.userHome(), configPath.substring(2));
+                    globalIgnore = resolved.toPath();
+                } else {
+                    globalIgnore = Path.of(configPath);
+                }
+
+                if (Files.exists(globalIgnore)) {
+                    logger.debug("Using global gitignore from core.excludesfile: {}", globalIgnore);
+                    return Optional.of(globalIgnore);
+                }
+            }
+
+            // Fallback to XDG standard location: ~/.config/git/ignore
+            File userHome = FS.DETECTED.userHome();
+            Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
+            if (Files.exists(xdgIgnore)) {
+                logger.debug("Using global gitignore from XDG location: {}", xdgIgnore);
+                return Optional.of(xdgIgnore);
+            }
+
+            // Fallback to legacy location: ~/.gitignore_global
+            Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
+            if (Files.exists(legacyIgnore)) {
+                logger.debug("Using global gitignore from legacy location: {}", legacyIgnore);
+                return Optional.of(legacyIgnore);
+            }
+
+            return Optional.empty();
+        } catch (Exception e) {
+            logger.debug("Error reading global gitignore config: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private MatchResult checkIgnoreFile(Path ignoreFile, String pathToCheck, boolean isDirectory) throws IOException {
+        var ignoreNode = new IgnoreNode();
+        try (var inputStream = Files.newInputStream(ignoreFile)) {
+            ignoreNode.parse(inputStream);
+        }
+        return ignoreNode.isIgnored(pathToCheck, isDirectory);
+    }
+
+    /**
      * Checks if a path is ignored by gitignore rules using JGit's IgnoreNode.
      * This approach correctly handles:
+     * - Global gitignore files (from core.excludesfile config or XDG location)
      * - .git/info/exclude (local, non-committed ignore rules)
      * - Root and nested .gitignore files
      * - Negation patterns (e.g., !build/keep/)
@@ -579,11 +654,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * "build/Generated.java" (relative to subdir), not "subdir/build/Generated.java".
      *
      * Git's precedence order (lowest to highest):
-     * 1. .git/info/exclude
-     * 2. Root .gitignore
-     * 3. Nested .gitignore files (closer to file = higher precedence)
-     *
-     * Note: This currently does NOT check global gitignore files from git config.
+     * 1. Global gitignore (core.excludesfile or ~/.config/git/ignore)
+     * 2. .git/info/exclude
+     * 3. Root .gitignore
+     * 4. Nested .gitignore files (closer to file = higher precedence)
      *
      * @param gitRepo The git repository
      * @param projectRelPath Path relative to project root
@@ -598,24 +672,21 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         Path absPath = root.resolve(projectRelPath);
         boolean isDirectory = Files.isDirectory(absPath);
 
-        // Start from the file's directory and walk up to root, checking .gitignore files
-        // Build a list of (directory, ignore-file) pairs
-        // Git's precedence (lowest to highest):
-        // 1. .git/info/exclude
-        // 2. Root .gitignore
-        // 3. Nested .gitignore files (closer to file = higher precedence)
-        var gitignorePairs = new java.util.ArrayList<java.util.Map.Entry<Path, Path>>();
+        var gitignorePairs = new ArrayList<Map.Entry<Path, Path>>();
+        getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
+            gitignorePairs.add(Map.entry(Path.of(""), globalIgnore));
+        });
 
-        // Add .git/info/exclude (lowest precedence)
+        // Add .git/info/exclude
         var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
         if (Files.exists(gitInfoExclude)) {
-            gitignorePairs.add(java.util.Map.entry(Path.of(""), gitInfoExclude));
+            gitignorePairs.add(Map.entry(Path.of(""), gitInfoExclude));
         }
 
         // Add root .gitignore
         var rootGitignore = gitTopLevel.resolve(".gitignore");
         if (Files.exists(rootGitignore)) {
-            gitignorePairs.add(java.util.Map.entry(Path.of(""), rootGitignore));
+            gitignorePairs.add(Map.entry(Path.of(""), rootGitignore));
         }
 
         // Add nested .gitignore files for each directory in the path
@@ -623,15 +694,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         while (currentDir != null && !currentDir.toString().isEmpty()) {
             var nestedGitignore = gitTopLevel.resolve(currentDir).resolve(".gitignore");
             if (Files.exists(nestedGitignore)) {
-                gitignorePairs.add(java.util.Map.entry(currentDir, nestedGitignore));
+                gitignorePairs.add(Map.entry(currentDir, nestedGitignore));
             }
             currentDir = currentDir.getParent();
         }
 
         // Check each ignore file from lowest to highest precedence
         // Later (higher precedence) files override earlier ones
-        org.eclipse.jgit.ignore.IgnoreNode.MatchResult finalResult =
-                org.eclipse.jgit.ignore.IgnoreNode.MatchResult.CHECK_PARENT;
+        MatchResult finalResult = MatchResult.CHECK_PARENT;
 
         for (var entry : gitignorePairs) {
             var gitignoreDir = entry.getKey();
@@ -648,24 +718,18 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                         gitignoreDir.relativize(gitRelPathObj).toString().replace('\\', '/');
             }
 
-            // Load this .gitignore and check the path
-            var ignoreNode = new org.eclipse.jgit.ignore.IgnoreNode();
-            try (var inputStream = Files.newInputStream(gitignoreFile)) {
-                ignoreNode.parse(inputStream);
-            }
-
-            var result = ignoreNode.isIgnored(relativeToGitignoreDir, isDirectory);
+            var result = checkIgnoreFile(gitignoreFile, relativeToGitignoreDir, isDirectory);
 
             // If this .gitignore has an explicit match (IGNORED or NOT_IGNORED), it overrides previous results
-            if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
-                finalResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED;
+            if (result == MatchResult.IGNORED) {
+                finalResult = MatchResult.IGNORED;
                 logger.debug(
                         "Path {} matched IGNORED in {} (checking {})",
                         gitRelPath,
                         gitignoreFile,
                         relativeToGitignoreDir);
-            } else if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
-                finalResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED;
+            } else if (result == MatchResult.NOT_IGNORED) {
+                finalResult = MatchResult.NOT_IGNORED;
                 logger.debug(
                         "Path {} matched NOT_IGNORED in {} (checking {})",
                         gitRelPath,
@@ -676,35 +740,32 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         // Handle the final result
-        if (finalResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+        if (finalResult == MatchResult.IGNORED) {
             logger.debug("Path {} (isDir: {}) ignored: true (result: IGNORED)", gitRelPath, isDirectory);
             return true;
         }
 
-        // IMPORTANT: Even if we got NOT_IGNORED (negation pattern), we must check parent directories
-        // Git's rule: "It is not possible to re-include a file if a parent directory of that file is excluded"
-        // Example: build/ + !build/app.java → app.java is STILL IGNORED because build/ is ignored
-
-        // For both NOT_IGNORED and CHECK_PARENT, we need to check if parent directories are ignored
-        // The only difference is:
-        // - NOT_IGNORED: file has explicit negation pattern, but parent check can override it
-        // - CHECK_PARENT: file has no explicit pattern, parent check determines result
+        // IMPORTANT: Git's rule - "It is not possible to re-include a file if a parent directory is excluded"
+        // Example: build/ + !build/app.java -> app.java is STILL IGNORED because build/ is ignored
 
         Path parent = gitRelPathObj.getParent();
         while (parent != null && !parent.toString().isEmpty()) {
             String parentPath = parent.toString().replace('\\', '/');
+            var parentGitignorePairs = new ArrayList<Map.Entry<Path, Path>>();
 
-            // Check the parent directory with all ignore files
-            var parentGitignorePairs = new java.util.ArrayList<java.util.Map.Entry<Path, Path>>();
+            // Add global gitignore (lowest precedence)
+            getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
+                parentGitignorePairs.add(Map.entry(Path.of(""), globalIgnore));
+            });
 
-            // Add .git/info/exclude (lowest precedence)
+            // Add .git/info/exclude
             if (Files.exists(gitInfoExclude)) {
-                parentGitignorePairs.add(java.util.Map.entry(Path.of(""), gitInfoExclude));
+                parentGitignorePairs.add(Map.entry(Path.of(""), gitInfoExclude));
             }
 
             // Add root .gitignore
             if (Files.exists(rootGitignore)) {
-                parentGitignorePairs.add(java.util.Map.entry(Path.of(""), rootGitignore));
+                parentGitignorePairs.add(Map.entry(Path.of(""), rootGitignore));
             }
 
             // Add nested .gitignore files for the parent's path
@@ -712,14 +773,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             while (parentDir != null && !parentDir.toString().isEmpty()) {
                 var nestedGitignore = gitTopLevel.resolve(parentDir).resolve(".gitignore");
                 if (Files.exists(nestedGitignore)) {
-                    parentGitignorePairs.add(java.util.Map.entry(parentDir, nestedGitignore));
+                    parentGitignorePairs.add(Map.entry(parentDir, nestedGitignore));
                 }
                 parentDir = parentDir.getParent();
             }
 
             // Check parent against all .gitignore files
-            org.eclipse.jgit.ignore.IgnoreNode.MatchResult parentResult =
-                    org.eclipse.jgit.ignore.IgnoreNode.MatchResult.CHECK_PARENT;
+            MatchResult parentResult = MatchResult.CHECK_PARENT;
 
             for (var entry : parentGitignorePairs) {
                 var gitignoreDir = entry.getKey();
@@ -735,40 +795,29 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                             .replace('\\', '/');
                 }
 
-                var ignoreNode = new org.eclipse.jgit.ignore.IgnoreNode();
-                try (var inputStream = Files.newInputStream(gitignoreFile)) {
-                    ignoreNode.parse(inputStream);
-                }
+                var result = checkIgnoreFile(gitignoreFile, relativeToGitignoreDir, true);
 
-                var result = ignoreNode.isIgnored(relativeToGitignoreDir, true); // parent is a directory
-
-                if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
-                    parentResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED;
-                } else if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
-                    parentResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED;
+                if (result == MatchResult.IGNORED) {
+                    parentResult = MatchResult.IGNORED;
+                } else if (result == MatchResult.NOT_IGNORED) {
+                    parentResult = MatchResult.NOT_IGNORED;
                 }
             }
 
-            // If parent is explicitly ignored, this file is ignored
-            if (parentResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+            if (parentResult == MatchResult.IGNORED) {
                 logger.debug("Path {} ignored: true (parent {} is ignored)", gitRelPath, parentPath);
                 return true;
             }
 
-            // If parent has a negation pattern, this file is NOT ignored
-            if (parentResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+            if (parentResult == MatchResult.NOT_IGNORED) {
                 logger.debug("Path {} ignored: false (parent {} has negation)", gitRelPath, parentPath);
                 return false;
             }
 
-            // Parent returned CHECK_PARENT, continue checking further up
             parent = parent.getParent();
         }
 
-        // No parent was ignored
-        // If the file had a negation pattern (NOT_IGNORED) and no parent is ignored, it's not ignored
-        // If the file had no explicit pattern (CHECK_PARENT) and no parent is ignored, it's not ignored
-        if (finalResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+        if (finalResult == MatchResult.NOT_IGNORED) {
             logger.debug("Path {} ignored: false (result: NOT_IGNORED, no ignored parents)", gitRelPath);
         } else {
             logger.debug("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
@@ -786,20 +835,24 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     /**
      * Applies gitignore and baseline filtering to the given set of files.
-     * Uses JGit's WorkingTreeIterator to provide comprehensive ignore support including
+     * Uses manual IgnoreNode parsing to provide comprehensive ignore support including
      * nested .gitignore files, global ignores, and .git/info/exclude.
+     *
+     * Note: We use manual IgnoreNode parsing instead of JGit's WorkingTreeIterator
+     * because WorkingTreeIterator is designed for tree walking/discovery, not for
+     * efficiently filtering a pre-existing list of files. Using WorkingTreeIterator
+     * would require creating thousands of TreeWalk instances or walking the entire
+     * repository tree, both of which are significantly slower than direct path checking.
      *
      * @param files The raw set of files to filter
      * @return Filtered set of files that are not ignored by gitignore or baseline exclusions
      */
     protected Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-        // If not a git repo, return files as-is
         if (!(repo instanceof GitRepo gitRepo)) {
             return files;
         }
 
         try {
-            // Apply baseline exclusions from build details
             var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
                     .map(s -> s.replace('\\', '/').trim())
                     .map(s -> s.startsWith("./") ? s.substring(2) : s)
@@ -807,23 +860,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toSet());
 
-            // Filter files
-            var filteredFiles = new HashSet<ProjectFile>();
-            for (var file : files) {
-                // Check baseline exclusions first
-                if (isBaselineExcluded(file, baselineExclusions)) {
-                    continue;
-                }
-
-                // Check comprehensive gitignore rules
-                if (isPathIgnored(gitRepo, file.getRelPath())) {
-                    continue;
-                }
-
-                filteredFiles.add(file);
-            }
-
-            return filteredFiles;
+            return files.stream()
+                    .filter(file -> !isBaselineExcluded(file, baselineExclusions))
+                    .filter(file -> {
+                        try {
+                            return !isPathIgnored(gitRepo, file.getRelPath());
+                        } catch (IOException e) {
+                            logger.warn(
+                                    "Error checking if path {} is ignored, including it: {}",
+                                    file.getRelPath(),
+                                    e.getMessage());
+                            return true; // Include file if we can't determine if it's ignored
+                        }
+                    })
+                    .collect(Collectors.toSet());
         } catch (Exception e) {
             logger.warn("Error applying gitignore filtering, returning all files: {}", e.getMessage());
             return files;

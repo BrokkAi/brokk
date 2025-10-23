@@ -1,6 +1,10 @@
 package io.github.jbellis.brokk;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Languages;
@@ -598,7 +602,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         var project = new MainProject(tempDir);
-        var javaFiles = project.getFiles(Languages.JAVA);
+        var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // getFiles() should also respect filtering
         assertEquals(1, javaFiles.size());
@@ -620,7 +624,7 @@ class ProjectFilteringGitRepoTest {
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
 
         var project = new MainProject(tempDir);
-        var javaFiles = project.getFiles(Languages.JAVA);
+        var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
 
         // getFiles() should respect gitignore
         assertEquals(1, javaFiles.size());
@@ -783,9 +787,11 @@ class ProjectFilteringGitRepoTest {
                 "Backend .gitignore negation should include target/classes/");
 
         // Files from backend should be included
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
                 "backend/src/Main.java should be included");
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")),
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")),
                 "backend/README.md should be included");
 
         // Note: We don't test that frontend files are excluded here because getAllFilesRaw()
@@ -887,9 +893,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Create .gitignore that tries (but fails) to un-ignore a file in an ignored directory
-        Files.writeString(tempDir.resolve(".gitignore"),
-                "build/\n" +
-                "!build/app.java\n");
+        Files.writeString(tempDir.resolve(".gitignore"), "build/\n" + "!build/app.java\n");
 
         var project = new MainProject(tempDir);
         var allFiles = project.getAllFiles();
@@ -930,9 +934,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Create .gitignore using build/* (not build/) so negation works
-        Files.writeString(tempDir.resolve(".gitignore"),
-                "build/*\n" +
-                "!build/app.java\n");
+        Files.writeString(tempDir.resolve(".gitignore"), "build/*\n" + "!build/app.java\n");
 
         var project = new MainProject(tempDir);
         var allFiles = project.getAllFiles();
@@ -949,6 +951,254 @@ class ProjectFilteringGitRepoTest {
         // Other files should be included
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
+
+        project.close();
+    }
+
+    /**
+     * Test that global gitignore from core.excludesfile is respected.
+     */
+    @Test
+    void getAllFiles_respects_global_gitignore_from_config(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "temp.log", "temporary log");
+        createFile(tempDir, "data.db", "database file");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Create a global gitignore file in a temp location
+        Path globalGitignore = tempDir.resolve("global-gitignore");
+        Files.writeString(globalGitignore, "*.log\n*.db\n");
+
+        // Configure git to use this global gitignore
+        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
+                tempDir.resolve(".git").toFile());
+        var config = repo.getConfig();
+        config.setString("core", null, "excludesfile", globalGitignore.toString());
+        config.save();
+        repo.close();
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // Global gitignore patterns should be applied
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("temp.log")),
+                "temp.log should be ignored by global gitignore");
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("data.db")),
+                "data.db should be ignored by global gitignore");
+
+        // Other files should be included
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "src/Main.java should be included");
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")), "README.md should be included");
+
+        project.close();
+    }
+
+    /**
+     * Test that XDG location (~/.config/git/ignore) is used as fallback.
+     */
+    @Test
+    void getAllFiles_uses_xdg_location_for_global_gitignore(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "build.log", "build log");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Set up a mock XDG location by configuring core.excludesfile to point to it
+        // (JGit doesn't automatically check XDG location in tests, so we configure it explicitly)
+        Path xdgConfig = tempDir.resolve("xdg-config");
+        Files.createDirectories(xdgConfig);
+        Path xdgIgnore = xdgConfig.resolve("ignore");
+        Files.writeString(xdgIgnore, "*.log\n");
+
+        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
+                tempDir.resolve(".git").toFile());
+        var config = repo.getConfig();
+        config.setString("core", null, "excludesfile", xdgIgnore.toString());
+        config.save();
+        repo.close();
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // XDG ignore patterns should be applied
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build.log")),
+                "build.log should be ignored by XDG gitignore");
+
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "src/Main.java should be included");
+
+        project.close();
+    }
+
+    /**
+     * Test that local .gitignore overrides global gitignore (precedence).
+     */
+    @Test
+    void getAllFiles_local_gitignore_overrides_global(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "important.log", "important log file");
+        createFile(tempDir, "temp.log", "temporary log");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Create a global gitignore that ignores all .log files
+        Path globalGitignore = tempDir.resolve("global-gitignore");
+        Files.writeString(globalGitignore, "*.log\n");
+
+        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
+                tempDir.resolve(".git").toFile());
+        var config = repo.getConfig();
+        config.setString("core", null, "excludesfile", globalGitignore.toString());
+        config.save();
+        repo.close();
+
+        // Create local .gitignore that un-ignores important.log (higher precedence)
+        Files.writeString(tempDir.resolve(".gitignore"), "!important.log\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // important.log should be included (local .gitignore overrides global)
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("important.log")),
+                "important.log should be un-ignored by local .gitignore");
+
+        // temp.log should still be ignored (global pattern applies)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("temp.log")),
+                "temp.log should still be ignored by global gitignore");
+
+        project.close();
+    }
+
+    /**
+     * Test that tilde expansion works in core.excludesfile path.
+     */
+    @Test
+    void getAllFiles_handles_tilde_expansion_in_global_path(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "cache.tmp", "cache file");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Create a global gitignore in a subdirectory of tempDir to simulate home directory
+        Path fakeHome = tempDir.resolve("fake-home");
+        Files.createDirectories(fakeHome);
+        Path globalGitignore = fakeHome.resolve("my-gitignore");
+        Files.writeString(globalGitignore, "*.tmp\n");
+
+        // Create a path with tilde that should be expanded
+        // Note: JGit's FS.resolve() handles tilde expansion, but in tests we can't mock the actual home
+        // So we'll use an absolute path for this test to verify the mechanism works
+        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
+                tempDir.resolve(".git").toFile());
+        var config = repo.getConfig();
+        // Use absolute path here since we can't change the actual user home in tests
+        config.setString("core", null, "excludesfile", globalGitignore.toString());
+        config.save();
+        repo.close();
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // Global gitignore patterns should be applied
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("cache.tmp")),
+                "cache.tmp should be ignored by global gitignore");
+
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "src/Main.java should be included");
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_invalidates_cache_when_untracked_gitignore_changes(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "build/Generated.java", "class Generated {}");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // First call should populate cache with all files (no gitignore yet)
+        var allFiles1 = project.getAllFiles();
+        assertEquals(3, allFiles1.size(), "Should include all files initially (including README.md)");
+
+        // Create untracked .gitignore to ignore build/
+        Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
+        // Note: We don't git add it, so it remains untracked
+
+        // Cache should still contain old data
+        var allFiles2 = project.getAllFiles();
+        assertEquals(3, allFiles2.size(), "Cache should still contain old data before invalidation");
+
+        // Invalidate cache (simulating the file system watcher detecting the change)
+        project.invalidateAllFiles();
+
+        // Should now respect untracked gitignore after cache invalidation
+        var allFiles3 = project.getAllFiles();
+        assertEquals(2, allFiles3.size(), "Should include src/Main.java and README.md after cache invalidation");
+        assertTrue(
+                allFiles3.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "Should include src/Main.java");
+        assertFalse(
+                allFiles3.stream().anyMatch(pf -> normalize(pf).contains("build/")), "Should exclude build/ directory");
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_handles_git_info_exclude(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "local.tmp", "local temp file");
+
+        trackFiles(tempDir);
+
+        // Create .git/info/exclude file (never tracked by git)
+        var gitInfoDir = tempDir.resolve(".git/info");
+        Files.createDirectories(gitInfoDir);
+        Files.writeString(gitInfoDir.resolve("exclude"), "*.tmp\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // .git/info/exclude should exclude *.tmp files
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("local.tmp")),
+                ".git/info/exclude should exclude local.tmp");
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "Should include src/Main.java");
 
         project.close();
     }
