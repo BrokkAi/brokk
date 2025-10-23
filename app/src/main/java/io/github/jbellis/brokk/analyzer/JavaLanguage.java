@@ -73,7 +73,7 @@ public class JavaLanguage implements Language {
 
     @Override
     public boolean providesInterproceduralAnalysis() {
-        return !shouldDisableLsp();
+        return true;
     }
 
     @Override
