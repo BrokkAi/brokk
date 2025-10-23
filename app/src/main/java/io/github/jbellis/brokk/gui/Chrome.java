@@ -2747,6 +2747,14 @@ public class Chrome
     public void updateTerminalFontSize() {}
 
     /**
+     * Hook to apply Advanced Mode UI visibility without restart.
+     * TODO: implement visibility toggling for Advanced Mode (hide/show specific UI elements)
+     */
+    public void applyAdvancedModeVisibility() {
+        // no-op for now
+    }
+
+    /**
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
      */
     public void refreshTaskListUI() {
