@@ -4,90 +4,52 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.*;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.AiMessage;
-import io.github.jbellis.brokk.ContextManager;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Discovers, registers, provides specifications for, and executes tools. Tools are methods annotated with @Tool on
- * registered object instances.
+ * Discovers, registers, provides specifications for, and executes tools.
+ * Tools are methods annotated with @Tool on registered object instances.
+ *
+ * Builder pattern:
+ * - Create per-turn registries via ToolRegistry.builder(base).register(...).build()
+ * - Built registries are sealed (immutable) and cannot be mutated.
  */
 public class ToolRegistry {
     private static final Logger logger = LogManager.getLogger(ToolRegistry.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    // Maps tool name to its invocation target (method + instance)
-    private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
+    // Backing map for tools. Use a synchronized LinkedHashMap for deterministic ordering while remaining thread-safe.
+    private final Map<String, ToolInvocationTarget> toolMap;
 
-    /** Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting. */
-    public String getExplanationForToolRequest(Object toolOwner, ToolExecutionRequest request) {
-        // Skip empty explanations for answer/abort
-        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
-            return "";
-        }
+    // Internal record to hold method and the instance it belongs to
+    private record ToolInvocationTarget(Method method, Object instance) {}
 
-        try {
-            // Resolve target and perform typed conversion via validateTool
-            var vi = validateTool(toolOwner, request);
-            var argsYaml = toYaml(vi);
-            var headline = headlineFor(request.name());
+    public record ValidatedInvocation(Method method, Object instance, List<Object> parameters) {}
 
-            return """
-                   ### %s
-                   ```yaml
-                   %s```
-                   """
-                    .formatted(headline, argsYaml);
-        } catch (ToolValidationException e) {
-            // Log validation error but don't crash - this is just for display
-            logger.warn("Invalid tool request for display: {} - {}", request.name(), e.getMessage());
-            logger.debug("Full tool request: {}", request.arguments());
-
-            // Return empty string - validation details are logged, not shown to user
-            return "";
+    public static class ToolValidationException extends RuntimeException {
+        public ToolValidationException(String message) {
+            super(message);
         }
     }
 
-    // Helper to render a simple YAML block from a map of arguments
-    private static String toYaml(ValidatedInvocation vi) {
-        var named = new LinkedHashMap<String, Object>();
-        var params = vi.method().getParameters();
-        var values = vi.parameters();
-        assert params.length == values.size();
-        for (int i = 0; i < params.length; i++) {
-            named.put(params[i].getName(), values.get(i));
-        }
-        var args = (Map<String, Object>) named;
-
-        var sb = new StringBuilder();
-        for (var entry : args.entrySet()) {
-            var key = entry.getKey();
-            var value = entry.getValue();
-            if (value instanceof Collection<?> list) {
-                sb.append(key).append(":\n");
-                for (var item : list) {
-                    sb.append("  - ").append(item).append("\n");
-                }
-            } else if (value instanceof String s && s.contains("\n")) {
-                sb.append(key).append(": |\n");
-                s.lines().forEach(line -> sb.append("  ").append(line).append("\n"));
-            } else {
-                sb.append(key).append(": ").append(value).append("\n");
-            }
-        }
-        return sb.toString();
-    }
+    /**
+     * Minimal atomic signature unit for duplicate detection
+     */
+    public record SignatureUnit(String toolName, String paramName, Object item) {}
 
     /** Mapping of tool names to display headlines (icons removed). */
     private static final Map<String, String> HEADLINES = Map.ofEntries(
@@ -125,154 +87,210 @@ public class ToolRegistry {
         return HEADLINES.getOrDefault(toolName, toolName);
     }
 
-    // Internal record to hold method and the instance it belongs to
-    private record ToolInvocationTarget(Method method, Object instance) {}
-
-    public record ValidatedInvocation(Method method, Object instance, List<Object> parameters) {}
-
-    public static class ToolValidationException extends RuntimeException {
-        public ToolValidationException(String message) {
-            super(message);
+    /** Helper to render a simple YAML block from a validated invocation. */
+    private static String toYaml(ValidatedInvocation vi) {
+        var named = new LinkedHashMap<String, Object>();
+        var params = vi.method().getParameters();
+        var values = vi.parameters();
+        assert params.length == values.size();
+        for (int i = 0; i < params.length; i++) {
+            named.put(params[i].getName(), values.get(i));
         }
+        var args = (Map<String, Object>) named;
+
+        var sb = new StringBuilder();
+        for (var entry : args.entrySet()) {
+            var key = entry.getKey();
+            var value = entry.getValue();
+            if (value instanceof Collection<?> list) {
+                sb.append(key).append(":\n");
+                for (var item : list) {
+                    sb.append("  - ").append(item).append("\n");
+                }
+            } else if (value instanceof String s && s.contains("\n")) {
+                sb.append(key).append(": |\n");
+                s.lines().forEach(line -> sb.append("  ").append(line).append("\n"));
+            } else {
+                sb.append(key).append(": ").append(value).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Creates a new root ToolRegistry and self-registers internal tools. */
+    public ToolRegistry() {
+        this(new LinkedHashMap<>());
+        // Root-only registration of builtin tools (like 'think') happens only for the root registry.
+        register(this);
     }
 
     /**
-     * Minimal atomic signature unit for duplicate detection: - toolName: the tool being invoked - paramName: the list
-     * parameter that was sliced - item: the single item from that list parameter
-     */
-    public record SignatureUnit(String toolName, String paramName, Object item) {}
-
-    /**
-     * Returns true if the given tool is a workspace-mutation tool that should never be deduplicated. This is an
-     * explicit whitelist so new tools are safe-by-default.
-     */
-    public boolean isWorkspaceMutationTool(String toolName) {
-        return Set.of(
-                        "addFilesToWorkspace",
-                        "addClassesToWorkspace",
-                        "addUrlContentsToWorkspace",
-                        "addTextToWorkspace",
-                        "addSymbolUsagesToWorkspace",
-                        "addClassSummariesToWorkspace",
-                        "addFileSummariesToWorkspace",
-                        "addMethodsToWorkspace",
-                        "addCallGraphInToWorkspace",
-                        "addCallGraphOutToWorkspace",
-                        "dropWorkspaceFragments")
-                .contains(toolName);
-    }
-
-    /**
-     * Produces a list of SignatureUnit objects for the provided request by validating the request against the target
-     * method and inspecting the typed parameters.
+     * Private constructor used for initializing the registry storage.
      *
-     * <p>Constraints for dedupe: - The target method must have exactly one parameter whose runtime value is a
-     * Collection. - Each element in that collection must be a primitive wrapper, String, or other simple scalar.
-     * Otherwise, throws IllegalArgumentException to signal unsupported pattern for dedupe.
+     * @param initialMap initial content to seed the registry with (will be copied)
      */
-    public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
-        String toolName = request.name();
+    private ToolRegistry(Map<String, ToolInvocationTarget> initialMap) {
+        this.toolMap = Collections.synchronizedMap(new LinkedHashMap<>(initialMap));
+    }
 
-        ValidatedInvocation vi = validateTool(instance, request);
-        Method method = vi.method();
-        Parameter[] params = method.getParameters();
-        List<Object> values = vi.parameters();
+    /** Returns an empty, sealed root registry (primarily for tests). */
+    public static ToolRegistry empty() {
+        return new ToolRegistry(Map.of());
+    }
 
-        // Identify collection-like parameters (by runtime value)
-        List<Integer> collectionIndices = new ArrayList<>();
-        for (int i = 0; i < values.size(); i++) {
-            if (values.get(i) instanceof Collection<?>) {
-                collectionIndices.add(i);
+    /** Builder for creating a sealed local registry based on a base registry. */
+    public static Builder builder(ToolRegistry base) {
+        return new Builder(base);
+    }
+
+    /** Instance builder to avoid FQN/import issues at call sites. */
+    public Builder builder() {
+        return new Builder(this);
+    }
+
+    public static final class Builder {
+        private final Map<String, ToolInvocationTarget> entries;
+
+        private Builder(ToolRegistry base) {
+            synchronized (base.toolMap) {
+                this.entries = new LinkedHashMap<>(base.toolMap);
             }
         }
 
-        if (collectionIndices.size() != 1) {
-            throw new IllegalArgumentException("Tool '" + toolName
-                    + "' must have exactly one list parameter for dedupe; found " + collectionIndices.size());
-        }
-
-        int sliceIdx = collectionIndices.get(0);
-        String sliceName = params[sliceIdx].getName();
-        Collection<?> coll = (Collection<?>) values.get(sliceIdx);
-
-        // Validate element shape (primitives/simple scalars)
-        for (Object elem : coll) {
-            if (!isSimpleScalar(elem)) {
-                throw new IllegalArgumentException(
-                        "Tool '" + toolName + "' list parameter '" + sliceName + "' contains non-scalar element: "
-                                + (elem == null ? "null" : elem.getClass().getName()));
+        /** Register @Tool methods from the given instance; last registration wins on name conflicts. */
+        public Builder register(Object toolProviderInstance) {
+            Class<?> clazz = toolProviderInstance.getClass();
+            for (Method method : clazz.getMethods()) {
+                if (!method.isAnnotationPresent(Tool.class)) continue;
+                String toolName = method.getName();
+                var existing = entries.get(toolName);
+                if (existing != null) {
+                    logger.debug(
+                            "Overriding tool {} provided by {} with {}",
+                            toolName,
+                            existing.instance().getClass().getName(),
+                            toolProviderInstance.getClass().getName());
+                } else {
+                    logger.debug("Registering tool: '{}' from class {}", toolName, clazz.getName());
+                }
+                entries.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
             }
+            return this;
         }
 
-        // Create a unit per element
-        return coll.stream()
-                .map(item -> new SignatureUnit(toolName, sliceName, item))
+        /** Build a sealed, non-root ToolRegistry with the accumulated entries. */
+        public ToolRegistry build() {
+            return new ToolRegistry(entries);
+        }
+        // fluent register chaining supported by returning Builder
+    }
+
+    /** Generates ToolSpecifications for the given list of tool names. */
+    public List<ToolSpecification> getTools(Collection<String> toolNames) {
+        var present = toolNames.stream().filter(toolMap::containsKey).toList();
+        var missing = toolNames.stream().filter(t -> !toolMap.containsKey(t)).toList();
+        if (!missing.isEmpty()) {
+            logger.warn("Some requested global tools are not registered and will be skipped: {}", missing);
+        }
+        return present.stream()
+                .map(toolMap::get)
+                .map(target -> ToolSpecifications.toolSpecificationFrom(target.method()))
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Build a new ToolExecutionRequest from a set of SignatureUnit items that came from the same original request. This
-     * rewrites the single list parameter to the provided items while preserving other arguments.
-     */
-    public ToolExecutionRequest buildRequestFromUnits(ToolExecutionRequest original, List<SignatureUnit> units) {
-        if (units.isEmpty()) return original;
+    /** Returns a single global tool specification if registered; empty if missing (no error logging). */
+    public Optional<ToolSpecification> getRegisteredTool(String toolName) {
+        var target = toolMap.get(toolName);
+        if (target == null) return Optional.empty();
+        return Optional.of(ToolSpecifications.toolSpecificationFrom(target.method()));
+    }
 
-        String toolName = original.name();
-        String paramName = units.get(0).paramName();
+    /** Returns true if a global tool with the given name is registered. */
+    public boolean isRegistered(String toolName) {
+        return toolMap.containsKey(toolName);
+    }
 
-        // Ensure all units belong to the same tool/param
-        boolean consistent = units.stream()
-                .allMatch(u -> u.toolName().equals(toolName) && u.paramName().equals(paramName));
-        if (!consistent) {
-            logger.error("Inconsistent SignatureUnits when rebuilding request for {}: {}", toolName, units);
-            return original;
-        }
-
-        // Parse original arguments, replace the list parameter with our new items, preserve others
+    /** Executes a tool exclusively from the registry (no instance tools). */
+    public ToolExecutionResult executeTool(ToolExecutionRequest request) throws InterruptedException {
+        ValidatedInvocation validated;
         try {
-            Map<String, Object> args = OBJECT_MAPPER.readValue(
-                    original.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
-            var items = units.stream().map(SignatureUnit::item).collect(Collectors.toList());
-            if (!args.containsKey(paramName)) {
-                logger.error("Parameter '{}' not found in original arguments for tool {}", paramName, toolName);
-                return original;
+            validated = validateTool(request);
+        } catch (ToolValidationException e) {
+            return ToolExecutionResult.failure(request, e.getMessage());
+        }
+
+        try {
+            logger.debug("Invoking global tool '{}' with args: {}", request.name(), validated.parameters());
+            Object resultObject = validated
+                    .method()
+                    .invoke(validated.instance(), validated.parameters().toArray());
+            String resultString = resultObject != null ? resultObject.toString() : "";
+            return ToolExecutionResult.success(request, resultString);
+        } catch (InvocationTargetException e) {
+            for (var e2 = (Throwable) e; e2 != null; e2 = e2.getCause()) {
+                if (e2 instanceof InterruptedException ie) {
+                    throw ie;
+                }
             }
-            args.put(paramName, items);
-            String json = OBJECT_MAPPER.writeValueAsString(args);
-            return ToolExecutionRequest.builder().name(toolName).arguments(json).build();
-        } catch (JsonProcessingException e) {
-            logger.error("Error rebuilding request from units for {}: {}", toolName, e.getMessage(), e);
-            return original;
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
         }
     }
 
-    private static boolean isSimpleScalar(@Nullable Object v) {
-        if (v == null) return true;
-        return v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Character;
+    /** Remove duplicate ToolExecutionRequests from an AiMessage while preserving order. */
+    public static AiMessage removeDuplicateToolRequests(AiMessage message) {
+        if (!message.hasToolExecutionRequests()) {
+            return message;
+        }
+        var deduplicated = List.copyOf(new LinkedHashSet<>(message.toolExecutionRequests()));
+        if (deduplicated.size() == message.toolExecutionRequests().size()) {
+            return message;
+        }
+        return AiMessage.from(message.text(), deduplicated);
     }
 
-    /** Validates a tool request against the provided instance's @Tool methods (falling back to globals). */
-    public ValidatedInvocation validateTool(Object instance, ToolExecutionRequest request) {
+    @Tool(
+            """
+    Think carefully step by step about a complex problem. Use this tool to reason through difficult questions
+    or break problems into smaller pieces. Call it concurrently with other tools.
+    """)
+    public String think(@P("The step-by-step reasoning to work through") String reasoning) {
+        return "Good thinking.";
+    }
+
+    /** Register @Tool methods from the given instance (allowed only when not sealed). */
+    public void register(Object toolProviderInstance) {
+        Class<?> clazz = toolProviderInstance.getClass();
+
+        for (Method method : clazz.getMethods()) {
+            if (!method.isAnnotationPresent(Tool.class)) {
+                continue;
+            }
+            String toolName = method.getName();
+
+            synchronized (toolMap) {
+                if (toolMap.containsKey(toolName)) {
+                    var existing = toolMap.get(toolName);
+                    var existingClass = existing.instance().getClass().getName();
+                    var providerClass = toolProviderInstance.getClass().getName();
+                    logger.debug("Overriding tool {} provided by {} with {}", toolName, existingClass, providerClass);
+                } else {
+                    logger.debug("Registering tool: '{}' from class {}", toolName, clazz.getName());
+                }
+                toolMap.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
+            }
+        }
+    }
+
+    /** Validate against this registry. */
+    public ValidatedInvocation validateTool(ToolExecutionRequest request) {
         String toolName = request.name();
         if (toolName.isBlank()) {
             throw new ToolValidationException("Tool name cannot be empty");
         }
 
-        // first check the instance
-        Class<?> cls = instance.getClass();
-        Method targetMethod = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(Tool.class))
-                .filter(m -> !Modifier.isStatic(m.getModifiers()))
-                .filter(m -> {
-                    String name = m.getName();
-                    return name.equals(toolName);
-                })
-                .findFirst()
-                .orElse(null);
-
-        // then check the global tool map
-        ToolInvocationTarget target =
-                (targetMethod != null) ? new ToolInvocationTarget(targetMethod, instance) : toolMap.get(request.name());
+        ToolInvocationTarget target = toolMap.get(request.name());
         if (target == null) {
             throw new ToolValidationException("Tool not found: " + request.name());
         }
@@ -300,11 +318,9 @@ public class ToolRegistry {
 
                 var paramType = param.getParameterizedType();
                 if (paramType instanceof ParameterizedType) {
-                    // Preserve generic information (e.g., List<String>) when converting
                     JavaType javaType = typeFactory.constructType(paramType);
                     converted = OBJECT_MAPPER.convertValue(argValue, javaType);
 
-                    // If this is a collection-like type with a specific element type, validate element types
                     if (javaType.isCollectionLikeType()) {
                         JavaType contentType = javaType.getContentType();
                         Class<?> contentClass = contentType.getRawClass();
@@ -321,7 +337,6 @@ public class ToolRegistry {
                                     }
                                 }
                             } else if (converted != null && !contentClass.isInstance(converted)) {
-                                // Handle non-collection cases conservatively
                                 throw new ToolValidationException("Parameter '%s' expected value of type %s but got %s"
                                         .formatted(
                                                 param.getName(),
@@ -331,7 +346,6 @@ public class ToolRegistry {
                         }
                     }
                 } else {
-                    // Non-parameterized types (or primitives) - fall back to raw type conversion
                     converted = OBJECT_MAPPER.convertValue(argValue, param.getType());
                 }
 
@@ -343,153 +357,97 @@ public class ToolRegistry {
         }
     }
 
-    /** Creates a new ToolRegistry and self-registers internal tools. */
-    public ToolRegistry(ContextManager contextManagerIgnored) {
-        register(this);
-    }
-
-    /**
-     * A tool for thinking through complex problems step by step. This allows the model to break down its reasoning
-     * process explicitly.
-     */
-    @Tool(
-            """
-    Think carefully step by step about a complex problem. Use this tool to reason through difficult questions
-    or break problems into smaller pieces. Call it concurrently with other tools.
-    """)
-    public String think(@P("The step-by-step reasoning to work through") String reasoning) {
-        // Llm special-cases this tool, but we need to return a value so the execution request is happy
-        return "Good thinking.";
-    }
-
-    /**
-     * Registers all methods annotated with @Tool from the given object instance.
-     *
-     * @param toolProviderInstance An instance of a class containing methods annotated with @Tool.
-     */
-    public void register(Object toolProviderInstance) {
-        Class<?> clazz = toolProviderInstance.getClass();
-
-        for (Method method : clazz.getMethods()) {
-            if (method.isAnnotationPresent(Tool.class)) {
-                String toolName = method.getName();
-                if (toolMap.containsKey(toolName)) {
-                    throw new IllegalArgumentException(
-                            "Duplicate tool name registration attempted: '%s'".formatted(toolName));
-                } else {
-                    logger.debug("Registering tool: '{}' from class {}", toolName, clazz.getName());
-                    toolMap.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
-                }
-            }
+    /** Generates a user-friendly explanation for a tool request validated against THIS registry. */
+    public String getExplanationForToolRequest(ToolExecutionRequest request) {
+        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
+            return "";
         }
-    }
-
-    /**
-     * Generates ToolSpecifications for the given list of tool names.
-     *
-     * @param toolNames A list of tool names to get specifications for.
-     * @return A list of ToolSpecification objects. Returns an empty list if a name is not found.
-     */
-    public List<ToolSpecification> getRegisteredTools(List<String> toolNames) {
-        var missingTools =
-                toolNames.stream().filter(tool -> !toolMap.containsKey(tool)).toList();
-        if (!missingTools.isEmpty()) {
-            logger.error("Missing tools: '{}'", missingTools); // let it throw NPE below
-        }
-        return toolNames.stream()
-                .map(toolMap::get)
-                .map(target -> ToolSpecifications.toolSpecificationFrom(target.method()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Generates ToolSpecifications for tool methods defined as instance methods within a given object. This is useful
-     * for agent-specific tools (like answer/abort) defined within an agent instance.
-     *
-     * @param instance The object containing the @Tool annotated instance methods.
-     * @param toolNames The names of the tools to get specifications for.
-     * @return A list of ToolSpecification objects. Returns an empty list if a name is not found or the method doesn't
-     *     match.
-     */
-    public List<ToolSpecification> getTools(Object instance, Collection<String> toolNames) {
-        Class<?> cls = instance.getClass();
-
-        // Gather all instance methods declared in the class that are annotated with @Tool.
-        List<Method> annotatedMethods = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(Tool.class))
-                .filter(m -> !Modifier.isStatic(m.getModifiers()))
-                .toList();
-
-        // For each toolName, directly find the corresponding method and generate its specification.
-        return toolNames.stream()
-                .map(toolName -> annotatedMethods.stream()
-                        .filter(m -> {
-                            String name = m.getName();
-                            return name.equals(toolName);
-                        })
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException(
-                                "No tool method found for %s in %s".formatted(toolName, instance))))
-                .map(ToolSpecifications::toolSpecificationFrom)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Executes a tool defined as an instance method on the provided object.
-     *
-     * @param instance The object instance containing the @Tool annotated method.
-     * @param request The ToolExecutionRequest from the LLM.
-     * @return A ToolExecutionResult indicating success or failure.
-     */
-    public ToolExecutionResult executeTool(Object instance, ToolExecutionRequest request) throws InterruptedException {
-        ValidatedInvocation validated;
         try {
-            validated = validateTool(instance, request);
+            var vi = validateTool(request);
+            var argsYaml = toYaml(vi);
+            var headline = headlineFor(request.name());
+            return """
+                   ### %s
+                   ```yaml
+                   %s```
+                   """
+                    .formatted(headline, argsYaml);
         } catch (ToolValidationException e) {
-            return ToolExecutionResult.failure(request, e.getMessage());
-        }
-
-        try {
-            logger.debug("Invoking tool '{}' with args: {}", request.name(), validated.parameters());
-            Object resultObject = validated
-                    .method()
-                    .invoke(validated.instance(), validated.parameters().toArray());
-            String resultString = resultObject != null ? resultObject.toString() : "";
-            return ToolExecutionResult.success(request, resultString);
-        } catch (InvocationTargetException e) {
-            // some code paths will wrap IE in RuntimeException, so check the entire Cause hierarchy
-            for (var e2 = (Throwable) e; e2 != null; e2 = e2.getCause()) {
-                if (e2 instanceof InterruptedException ie) {
-                    throw ie;
-                }
-            }
-            throw new RuntimeException(e);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
+            logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
+            return "";
         }
     }
 
-    /**
-     * Removes duplicate ToolExecutionRequests from an AiMessage. Duplicates are identified by having the same tool name
-     * and arguments. The order of the remaining requests is preserved from the first occurrence.
-     *
-     * @param message The input AiMessage.
-     * @return A new AiMessage with duplicate tool requests removed, or the original message if no requests were present
-     *     or no duplicates found.
-     */
-    public static AiMessage removeDuplicateToolRequests(AiMessage message) {
-        if (!message.hasToolExecutionRequests()) {
-            return message;
+    /** Deduplication helper producing one signature unit per element of the single list param. */
+    public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
+        String toolName = request.name();
+
+        ValidatedInvocation vi = validateTool(request);
+        Method method = vi.method();
+        Parameter[] params = method.getParameters();
+        List<Object> values = vi.parameters();
+
+        List<Integer> collectionIndices = new ArrayList<>();
+        for (int i = 0; i < values.size(); i++) {
+            if (values.get(i) instanceof Collection<?>) {
+                collectionIndices.add(i);
+            }
         }
 
-        var deduplicated = List.copyOf(new LinkedHashSet<>(message.toolExecutionRequests()));
-
-        // If no duplicates were found, return the original message
-        if (deduplicated.size() == message.toolExecutionRequests().size()) {
-            return message;
+        if (collectionIndices.size() != 1) {
+            throw new IllegalArgumentException("Tool '" + toolName
+                    + "' must have exactly one list parameter for dedupe; found " + collectionIndices.size());
         }
 
-        // Create a new AiMessage with the unique requests
-        return AiMessage.from(message.text(), deduplicated);
+        int sliceIdx = collectionIndices.getFirst();
+        String sliceName = params[sliceIdx].getName();
+        Collection<?> coll = (Collection<?>) values.get(sliceIdx);
+
+        for (Object elem : coll) {
+            if (!isSimpleScalar(elem)) {
+                throw new IllegalArgumentException("Tool '" + toolName + "' list parameter '" + sliceName
+                        + "' contains non-scalar element: " + elem.getClass().getName());
+            }
+        }
+
+        return coll.stream()
+                .map(item -> new SignatureUnit(toolName, sliceName, item))
+                .collect(Collectors.toList());
+    }
+
+    /** Rebuild a ToolExecutionRequest from a slice of signature units belonging to the same list parameter. */
+    public ToolExecutionRequest buildRequestFromUnits(ToolExecutionRequest original, List<SignatureUnit> units) {
+        if (units.isEmpty()) return original;
+
+        String toolName = original.name();
+        String paramName = units.getFirst().paramName();
+
+        boolean consistent = units.stream()
+                .allMatch(u -> u.toolName().equals(toolName) && u.paramName().equals(paramName));
+        if (!consistent) {
+            logger.error("Inconsistent SignatureUnits when rebuilding request for {}: {}", toolName, units);
+            return original;
+        }
+
+        try {
+            Map<String, Object> args = OBJECT_MAPPER.readValue(
+                    original.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
+            var items = units.stream().map(SignatureUnit::item).collect(Collectors.toList());
+            if (!args.containsKey(paramName)) {
+                logger.error("Parameter '{}' not found in original arguments for tool {}", paramName, toolName);
+                return original;
+            }
+            args.put(paramName, items);
+            String json = OBJECT_MAPPER.writeValueAsString(args);
+            return ToolExecutionRequest.builder().name(toolName).arguments(json).build();
+        } catch (JsonProcessingException e) {
+            logger.error("Error rebuilding request from units for {}: {}", toolName, e.getMessage(), e);
+            return original;
+        }
+    }
+
+    private static boolean isSimpleScalar(@Nullable Object v) {
+        if (v == null) return true;
+        return v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Character;
     }
 }

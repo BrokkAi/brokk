@@ -195,8 +195,8 @@ public class ContextAgent {
      *
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
-    public RecommendationResult getRecommendations() throws InterruptedException {
-        var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext());
+    public RecommendationResult getRecommendations(Context context) throws InterruptedException {
+        var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(context);
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -212,7 +212,7 @@ public class ContextAgent {
         }
 
         // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
-        var existingFiles = cm.liveContext()
+        var existingFiles = context.liveContext()
                 .allFragments()
                 .filter(ContextAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().stream())
@@ -222,7 +222,7 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            candidates = cm.topContext().getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
+            candidates = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
                     .filter(f -> !existingFiles.contains(f))
                     .sorted()
                     .toList();
@@ -668,6 +668,7 @@ public class ContextAgent {
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
+        var tr = cm.getToolRegistry().builder().register(contextTool).build();
         var toolSpecs = ToolSpecifications.toolSpecificationsFrom(contextTool);
         assert toolSpecs.size() == 1 : "Expected exactly one tool specification from ContextRecommendationTool";
 
@@ -752,7 +753,7 @@ public class ContextAgent {
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         logger.debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
-        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, contextTool));
+        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         var tokenUsage = result.tokenUsage();
         if (result.error() != null) {
             var error = result.error();
@@ -765,7 +766,7 @@ public class ContextAgent {
         var toolRequests = result.toolRequests();
         logger.debug("LLM ToolRequests: {}", toolRequests);
         for (var request : toolRequests) {
-            cm.getToolRegistry().executeTool(contextTool, request);
+            tr.executeTool(request);
         }
 
         var projectFiles = toProjectFiles(contextTool.getRecommendedFiles());

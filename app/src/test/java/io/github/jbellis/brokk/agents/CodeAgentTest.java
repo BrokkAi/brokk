@@ -419,11 +419,11 @@ class CodeAgentTest {
         var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
-
+        var initialContext = contextManager.liveContext();
         var result = codeAgent.runTask("A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
-        assertTrue(result.changedFiles().isEmpty());
+        assertEquals(initialContext, result.context());
     }
 
     // L-2: Loop termination - "no edits, but has build error"

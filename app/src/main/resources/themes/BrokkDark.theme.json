@@ -37,6 +37,9 @@
       "git_badge_background": "#007ACC",
       "git_badge_text": "#FFFFFF",
 
+      "action_button_bg_default": "#478ac9",
+      "action_button_bg_stop": "#DC3545",
+
       "mode_answer_bg": "#1F6FEB",
       "mode_answer_fg": "#FFFFFF",
       "mode_answer_accent": "#1F6FEB",
@@ -94,7 +97,23 @@
 
       "chip_other_bg": "#0A5BA0",
       "chip_other_fg": "#FFFFFF",
-      "chip_other_border": "#073D70"
+      "chip_other_border": "#073D70",
+
+      "windowBorder": {
+        "enabled": false,
+        "color": "#505050",
+        "width": 1,
+        "cornerRadius": 0
+      },
+      "titleBar": {
+        "enabled": false,
+        "backgroundColor": null,
+        "foregroundColor": null,
+        "topPadding": 4,
+        "leftPadding": 80,
+        "bottomPadding": 4,
+        "rightPadding": 0
+      }
     }
   }
 }

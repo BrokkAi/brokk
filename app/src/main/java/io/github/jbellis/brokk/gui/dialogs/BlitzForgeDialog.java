@@ -1523,6 +1523,7 @@ public class BlitzForgeDialog extends JDialog {
             }
 
             // Run the task
+            var initialContext = cm.topContext();
             TaskResult tr;
             if (engineAction == Action.ASK) {
                 var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
@@ -1545,7 +1546,7 @@ public class BlitzForgeDialog extends JDialog {
                 dialogIo.toolError(errorMessage, "Agent Processing Error");
             }
 
-            boolean edited = tr.changedFiles().contains(file);
+            boolean edited = !tr.context().freeze().getDiff(initialContext).isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

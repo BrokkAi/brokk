@@ -36,9 +36,9 @@ junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
-junit-platform-engine = "org.junit.platform:junit-platform-engine:2.0.0"
-junit-platform-launcher = "org.junit.platform:junit-platform-launcher:2.0.0"
-junit-platform-commons = "org.junit.platform:junit-platform-commons:2.0.0"
+junit-platform-engine = { module = "org.junit.platform:junit-platform-engine", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
+junit-platform-commons = { module = "org.junit.platform:junit-platform-commons", version.ref = "junit" }
 jupiter-iface = "com.github.sbt.junit:jupiter-interface:0.13.3"
 
 # Static Analysis

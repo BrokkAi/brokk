@@ -41,6 +41,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean wasReady = false;
+    private volatile boolean paused = false;
     private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
 
     // Dedicated single-threaded executor for analyzer refresh tasks
@@ -503,13 +504,20 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     /** Pause the file watching service. */
     @Override
     public synchronized void pause() {
+        paused = true;
         watchService.pause();
     }
 
     /** Resume the file watching service. */
     @Override
     public synchronized void resume() {
+        paused = false;
         watchService.resume();
+    }
+
+    @Override
+    public boolean isPause() {
+        return paused;
     }
 
     @Override

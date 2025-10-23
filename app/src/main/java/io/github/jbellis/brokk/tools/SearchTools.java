@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -738,45 +737,5 @@ public class SearchTools {
         var formattedTaskList = "# Task List\n" + lines + "\n";
         io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
         return formattedTaskList;
-    }
-
-    @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to record findings, hypotheses, checklists, links, and decisions in Markdown.")
-    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
-        if (markdown.isBlank()) {
-            throw new IllegalArgumentException("Note content cannot be empty");
-        }
-
-        final var description = ContextFragment.SEARCH_NOTES.description();
-        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
-        final var appendedFlag = new AtomicBoolean(false);
-
-        contextManager.pushContext(ctx -> {
-            var existing = ctx.virtualFragments()
-                    .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                    .filter(vf -> description.equals(vf.description()))
-                    .findFirst();
-
-            if (existing.isPresent()) {
-                appendedFlag.set(true);
-                var prev = existing.get();
-                String prevText = prev.text();
-                String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
-
-                var next = ctx.removeFragmentsByIds(List.of(prev.id()));
-                var newFrag = new ContextFragment.StringFragment(contextManager, combined, description, syntax);
-                logger.debug(
-                        "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
-                        prev.id(),
-                        combined.length());
-                return next.addVirtualFragment(newFrag);
-            } else {
-                var newFrag = new ContextFragment.StringFragment(contextManager, markdown, description, syntax);
-                logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
-                return ctx.addVirtualFragment(newFrag);
-            }
-        });
-
-        return appendedFlag.get() ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 }

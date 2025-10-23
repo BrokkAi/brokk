@@ -33,6 +33,9 @@ import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
 import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
+import io.github.jbellis.brokk.gui.theme.ThemeTitleBarManager;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -744,7 +747,7 @@ public class Chrome
     }
 
     public AbstractProject getProject() {
-        return contextManager.getProject();
+        return (AbstractProject) contextManager.getProject();
     }
 
     /** Sets up .gitignore entries and adds .brokk project files to git */
@@ -2984,34 +2987,20 @@ public class Chrome
 
     /**
      * If using full window content, creates a themed title bar.
+     * Uses ThemeTitleBarManager for unified theme-driven configuration.
      *
      * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
      */
     public static void applyTitleBar(JFrame frame, String title) {
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            var titleBar = new JPanel(new BorderLayout());
-            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
-            var label = new JLabel(title, SwingConstants.CENTER);
-            titleBar.add(label, BorderLayout.CENTER);
-            frame.add(titleBar, BorderLayout.NORTH);
-            // Revalidate layout after dynamically adding title bar
-            frame.revalidate();
-            frame.repaint();
-            titleBar.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2) { // Double click
-                        if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                            // un-maximize the window
-                            frame.setExtendedState(JFrame.NORMAL);
-                        } else {
-                            // maximize the window
-                            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-                        }
-                    }
-                }
-            });
-        }
+        ThemeTitleBarManager.applyTitleBar(frame, title);
+    }
+
+    /**
+     * Updates the title bar styling for existing frames when theme changes.
+     * Uses ThemeTitleBarManager for unified theme-driven configuration.
+     */
+    public static void updateTitleBarStyling(JFrame frame) {
+        ThemeTitleBarManager.updateTitleBarStyling(frame);
     }
 
     /**

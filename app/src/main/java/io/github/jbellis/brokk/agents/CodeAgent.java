@@ -115,7 +115,7 @@ public class CodeAgent {
         }
     }
 
-    private TaskResult runTaskInternal(
+    TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         // Seed the local Context reference for this task
@@ -355,10 +355,11 @@ public class CodeAgent {
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
+
         var tr = new TaskResult(
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
-                es.changedFiles(),
+                context,
                 stopDetails);
         logger.debug("Task result: {}", tr);
         return tr;
@@ -536,12 +537,9 @@ public class CodeAgent {
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         }
 
-        // Return TaskResult containing conversation and original content
+        // Return TaskResult containing conversation and resulting context
         return new TaskResult(
-                "Quick Edit: " + file.getFileName(),
-                new ContextFragment.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
-                Set.of(file),
-                stopDetails);
+                contextManager, "Quick Edit: " + file.getFileName(), pendingHistory, context, stopDetails);
     }
 
     /**
@@ -711,7 +709,7 @@ public class CodeAgent {
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
             }
             // Use processed output for LLM context, but fallback to sanitized if pipeline processing returned empty
-            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt());
+            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt(context));
             var newCs = new ConversationState(
                     cs.taskMessages(),
                     nextRequestForBuildFailure,

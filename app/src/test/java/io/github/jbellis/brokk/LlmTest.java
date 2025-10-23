@@ -112,7 +112,9 @@ public class LlmTest {
     }
 
     // uncomment when you need it, this makes live API calls
-    //    @Test
+    // you will also need to set the ContextManager to a live one:
+    // contextManager = new ContextManager(new TestProject(tempDir, Languages.JAVA));
+    //        @Test
     void testToolCalling() {
         var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
@@ -121,72 +123,65 @@ public class LlmTest {
 
         var weatherTool = new WeatherTool();
         var toolSpecifications = ToolSpecifications.toolSpecificationsFrom(weatherTool);
+        var tr =
+                contextManager.getToolRegistry().builder().register(weatherTool).build();
 
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
 
-        availableModels.keySet().parallelStream()
-                .filter(k -> !k.contains("R1")) // R1 doesn't support tool calling OR json output
-                .forEach(modelName -> {
-                    try {
-                        System.out.println("Testing tool calling for model: " + modelName);
-                        StreamingChatModel model = models.getModel(modelName);
-                        var coder = contextManager.getLlm(model, "testToolCalling");
-                        assertNotNull(model, "Failed to get model instance for: " + modelName);
+        availableModels.keySet().parallelStream().forEach(modelName -> {
+            try {
+                System.out.println("Testing tool calling for model: " + modelName);
+                StreamingChatModel model = models.getModel(modelName);
+                var coder = contextManager.getLlm(model, "testToolCalling");
+                assertNotNull(model, "Failed to get model instance for: " + modelName);
 
-                        var messages = new ArrayList<ChatMessage>();
-                        messages.add(new UserMessage("What is the weather like in London?"));
-                        var result = coder.sendRequest(
-                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, weatherTool));
+                var messages = new ArrayList<ChatMessage>();
+                messages.add(new UserMessage("What is the weather like in London?"));
+                var tc = new ToolContext(toolSpecifications, ToolChoice.REQUIRED, tr);
+                var result = coder.sendRequest(messages, tc);
 
-                        assertNotNull(result, "Result should not be null for model: " + modelName);
-                        assertFalse(false, "Request should not be cancelled for model: " + modelName);
-                        if (result.error() != null) {
-                            throw new AssertionError(
-                                    "Request resulted in an error for model: " + modelName, result.error());
-                        }
+                assertNotNull(result, "Result should not be null for model: " + modelName);
+                assertFalse(false, "Request should not be cancelled for model: " + modelName);
+                if (result.error() != null) {
+                    throw new AssertionError("Request resulted in an error for model: " + modelName, result.error());
+                }
 
-                        var chatResponse = result.chatResponse();
-                        assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
-                        assertNotNull(
-                                result.originalMessage(), "AI message should not be null for model: " + modelName);
+                var chatResponse = result.chatResponse();
+                assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
+                assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
 
-                        // ASSERTION 1: Check if a tool execution was requested
-                        assertTrue(
-                                result.originalMessage().hasToolExecutionRequests(),
-                                "Model " + modelName + " did not request tool execution. Response: "
-                                        + chatResponse.text());
-                        System.out.println("Tool call requested successfully by " + modelName);
+                // ASSERTION 1: Check if a tool execution was requested
+                assertTrue(
+                        !result.chatResponse().toolRequests().isEmpty(),
+                        "Model " + modelName + " did not request tool execution. Response: " + chatResponse.text());
+                System.out.println("Tool call requested successfully by " + modelName);
 
-                        // check that we can send the result back
-                        var tr =
-                                result.originalMessage().toolExecutionRequests().getFirst();
-                        // NB: this is a quick hack that does not actually pass arguments from the tool call
-                        messages.add(result.originalMessage());
-                        var term = new ToolExecutionResultMessage(
-                                tr.id(), tr.name(), new WeatherTool().getWeather("London"));
-                        messages.add(term);
-                        messages.add(new UserMessage("Given what you know about London, is this unusual?"));
-                        result = coder.sendRequest(messages);
-                        assertNotNull(result, "Result should not be null for model: " + modelName);
-                        assertFalse(false, "Request should not be cancelled for model: " + modelName);
-                        if (result.error() != null) {
-                            throw new AssertionError(
-                                    "Followup request resulted in an error for model: " + modelName, result.error());
-                        }
-                        System.out.println("Tool response processed successfully by " + modelName);
-                    } catch (Throwable t) {
-                        // Catch assertion errors or any other exceptions during the test for this model
-                        failures.put(modelName, t);
-                        // Log the error immediately for easier debugging during parallel execution
-                        System.err.printf(
-                                "Failure testing tool calling for model %s: %s%n",
-                                modelName,
-                                t.getMessage() != null
-                                        ? t.getMessage()
-                                        : t.getClass().getSimpleName());
-                        t.printStackTrace();
-                    }
-                });
+                // check that we can send the result back
+                var req = result.chatResponse().toolRequests().getFirst();
+                // NB: this is a quick hack that does not actually pass arguments from the tool call
+                messages.add(result.originalMessage());
+                var term = new ToolExecutionResultMessage(req.id(), req.name(), new WeatherTool().getWeather("London"));
+                messages.add(term);
+                messages.add(new UserMessage("Given what you know about London, is this unusual?"));
+                result = coder.sendRequest(messages, tc);
+                assertNotNull(result, "Result should not be null for model: " + modelName);
+                assertFalse(false, "Request should not be cancelled for model: " + modelName);
+                if (result.error() != null) {
+                    throw new AssertionError(
+                            "Followup request resulted in an error for model: " + modelName, result.error());
+                }
+                System.out.println("Tool response processed successfully by " + modelName);
+            } catch (Throwable t) {
+                // Catch assertion errors or any other exceptions during the test for this model
+                failures.put(modelName, t);
+                // Log the error immediately for easier debugging during parallel execution
+                System.err.printf(
+                        "Failure testing tool calling for model %s: %s%n",
+                        modelName,
+                        t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
+                t.printStackTrace();
+            }
+        });
 
         if (!failures.isEmpty()) {
             String failureSummary = failures.entrySet().stream()

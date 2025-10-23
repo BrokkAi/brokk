@@ -25,6 +25,8 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -1224,7 +1226,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     cm,
                     "Ask: " + question,
                     cm.getIo().getLlmRawMessages(),
-                    Set.of(),
+                    cm.liveContext(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
@@ -1255,11 +1257,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // construct TaskResult
         requireNonNull(stop);
+        var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
                 "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
-                Set.of(), // Ask never changes files
+                resultingCtx, // Ask never changes files; use current live context
                 stop);
     }
 
@@ -1607,18 +1610,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Methods to disable and enable buttons.
     void disableButtons() {
         SwingUtilities.invokeLater(() -> {
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             // Keep the action button usable for "Stop" while a task is running.
             if (isActionRunning()) {
                 actionButton.showStopMode();
                 actionButton.setEnabled(true);
                 actionButton.setToolTipText("Cancel the current operation");
-                // always use the off red of the light theme
-                Color badgeBackgroundColor = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
-                actionButton.setBackground(badgeBackgroundColor);
+
+                Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
+                if (bg == null) {
+                    bg = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
+                }
+                if (isHighContrast) {
+                    actionButton.setForeground(Color.WHITE);
+                }
+                actionButton.setBackground(bg);
             } else {
                 // If there is no running action, keep the action button enabled so the user can start an action.
                 actionButton.setEnabled(true);
-                actionButton.setBackground(defaultActionButtonBg);
+                Color bg = UIManager.getColor("Brokk.action_button_bg_default");
+                if (bg == null) {
+                    bg = defaultActionButtonBg;
+                }
+                actionButton.setBackground(bg);
                 // Ensure combined tooltip (mode-specific + base) is shown initially
                 actionButton.updateTooltip();
             }
@@ -1634,16 +1648,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             // Action button reflects current running state
             if (isActionRunning()) {
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
-                actionButton.setBackground(secondaryActionButtonBg);
+                Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
+                if (bg == null) {
+                    bg = secondaryActionButtonBg;
+                }
+                if (isHighContrast) {
+                    actionButton.setForeground(Color.WHITE);
+                }
+                actionButton.setBackground(bg);
             } else {
                 actionButton.showNormalMode();
                 // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
                 actionButton.updateTooltip();
-                actionButton.setBackground(defaultActionButtonBg);
+                Color bg = UIManager.getColor("Brokk.action_button_bg_default");
+                if (bg == null) {
+                    bg = defaultActionButtonBg;
+                }
+                if (isHighContrast) {
+                    actionButton.setForeground(Color.WHITE);
+                }
+                actionButton.setBackground(bg);
             }
             actionButton.setEnabled(true);
 
@@ -1801,10 +1830,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             inputLayeredPane.repaint();
         }
 
-        // Set action button foreground: black in high contrast mode, white otherwise
-        Color buttonForeground = isHighContrast ? Color.BLACK : Color.WHITE;
         if (!isActionRunning()) {
-            actionButton.setForeground(buttonForeground);
+            actionButton.setForeground(Color.WHITE);
         }
     }
 
@@ -2121,6 +2148,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void setIcon(@Nullable Icon icon) {
             this.originalIcon = icon;
+            // Apply high-contrast processing if needed
             boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
@@ -2199,15 +2227,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             // Re-read colors from UIManager instead of using cached values
             Color currentDefaultBg = UIManager.getColor("Button.default.background");
             Color currentSecondaryBg = UIManager.getColor("Button.background");
 
             // Set background FIRST so icon processing can read the correct background
-            if (this.isActionRunning.get()) {
-                setBackground(currentSecondaryBg);
+            if (isHighContrast) {
+                if (this.isActionRunning.get()) {
+                    Color hcStop = UIManager.getColor("Brokk.action_button_bg_stop");
+                    setBackground(hcStop != null ? hcStop : currentSecondaryBg);
+                } else {
+                    Color hcDefault = UIManager.getColor("Brokk.action_button_bg_default");
+                    setBackground(hcDefault != null ? hcDefault : currentDefaultBg);
+                }
             } else {
-                setBackground(currentDefaultBg);
+                if (this.isActionRunning.get()) {
+                    setBackground(currentSecondaryBg);
+                } else {
+                    setBackground(currentDefaultBg);
+                }
             }
 
             // Now update icon - this will trigger high-contrast processing with the new background
@@ -2416,7 +2455,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void setIcon(@Nullable Icon icon) {
             // Apply high-contrast processing if needed
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            boolean isHighContrast = io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(
+                    MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }
@@ -2430,7 +2470,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void setIcon(@Nullable Icon icon) {
             // Apply high-contrast processing if needed
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            boolean isHighContrast = io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(
+                    MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }

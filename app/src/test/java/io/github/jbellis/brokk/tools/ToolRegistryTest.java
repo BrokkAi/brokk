@@ -23,9 +23,9 @@ class ToolRegistryTest {
 
     @BeforeEach
     void setup() {
-        registry = new ToolRegistry(null);
+        var rootRegistry = new ToolRegistry();
         tools = new TestTools();
-        registry.register(tools);
+        registry = rootRegistry.builder().register(tools).build();
     }
 
     @Test
@@ -130,7 +130,7 @@ class ToolRegistryTest {
                 .arguments(json)
                 .build();
 
-        var vi = registry.validateTool(tools, req);
+        var vi = registry.validateTool(req);
         assertEquals("getClassSources", vi.method().getName());
         assertSame(tools, vi.instance());
         assertEquals(2, vi.parameters().size());
@@ -153,7 +153,7 @@ class ToolRegistryTest {
                 .name("getClassSources")
                 .arguments(json)
                 .build();
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
         assertTrue(ex.getMessage().contains("Missing required parameter: 'reasoning'"));
     }
 
@@ -163,14 +163,14 @@ class ToolRegistryTest {
                 .name("noSuchTool")
                 .arguments("{}")
                 .build();
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
         assertTrue(ex.getMessage().contains("Tool not found"));
     }
 
     @Test
     void validateTool_ThrowsOnBlankToolName() {
         var req = ToolExecutionRequest.builder().name("").arguments("{}").build();
-        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        var ex = assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
         assertTrue(ex.getMessage().contains("Tool name cannot be empty"));
     }
 
@@ -184,7 +184,45 @@ class ToolRegistryTest {
 
         var req =
                 ToolExecutionRequest.builder().name("listInts").arguments(json).build();
-        assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
+        assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
+    }
+
+    @Test
+    void validateToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
+        // "think" is registered globally in ToolRegistry constructor
+        var map = new LinkedHashMap<String, Object>();
+        map.put("reasoning", "Let me work through this");
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder().name("think").arguments(json).build();
+
+        var vi = registry.validateTool(req);
+        assertEquals("think", vi.method().getName());
+        assertEquals(1, vi.parameters().size());
+        assertEquals("Let me work through this", vi.parameters().get(0));
+    }
+
+    @Test
+    void validateToolGlobal_ThrowsWhenToolNotFound() {
+        var req = ToolExecutionRequest.builder()
+                .name("noSuchTool")
+                .arguments("{}")
+                .build();
+
+        assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(req));
+    }
+
+    @Test
+    void executeToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
+        // "think" is registered globally in ToolRegistry constructor
+        var map = new LinkedHashMap<String, Object>();
+        map.put("reasoning", "Consider the options");
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder().name("think").arguments(json).build();
+
+        var result = registry.executeTool(req);
+        assertTrue(result.resultText().contains("Good thinking"));
     }
 
     @Test
@@ -196,7 +234,7 @@ class ToolRegistryTest {
                 .arguments(json)
                 .build();
 
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertFalse(explanation.isBlank());
         assertTrue(explanation.contains("Fetching class source"));
@@ -218,7 +256,7 @@ class ToolRegistryTest {
                 .build();
 
         // Should NOT throw - validation errors return empty string (details logged only)
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertTrue(explanation.isBlank());
     }
@@ -231,7 +269,7 @@ class ToolRegistryTest {
                 .build();
 
         // Should NOT throw - validation errors return empty string (details logged only)
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertTrue(explanation.isBlank());
     }
@@ -244,7 +282,7 @@ class ToolRegistryTest {
                 .build();
 
         // Should NOT throw - validation errors return empty string (details logged only)
-        String explanation = registry.getExplanationForToolRequest(tools, req);
+        String explanation = registry.getExplanationForToolRequest(req);
 
         assertTrue(explanation.isBlank());
     }

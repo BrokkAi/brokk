@@ -4,13 +4,13 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon;
-import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.McpToolTable;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.JDeploySettingsUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -783,7 +783,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
         darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
-        highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
+        highContrastThemeRadio.putClientProperty(
+                "theme", io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -1255,7 +1256,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String currentTheme = MainProject.getTheme();
         switch (currentTheme) {
             case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
-            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
+            case io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST ->
+                highContrastThemeRadio.setSelected(true);
             default -> lightThemeRadio.setSelected(true);
         }
 
