@@ -908,8 +908,7 @@ public class SearchAgent {
     private Set<ProjectFile> getWorkspaceFileSet() {
         return cm.topContext()
                 .allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                        || f.getType() == ContextFragment.FragmentType.SKELETON)
+                .filter(ContextAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
     }
@@ -921,6 +920,7 @@ public class SearchAgent {
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         return cm.topContext()
                 .allFragments()
+                .filter(ContextAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),

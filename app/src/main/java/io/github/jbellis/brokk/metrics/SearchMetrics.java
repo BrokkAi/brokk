@@ -294,6 +294,12 @@ public interface SearchMetrics {
                     contextScanTimeMs,
                     contextScanSkipped,
                     new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()));
+
+            // Convert final workspace files to sorted list
+            List<String> finalWorkspaceFilesList = finalWorkspaceFiles != null
+                    ? finalWorkspaceFiles.stream().sorted().toList()
+                    : null;
+
             var result = new SearchResult(
                     query,
                     foundFiles,
@@ -305,6 +311,7 @@ public interface SearchMetrics {
                     failureType,
                     stopReason,
                     finalWorkspaceSize,
+                    finalWorkspaceFilesList,
                     finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null,
                     llmHistoryPath);
 
@@ -329,6 +336,7 @@ public interface SearchMetrics {
                 @Nullable String failure_type,
                 @Nullable String stop_reason,
                 int final_workspace_size,
+                @Nullable List<String> final_workspace_files,
                 @Nullable List<FragmentInfo> final_workspace_fragments,
                 @Nullable String llm_history_path) {}
 

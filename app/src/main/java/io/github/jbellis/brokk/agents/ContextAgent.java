@@ -61,6 +61,15 @@ import org.jetbrains.annotations.Nullable;
 public class ContextAgent {
     private static final Logger logger = LogManager.getLogger(ContextAgent.class);
 
+    /**
+     * Returns true if the fragment represents a workspace file (PROJECT_PATH or SKELETON).
+     * These are the fragment types that contribute actual files to the workspace for editing/viewing.
+     */
+    public static boolean isWorkspaceFileFragment(ContextFragment f) {
+        return f.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                || f.getType() == ContextFragment.FragmentType.SKELETON;
+    }
+
     private enum GroupType {
         ANALYZED,
         UNANALYZED
@@ -205,8 +214,7 @@ public class ContextAgent {
         // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
         var existingFiles = cm.liveContext()
                 .allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                        || f.getType() == ContextFragment.FragmentType.SKELETON)
+                .filter(ContextAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
         List<ProjectFile> candidates;

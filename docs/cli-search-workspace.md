@@ -38,7 +38,7 @@ Search results are output to stdout with this structure:
 ```json
 {
   "query": "How does authentication work?",
-  "found_files": ["src/main/java/auth/AuthManager.java", ...],
+  "found_files": ["src/main/java/auth/AuthManager.java", "src/main/java/auth/User.java", ...],
   "turns": 3,
   "elapsed_ms": 15420,
   "success": true,
@@ -60,21 +60,32 @@ Search results are output to stdout with this structure:
   ],
   "failure_type": null,
   "stop_reason": "SUCCESS",
-  "final_workspace_size": 7,
-  "final_workspace_fragments": [...],
+  "final_workspace_size": 2,
+  "final_workspace_files": ["src/main/java/auth/AuthManager.java"],
+  "final_workspace_fragments": [
+    {
+      "type": "PROJECT_PATH",
+      "id": "abc123...",
+      "description": "AuthManager.java",
+      "files": ["src/main/java/auth/AuthManager.java"]
+    }
+  ],
   "llm_history_path": "/path/to/.brokk/llm-history/2025-10-21-15-23-45"
 }
 ```
 
 ### Key Fields
 
-- `found_files`: All files discovered during context scan and search turns
+- `found_files`: All files added during context scan and search turns (includes files later removed)
+- `final_workspace_files`: Files present in the final workspace at search completion (subset of found_files)
 - `turns`: Number of search turns (AI messages)
 - `success`: Whether the search completed successfully
 - `context_scan`: Initial scan metrics (files added, time, whether skipped)
 - `turns_detail`: Per-turn metrics with tool calls and file changes
 - `failure_type`: Classification if unsuccessful (`null` on success)
 - `stop_reason`: Why the search stopped (e.g., `"SUCCESS"`, `"LLM_ERROR"`)
+- `final_workspace_size`: Number of fragments in the final workspace
+- `final_workspace_fragments`: Fragments from files in the final workspace (filtered to match final_workspace_files)
 
 ## SearchAgent Usage Modes
 
