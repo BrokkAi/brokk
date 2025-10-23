@@ -2748,10 +2748,133 @@ public class Chrome
 
     /**
      * Hook to apply Advanced Mode UI visibility without restart.
-     * TODO: implement visibility toggling for Advanced Mode (hide/show specific UI elements)
+     * Shows/hides tabs that are considered "advanced": Pull Requests, Issues, Log, Worktrees.
+     * Safe to call from any thread.
      */
     public void applyAdvancedModeVisibility() {
-        // no-op for now
+        Runnable r = () -> {
+            boolean advanced = GlobalUiSettings.isAdvancedMode();
+
+            // When disabling advanced mode, remove tabs if present
+            if (!advanced) {
+                if (gitLogTab != null) {
+                    int idx = leftTabbedPanel.indexOfComponent(gitLogTab);
+                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                }
+                if (gitWorktreeTab != null) {
+                    int idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                }
+                if (pullRequestsPanel != null) {
+                    int idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                }
+                if (issuesPanel != null) {
+                    int idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                }
+
+                // Ensure a valid selection after removals
+                if (leftTabbedPanel.getTabCount() > 0) {
+                    int sel = leftTabbedPanel.getSelectedIndex();
+                    if (sel < 0 || sel >= leftTabbedPanel.getTabCount()) {
+                        leftTabbedPanel.setSelectedIndex(0);
+                    }
+                }
+            } else {
+                // Advanced ON: lazily re-add tabs if applicable and not already present
+
+                // Log tab
+                if (gitLogTab != null && leftTabbedPanel.indexOfComponent(gitLogTab) == -1) {
+                    var logIcon = Icons.FLOWSHEET;
+                    leftTabbedPanel.addTab(null, logIcon, gitLogTab);
+                    var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
+                    var ks = GlobalUiSettings.getKeybinding(
+                            "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    var tooltip = "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
+                    var label = createSquareTabLabel(logIcon, tooltip);
+                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    final int tabIdx = idx;
+                    label.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            handleTabToggle(tabIdx);
+                        }
+                    });
+                }
+
+                // Worktrees tab
+                if (gitWorktreeTab != null && leftTabbedPanel.indexOfComponent(gitWorktreeTab) == -1) {
+                    var worktreeIcon = Icons.FLOWCHART;
+                    leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
+                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+                    var ks = GlobalUiSettings.getKeybinding(
+                            "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                    var tooltip = "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
+                    var label = createSquareTabLabel(worktreeIcon, tooltip);
+                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    final int tabIdx = idx;
+                    label.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            handleTabToggle(tabIdx);
+                        }
+                    });
+                }
+
+                // Pull Requests tab (only when repo supports PRs i.e., GitHub)
+                if (pullRequestsPanel != null
+                        && getProject().isGitHubRepo()
+                        && gitLogTab != null
+                        && leftTabbedPanel.indexOfComponent(pullRequestsPanel) == -1) {
+                    var prIcon = Icons.PULL_REQUEST;
+                    leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
+                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+                    var ks = GlobalUiSettings.getKeybinding(
+                            "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+                    var tooltip = "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
+                    var label = createSquareTabLabel(prIcon, tooltip);
+                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    final int tabIdx = idx;
+                    label.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            handleTabToggle(tabIdx);
+                        }
+                    });
+                }
+
+                // Issues tab (only when provider is not NONE)
+                if (issuesPanel != null
+                        && getProject().getIssuesProvider().type() != IssueProviderType.NONE
+                        && leftTabbedPanel.indexOfComponent(issuesPanel) == -1) {
+                    var issIcon = Icons.ADJUST;
+                    leftTabbedPanel.addTab(null, issIcon, issuesPanel);
+                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                    var ks = GlobalUiSettings.getKeybinding(
+                            "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                    var tooltip = "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
+                    var label = createSquareTabLabel(issIcon, tooltip);
+                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    final int tabIdx = idx;
+                    label.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            handleTabToggle(tabIdx);
+                        }
+                    });
+                }
+            }
+
+            leftTabbedPanel.revalidate();
+            leftTabbedPanel.repaint();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     /**
