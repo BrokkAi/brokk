@@ -45,7 +45,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         var effectiveSimpleName = simpleName;
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        if (simpleName.equals("this") && skeletonType.equals(SkeletonType.FUNCTION_LIKE)) {
+        if ("constructor.definition".equals(captureName)) {
+            // This is a primary constructor, which is matched against the class name. This constructor is "implicit"
+            // and needs to be created explicitly as follows.
+            effectiveSimpleName = simpleName + "." + simpleName;
+        } else if (simpleName.equals("this") && skeletonType.equals(SkeletonType.FUNCTION_LIKE)) {
             // This is a secondary constructor, which is named `this`. The simple name should be the class name.
             // The classChain is the simple name of the enclosing class.
             if (!classChain.isEmpty()) {

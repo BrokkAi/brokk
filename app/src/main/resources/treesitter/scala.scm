@@ -5,7 +5,7 @@
     ] @package.name
   ) @package.declaration
 
-; Class declarations TODO: Constructors will be in here too
+; Class declarations
 (class_definition
   name: (identifier) @class.name
   ) @class.definition
@@ -24,13 +24,14 @@
   name: (identifier) @class.name
   ) @enum.definition
 
-; Method declarations
+; Method declarations. This will also match secondary constructors which are handled later
 (function_definition
   name: (identifier) @method.name
   ) @method.definition
 
-; Secondary constructor
-;(function_definition
-;  name: (this) @constructor.name
-;) @constructor.definition
+; Primary constructor. This treats a class definition with parameters as a "method".
+(class_definition
+  name: (identifier) @method.name
+  class_parameters: (class_parameters)
+  ) @constructor.definition
 
