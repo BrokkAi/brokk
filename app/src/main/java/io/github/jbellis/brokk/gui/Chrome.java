@@ -2773,7 +2773,7 @@ public class Chrome
             // Update session management visibility in History panel
             historyOutputPanel.setAdvancedMode(advanced);
 
-            // When disabling advanced mode, remove tabs if present
+            // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
             if (!advanced) {
                 if (gitLogTab != null) {
                     int idx = leftTabbedPanel.indexOfComponent(gitLogTab);
@@ -2800,7 +2800,7 @@ public class Chrome
                     }
                 }
             } else {
-                // Advanced ON: lazily re-add tabs if applicable and not already present
+                // Advanced ON: re-add tabs if applicable and not already present
 
                 // Log tab
                 if (gitLogTab != null && leftTabbedPanel.indexOfComponent(gitLogTab) == -1) {
@@ -2886,6 +2886,36 @@ public class Chrome
 
             leftTabbedPanel.revalidate();
             leftTabbedPanel.repaint();
+
+            // --- Right (Instructions/Tasks/Terminal) tabs: hide/show Terminal tab dynamically ---
+            int terminalIdx = rightTabbedPanel.indexOfTab("Terminal");
+            boolean terminalTabPresent = terminalIdx != -1;
+            boolean terminalWasSelected =
+                    terminalTabPresent && rightTabbedPanel.getSelectedComponent() == terminalPanel;
+
+            if (!advanced) {
+                // Remove Terminal tab if present
+                if (terminalTabPresent) {
+                    rightTabbedPanel.removeTabAt(terminalIdx);
+                    // If it was selected, switch to Tasks or Instructions
+                    if (terminalWasSelected) {
+                        int tasksIdx = rightTabbedPanel.indexOfTab("Tasks");
+                        if (tasksIdx != -1) {
+                            rightTabbedPanel.setSelectedIndex(tasksIdx);
+                        } else if (rightTabbedPanel.getTabCount() > 0) {
+                            rightTabbedPanel.setSelectedIndex(0);
+                        }
+                    }
+                }
+            } else {
+                // Add Terminal tab if missing
+                if (!terminalTabPresent) {
+                    rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
+                }
+            }
+
+            rightTabbedPanel.revalidate();
+            rightTabbedPanel.repaint();
         };
 
         if (SwingUtilities.isEventDispatchThread()) {
