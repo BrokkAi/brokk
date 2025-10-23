@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.TableUtils;
+import io.github.jbellis.brokk.gui.components.GitHubAppInstallLabel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.CreateBranchDialog;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
@@ -1527,12 +1528,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void handlePushAction(String branchName) {
         // Capture current focused window to prevent stealing focus from worktree windows
-        Window currentFocusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                .getFocusedWindow();
-        System.out.println("=== Push button clicked ===");
-        System.out.println("Current focused window: " + (currentFocusedWindow != null
-                ? currentFocusedWindow.getClass().getSimpleName() + " - " + currentFocusedWindow.getName()
-                : "null"));
+        Window currentFocusedWindow =
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
 
         pushButton.setEnabled(false);
         contextManager.submitExclusiveAction(() -> {
@@ -1554,9 +1551,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             } catch (TransportException ex) {
                 logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
                 SwingUtil.runOnEdt(() -> {
-                    String errorMessage;
                     if (GitRepo.isGitHubPermissionDenied(ex)) {
-                        errorMessage = String.format(
+                        String errorMessage = String.format(
                                 """
                                 Push to %s was denied. This usually means:
 
@@ -1567,13 +1563,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                                    → Verify you own or are a collaborator on this repository
 
                                 3. Brokk GitHub App is not installed for this repository
-                                   → Go to Settings → Global → GitHub to install the app
                                 """,
                                 branchName);
+                        showGitHubPermissionDeniedDialog(errorMessage);
                     } else {
-                        errorMessage = "Push failed for " + branchName + ": " + ex.getMessage();
+                        chrome.toolError("Push failed for " + branchName + ": " + ex.getMessage());
                     }
-                    chrome.toolError(errorMessage, "Push Permission Denied");
                     pushButton.setEnabled(true);
                 });
             } catch (GitAPIException ex) {
@@ -1593,20 +1588,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         });
 
         // Restore focus if it was stolen (macOS can sometimes bring parent window forward)
-        SwingUtilities.invokeLater(() -> {
-            Window nowFocusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                    .getFocusedWindow();
-            System.out.println("After push action started, focused window: " + (nowFocusedWindow != null
-                    ? nowFocusedWindow.getClass().getSimpleName() + " - " + nowFocusedWindow.getName()
-                    : "null"));
+        SwingUtil.runOnEdt(() -> {
+            Window nowFocusedWindow =
+                    KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
 
             if (currentFocusedWindow != null && currentFocusedWindow != nowFocusedWindow) {
-                System.out.println("*** Focus was stolen! Restoring focus to: "
-                        + currentFocusedWindow.getClass().getSimpleName());
                 currentFocusedWindow.toFront();
                 currentFocusedWindow.requestFocus();
-            } else {
-                System.out.println("Focus remained on the same window - no restoration needed");
             }
         });
     }
@@ -1662,6 +1650,26 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         } finally {
             selectionModel.setValueIsAdjusting(false);
         }
+    }
+
+    private void showGitHubPermissionDeniedDialog(String errorMessage) {
+        var panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        var messageArea = new JTextArea(errorMessage);
+        messageArea.setEditable(false);
+        messageArea.setBackground(panel.getBackground());
+        messageArea.setFont(UIManager.getFont("Label.font"));
+        messageArea.setLineWrap(true);
+        messageArea.setWrapStyleWord(true);
+        panel.add(messageArea, BorderLayout.CENTER);
+
+        var installLabel = new GitHubAppInstallLabel(
+                this, "<html>→ <a href=\"\">Install the GitHub App for your repositories</a></html>");
+        panel.add(installLabel, BorderLayout.SOUTH);
+
+        JOptionPane.showMessageDialog(
+                SwingUtilities.getWindowAncestor(this), panel, "Push Permission Denied", JOptionPane.ERROR_MESSAGE);
     }
 
     // Helper methods from GitLogTab (static or instance methods if they don't depend on GitLogTab's specific state)
