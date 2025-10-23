@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.EnvironmentJava;
 import java.awt.Rectangle;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.util.FS;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -566,8 +568,67 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /**
+     * Gets the global gitignore file path using JGit's configuration APIs.
+     * Checks in order:
+     * 1. core.excludesfile from git config (with tilde expansion)
+     * 2. XDG standard location: ~/.config/git/ignore
+     * 3. Legacy location: ~/.gitignore_global
+     *
+     * @param gitRepo The git repository
+     * @return Optional containing the path to the global gitignore file, or empty if not found
+     */
+    private Optional<Path> getGlobalGitignoreFile(GitRepo gitRepo) {
+        try {
+            // Use JGit's Repository config
+            var config = gitRepo.getGit().getRepository().getConfig();
+
+            // Check core.excludesfile setting
+            String configPath = config.getString("core", null, "excludesfile");
+            if (configPath != null && !configPath.isEmpty()) {
+                // Use JGit's FS to resolve paths (handles ~/ expansion properly)
+                var fs = FS.DETECTED;
+                Path globalIgnore;
+
+                if (configPath.startsWith("~/")) {
+                    // JGit pattern: resolve relative to user home
+                    File resolved = fs.resolve(fs.userHome(), configPath.substring(2));
+                    globalIgnore = resolved.toPath();
+                } else {
+                    globalIgnore = Path.of(configPath);
+                }
+
+                if (Files.exists(globalIgnore)) {
+                    logger.debug("Using global gitignore from core.excludesfile: {}", globalIgnore);
+                    return Optional.of(globalIgnore);
+                }
+            }
+
+            // Fallback to XDG standard location: ~/.config/git/ignore
+            File userHome = FS.DETECTED.userHome();
+            Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
+            if (Files.exists(xdgIgnore)) {
+                logger.debug("Using global gitignore from XDG location: {}", xdgIgnore);
+                return Optional.of(xdgIgnore);
+            }
+
+            // Fallback to legacy location: ~/.gitignore_global
+            Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
+            if (Files.exists(legacyIgnore)) {
+                logger.debug("Using global gitignore from legacy location: {}", legacyIgnore);
+                return Optional.of(legacyIgnore);
+            }
+
+            return Optional.empty();
+        } catch (Exception e) {
+            logger.debug("Error reading global gitignore config: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Checks if a path is ignored by gitignore rules using JGit's IgnoreNode.
      * This approach correctly handles:
+     * - Global gitignore files (from core.excludesfile config or XDG location)
      * - .git/info/exclude (local, non-committed ignore rules)
      * - Root and nested .gitignore files
      * - Negation patterns (e.g., !build/keep/)
@@ -579,11 +640,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * "build/Generated.java" (relative to subdir), not "subdir/build/Generated.java".
      *
      * Git's precedence order (lowest to highest):
-     * 1. .git/info/exclude
-     * 2. Root .gitignore
-     * 3. Nested .gitignore files (closer to file = higher precedence)
-     *
-     * Note: This currently does NOT check global gitignore files from git config.
+     * 1. Global gitignore (core.excludesfile or ~/.config/git/ignore)
+     * 2. .git/info/exclude
+     * 3. Root .gitignore
+     * 4. Nested .gitignore files (closer to file = higher precedence)
      *
      * @param gitRepo The git repository
      * @param projectRelPath Path relative to project root
@@ -601,12 +661,18 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         // Start from the file's directory and walk up to root, checking .gitignore files
         // Build a list of (directory, ignore-file) pairs
         // Git's precedence (lowest to highest):
-        // 1. .git/info/exclude
-        // 2. Root .gitignore
-        // 3. Nested .gitignore files (closer to file = higher precedence)
+        // 1. Global gitignore (core.excludesfile or XDG location)
+        // 2. .git/info/exclude
+        // 3. Root .gitignore
+        // 4. Nested .gitignore files (closer to file = higher precedence)
         var gitignorePairs = new java.util.ArrayList<java.util.Map.Entry<Path, Path>>();
 
-        // Add .git/info/exclude (lowest precedence)
+        // Add global gitignore (lowest precedence)
+        getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
+            gitignorePairs.add(java.util.Map.entry(Path.of(""), globalIgnore));
+        });
+
+        // Add .git/info/exclude
         var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
         if (Files.exists(gitInfoExclude)) {
             gitignorePairs.add(java.util.Map.entry(Path.of(""), gitInfoExclude));
@@ -697,7 +763,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // Check the parent directory with all ignore files
             var parentGitignorePairs = new java.util.ArrayList<java.util.Map.Entry<Path, Path>>();
 
-            // Add .git/info/exclude (lowest precedence)
+            // Add global gitignore (lowest precedence)
+            getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
+                parentGitignorePairs.add(java.util.Map.entry(Path.of(""), globalIgnore));
+            });
+
+            // Add .git/info/exclude
             if (Files.exists(gitInfoExclude)) {
                 parentGitignorePairs.add(java.util.Map.entry(Path.of(""), gitInfoExclude));
             }
