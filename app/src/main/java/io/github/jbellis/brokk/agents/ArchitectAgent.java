@@ -215,7 +215,7 @@ public class ArchitectAgent {
             "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
     public String callSearchAgent(
             @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
-            throws FatalLlmException {
+            throws FatalLlmException, InterruptedException {
         addPlanningToHistory();
         logger.debug("callSearchAgent invoked with query: {}", query);
 
@@ -265,7 +265,7 @@ public class ArchitectAgent {
      *
      * <p>Returns the search result if it fails, otherwise returns the Architect result.
      */
-    public TaskResult executeWithSearch(ContextManager.TaskScope scope) {
+    public TaskResult executeWithSearch(ContextManager.TaskScope scope) throws InterruptedException {
         // Run Search first using the scan model (fast, token-friendly)
         var scanModel = cm.getService().getScanModel();
         var searchAgent =

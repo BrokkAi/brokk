@@ -244,10 +244,11 @@ public class SearchAgent {
                 }
             }
 
+            // End turn tracking after tool execution
+            endTurnAndRecordFileChanges(filesBeforeSet);
+
             // If we executed a final tool, finalize appropriately
             if (executedFinalTool != null) {
-                endTurnAndRecordFileChanges(filesBeforeSet);
-
                 if (executedFinalTool.equals("abortSearch")) {
                     var explain = executedFinalText.isBlank() ? "No explanation provided by agent." : executedFinalText;
                     return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explain));
@@ -255,9 +256,6 @@ public class SearchAgent {
                     return createResult();
                 }
             }
-
-            // End turn tracking for non-final iterations
-            endTurnAndRecordFileChanges(filesBeforeSet);
         }
     }
 
