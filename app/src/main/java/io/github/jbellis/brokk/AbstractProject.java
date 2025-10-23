@@ -681,20 +681,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             return true;
         }
 
-        if (finalResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
-            logger.debug(
-                    "Path {} (isDir: {}) ignored: false (result: NOT_IGNORED - negation)", gitRelPath, isDirectory);
-            return false;
-        }
+        // IMPORTANT: Even if we got NOT_IGNORED (negation pattern), we must check parent directories
+        // Git's rule: "It is not possible to re-include a file if a parent directory of that file is excluded"
+        // Example: build/ + !build/app.java → app.java is STILL IGNORED because build/ is ignored
 
-        // CHECK_PARENT - this file doesn't match any pattern directly
-        // However, we need to check if it's inside an ignored directory
-        // BUT we must also respect negation patterns on parent directories
-
-        // The correct approach: check each parent directory and see if it has an explicit ignore/negation
-        // If we find an explicit IGNORED parent, the file is ignored
-        // If we find an explicit NOT_IGNORED parent (negation), the file is NOT ignored
-        // If all parents return CHECK_PARENT, then the file is not ignored
+        // For both NOT_IGNORED and CHECK_PARENT, we need to check if parent directories are ignored
+        // The only difference is:
+        // - NOT_IGNORED: file has explicit negation pattern, but parent check can override it
+        // - CHECK_PARENT: file has no explicit pattern, parent check determines result
 
         Path parent = gitRelPathObj.getParent();
         while (parent != null && !parent.toString().isEmpty()) {
@@ -771,8 +765,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             parent = parent.getParent();
         }
 
-        // No parent was ignored or had negation
-        logger.debug("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
+        // No parent was ignored
+        // If the file had a negation pattern (NOT_IGNORED) and no parent is ignored, it's not ignored
+        // If the file had no explicit pattern (CHECK_PARENT) and no parent is ignored, it's not ignored
+        if (finalResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+            logger.debug("Path {} ignored: false (result: NOT_IGNORED, no ignored parents)", gitRelPath);
+        } else {
+            logger.debug("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
+        }
         return false;
     }
 
