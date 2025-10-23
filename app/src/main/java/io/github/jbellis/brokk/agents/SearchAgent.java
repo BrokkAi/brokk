@@ -75,7 +75,6 @@ public class SearchAgent {
     private final String goal;
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
-    private final boolean skipInitialScan;
     private final SearchMetrics metrics;
 
     // Session-local conversation for this agent
@@ -89,7 +88,6 @@ public class SearchAgent {
             ContextManager contextManager,
             StreamingChatModel model,
             Set<Terminal> allowedTerminals,
-            boolean skipInitialScan,
             SearchMetrics metrics) {
         this.goal = goal;
         this.cm = contextManager;
@@ -103,7 +101,6 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
-        this.skipInitialScan = skipInitialScan;
         this.metrics = metrics;
 
         var mcpConfig = cm.getProject().getMcpConfig();
@@ -129,14 +126,6 @@ public class SearchAgent {
     }
 
     private @NotNull TaskResult executeInternal() throws InterruptedException {
-        // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
-        if (!skipInitialScan) {
-            addInitialContextToWorkspace();
-        } else {
-            // Record that context scan was skipped
-            metrics.recordContextScan(0, 0, true, Set.of());
-        }
-
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
             // Beast mode triggers
@@ -648,7 +637,11 @@ public class SearchAgent {
     // Initial context seeding
     // =======================
 
-    private void addInitialContextToWorkspace() throws InterruptedException {
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     * Callers should invoke this before calling execute() if they want the initial context scan.
+     */
+    public void scanInitialContext() throws InterruptedException {
         long scanStartTime = System.currentTimeMillis();
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
