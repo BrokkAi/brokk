@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ScalaAnalyzer;
-
 import java.util.List;
 
 public class ScalaLanguage implements Language {
@@ -50,5 +49,4 @@ public class ScalaLanguage implements Language {
     public boolean providesInterproceduralAnalysis() {
         return true;
     }
-
 }

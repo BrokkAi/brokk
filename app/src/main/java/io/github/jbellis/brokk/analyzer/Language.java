@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
-import io.github.jbellis.brokk.util.Environment;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;

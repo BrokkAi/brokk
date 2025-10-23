@@ -1,14 +1,5 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.IProject;
-import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TreeSitterScala;
-
-import java.util.Map;
-import java.util.Set;
-
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.ANNOTATION_TYPE_DECLARATION;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.CONSTRUCTOR_DECLARATION;
@@ -17,6 +8,14 @@ import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.FIEL
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.IMPORT_DECLARATION;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.METHOD_DECLARATION;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.RECORD_DECLARATION;
+
+import io.github.jbellis.brokk.IProject;
+import java.util.Map;
+import java.util.Set;
+import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSLanguage;
+import org.treesitter.TSNode;
+import org.treesitter.TreeSitterScala;
 
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
@@ -49,7 +48,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         final String fqName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
@@ -80,7 +80,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+    protected String renderClassHeader(
+            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
         return "";
     }
 
@@ -90,7 +91,16 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportAndModifierPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(
+            TSNode funcNode,
+            String src,
+            String exportAndModifierPrefix,
+            String asyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
         var typeParams = typeParamsText.isEmpty() ? "" : typeParamsText + " ";
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
@@ -132,7 +142,5 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     "lambda.definition", SkeletonType.FUNCTION_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
-    );
-
-
+            );
 }

@@ -28,5 +28,4 @@ public class AnalyzerCreator {
             super("Analyzer not supported for the given project! Detected language is: " + language.name());
         }
     }
-
 }
