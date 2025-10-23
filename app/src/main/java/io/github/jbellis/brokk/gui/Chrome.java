@@ -2762,6 +2762,8 @@ public class Chrome
     public void applyAdvancedModeVisibility() {
         Runnable r = () -> {
             boolean advanced = GlobalUiSettings.isAdvancedMode();
+            // Update session management visibility in History panel
+            historyOutputPanel.setAdvancedMode(advanced);
 
             // When disabling advanced mode, remove tabs if present
             if (!advanced) {

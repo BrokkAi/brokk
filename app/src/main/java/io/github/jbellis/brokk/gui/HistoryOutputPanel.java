@@ -31,6 +31,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -257,6 +258,9 @@ public class HistoryOutputPanel extends JPanel {
         setClearButtonEnabled(false);
         setCaptureButtonEnabled(false);
         setOpenWindowButtonEnabled(false);
+
+        // Respect current Advanced Mode on construction
+        setAdvancedMode(GlobalUiSettings.isAdvancedMode());
     }
 
     private void buildSessionSwitchPanel() {
@@ -2085,6 +2089,26 @@ public class HistoryOutputPanel extends JPanel {
             compressButton.setEnabled(true);
             updateUndoRedoButtonStates();
         });
+    }
+
+    /**
+     * Applies Advanced Mode visibility to session management UI.
+     * When advanced is false (easy mode), hides the "Manage sessions" button.
+     */
+    public void setAdvancedMode(boolean advanced) {
+        Runnable r = () -> {
+            manageSessionsButton.setVisible(advanced);
+            var parent = manageSessionsButton.getParent();
+            if (parent != null) {
+                parent.revalidate();
+                parent.repaint();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     /** A renderer that shows the action text and a diff summary (when available) under it. */
