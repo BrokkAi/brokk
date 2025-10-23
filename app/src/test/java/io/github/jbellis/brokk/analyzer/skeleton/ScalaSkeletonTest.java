@@ -24,7 +24,7 @@ public class ScalaSkeletonTest {
                                       das
                                       "
 
-                                    def foo1(): Int = {
+                                    private def foo1(): Int = {
                                         return 1 + 2;
                                     }
                                 }
@@ -47,7 +47,7 @@ public class ScalaSkeletonTest {
                                               val multiLineField: String = "
                                                     das
                                                     ";
-                                              foo1(): Int
+                                              private def foo1(): Int = {...}
                                             }
                                             """
                                             .strip(),
@@ -78,7 +78,7 @@ public class ScalaSkeletonTest {
                             source -> assertEquals(
                                     """
                                             class GenericFoo[R]() {
-                                              genericMethod[T](arg: T): T
+                                              def genericMethod[T](arg: T): T = {...}
                                             }
                                             """
                                             .strip(),
@@ -111,7 +111,7 @@ public class ScalaSkeletonTest {
                             source -> assertEquals(
                                     """
                                             class ImplicitFoo() {
-                                              implicitMethod(arg: Int)(implicit ec: ExecutionContext): String
+                                              def implicitMethod(arg: Int)(implicit ec: ExecutionContext): String = {...}
                                             }
                                             """
                                             .strip(),

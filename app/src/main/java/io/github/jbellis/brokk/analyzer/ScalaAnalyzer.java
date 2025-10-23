@@ -95,7 +95,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String bodyPlaceholder() {
-        return "";
+        return "= {...}";
     }
 
     @Override
@@ -109,19 +109,21 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             String paramsText,
             String returnTypeText,
             String indent) {
-        var sb = new StringBuilder();
+        var paramSb = new StringBuilder();
         for (int i = 0; i < funcNode.getChildCount(); i++) {
-            if ("parameters".equals(funcNode.getFieldNameForChild(i))) {
-                var child = funcNode.getChild(i);
-                sb.append(textSlice(child, src));
+            var nodeKind = funcNode.getFieldNameForChild(i);
+            var child = funcNode.getChild(i);
+            if ("parameters".equals(nodeKind)) {
+                paramSb.append(textSlice(child, src));
             }
         }
-        var allParamsText = sb.toString();
+        var allParamsText = paramSb.toString();
 
         var typeParams = typeParamsText.isEmpty() ? "" : typeParamsText;
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
-        return indent + exportAndModifierPrefix + functionName + typeParams + allParamsText + ": " + returnType;
+        return indent + exportAndModifierPrefix + "def " + functionName + typeParams + allParamsText + ": " + returnType
+                + bodyPlaceholder();
     }
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
