@@ -10,10 +10,11 @@ import org.junit.jupiter.api.Test;
 public class ScalaAnalyzerTest {
 
     @Test
-    public void testSimpleUnqualifiedClass() throws IOException {
+    public void testSimpleUnqualifiedClasses() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
                                 class Foo() {}
+                                case class Bar()
                                 """,
                         "Foo.scala")
                 .build()) {
@@ -27,6 +28,15 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo'!"));
+            analyzer.getDefinition("Bar")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isClass());
+                                assertEquals("Bar", cu.fqName());
+                                assertEquals("", cu.packageName());
+                                assertEquals("Bar", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Bar'!"));
         }
     }
 
@@ -52,23 +62,36 @@ public class ScalaAnalyzerTest {
     }
 
     @Test
-    public void testSimpleUnqualifiedCaseClass() throws IOException {
+    public void testSimpleQualifiedClasses() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                                case class Foo()
+                                package ai.brokk
+
+                                class Foo()
+
+                                trait Bar
                                 """,
-                        "Foo.scala")
+                        "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinition("Foo")
+            analyzer.getDefinition("ai.brokk.Foo")
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
-                                assertEquals("Foo", cu.fqName());
-                                assertEquals("", cu.packageName());
+                                assertEquals("ai.brokk.Foo", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
                                 assertEquals("Foo", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo'!"));
+            analyzer.getDefinition("ai.brokk.Bar")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isClass());
+                                assertEquals("ai.brokk.Bar", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Bar", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Bar'!"));
         }
     }
 }

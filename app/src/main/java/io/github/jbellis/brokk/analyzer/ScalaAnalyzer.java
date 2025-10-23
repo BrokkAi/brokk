@@ -1,17 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.ANNOTATION_TYPE_DECLARATION;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.CONSTRUCTOR_DECLARATION;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.ENUM_CONSTANT;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.FIELD_DECLARATION;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.IMPORT_DECLARATION;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.METHOD_DECLARATION;
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.RECORD_DECLARATION;
+import static io.github.jbellis.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -71,7 +63,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        return "";
+        return JavaAnalyzer.determineJvmPackageName(
+                rootNode, src, PACKAGE_CLAUSE, SCALA_SYNTAX_PROFILE.classLikeNodeTypes(), this::textSlice);
     }
 
     @Override
@@ -115,14 +108,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(
-                    CLASS_DECLARATION,
-                    INTERFACE_DECLARATION,
-                    ENUM_DECLARATION,
-                    RECORD_DECLARATION,
-                    ANNOTATION_TYPE_DECLARATION),
-            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
-            Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
+            Set.of(CLASS_DEFINITION, INTERFACE_DEFINITION),
+            Set.of(), // METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
+            Set.of(), // FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
             IMPORT_DECLARATION,
             "name", // identifier field name
@@ -132,10 +120,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             "type_parameters", // type parameters field name
             Map.of( // capture configuration
                     "class.definition", SkeletonType.CLASS_LIKE,
-                    "interface.definition", SkeletonType.CLASS_LIKE,
-                    "enum.definition", SkeletonType.CLASS_LIKE,
-                    "record.definition", SkeletonType.CLASS_LIKE,
-                    "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
+                    "trait.definition", SkeletonType.CLASS_LIKE,
                     "method.definition", SkeletonType.FUNCTION_LIKE,
                     "constructor.definition", SkeletonType.FUNCTION_LIKE,
                     "field.definition", SkeletonType.FIELD_LIKE,
