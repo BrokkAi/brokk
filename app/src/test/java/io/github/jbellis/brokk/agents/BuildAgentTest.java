@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.MainProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -126,9 +126,9 @@ class BuildAgentTest {
             git.commit().setMessage("Initial commit").call();
         }
 
-        // Get the ignored patterns from GitRepo
-        var gitRepo = new GitRepo(tempDir);
-        var ignoredPatterns = gitRepo.getIgnoredPatterns();
+        // Get the ignored patterns from Project
+        var project = new MainProject(tempDir);
+        var ignoredPatterns = project.getIgnoredPatterns();
 
         // Helper to detect glob patterns
         Predicate<String> containsGlobPattern =

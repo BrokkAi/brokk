@@ -21,7 +21,8 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.ignore.IgnoreNode;
+import org.eclipse.jgit.treewalk.FileTreeIterator;
+import org.eclipse.jgit.treewalk.TreeWalk;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -533,10 +534,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private volatile Set<ProjectFile> allFilesCache;
 
     @Nullable
-    private volatile IgnoreNode ignoreNodeCache;
+    private volatile FileTreeIterator workingTreeIteratorCache;
 
-    @Nullable
-    private volatile List<String> ignorePatternsCacheContents;
+    private volatile long iteratorCacheTimestamp;
 
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
@@ -562,12 +562,99 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return allFilesCache;
     }
 
+    private FileTreeIterator getWorkingTreeIterator(GitRepo gitRepo) throws IOException {
+        // Use gitTopLevel modification time for cache invalidation
+        Path gitTopLevel = gitRepo.getGitTopLevel();
+        long currentTimestamp = Files.exists(gitTopLevel)
+                ? Files.getLastModifiedTime(gitTopLevel).toMillis()
+                : 0;
+
+        if (workingTreeIteratorCache != null && iteratorCacheTimestamp == currentTimestamp) {
+            return workingTreeIteratorCache;
+        }
+
+        // Create new iterator for the entire Git working tree
+        FileTreeIterator iterator = new FileTreeIterator(gitRepo.getGit().getRepository());
+
+        workingTreeIteratorCache = iterator;
+        iteratorCacheTimestamp = currentTimestamp;
+
+        return iterator;
+    }
+
+    private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
+        // Convert from projectRoot-relative to gitTopLevel-relative
+        // Since we can't access projectRoot directly, we need to calculate it
+        Path gitTopLevel = gitRepo.getGitTopLevel();
+        Path projectRoot = root; // AbstractProject.root is the project root
+
+        Path projectAbsPath = projectRoot.resolve(projectRelPath);
+        Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
+        return gitRelPath.toString().replace('\\', '/');
+    }
+
+    private boolean isPathIgnored(FileTreeIterator iterator, GitRepo gitRepo, Path projectRelPath) throws IOException {
+        String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
+
+        // Navigate TreeWalk to find the specific entry
+        try (TreeWalk walk = new TreeWalk(gitRepo.getGit().getRepository())) {
+            walk.addTree(iterator);
+            walk.setRecursive(true);
+
+            while (walk.next()) {
+                if (walk.getPathString().equals(gitRelPath)) {
+                    return iterator.isEntryIgnored();
+                }
+            }
+
+            // If not found, check if parent directories are ignored
+            return checkParentDirectoriesIgnored(iterator, gitRepo, gitRelPath);
+        }
+    }
+
+    private boolean checkParentDirectoriesIgnored(FileTreeIterator iterator, GitRepo gitRepo, String gitRelPath)
+            throws IOException {
+        Path path = Path.of(gitRelPath);
+        Path parent = path.getParent();
+
+        while (parent != null && !parent.toString().isEmpty()) {
+            String parentPath = parent.toString().replace('\\', '/');
+
+            try (TreeWalk walk = new TreeWalk(gitRepo.getGit().getRepository())) {
+                walk.addTree(iterator);
+                walk.setRecursive(false);
+
+                while (walk.next()) {
+                    if (walk.getPathString().equals(parentPath)) {
+                        if (iterator.isEntryIgnored()) {
+                            return true; // Parent directory is ignored
+                        }
+                        break;
+                    }
+                }
+            }
+
+            parent = parent.getParent();
+        }
+
+        return false;
+    }
+
+    private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
+        return baselineExclusions.stream().anyMatch(exclusion -> {
+            var filePath = file.getRelPath();
+            var exclusionPath = Path.of(exclusion);
+            return filePath.equals(exclusionPath) || filePath.startsWith(exclusionPath);
+        });
+    }
+
     /**
      * Applies gitignore and baseline filtering to the given set of files.
-     * Uses JGit's IgnoreNode to parse .gitignore patterns and filter out ignored files.
+     * Uses JGit's WorkingTreeIterator to provide comprehensive ignore support including
+     * nested .gitignore files, global ignores, and .git/info/exclude.
      *
      * @param files The raw set of files to filter
-     * @return Filtered set of files that are not ignored by .gitignore or baseline exclusions
+     * @return Filtered set of files that are not ignored by gitignore or baseline exclusions
      */
     protected Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
         // If not a git repo, return files as-is
@@ -576,41 +663,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         try {
-            // Determine gitignore patterns and refresh cache if they changed
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            boolean patternsChanged =
-                    ignorePatternsCacheContents == null || !ignorePatternsCacheContents.equals(ignoredPatterns);
+            FileTreeIterator iterator = getWorkingTreeIterator(gitRepo);
 
-            IgnoreNode ignoreNode;
-            if (ignoreNodeCache == null || patternsChanged) {
-                if (ignoredPatterns.isEmpty()) {
-                    ignoreNode = null;
-                    ignoreNodeCache = null;
-                    ignorePatternsCacheContents = null;
-                } else {
-                    var newNode = new IgnoreNode();
-                    var patternsBuilder = new StringBuilder();
-                    for (var pattern : ignoredPatterns) {
-                        patternsBuilder.append(pattern.trim()).append('\n');
-                    }
-                    try (var inputStream = new java.io.ByteArrayInputStream(
-                            patternsBuilder.toString().getBytes(StandardCharsets.UTF_8))) {
-                        newNode.parse(inputStream);
-                        ignoreNodeCache = newNode;
-                        ignorePatternsCacheContents = new ArrayList<>(ignoredPatterns);
-                        ignoreNode = newNode;
-                    } catch (Exception e) {
-                        logger.debug("Failed to parse gitignore patterns: {}", e.getMessage());
-                        ignoreNode = null; // Treat as if no .gitignore exists
-                        ignoreNodeCache = null;
-                        ignorePatternsCacheContents = null;
-                    }
-                }
-            } else {
-                ignoreNode = ignoreNodeCache;
-            }
-
-            // Apply baseline exclusions from build details (even if no .gitignore)
+            // Apply baseline exclusions from build details
             var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
                     .map(s -> s.replace('\\', '/').trim())
                     .map(s -> s.startsWith("./") ? s.substring(2) : s)
@@ -621,56 +676,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // Filter files
             var filteredFiles = new HashSet<ProjectFile>();
             for (var file : files) {
-                // Check baseline exclusions first (using Path comparison)
-                boolean isBaselineExcluded = baselineExclusions.stream().anyMatch(exclusion -> {
-                    var filePath = file.getRelPath();
-                    var exclusionPath = Path.of(exclusion);
-                    return filePath.equals(exclusionPath) || filePath.startsWith(exclusionPath);
-                });
-
-                if (isBaselineExcluded) {
+                // Check baseline exclusions first
+                if (isBaselineExcluded(file, baselineExclusions)) {
                     continue;
                 }
 
-                // Check gitignore rules (only if .gitignore exists)
-                if (ignoreNode != null) {
-                    boolean isDirectory = Files.isDirectory(file.absPath());
-                    // Convert to Unix string only for JGit API call
-                    var gitIgnoreResult = ignoreNode.isIgnored(file.toUnixString(), isDirectory);
-                    if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
-                        continue;
-                    }
-
-                    // Check ancestor directories for ignored patterns
-                    Path parent = file.getRelPath().getParent();
-                    while (parent != null) {
-                        // Convert to Unix string only for JGit API call
-                        var parentUnixStr = parent.toString().replace('\\', '/');
-                        var match = ignoreNode.isIgnored(parentUnixStr, true);
-
-                        if (match == IgnoreNode.MatchResult.IGNORED) {
-                            logger.trace(
-                                    "Skipping file because ancestor dir ignored by .gitignore: {} (ancestor {})",
-                                    file,
-                                    parent);
-                            gitIgnoreResult = IgnoreNode.MatchResult.IGNORED;
-                            break;
-                        } else if (match == IgnoreNode.MatchResult.NOT_IGNORED) {
-                            // Negation pattern explicitly un-ignores this ancestor directory
-                            // Stop checking further ancestors and include the file
-                            logger.trace(
-                                    "Including file because ancestor dir explicitly un-ignored: {} (ancestor {})",
-                                    file,
-                                    parent);
-                            break;
-                        }
-
-                        parent = parent.getParent();
-                    }
-
-                    if (gitIgnoreResult == IgnoreNode.MatchResult.IGNORED) {
-                        continue;
-                    }
+                // Check comprehensive gitignore rules
+                if (isPathIgnored(iterator, gitRepo, file.getRelPath())) {
+                    continue;
                 }
 
                 filteredFiles.add(file);
@@ -683,11 +696,41 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    /**
+     * Reads the .gitignore file from the repository root and returns a list of patterns.
+     * This method is provided for compatibility with BuildAgent.
+     * Filters out empty lines and comments (lines starting with #).
+     *
+     * @return A list of patterns from .gitignore, or an empty list if the file doesn't exist or an error occurs.
+     */
+    @Override
+    public List<String> getIgnoredPatterns() {
+        if (!hasGit()) {
+            return List.of();
+        }
+
+        var gitRepo = (GitRepo) repo;
+        var gitignoreFile = gitRepo.getGitTopLevel().resolve(".gitignore");
+        if (!Files.exists(gitignoreFile) || !Files.isReadable(gitignoreFile)) {
+            logger.debug(".gitignore file not found or not readable at {}", gitignoreFile);
+            return List.of();
+        }
+
+        try (var lines = Files.lines(gitignoreFile, StandardCharsets.UTF_8)) {
+            return lines.map(String::trim)
+                    .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            logger.warn("Error reading .gitignore file at {}: {}", gitignoreFile, e.getMessage());
+            return List.of();
+        }
+    }
+
     @Override
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
-        ignoreNodeCache = null;
-        ignorePatternsCacheContents = null;
+        workingTreeIteratorCache = null;
+        iteratorCacheTimestamp = 0;
     }
 
     @Override
