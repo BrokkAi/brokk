@@ -119,4 +119,42 @@ public class ScalaSkeletonTest {
                             () -> fail("Could not find source code for 'ImplicitFoo'!"));
         }
     }
+
+    @Test
+    public void testScala3SignificantWhitespaceSkeleton() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk;
+
+                                class WhitespaceClass:
+                                  val s = \"\"\"
+                                    line 1
+                                      line 2
+                                  \"\"\"
+
+                                  val i = 2
+                                """,
+                        "WhitespaceClass.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var scp = analyzer.as(SkeletonProvider.class)
+                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
+            scp.getSkeleton("ai.brokk.WhitespaceClass")
+                    .ifPresentOrElse(
+                            // Note in the following, Scala 2 braces are used
+                            source -> assertEquals(
+                                    """
+                                            class WhitespaceClass {
+                                              val s = ""\"
+                                                  line 1
+                                                    line 2
+                                                ""\";
+                                              val i = 2;
+                                            }
+                                            """
+                                            .strip(),
+                                    source),
+                            () -> fail("Could not find source code for 'WhitespaceClass'!"));
+        }
+    }
 }
