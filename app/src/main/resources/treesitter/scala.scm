@@ -5,6 +5,9 @@
     ] @package.name
   ) @package.declaration
 
+; Import declarations
+(import_declaration) @import.declaration
+
 ; Class declarations
 (class_definition
   name: (identifier) @class.name

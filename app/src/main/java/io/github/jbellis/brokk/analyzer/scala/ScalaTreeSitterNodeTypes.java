@@ -20,7 +20,7 @@ public class ScalaTreeSitterNodeTypes {
     public static final String SIMPLE_ENUM_CASE = "simple_enum_case";
 
     // Import declaration
-    public static final String IMPORT_DECLARATION = "import_declaration";
+    public static final String IMPORT_DECLARATION = "import.declaration";
 
     private ScalaTreeSitterNodeTypes() {}
 }
