@@ -14,6 +14,11 @@ public class ScalaTreeSitterNodeTypes {
     // Function-like declarations
     public static final String FUNCTION_DEFINITION = "function_definition";
 
+    // Field-like declarations
+    public static final String VAL_DEFINITION = "val_definition";
+    public static final String VAR_DEFINITION = "var_definition";
+    public static final String SIMPLE_ENUM_CASE = "simple_enum_case";
+
     // Import declaration
     public static final String IMPORT_DECLARATION = "import_declaration";
 

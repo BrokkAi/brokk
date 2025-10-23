@@ -84,13 +84,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
-        return "";
+        return "}"; // We'll stick to Scala 2 closers
     }
 
     @Override
     protected String renderClassHeader(
             TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
-        return "";
+        return signatureText + " {"; // For consistency with closers, we need to open with Scala 2-style braces
     }
 
     @Override
@@ -112,26 +112,19 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         var typeParams = typeParamsText.isEmpty() ? "" : typeParamsText + " ";
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
-        var signature = indent + exportAndModifierPrefix + typeParams + returnType + functionName + paramsText;
-
-        var throwsNode = funcNode.getChildByFieldName("throws");
-        if (throwsNode != null) {
-            signature += " " + textSlice(throwsNode, src);
-        }
-
-        return signature;
+        return indent + exportAndModifierPrefix + typeParams + functionName + paramsText + ": " + returnType;
     }
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
             Set.of(FUNCTION_DEFINITION),
-            Set.of(), // FIELD_DECLARATION, ENUM_CONSTANT),
+            Set.of(VAL_DEFINITION, VAR_DEFINITION, SIMPLE_ENUM_CASE),
             Set.of("annotation", "marker_annotation"),
             IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
             "parameters", // parameters field name
-            "type", // return type field name
+            "return_type", // return type field name
             "type_parameters", // type parameters field name
             Map.of( // capture configuration
                     "class.definition", SkeletonType.CLASS_LIKE,
