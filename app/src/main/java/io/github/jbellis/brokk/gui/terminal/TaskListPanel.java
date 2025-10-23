@@ -141,20 +141,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
 
         // Keep the Tasks tab badge in sync with the model (adds/removes/changes).
+        // Use updateTasksTabBadge() which performs EDT-safe updates and richer fallback behavior.
         model.addListDataListener(new ListDataListener() {
             @Override
             public void intervalAdded(ListDataEvent e) {
-                updateTabBadge();
+                updateTasksTabBadge();
             }
 
             @Override
             public void intervalRemoved(ListDataEvent e) {
-                updateTabBadge();
+                updateTasksTabBadge();
             }
 
             @Override
             public void contentsChanged(ListDataEvent e) {
-                updateTabBadge();
+                updateTasksTabBadge();
             }
         });
 
@@ -849,6 +850,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             isLoadingTasks = false;
             clearExpansionOnStructureChange();
+            // Ensure the Tasks tab badge reflects the freshly loaded model.
+            updateTasksTabBadge();
         }
     }
 
