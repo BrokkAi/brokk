@@ -70,3 +70,12 @@
     (var_definition pattern: (identifier) @field.name) @field.definition
     ]
   )
+
+; Enum cases as "fields"
+(enum_definition
+  body: (enum_body
+          (enum_case_definitions
+            (simple_enum_case name: (identifier) @field.name) @field.definition
+            )
+          )
+  )

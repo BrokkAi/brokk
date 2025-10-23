@@ -293,4 +293,62 @@ public class ScalaAnalyzerTest {
                             () -> fail("Could not find code unit 'Foo.Field2'!"));
         }
     }
+
+    @Test
+    public void testFieldsWithinEnums() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                enum Colors {
+                                  case BLUE, GREEN
+                                }
+
+                                enum Sports {
+                                  case SOCCER
+                                  case RUGBY
+                                }
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("ai.brokk.Colors.BLUE")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.Colors.BLUE", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Colors.BLUE", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Colors.BLUE'!"));
+            analyzer.getDefinition("ai.brokk.Colors.GREEN")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.Colors.GREEN", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Colors.GREEN", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Colors.GREEN'!"));
+
+            analyzer.getDefinition("ai.brokk.Sports.SOCCER")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.Sports.SOCCER", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Sports.SOCCER", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Sports.SOCCER'!"));
+            analyzer.getDefinition("ai.brokk.Sports.RUGBY")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.Sports.RUGBY", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Sports.RUGBY", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Sports.RUGBY'!"));
+        }
+    }
 }
