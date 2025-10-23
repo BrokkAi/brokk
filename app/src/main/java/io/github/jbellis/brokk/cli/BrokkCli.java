@@ -20,12 +20,12 @@ import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tasks.TaskList;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -305,8 +305,6 @@ public final class BrokkCli implements Callable<Integer> {
             assert codeModel != null : service.getAvailableModels();
         }
 
-        var workspaceTools = new WorkspaceTools(cm);
-
         // --- Name Resolution and Context Building ---
         boolean callsAndUsagesRequired = !addCallers.isEmpty() || !addCallees.isEmpty();
 
@@ -332,16 +330,48 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // Build context
+        var analyzer = cm.getAnalyzer();
+
         if (!resolvedEditFiles.isEmpty())
             cm.addFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
-        if (!resolvedClasses.isEmpty()) workspaceTools.addClassesToWorkspace(resolvedClasses);
-        if (!resolvedSummaryClasses.isEmpty()) workspaceTools.addClassSummariesToWorkspace(resolvedSummaryClasses);
-        if (!addSummaryFiles.isEmpty()) workspaceTools.addFileSummariesToWorkspace(addSummaryFiles);
-        if (!addMethodSources.isEmpty()) workspaceTools.addMethodsToWorkspace(addMethodSources);
-        addUrls.forEach(workspaceTools::addUrlContentsToWorkspace);
-        addUsages.forEach(workspaceTools::addSymbolUsagesToWorkspace);
-        addCallers.forEach(workspaceTools::addCallGraphInToWorkspace);
-        addCallees.forEach(workspaceTools::addCallGraphOutToWorkspace);
+
+        // Build context
+        var context = cm.liveContext();
+
+        if (!resolvedClasses.isEmpty()) context = Context.withAddedClasses(context, resolvedClasses, analyzer);
+        if (!resolvedSummaryClasses.isEmpty())
+            context = Context.withAddedClassSummaries(context, resolvedSummaryClasses);
+        if (!addSummaryFiles.isEmpty()) context = Context.withAddedFileSummaries(context, addSummaryFiles, project);
+        if (!addMethodSources.isEmpty()) context = Context.withAddedMethodSources(context, addMethodSources, analyzer);
+
+        // Add URLs (simple fragments)
+        for (var url : addUrls) {
+            try {
+                context = Context.withAddedUrlContent(context, url);
+            } catch (Exception e) {
+                logger.error("Failed to add URL content: {}", url, e);
+                System.err.println("Error adding URL " + url + ": " + e.getMessage());
+                return 1;
+            }
+        }
+
+        // Add usages, callers, callees (simple fragment creation)
+        for (var symbol : addUsages) {
+            var fragment = new ContextFragment.UsageFragment(cm, symbol);
+            context = context.addVirtualFragment(fragment);
+        }
+        for (var entry : addCallers.entrySet()) {
+            var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
+            context = context.addVirtualFragment(fragment);
+        }
+        for (var entry : addCallees.entrySet()) {
+            var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
+            context = context.addVirtualFragment(fragment);
+        }
+
+        // Push accumulated context changes back to ContextManager
+        var finalContext = context;
+        cm.pushContext(ctx -> finalContext);
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
@@ -360,7 +390,7 @@ public final class BrokkCli implements Callable<Integer> {
                     .findFirst()
                     .orElseThrow();
             var agent = new ContextAgent(cm, planModel, goalForScan);
-            var recommendations = agent.getRecommendations();
+            var recommendations = agent.getRecommendations(cm.liveContext());
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
 

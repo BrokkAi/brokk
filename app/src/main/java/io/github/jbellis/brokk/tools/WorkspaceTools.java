@@ -2,12 +2,12 @@ package io.github.jbellis.brokk.tools;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
-import io.github.jbellis.brokk.Completions;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import io.github.jbellis.brokk.util.Json;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -28,17 +28,47 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
  * (usages, skeletons, sources, call graphs) as context fragments.
+ *
+ * This class is now context-local: it holds a working Context instance and mutates it immutably.
+ * Use WorkspaceTools(Context) for per-turn, local usage inside agents. For compatibility, a constructor taking a
+ * ContextManager is provided which seeds the local Context from the manager; call publishTo(cm) to commit changes.
  */
 public class WorkspaceTools {
     private static final Logger logger = LogManager.getLogger(WorkspaceTools.class);
 
-    // Changed field type to concrete ContextManager
-    private final ContextManager contextManager;
+    // Per-instance working context (immutable Context instances replaced on modification)
+    private Context context;
 
-    // Changed constructor parameter type to concrete ContextManager
-    public WorkspaceTools(ContextManager contextManager) {
-        this.contextManager = contextManager;
+    /**
+     * Construct a WorkspaceTools instance operating on the provided Context.
+     * This is the preferred constructor for per-turn/local usage inside agents.
+     */
+    public WorkspaceTools(Context initialContext) {
+        this.context = initialContext;
     }
+
+    /**
+     * Compatibility constructor used by callers that previously passed a ContextManager.
+     * This seeds the working Context from cm.liveContext() and retains a reference to cm so callers can call
+     * publishTo(cm) to commit the changes as a single atomic push.
+     */
+    public WorkspaceTools(ContextManager cm) {
+        this.context = cm.liveContext();
+    }
+
+    /** Returns the current working Context for this WorkspaceTools instance. */
+    public Context getContext() {
+        return context;
+    }
+
+    /** Updates the working Context for this WorkspaceTools instance. */
+    public void setContext(Context newContext) {
+        this.context = newContext;
+    }
+
+    // ---------------------------
+    // Tools (mutate the local Context)
+    // ---------------------------
 
     @Tool(
             "Edit project files to the Workspace. Use this when Code Agent will need to make changes to these files, or if you need to read the full source. Only call when you have identified specific filenames. DO NOT call this to create new files -- Code Agent can do that without extra steps.")
@@ -58,7 +88,7 @@ public class WorkspaceTools {
                 continue;
             }
             try {
-                var file = contextManager.toFile(path);
+                var file = context.getContextManager().toFile(path);
                 if (!file.exists()) {
                     errors.add("File at `%s` does not exist (remember, don't use this method to create new files)"
                             .formatted(path));
@@ -70,7 +100,8 @@ public class WorkspaceTools {
             }
         }
 
-        contextManager.addFiles(projectFiles);
+        var fragments = context.getContextManager().toPathFragments(projectFiles);
+        context = context.addPathFragments(fragments);
         String fileNames = projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
         String result = "";
         if (!fileNames.isEmpty()) {
@@ -94,46 +125,15 @@ public class WorkspaceTools {
             return "Class names list cannot be empty.";
         }
 
-        int addedCount = 0;
-        List<String> classesNotFound = new ArrayList<>();
-        var analyzer = getAnalyzer();
-        var liveContext = contextManager.liveContext();
-        var workspaceFiles = liveContext
-                .fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                .map(ContextFragment.ProjectPathFragment::file)
-                .collect(Collectors.toSet());
-
-        for (String className : classNames.stream().distinct().toList()) {
-            if (className.isBlank()) {
-                classesNotFound.add("<blank>");
-                continue;
-            }
-            var defOpt = analyzer.getDefinition(className);
-            if (defOpt.isPresent()) {
-                var codeUnit = defOpt.get();
-                // Skip if the source file is already in workspace as a ProjectPathFragment
-                if (!workspaceFiles.contains(codeUnit.source())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, codeUnit);
-                    contextManager.addVirtualFragment(fragment);
-                    addedCount++;
-                }
-            } else {
-                classesNotFound.add(className);
-                logger.warn("Could not find definition for class: {}", className);
-            }
-        }
+        int initialFragmentCount = (int) context.allFragments().count();
+        context = Context.withAddedClasses(context, classNames, getAnalyzer());
+        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
 
         if (addedCount == 0) {
             return "Could not find definitions for any of the provided class names: " + String.join(", ", classNames);
         }
 
-        var resultMessage = "Added %d code fragment(s) for requested classes".formatted(addedCount);
-        if (!classesNotFound.isEmpty()) {
-            resultMessage += ". Could not find definitions for: [%s]".formatted(String.join(", ", classesNotFound));
-        }
-        return resultMessage + ".";
+        return "Added %d code fragment(s) for requested classes.".formatted(addedCount);
     }
 
     @Tool(
@@ -144,16 +144,18 @@ public class WorkspaceTools {
             return "URL cannot be empty.";
         }
 
-        String content;
-        URI uri;
         try {
-            uri = new URI(urlString);
             logger.debug("Fetching content from URL: {}", urlString);
-            content = fetchUrlContent(uri);
-            logger.debug("Fetched {} characters from {}", content.length(), urlString);
-            // Directly call the utility method for conversion
-            content = HtmlToMarkdown.maybeConvertToMarkdown(content);
-            logger.debug("Content length after potential markdown conversion: {}", content.length());
+            int initialFragmentCount = (int) context.allFragments().count();
+            context = Context.withAddedUrlContent(context, urlString);
+            int addedCount = (int) context.allFragments().count() - initialFragmentCount;
+
+            if (addedCount == 0) {
+                return "Fetched content from URL is empty: " + urlString;
+            }
+
+            logger.debug("Successfully added URL content to context");
+            return "Added content from URL [%s] as a read-only text fragment.".formatted(urlString);
         } catch (URISyntaxException e) {
             return "Invalid URL format: " + urlString;
         } catch (IOException e) {
@@ -164,19 +166,6 @@ public class WorkspaceTools {
             ExceptionReporter.tryReportException(e);
             throw new RuntimeException("Unexpected error processing URL " + urlString + ": " + e.getMessage(), e);
         }
-
-        if (content.isBlank()) {
-            return "Fetched content from URL is empty: " + urlString;
-        }
-
-        // Use the ContextManager's method to add the string fragment
-        String description = "Content from " + urlString;
-        // ContextManager handles pushing the context update
-        var fragment = new ContextFragment.StringFragment(
-                contextManager, content, description, SyntaxConstants.SYNTAX_STYLE_NONE); // Pass contextManager
-        contextManager.pushContext(ctx -> ctx.addVirtualFragment(fragment));
-
-        return "Added content from URL [%s] as a read-only text fragment.".formatted(urlString);
     }
 
     @Tool(
@@ -192,10 +181,9 @@ public class WorkspaceTools {
             return "Description cannot be empty.";
         }
 
-        // Use the ContextManager's method to add the string fragment
         var fragment = new ContextFragment.StringFragment(
-                contextManager, content, description, SyntaxConstants.SYNTAX_STYLE_NONE); // Pass contextManager
-        contextManager.pushContext(ctx -> ctx.addVirtualFragment(fragment));
+                context.getContextManager(), content, description, SyntaxConstants.SYNTAX_STYLE_NONE);
+        context = context.addVirtualFragments(List.of(fragment));
 
         return "Added text '%s'.".formatted(description);
     }
@@ -211,14 +199,12 @@ public class WorkspaceTools {
             return "Fragment map cannot be empty.";
         }
 
-        var currentContext = contextManager.liveContext();
-        var allFragments = currentContext.getAllFragmentsInDisplayOrder();
+        var allFragments = context.getAllFragmentsInDisplayOrder();
 
         // Get existing DISCARDED_CONTEXT map (we find this first so we can protect it
         // from being removed by a caller attempting to drop it).
-        var existingDiscardedMap = currentContext.getDiscardedFragmentsNote();
-        var existingDiscarded = currentContext
-                .virtualFragments()
+        var existingDiscardedMap = context.getDiscardedFragmentsNote();
+        var existingDiscarded = context.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
                 .filter(vf -> vf instanceof ContextFragment.StringFragment)
                 .map(vf -> (ContextFragment.StringFragment) vf)
@@ -266,24 +252,19 @@ public class WorkspaceTools {
             return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
         }
 
-        // Atomically: drop requested fragments, refresh DISCARDED_CONTEXT as a StringFragment
-        contextManager.pushContext(ctx -> {
-            var next = ctx.removeFragmentsByIds(droppedIds);
+        // Apply removal and update DISCARDED_CONTEXT in the local context
+        var next = context.removeFragmentsByIds(droppedIds);
+        if (existingDiscarded.isPresent()) {
+            next = next.removeFragmentsByIds(List.of(existingDiscarded.get().id()));
+        }
+        var fragment = new ContextFragment.StringFragment(
+                context.getContextManager(),
+                discardedJson,
+                ContextFragment.DISCARDED_CONTEXT.description(),
+                ContextFragment.DISCARDED_CONTEXT.syntaxStyle());
 
-            // Remove previous DISCARDED_CONTEXT fragment if present
-            if (existingDiscarded.isPresent()) {
-                next = next.removeFragmentsByIds(List.of(existingDiscarded.get().id()));
-            }
-
-            // Add the updated DISCARDED_CONTEXT fragment
-            var fragment = new ContextFragment.StringFragment(
-                    contextManager,
-                    discardedJson,
-                    ContextFragment.DISCARDED_CONTEXT.description(),
-                    ContextFragment.DISCARDED_CONTEXT.syntaxStyle());
-
-            return next.addVirtualFragment(fragment);
-        });
+        next = next.addVirtualFragment(fragment);
+        context = next;
 
         var unknownIds =
                 idsToDropSet.stream().filter(id -> !droppedIds.contains(id)).collect(Collectors.toList());
@@ -327,12 +308,9 @@ public class WorkspaceTools {
             return "Cannot add usages: symbol cannot be empty";
         }
 
-        // Create UsageFragment with only the target symbol.
-        // The fragment itself will compute the usages when its text() or sources() is called.
-        var fragment = new ContextFragment.UsageFragment(contextManager, symbol); // Pass contextManager
-        contextManager.addVirtualFragment(fragment);
+        var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
+        context = context.addVirtualFragments(List.of(fragment));
 
-        // The message indicates addition; actual fetching confirmation happens when fragment is rendered/used.
         return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
     }
 
@@ -351,23 +329,17 @@ public class WorkspaceTools {
             return "Cannot add summary: class names list is empty";
         }
 
-        // Coalesce inner classes to their top-level parents if both are requested or found.
-        // This is simpler if we just pass all requested FQNs to SkeletonFragment
-        // and let its text() / sources() handle fetching and eventual coalescing if needed during display.
-        // For now, just pass the direct list.
         List<String> distinctClassNames = classNames.stream().distinct().toList();
         if (distinctClassNames.isEmpty()) {
             return "Cannot add summary: class names list resolved to empty";
         }
 
-        // Produce one SummaryFragment per class
-        for (String name : distinctClassNames) {
-            var fragment = new ContextFragment.SummaryFragment(
-                    contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            contextManager.addVirtualFragment(fragment);
-        }
+        int initialFragmentCount = (int) context.allFragments().count();
+        context = Context.withAddedClassSummaries(context, distinctClassNames);
+        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
 
-        return "Added dynamic class summaries for: [%s]".formatted(String.join(", ", distinctClassNames));
+        return "Added %d dynamic class summar%s for: [%s]"
+                .formatted(addedCount, addedCount == 1 ? "y" : "ies", String.join(", ", distinctClassNames));
     }
 
     @Tool(
@@ -383,31 +355,19 @@ public class WorkspaceTools {
                     List<String> filePaths) {
         assert getAnalyzer() instanceof SkeletonProvider : "Cannot add summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
-            return "Cannot add summaries: file paths list is empty";
+            return "Cannot add summaries: file paths list is empty.";
         }
 
-        var project = contextManager.getProject();
-        List<String> resolvedFilePaths = filePaths.stream() // Changed variable name and type
-                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .map(ProjectFile::toString) // Store paths as strings
-                .distinct()
-                .toList();
+        var project = (AbstractProject) context.getContextManager().getProject();
+        int initialFragmentCount = (int) context.allFragments().count();
+        context = Context.withAddedFileSummaries(context, filePaths, project);
+        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
 
-        if (resolvedFilePaths.isEmpty()) {
+        if (addedCount == 0) {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
-        // Produce one SummaryFragment per resolved path
-        for (String path : resolvedFilePaths) {
-            var fragment = new ContextFragment.SummaryFragment(
-                    contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS);
-            contextManager.addVirtualFragment(fragment);
-        }
-
-        return "Added dynamic file summaries for: [%s]"
-                .formatted(String.join(", ", resolvedFilePaths.stream().sorted().toList()));
+        return "Added %d dynamic file summar%s.".formatted(addedCount, addedCount == 1 ? "y" : "ies");
     }
 
     @Tool(
@@ -425,46 +385,15 @@ public class WorkspaceTools {
             return "Cannot add method sources: method names list is empty";
         }
 
-        int count = 0;
-        List<String> notFound = new ArrayList<>();
+        int initialFragmentCount = (int) context.allFragments().count();
+        context = Context.withAddedMethodSources(context, methodNames, getAnalyzer());
+        int addedCount = (int) context.allFragments().count() - initialFragmentCount;
 
-        var analyzer = getAnalyzer();
-        var liveContext = contextManager.liveContext();
-        var workspaceFiles = liveContext
-                .fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                .map(ContextFragment.ProjectPathFragment::file)
-                .collect(Collectors.toSet());
-
-        for (String methodName : methodNames.stream().distinct().toList()) {
-            if (methodName.isBlank()) {
-                continue;
-            }
-            var cuOpt = analyzer.getDefinition(methodName);
-            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                var codeUnit = cuOpt.get();
-                // Skip if the source file is already in workspace as a ProjectPathFragment
-                if (!workspaceFiles.contains(codeUnit.source())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, codeUnit);
-                    contextManager.addVirtualFragment(fragment);
-                    count++;
-                }
-            } else {
-                notFound.add(methodName);
-                logger.warn("Could not find method definition for: {}", methodName);
-            }
-        }
-
-        if (count == 0) {
+        if (addedCount == 0) {
             return "No sources found for methods: " + String.join(", ", methodNames);
         }
 
-        var msg = "Added %d method source(s)".formatted(count);
-        if (!notFound.isEmpty()) {
-            msg += ". Could not find methods: [%s]".formatted(String.join(", ", notFound));
-        }
-        return msg + ".";
+        return "Added %d method source(s).".formatted(addedCount);
     }
 
     @Tool("Returns the file paths relative to the project root for the given fully-qualified class names.")
@@ -485,8 +414,8 @@ public class WorkspaceTools {
                 notFoundClasses.add("<blank or null>");
                 return;
             }
-            var fileOpt = analyzer.getFileFor(className); // Returns Optional now
-            if (fileOpt.isPresent()) { // Use isPresent()
+            var fileOpt = analyzer.getFileFor(className);
+            if (fileOpt.isPresent()) {
                 foundFiles.add(fileOpt.get().toString());
             } else {
                 notFoundClasses.add(className);
@@ -498,8 +427,8 @@ public class WorkspaceTools {
             return "Could not find files for any of the provided class names: " + String.join(", ", classNames);
         }
 
-        String resultMessage = "Files found: "
-                + String.join(", ", foundFiles.stream().sorted().toList()); // Sort for consistent output
+        String resultMessage =
+                "Files found: " + String.join(", ", foundFiles.stream().sorted().toList());
 
         if (!notFoundClasses.isEmpty()) {
             resultMessage += ". Could not find files for the following classes: [%s]"
@@ -528,9 +457,8 @@ public class WorkspaceTools {
             return "Cannot add call graph: depth must be positive";
         }
 
-        var fragment = new ContextFragment.CallGraphFragment(
-                contextManager, methodName, depth, false); // false for callers, pass contextManager
-        contextManager.addVirtualFragment(fragment);
+        var fragment = new ContextFragment.CallGraphFragment(context.getContextManager(), methodName, depth, false);
+        context = context.addVirtualFragments(List.of(fragment));
 
         return "Added call graph (callers) for '%s' (depth %d).".formatted(methodName, depth);
     }
@@ -554,9 +482,8 @@ public class WorkspaceTools {
             return "Cannot add call graph: depth must be positive";
         }
 
-        var fragment = new ContextFragment.CallGraphFragment(
-                contextManager, methodName, depth, true); // true for callees, pass contextManager
-        contextManager.addVirtualFragment(fragment);
+        var fragment = new ContextFragment.CallGraphFragment(context.getContextManager(), methodName, depth, true);
+        context = context.addVirtualFragments(List.of(fragment));
 
         return "Added call graph (callees) for '%s' (depth %d).".formatted(methodName, depth);
     }
@@ -570,7 +497,7 @@ public class WorkspaceTools {
      * @return The content as a String.
      * @throws IOException If fetching fails.
      */
-    public static String fetchUrlContent(URI url) throws IOException { // Changed to public static
+    public static String fetchUrlContent(URI url) throws IOException {
         var connection = url.toURL().openConnection();
         // Set reasonable timeouts
         connection.setConnectTimeout(5000);
@@ -585,6 +512,6 @@ public class WorkspaceTools {
     }
 
     private IAnalyzer getAnalyzer() {
-        return contextManager.getAnalyzerUninterrupted();
+        return context.getContextManager().getAnalyzerUninterrupted();
     }
 }

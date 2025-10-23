@@ -129,12 +129,12 @@ public class Llm {
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
-    private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
+    private final int MAX_ATTEMPTS = 8;
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
-    private final boolean echo; // New class field
+    private final boolean echo;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -466,9 +466,15 @@ public class Llm {
         }
     }
 
-    public static class EmptyResponseError extends LangChain4jException {
-        public EmptyResponseError() {
+    public static class EmptyResponseException extends LangChain4jException {
+        public EmptyResponseException() {
             super("Empty response from LLM");
+        }
+    }
+
+    public static class MissingToolCallsException extends LangChain4jException {
+        public MissingToolCallsException(int attemptsMade) {
+            super("ToolChoice.REQUIRED could not be satisfied after " + attemptsMade + " attempt(s)");
         }
     }
 
@@ -510,18 +516,30 @@ public class Llm {
         // Also needed for our emulation if it returns a response without a tool call
         var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
+        int totalAttemptsMade = result.retries() + 1;
         while (result.error == null
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
-                && toolChoice == ToolChoice.REQUIRED) {
+                && toolChoice == ToolChoice.REQUIRED
+                && totalAttemptsMade < MAX_ATTEMPTS) {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Enforcing tool selection");
 
             var extraMessages = new ArrayList<>(messages);
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
             extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
 
-            result = sendMessageWithRetry(extraMessages, toolContext, MAX_ATTEMPTS);
+            result = sendMessageWithRetry(extraMessages, toolContext, MAX_ATTEMPTS - totalAttemptsMade);
+            totalAttemptsMade += (result.retries() + 1);
             cr = result.chatResponse();
+        }
+
+        // If we exhausted attempts and still don't have tool calls when REQUIRED, fail
+        if (totalAttemptsMade >= MAX_ATTEMPTS
+                && result.error == null
+                && !tools.isEmpty()
+                && (cr != null && cr.toolRequests.isEmpty())
+                && toolChoice == ToolChoice.REQUIRED) {
+            return new StreamingResult(cr, new MissingToolCallsException(totalAttemptsMade), result.retries());
         }
 
         return result;
@@ -611,7 +629,7 @@ public class Llm {
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            return new StreamingResult(null, new EmptyResponseError(), attempt - 1);
+            return new StreamingResult(null, new EmptyResponseException(), attempt - 1);
         }
         return new StreamingResult(null, lastError, attempt - 1);
     }
@@ -665,18 +683,19 @@ public class Llm {
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
         // there's no reason to add a second print of it)
         if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
+            prettyPrintToolCalls(toolContext, sr.toolRequests());
         }
         return sr;
     }
 
-    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
+    private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {
         if (requests.isEmpty()) {
             return;
         }
-        var registry = contextManager.getToolRegistry();
+        var tr = toolContext.toolRegistry();
+
         var rendered = requests.stream()
-                .map(tr -> registry.getExplanationForToolRequest(toolOwner, tr))
+                .map(tr::getExplanationForToolRequest)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
@@ -768,13 +787,11 @@ public class Llm {
                 }
 
                 // Validate tool call arguments using ToolRegistry; on failure, retry with error feedback
-                var registry = contextManager.getToolRegistry();
+                var tr = toolContext.toolRegistry();
                 var validationErrors = new ArrayList<String>();
-                Object toolOwner = requireNonNull(
-                        toolContext.toolOwner(), "ToolContext.toolOwner() must be provided for tool validation");
                 for (var ter : parseResult.toolRequests()) {
                     try {
-                        registry.validateTool(toolOwner, ter);
+                        tr.validateTool(ter);
                     } catch (ToolRegistry.ToolValidationException e) {
                         validationErrors.add(ter.name() + ": " + e.getMessage());
                     }
@@ -1316,7 +1333,7 @@ public class Llm {
                     "Adding 'think' tool for non-reasoning model {}",
                     contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
-            enhancedTools.addAll(contextManager.getToolRegistry().getRegisteredTools(List.of("think")));
+            enhancedTools.addAll(contextManager.getToolRegistry().getTools(List.of("think")));
             return enhancedTools;
         }
         logger.debug(

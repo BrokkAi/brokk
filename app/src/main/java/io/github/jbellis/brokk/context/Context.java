@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
@@ -15,9 +17,13 @@ import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import io.github.jbellis.brokk.util.Json;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -25,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +40,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /** Encapsulates all state that will be sent to the model (prompts, filename context, conversation history). */
@@ -612,6 +620,200 @@ public class Context {
     }
 
     /**
+     * Merges this context with another context, combining their fragments while avoiding duplicates.
+     * Fragments from {@code other} that are not present in this context are added.
+     * File fragments are deduplicated by their source file; virtual fragments by their id().
+     * Task history and parsed output from this context are preserved.
+     *
+     * @param other the context to merge with
+     * @return a new context containing the union of fragments from both contexts
+     */
+    public Context union(Context other) {
+        // we're going to do some casting that's not valid if FF is involved
+        assert !containsFrozenFragments();
+        assert !other.containsFrozenFragments();
+
+        if (this.fragments.isEmpty()) {
+            return other;
+        }
+
+        var combined = addPathFragments(other.fileFragments()
+                .map(cf -> (ContextFragment.PathFragment) cf)
+                .toList());
+        combined = combined.addVirtualFragments(other.virtualFragments().toList());
+        return combined;
+    }
+
+    /**
+     * Adds class definitions (CodeFragments) to the context for the given FQCNs.
+     * Skips classes whose source files are already in the workspace as ProjectPathFragments.
+     *
+     * @param context the current context
+     * @param classNames fully qualified class names to add
+     * @param analyzer the code analyzer
+     * @return a new context with the added class fragments
+     */
+    public static Context withAddedClasses(Context context, List<String> classNames, IAnalyzer analyzer) {
+        if (classNames.isEmpty()) {
+            return context;
+        }
+
+        var liveContext = context;
+        var workspaceFiles = liveContext
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
+
+        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
+        for (String className : classNames.stream().distinct().toList()) {
+            if (className.isBlank()) {
+                continue;
+            }
+            var defOpt = analyzer.getDefinition(className);
+            if (defOpt.isPresent()) {
+                var codeUnit = defOpt.get();
+                // Skip if the source file is already in workspace as a ProjectPathFragment
+                if (!workspaceFiles.contains(codeUnit.source())) {
+                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                }
+            } else {
+                logger.warn("Could not find definition for class: {}", className);
+            }
+        }
+
+        return toAdd.isEmpty() ? context : liveContext.addVirtualFragments(toAdd);
+    }
+
+    /**
+     * Adds class summary fragments (SkeletonFragments) for the given FQCNs.
+     *
+     * @param context the current context
+     * @param classNames fully qualified class names to summarize
+     * @return a new context with the added summary fragments
+     */
+    public static Context withAddedClassSummaries(Context context, List<String> classNames) {
+        if (classNames.isEmpty()) {
+            return context;
+        }
+
+        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
+        for (String name : classNames.stream().distinct().toList()) {
+            if (name.isBlank()) {
+                continue;
+            }
+            toAdd.add(new ContextFragment.SummaryFragment(
+                    context.contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON));
+        }
+
+        return toAdd.isEmpty() ? context : context.addVirtualFragments(toAdd);
+    }
+
+    /**
+     * Adds file summary fragments for all classes in the given file paths (with glob support).
+     *
+     * @param context the current context
+     * @param filePaths file paths relative to project root; supports glob patterns
+     * @param project the project for path resolution
+     * @return a new context with the added file summary fragments
+     */
+    public static Context withAddedFileSummaries(Context context, List<String> filePaths, AbstractProject project) {
+        if (filePaths.isEmpty()) {
+            return context;
+        }
+
+        var resolvedFilePaths = filePaths.stream()
+                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .map(ProjectFile::toString)
+                .distinct()
+                .toList();
+
+        if (resolvedFilePaths.isEmpty()) {
+            return context;
+        }
+
+        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
+        for (String path : resolvedFilePaths) {
+            toAdd.add(new ContextFragment.SummaryFragment(
+                    context.contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS));
+        }
+
+        return context.addVirtualFragments(toAdd);
+    }
+
+    /**
+     * Adds method source code fragments for the given FQ method names.
+     * Skips methods whose source files are already in the workspace.
+     *
+     * @param context the current context
+     * @param methodNames fully qualified method names to add sources for
+     * @param analyzer the code analyzer
+     * @return a new context with the added method fragments
+     */
+    public static Context withAddedMethodSources(Context context, List<String> methodNames, IAnalyzer analyzer) {
+        if (methodNames.isEmpty()) {
+            return context;
+        }
+
+        var liveContext = context;
+        var workspaceFiles = liveContext
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
+
+        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
+        for (String methodName : methodNames.stream().distinct().toList()) {
+            if (methodName.isBlank()) {
+                continue;
+            }
+            var cuOpt = analyzer.getDefinition(methodName);
+            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+                var codeUnit = cuOpt.get();
+                // Skip if the source file is already in workspace as a ProjectPathFragment
+                if (!workspaceFiles.contains(codeUnit.source())) {
+                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                }
+            } else {
+                logger.warn("Could not find method definition for: {}", methodName);
+            }
+        }
+
+        return toAdd.isEmpty() ? context : liveContext.addVirtualFragments(toAdd);
+    }
+
+    /**
+     * Adds a URL content fragment to the context by fetching and converting to Markdown.
+     *
+     * @param context the current context
+     * @param urlString the URL to fetch
+     * @return a new context with the added URL fragment
+     * @throws IOException if fetching or processing fails
+     * @throws URISyntaxException if the URL string is malformed
+     */
+    public static Context withAddedUrlContent(Context context, String urlString)
+            throws IOException, URISyntaxException {
+        if (urlString.isBlank()) {
+            return context;
+        }
+
+        var content = WorkspaceTools.fetchUrlContent(new URI(urlString));
+        content = HtmlToMarkdown.maybeConvertToMarkdown(content);
+
+        if (content.isBlank()) {
+            return context;
+        }
+
+        var fragment = new ContextFragment.StringFragment(
+                context.contextManager, content, "Content from " + urlString, SyntaxConstants.SYNTAX_STYLE_NONE);
+        return context.addVirtualFragment(fragment);
+    }
+
+    /**
      * Returns the processed output text from the latest build failure fragment in this Context. Empty string if there
      * is no build failure recorded.
      */
@@ -620,9 +822,17 @@ public class Context {
         return virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
                 .filter(sf -> desc.equals(sf.description()))
-                .map(cf -> cf.text())
+                .map(ContextFragment.VirtualFragment::text)
                 .findFirst()
                 .orElse("");
+    }
+
+    public Optional<ContextFragment.StringFragment> getBuildFragment() {
+        var desc = ContextFragment.BUILD_RESULTS.description();
+        return virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                .map(ContextFragment.StringFragment.class::cast)
+                .findFirst();
     }
 
     /**
@@ -673,8 +883,7 @@ public class Context {
     }
 
     /**
-     * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Only considers fragments
-     * present in this context, per requirements. Results are cached per other.id().
+     * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
      */
     public List<DiffEntry> getDiff(Context other) {
         if (this.containsDynamicFragments()) {
@@ -745,5 +954,16 @@ public class Context {
 
         diffCache.put(other.id(), diffs);
         return diffs;
+    }
+
+    /**
+     * Compute the set of ProjectFile objects that differ between this (new/right) context and {@code other} (old/left).
+     * This is a convenience wrapper around {@link #getDiff(Context)} which returns per-fragment diffs.
+     *
+     * Note: Both contexts should be frozen (no dynamic fragments) for reliable results.
+     */
+    public java.util.Set<ProjectFile> getChangedFiles(Context other) {
+        var diffs = this.getDiff(other);
+        return diffs.stream().flatMap(de -> de.fragment.files().stream()).collect(Collectors.toSet());
     }
 }

@@ -1866,13 +1866,22 @@ public class HistoryOutputPanel extends JPanel {
                 """
                                 .formatted(captureText));
 
-                var toolSpecs = contextManager.getToolRegistry().getRegisteredTools(List.of("createTaskList"));
+                // Register tool providers
+                var tr = contextManager
+                        .getToolRegistry()
+                        .builder()
+                        .register(this)
+                        .register(new io.github.jbellis.brokk.tools.WorkspaceTools(contextManager))
+                        .build();
+
+                var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
+                toolSpecs.addAll(tr.getTools(List.of("createTaskList")));
                 if (toolSpecs.isEmpty()) {
                     chrome.toolError("Required tool 'createTaskList' is not registered.", "Task List");
                     return;
                 }
 
-                var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
+                var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
                 var result = llm.sendRequest(List.of(system, user), toolContext);
                 if (result.error() != null || result.isEmpty()) {
                     var msg = result.error() != null
@@ -1886,7 +1895,7 @@ public class HistoryOutputPanel extends JPanel {
                         if (!"createTaskList".equals(req.name())) {
                             continue;
                         }
-                        var ter = contextManager.getToolRegistry().executeTool(HistoryOutputPanel.this, req);
+                        var ter = tr.executeTool(req);
                         if (ter.status() == ToolExecutionResult.Status.FAILURE) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                         }

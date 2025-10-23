@@ -3,14 +3,12 @@ package io.github.jbellis.brokk;
 import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -31,7 +29,6 @@ import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.UiTools;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
 import java.awt.Image;
@@ -146,7 +143,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final ServiceWrapper service;
 
     @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
-    private final AbstractProject project;
+    private final IProject project;
 
     // Cached exception reporter for this context
     private final ExceptionReporter exceptionReporter;
@@ -225,7 +222,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Minimal constructor called from Brokk */
-    public ContextManager(AbstractProject project) {
+    public ContextManager(IProject project) {
         this.project = project;
 
         this.contextHistory = new ContextHistory(new Context(this, null));
@@ -236,9 +233,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.exceptionReporter = new ExceptionReporter(this.service::get);
 
         // set up global tools
-        this.toolRegistry = new ToolRegistry(this);
-        this.toolRegistry.register(new SearchTools(this));
-        this.toolRegistry.register(new WorkspaceTools(this));
+        this.toolRegistry =
+                ToolRegistry.empty().builder().register(new SearchTools(this)).build();
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
         // immediately during construction, which means our own reference to it will still be null
@@ -270,7 +266,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private void initializeCurrentSessionAndHistory(boolean forceNew) {
         // load last active session, if present
-        var lastActiveSessionId = project.getLastActiveSession();
+        var lastActiveSessionId = ((AbstractProject) project).getLastActiveSession();
         var sessionManager = project.getSessionManager();
         var sessions = sessionManager.listSessions();
         UUID sessionIdToLoad;
@@ -572,7 +568,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public AbstractProject getProject() {
+    public IProject getProject() {
         return project;
     }
 
@@ -693,24 +689,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     @Override
     public void addFiles(Collection<ProjectFile> files) {
-        var filesByType = files.stream().collect(Collectors.partitioningBy(BrokkFile::isText));
-
-        var textFiles = castNonNull(filesByType.get(true));
-        var binaryFiles = castNonNull(filesByType.get(false));
-
-        var textFragments = textFiles.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
-                .toList();
-        if (!textFragments.isEmpty()) {
-            addPathFragments(textFragments);
-        }
-
-        var binaryFragments = binaryFiles.stream()
-                .map(pf -> new ContextFragment.ImageFileFragment(pf, this))
-                .toList();
-        if (!binaryFragments.isEmpty()) {
-            addPathFragments(binaryFragments);
-        }
+        addPathFragments(toPathFragments(files));
     }
 
     /** Add the given files to editable. */
@@ -829,7 +808,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io, project);
+        UndoResult result = contextHistory.undo(1, io, (AbstractProject) project);
         if (result.wasUndone()) {
             notifyContextListeners(topContext());
             project.getSessionManager()
@@ -843,7 +822,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, project);
+            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, (AbstractProject) project);
             if (result.wasUndone()) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -858,7 +837,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            boolean wasRedone = contextHistory.redo(io, project);
+            boolean wasRedone = contextHistory.redo(io, (AbstractProject) project);
             if (wasRedone) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1006,19 +985,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         IConsoleIO.NotificationRole.INFO, "Copying context items from historical state canceled.");
             }
         });
-    }
-
-    /** Adds any virtual fragment directly to the live context. */
-    public void addVirtualFragments(Collection<? extends VirtualFragment> fragments) {
-        if (fragments.isEmpty()) {
-            return;
-        }
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
-    }
-
-    /** Adds any virtual fragment directly to the live context. */
-    public void addVirtualFragment(VirtualFragment fragment) {
-        addVirtualFragments(List.of(fragment));
     }
 
     /**
@@ -1994,174 +1960,81 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, MergeAgent.NonTextResolutionMode nonTextMode) {
+    public TaskScope beginTask(String input, boolean compressAtCommit) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
         var history = topContext().getTaskHistory();
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
-        return new TaskScope(compressAtCommit, nonTextMode);
+        return new TaskScope(compressAtCommit);
     }
 
-    /** Backwards-compatible overload: defaults non-text handling to OFF. */
-    public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, MergeAgent.NonTextResolutionMode.OFF);
-    }
-
-    /** Aggregating scope that collects messages/files and commits once. */
+    /**
+     * Aggregating scope that collects messages/files and commits once.
+     * By design, this keeps only the Context from the final TaskResult in the Scope.
+     * This means it is the agent's responsibility to propagate any sub-agents' Contexts
+     * without losing important history.
+     */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
-        private final MergeAgent.NonTextResolutionMode nonTextMode;
-        private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressResults, MergeAgent.NonTextResolutionMode nonTextMode) {
+        private TaskScope(boolean compressResults) {
             io.blockLlmOutput(true);
             this.compressResults = compressResults;
-            this.nonTextMode = nonTextMode;
-            this.results = new ArrayList<>();
         }
 
         public void append(TaskResult result) {
             assert !closed : "TaskScope already closed";
-            results.add(result);
-        }
 
-        public MergeAgent.NonTextResolutionMode nonTextMode() {
-            return nonTextMode;
+            // If interrupted before any LLM output, skip
+            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
+                    && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
+                logger.debug("Command cancelled before LLM responded");
+                return;
+            }
+
+            // If there is literally nothing to record (no messages and no context/file changes), skip
+            if (result.output().messages().isEmpty()
+                    && result.context().freeze().equals(topContext())) {
+                logger.debug("Empty TaskResult");
+                return;
+            }
+
+            var action = result.actionDescription();
+            logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
+
+            Future<String> actionFuture = submitSummarizeTaskForConversation(action);
+            pushContext(currentLiveCtx -> {
+                var updated = result.context();
+                TaskEntry entry = updated.createTaskEntry(result);
+                TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
+                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
+            });
+
+            // Auto-rename session if it still has the default name
+            var sessionManager = project.getSessionManager();
+            var sessions = sessionManager.listSessions();
+            var currentSession = sessions.stream()
+                    .filter(s -> s.id().equals(currentSessionId))
+                    .findFirst();
+
+            if (currentSession.isPresent()
+                    && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+                renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
+                    if (io instanceof Chrome) {
+                        project.sessionsListChanged();
+                    }
+                });
+            }
         }
 
         @Override
         public void close() {
             if (closed) return;
             closed = true;
-            try {
-                if (results.isEmpty()) {
-                    return;
-                }
-
-                if (results.size() == 1) {
-                    var only = results.getFirst();
-                    if (!only.changedFiles().isEmpty()) {
-                        addFiles(only.changedFiles());
-                    }
-                    // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(only, compressResults);
-                    return;
-                }
-
-                // Don't aggregate stop details (presumably all success except possibly the last)
-                var lastStop = results.getLast().stopDetails();
-                // Aggregate changed files
-                var aggregatedFiles =
-                        results.stream().flatMap(r -> r.changedFiles().stream()).collect(Collectors.toSet());
-                // Aggregate all messages across results (input are expected to be the first message)
-                var aggregatedMessages = results.stream()
-                        .flatMap(r -> r.output().messages().stream())
-                        .toList();
-                // Action description
-                String actionDescription;
-                if (results.size() == 1) {
-                    actionDescription = results.getFirst().actionDescription();
-                } else {
-                    // Construct synthetic description from first UserMessage and the last AiMessage
-                    var firstUserOpt = aggregatedMessages.stream()
-                            .filter(m -> m instanceof UserMessage)
-                            .findFirst();
-                    var lastAiOpt = IntStream.iterate(aggregatedMessages.size() - 1, i -> i - 1)
-                            .limit(aggregatedMessages.size())
-                            .mapToObj(aggregatedMessages::get)
-                            .filter(m -> m instanceof AiMessage)
-                            .findFirst();
-                    if (firstUserOpt.isPresent() && lastAiOpt.isPresent()) {
-                        var selected = List.of(firstUserOpt.get(), lastAiOpt.get());
-                        actionDescription =
-                                selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
-                    } else {
-                        actionDescription = results.getFirst().actionDescription();
-                    }
-                }
-
-                var finalResult = new TaskResult(
-                        ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
-                pushFinalHistory(finalResult, compressResults);
-            } finally {
-                io.blockLlmOutput(false);
-            }
-        }
-    }
-
-    /** Single entry-point to actually push a TaskResult to history (used by TaskScope). */
-    private void pushFinalHistory(TaskResult result, boolean compress) {
-        if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
-                && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-            logger.debug("Command cancelled before LLM responded");
-            return;
-        }
-        if (result.output().messages().isEmpty() && result.changedFiles().isEmpty()) {
-            logger.debug("Empty TaskResult");
-            return;
-        }
-
-        var action = result.actionDescription();
-        logger.debug(
-                "Adding session result to history. Action: '{}', Changed files: {}, Reason: {}",
-                action,
-                result.changedFiles(),
-                result.stopDetails());
-
-        Future<String> actionFuture = submitSummarizeTaskForConversation(action);
-
-        /*
-         * Perform ALL mutations to the context in a single pushContext call:
-         *   1.  Make every changed file editable (if not already).
-         *   2.  Create and append the TaskEntry.
-         * This guarantees the changed files are present in the frozen snapshot
-         * created by pushContext, so undo/redo can restore them correctly.
-         */
-        pushContext(currentLiveCtx -> {
-            Context updated = currentLiveCtx;
-
-            // Step 1: ensure changed files are tracked as editable
-            if (!result.changedFiles().isEmpty()) {
-                // Capture current editable files once to keep the lambda valid
-                var existingEditableFiles = updated.fileFragments()
-                        .filter(cf -> cf.getType().isEditable())
-                        .flatMap(cf -> cf.files().stream())
-                        .collect(Collectors.toSet());
-
-                var fragmentsToAdd = result.changedFiles().stream()
-                        // avoid duplicates – only add if not already editable
-                        .filter(pf -> !existingEditableFiles.contains(pf))
-                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
-                        .toList();
-
-                if (!fragmentsToAdd.isEmpty()) {
-                    updated = updated.addPathFragments(fragmentsToAdd);
-                }
-            }
-
-            // Step 2: build TaskEntry *after* editable-file update
-            TaskEntry entry = updated.createTaskEntry(result);
-            TaskEntry finalEntry = compress ? compressHistory(entry) : entry;
-
-            return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
-        });
-
-        // Auto-rename session if it still has the default name
-        var sessionManager = project.getSessionManager();
-        var sessions = sessionManager.listSessions();
-        var currentSession =
-                sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
-
-        if (currentSession.isPresent()
-                && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                if (io instanceof Chrome) {
-                    project.sessionsListChanged();
-                }
-            });
+            io.blockLlmOutput(false);
         }
     }
 
@@ -2256,7 +2129,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void updateActiveSession(UUID sessionId) {
         currentSessionId = sessionId;
         SessionRegistry.update(project.getRoot(), sessionId);
-        project.setLastActiveSession(sessionId);
+        ((AbstractProject) project).setLastActiveSession(sessionId);
     }
 
     public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {

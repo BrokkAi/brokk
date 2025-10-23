@@ -53,7 +53,11 @@ tasks.named("pnpmInstall") {
 }
 
 repositories {
+    // Use local Maven cache first to minimize network calls
+    mavenLocal()
+
     mavenCentral()
+
     // Additional repositories for dependencies
     maven {
         url = uri("https://repo.gradle.org/gradle/libs-releases")

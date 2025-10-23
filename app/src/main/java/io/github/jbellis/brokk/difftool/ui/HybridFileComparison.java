@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
-import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import java.nio.charset.StandardCharsets;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;

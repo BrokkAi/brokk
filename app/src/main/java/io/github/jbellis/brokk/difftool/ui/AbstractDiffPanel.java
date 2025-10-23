@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
-import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.util.List;
 import java.util.Locale;

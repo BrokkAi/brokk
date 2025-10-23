@@ -25,6 +25,8 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -1223,7 +1225,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     cm,
                     "Ask: " + question,
                     cm.getIo().getLlmRawMessages(),
-                    Set.of(),
+                    cm.topContext(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
@@ -1254,11 +1256,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // construct TaskResult
         requireNonNull(stop);
+        var resultingCtx = cm.topContext();
         return new TaskResult(
                 cm,
                 "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
-                Set.of(), // Ask never changes files
+                resultingCtx, // Ask never changes files; use current top context
                 stop);
     }
 
@@ -2139,6 +2142,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void setIcon(@Nullable Icon icon) {
             this.originalIcon = icon;
+            // Apply high-contrast processing if needed
             boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
@@ -2445,7 +2449,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void setIcon(@Nullable Icon icon) {
             // Apply high-contrast processing if needed
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            boolean isHighContrast = io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(
+                    MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }
@@ -2459,7 +2464,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void setIcon(@Nullable Icon icon) {
             // Apply high-contrast processing if needed
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            boolean isHighContrast = io.github.jbellis.brokk.gui.theme.GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(
+                    MainProject.getTheme());
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }

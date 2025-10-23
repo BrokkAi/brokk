@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import io.github.jbellis.brokk.gui.GuiTheme;
-import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Arrays;

@@ -1112,7 +1112,7 @@ public final class MainProject extends AbstractProject {
 
     public static boolean getExceptionReportingEnabled() {
         var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "false"));
+        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "true"));
     }
 
     public static void setExceptionReportingEnabled(boolean enabled) {

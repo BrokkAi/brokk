@@ -787,6 +787,21 @@
 
       "action_button_bg_default": "#3333FF",
       "action_button_bg_stop": "#FF3633"
+      "windowBorder": {
+        "enabled": true,
+        "color": "#E6E6E6",
+        "width": 1,
+        "cornerRadius": 0
+      },
+      "titleBar": {
+        "enabled": true,
+        "backgroundColor": "#000000",
+        "foregroundColor": "#FFFFFF",
+        "topPadding": 4,
+        "leftPadding": 80,
+        "bottomPadding": 4,
+        "rightPadding": 0
+      }
     }
   },
 

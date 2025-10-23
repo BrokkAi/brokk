@@ -741,10 +741,10 @@ public class SearchTools {
     }
 
     @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to record findings, hypotheses, checklists, links, and decisions in Markdown.")
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
     public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
         if (markdown.isBlank()) {
-            throw new IllegalArgumentException("Note content cannot be empty");
+            return "Ignoring empty Note";
         }
 
         final var description = ContextFragment.SEARCH_NOTES.description();
