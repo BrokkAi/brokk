@@ -7,7 +7,9 @@ public class ScalaTreeSitterNodeTypes {
 
     // Class-like declarations
     public static final String CLASS_DEFINITION = "class_definition";
+    public static final String OBJECT_DEFINITION = "object_definition";
     public static final String INTERFACE_DEFINITION = "trait_definition";
+    public static final String ENUM_DEFINITION = "enum_definition";
 
     // Function-like declarations
 

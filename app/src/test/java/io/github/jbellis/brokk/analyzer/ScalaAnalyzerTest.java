@@ -15,6 +15,9 @@ public class ScalaAnalyzerTest {
                         """
                                 class Foo() {}
                                 case class Bar()
+                                object Baz {}
+                                enum Color:
+                                  case Red, Green, Blue
                                 """,
                         "Foo.scala")
                 .build()) {
@@ -37,6 +40,24 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Bar", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Bar'!"));
+            analyzer.getDefinition("Baz")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isClass());
+                                assertEquals("Baz", cu.fqName());
+                                assertEquals("", cu.packageName());
+                                assertEquals("Baz", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Baz'!"));
+            analyzer.getDefinition("Color")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isClass());
+                                assertEquals("Color", cu.fqName());
+                                assertEquals("", cu.packageName());
+                                assertEquals("Color", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Color'!"));
         }
     }
 
@@ -68,7 +89,6 @@ public class ScalaAnalyzerTest {
                                 package ai.brokk
 
                                 class Foo()
-
                                 trait Bar
                                 """,
                         "ai/brokk/Foo.scala")

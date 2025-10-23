@@ -10,7 +10,16 @@
   name: (identifier) @class.name
   ) @class.definition
 
+(object_definition
+  name: (identifier) @class.name
+  ) @object.definition
+
 ; Trait declarations
 (trait_definition
   name: (identifier) @class.name
   ) @trait.definition
+
+; Enum declarations
+(enum_definition
+  name: (identifier) @class.name
+  ) @enum.definition
