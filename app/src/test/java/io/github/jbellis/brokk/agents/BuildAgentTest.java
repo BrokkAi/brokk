@@ -2,8 +2,6 @@ package io.github.jbellis.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.git.GitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
