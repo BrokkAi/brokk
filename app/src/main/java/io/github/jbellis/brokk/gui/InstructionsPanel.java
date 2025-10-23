@@ -234,6 +234,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         @Override
+        public Dimension getMinimumSize() {
+            Dimension pref = getPreferredSize();
+            return new Dimension(0, pref.height);
+        }
+
+        @Override
         public Dimension getMaximumSize() {
             Dimension pref = getPreferredSize();
             return new Dimension(Integer.MAX_VALUE, pref.height);
