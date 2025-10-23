@@ -8,6 +8,10 @@ public interface SourceCodeProvider extends CapabilityProvider {
 
     Set<String> getMethodSources(String fqName, boolean includeComments);
 
+    default Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
+        return getMethodSources(method.fqName(), includeComments);
+    }
+
     /**
      * Gets the source code for a given method name. If multiple methods match (e.g. overloads), their source code
      * snippets are concatenated (separated by newlines). If none match, returns None.
@@ -24,6 +28,10 @@ public interface SourceCodeProvider extends CapabilityProvider {
         return Optional.of(String.join("\n\n", sources));
     }
 
+    default Optional<String> getMethodSource(CodeUnit method, boolean includeComments) {
+        return getMethodSource(method.fqName(), includeComments);
+    }
+
     /**
      * Gets the source code for the entire given class. If the class is partial or has multiple definitions, this
      * typically returns the primary definition.
@@ -32,6 +40,10 @@ public interface SourceCodeProvider extends CapabilityProvider {
      * @param includeComments whether to include preceding comments in the source
      */
     Optional<String> getClassSource(String fqcn, boolean includeComments);
+
+    default Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
+        return getClassSource(classUnit.fqName(), includeComments);
+    }
 
     /**
      * Gets the source code for a given CodeUnit, dispatching to the appropriate method based on the unit type. This

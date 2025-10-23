@@ -10,11 +10,19 @@ public interface SkeletonProvider extends CapabilityProvider {
     /** return a summary of the given type or method */
     Optional<String> getSkeleton(String fqName);
 
+    default Optional<String> getSkeleton(CodeUnit cu) {
+        return getSkeleton(cu.fqName());
+    }
+
     /**
      * Returns just the class signature and field declarations, without method details. Used in symbol usages lookup.
      * (Show the "header" of the class that uses the referenced symbol in a field declaration.)
      */
     Optional<String> getSkeletonHeader(String className);
+
+    default Optional<String> getSkeletonHeader(CodeUnit classUnit) {
+        return getSkeletonHeader(classUnit.fqName());
+    }
 
     default Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         final Map<CodeUnit, String> skeletons = new HashMap<>();
