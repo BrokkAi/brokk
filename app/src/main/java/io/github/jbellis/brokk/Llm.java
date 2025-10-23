@@ -1451,7 +1451,8 @@ public class Llm {
         }
 
         public AiMessage aiMessage() {
-            var messageText = text == null ? "" : text;
+            // Anthropic does not allow empty content. Token content for pure tool calls.
+            var messageText = text == null ? (toolRequests.isEmpty() ? "" : "tool call") : text;
             return new AiMessage(messageText, reasoningContent, toolRequests);
         }
     }
