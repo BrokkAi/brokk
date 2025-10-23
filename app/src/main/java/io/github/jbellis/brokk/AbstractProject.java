@@ -570,12 +570,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     /**
      * Checks if a path is ignored by gitignore rules using JGit's IgnoreNode.
      * This approach correctly handles:
-     * - Root .gitignore patterns
+     * - Root and nested .gitignore files
      * - Negation patterns (e.g., !build/keep/)
      * - Directory-specific patterns
+     * - Proper precedence (more specific .gitignore files override less specific ones)
      *
-     * Note: This currently only checks root .gitignore. For full support of nested .gitignore
-     * files, .git/info/exclude, and global gitignore, additional work is needed.
+     * The key insight: each .gitignore file's patterns are relative to the directory
+     * containing that .gitignore. So subdir/.gitignore with pattern "build/*" matches
+     * "build/Generated.java" (relative to subdir), not "subdir/build/Generated.java".
+     *
+     * Note: This currently does NOT check .git/info/exclude or global gitignore files.
      *
      * @param gitRepo The git repository
      * @param projectRelPath Path relative to project root
@@ -583,62 +587,157 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      */
     private boolean isPathIgnored(GitRepo gitRepo, Path projectRelPath) throws IOException {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
-
-        // Load .gitignore patterns using IgnoreNode
-        var gitignoreFile = gitRepo.getGitTopLevel().resolve(".gitignore");
-        if (!Files.exists(gitignoreFile)) {
-            return false; // No .gitignore, nothing is ignored
-        }
-
-        var ignoreNode = new org.eclipse.jgit.ignore.IgnoreNode();
-        try (var inputStream = Files.newInputStream(gitignoreFile)) {
-            ignoreNode.parse(inputStream);
-        }
+        Path gitRelPathObj = Path.of(gitRelPath);
+        var gitTopLevel = gitRepo.getGitTopLevel();
 
         // Check if path is a directory (needed for IgnoreNode)
         Path absPath = root.resolve(projectRelPath);
         boolean isDirectory = Files.isDirectory(absPath);
 
-        var result = ignoreNode.isIgnored(gitRelPath, isDirectory);
+        // Start from the file's directory and walk up to root, checking .gitignore files
+        // Build a list of (directory, .gitignore) pairs from root to most specific
+        var gitignorePairs = new java.util.ArrayList<java.util.Map.Entry<Path, Path>>();
 
-        // Handle the three possible results:
-        // - IGNORED: explicitly ignored by a pattern
-        // - NOT_IGNORED: explicitly not ignored (negation pattern)
-        // - CHECK_PARENT: not matched, need to check if parent directory is ignored
+        // Add root .gitignore
+        var rootGitignore = gitTopLevel.resolve(".gitignore");
+        if (Files.exists(rootGitignore)) {
+            gitignorePairs.add(java.util.Map.entry(Path.of(""), rootGitignore));
+        }
 
-        if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+        // Add nested .gitignore files for each directory in the path
+        Path currentDir = gitRelPathObj.getParent();
+        while (currentDir != null && !currentDir.toString().isEmpty()) {
+            var nestedGitignore = gitTopLevel.resolve(currentDir).resolve(".gitignore");
+            if (Files.exists(nestedGitignore)) {
+                gitignorePairs.add(java.util.Map.entry(currentDir, nestedGitignore));
+            }
+            currentDir = currentDir.getParent();
+        }
+
+        // Check each .gitignore file from root to most specific
+        // Later (more specific) files override earlier ones
+        org.eclipse.jgit.ignore.IgnoreNode.MatchResult finalResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.CHECK_PARENT;
+
+        for (var entry : gitignorePairs) {
+            var gitignoreDir = entry.getKey();
+            var gitignoreFile = entry.getValue();
+
+            // Calculate path relative to this .gitignore's directory
+            String relativeToGitignoreDir;
+            if (gitignoreDir.toString().isEmpty()) {
+                // Root .gitignore - use full git-relative path
+                relativeToGitignoreDir = gitRelPath;
+            } else {
+                // Nested .gitignore - use path relative to its directory
+                relativeToGitignoreDir = gitignoreDir.relativize(gitRelPathObj).toString().replace('\\', '/');
+            }
+
+            // Load this .gitignore and check the path
+            var ignoreNode = new org.eclipse.jgit.ignore.IgnoreNode();
+            try (var inputStream = Files.newInputStream(gitignoreFile)) {
+                ignoreNode.parse(inputStream);
+            }
+
+            var result = ignoreNode.isIgnored(relativeToGitignoreDir, isDirectory);
+
+            // If this .gitignore has an explicit match (IGNORED or NOT_IGNORED), it overrides previous results
+            if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+                finalResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED;
+                logger.debug("Path {} matched IGNORED in {} (checking {})", gitRelPath, gitignoreFile, relativeToGitignoreDir);
+            } else if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+                finalResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED;
+                logger.debug("Path {} matched NOT_IGNORED in {} (checking {})", gitRelPath, gitignoreFile, relativeToGitignoreDir);
+            }
+            // If CHECK_PARENT, keep current finalResult
+        }
+
+        // Handle the final result
+        if (finalResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
             logger.debug("Path {} (isDir: {}) ignored: true (result: IGNORED)", gitRelPath, isDirectory);
             return true;
         }
 
-        if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+        if (finalResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
             logger.debug("Path {} (isDir: {}) ignored: false (result: NOT_IGNORED - negation)", gitRelPath, isDirectory);
             return false;
         }
 
-        // CHECK_PARENT - need to check if any parent directory is ignored
-        Path path = Path.of(gitRelPath);
-        Path parent = path.getParent();
+        // CHECK_PARENT - this file doesn't match any pattern directly
+        // However, we need to check if it's inside an ignored directory
+        // BUT we must also respect negation patterns on parent directories
+
+        // The correct approach: check each parent directory and see if it has an explicit ignore/negation
+        // If we find an explicit IGNORED parent, the file is ignored
+        // If we find an explicit NOT_IGNORED parent (negation), the file is NOT ignored
+        // If all parents return CHECK_PARENT, then the file is not ignored
+
+        Path parent = gitRelPathObj.getParent();
         while (parent != null && !parent.toString().isEmpty()) {
             String parentPath = parent.toString().replace('\\', '/');
-            var parentResult = ignoreNode.isIgnored(parentPath, true); // parent is a directory
 
+            // Check the parent directory with all .gitignore files
+            var parentGitignorePairs = new java.util.ArrayList<java.util.Map.Entry<Path, Path>>();
+
+            // Add root .gitignore
+            if (Files.exists(rootGitignore)) {
+                parentGitignorePairs.add(java.util.Map.entry(Path.of(""), rootGitignore));
+            }
+
+            // Add nested .gitignore files for the parent's path
+            Path parentDir = Path.of(parentPath).getParent();
+            while (parentDir != null && !parentDir.toString().isEmpty()) {
+                var nestedGitignore = gitTopLevel.resolve(parentDir).resolve(".gitignore");
+                if (Files.exists(nestedGitignore)) {
+                    parentGitignorePairs.add(java.util.Map.entry(parentDir, nestedGitignore));
+                }
+                parentDir = parentDir.getParent();
+            }
+
+            // Check parent against all .gitignore files
+            org.eclipse.jgit.ignore.IgnoreNode.MatchResult parentResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.CHECK_PARENT;
+
+            for (var entry : parentGitignorePairs) {
+                var gitignoreDir = entry.getKey();
+                var gitignoreFile = entry.getValue();
+
+                String relativeToGitignoreDir;
+                if (gitignoreDir.toString().isEmpty()) {
+                    relativeToGitignoreDir = parentPath;
+                } else {
+                    relativeToGitignoreDir = gitignoreDir.relativize(Path.of(parentPath)).toString().replace('\\', '/');
+                }
+
+                var ignoreNode = new org.eclipse.jgit.ignore.IgnoreNode();
+                try (var inputStream = Files.newInputStream(gitignoreFile)) {
+                    ignoreNode.parse(inputStream);
+                }
+
+                var result = ignoreNode.isIgnored(relativeToGitignoreDir, true); // parent is a directory
+
+                if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+                    parentResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED;
+                } else if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+                    parentResult = org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED;
+                }
+            }
+
+            // If parent is explicitly ignored, this file is ignored
             if (parentResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
                 logger.debug("Path {} ignored: true (parent {} is ignored)", gitRelPath, parentPath);
                 return true;
             }
 
+            // If parent has a negation pattern, this file is NOT ignored
             if (parentResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
-                // Parent has a negation pattern, so this path is explicitly not ignored
                 logger.debug("Path {} ignored: false (parent {} has negation)", gitRelPath, parentPath);
                 return false;
             }
 
-            // Parent also returned CHECK_PARENT, continue up the tree
+            // Parent returned CHECK_PARENT, continue checking further up
             parent = parent.getParent();
         }
 
-        // No parent was ignored
+        // No parent was ignored or had negation
         logger.debug("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
         return false;
     }
