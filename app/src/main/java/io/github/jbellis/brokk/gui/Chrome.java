@@ -705,6 +705,14 @@ public class Chrome
         // Final validation and repaint before making window visible
         frame.validate();
         frame.repaint();
+
+        // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
+        try {
+            applyAdvancedModeVisibility();
+        } catch (Exception ex) {
+            logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
+        }
+
         // Now show the window with complete layout
         frame.setVisible(true);
 
