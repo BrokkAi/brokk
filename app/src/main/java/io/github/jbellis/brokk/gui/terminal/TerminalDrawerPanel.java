@@ -171,6 +171,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             }
         });
 
+        // Respect Advanced Mode immediately
+        setAdvancedMode(GlobalUiSettings.isAdvancedMode());
+
         // Restore drawer state (per-project or global), or collapse if none is configured
         SwingUtilities.invokeLater(this::restoreInitialState);
     }
@@ -439,6 +442,11 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             if (lastTab == null) {
                 lastTab = "terminal";
             }
+            // In Easy Mode (advanced=false), never open the terminal initially
+            boolean advanced = GlobalUiSettings.isAdvancedMode();
+            if (!advanced && "terminal".equalsIgnoreCase(lastTab)) {
+                lastTab = "tasks";
+            }
 
             // Open flag
             boolean open = usePerProject
@@ -576,5 +584,43 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 activeTerminal.updateTerminalFontSize();
             }
         });
+    }
+
+    /**
+     * Applies Advanced Mode visibility to the Terminal control in the drawer.
+     * When advanced is false (easy mode), hides the terminal toggle. If the terminal
+     * was currently selected, switch to Tasks or collapse the drawer.
+     */
+    public void setAdvancedMode(boolean advanced) {
+        Runnable r = () -> {
+            // Show/hide terminal toggle
+            terminalToggle.setVisible(advanced);
+
+            // If switching to Easy Mode while the Terminal is selected, switch away
+            if (!advanced && terminalToggle.isSelected()) {
+                terminalToggle.setSelected(false);
+                // Remove terminal content from the drawer
+                drawerContentPanel.removeAll();
+                drawerContentPanel.revalidate();
+                drawerContentPanel.repaint();
+
+                // Prefer showing the Task List if available, otherwise collapse
+                if (tasksToggle.isVisible()) {
+                    openTaskList();
+                    persistLastTab("tasks");
+                } else {
+                    collapseIfEmpty();
+                }
+            }
+
+            // Repaint the control bar so layout adjusts
+            buttonBar.revalidate();
+            buttonBar.repaint();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 }
