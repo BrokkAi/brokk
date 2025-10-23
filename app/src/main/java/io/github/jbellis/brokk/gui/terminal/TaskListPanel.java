@@ -566,6 +566,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
             updateButtonStates();
+            // Ensure the Tasks tab badge updates to reflect newly added tasks.
+            SwingUtilities.invokeLater(this::updateTasksTabBadge);
         }
     }
 
@@ -623,6 +625,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 clearExpansionOnStructureChange();
                 updateButtonStates();
                 saveTasksForCurrentSession();
+                // Update tab badge after tasks have been persisted
+                SwingUtilities.invokeLater(this::updateTasksTabBadge);
             } else {
                 // No-op if only the running/pending tasks were selected
                 updateButtonStates();
@@ -650,6 +654,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (changed) {
                 updateButtonStates();
                 saveTasksForCurrentSession();
+                // Reflect completion toggles in the Tasks tab badge
+                SwingUtilities.invokeLater(this::updateTasksTabBadge);
             }
         }
     }
@@ -1019,9 +1025,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
 
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                        var it = requireNonNull(model.get(idx));
-                        model.set(idx, new TaskList.TaskItem(it.text(), true));
-                        saveTasksForCurrentSession();
+                    var it = requireNonNull(model.get(idx));
+                    model.set(idx, new TaskList.TaskItem(it.text(), true));
+                    saveTasksForCurrentSession();
+                    // Task was marked done as part of a successful run; update tab badge immediately.
+                    updateTasksTabBadge();
                     }
                 } finally {
                     // Clear running, advance queue
@@ -1543,6 +1551,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
+        // Combined tasks changed the model; update the Tasks tab badge.
+        SwingUtilities.invokeLater(this::updateTasksTabBadge);
     }
 
     private void splitSelectedTask() {
@@ -1625,6 +1635,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
+        // Splitting changed the set of tasks; update the Tasks tab badge.
+        SwingUtilities.invokeLater(this::updateTasksTabBadge);
         list.revalidate();
         list.repaint();
     }
@@ -1750,6 +1762,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (removedAny) {
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
+            // Clear completed modified the model; refresh the tasks tab badge.
+            SwingUtilities.invokeLater(this::updateTasksTabBadge);
         }
         updateButtonStates();
     }
