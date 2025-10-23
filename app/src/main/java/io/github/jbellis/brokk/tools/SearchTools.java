@@ -740,43 +740,4 @@ public class SearchTools {
         return formattedTaskList;
     }
 
-    @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
-    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
-        if (markdown.isBlank()) {
-            return "Ignoring empty Note";
-        }
-
-        final var description = ContextFragment.SEARCH_NOTES.description();
-        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
-        final var appendedFlag = new AtomicBoolean(false);
-
-        contextManager.pushContext(ctx -> {
-            var existing = ctx.virtualFragments()
-                    .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                    .filter(vf -> description.equals(vf.description()))
-                    .findFirst();
-
-            if (existing.isPresent()) {
-                appendedFlag.set(true);
-                var prev = existing.get();
-                String prevText = prev.text();
-                String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
-
-                var next = ctx.removeFragmentsByIds(List.of(prev.id()));
-                var newFrag = new ContextFragment.StringFragment(contextManager, combined, description, syntax);
-                logger.debug(
-                        "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
-                        prev.id(),
-                        combined.length());
-                return next.addVirtualFragment(newFrag);
-            } else {
-                var newFrag = new ContextFragment.StringFragment(contextManager, markdown, description, syntax);
-                logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
-                return ctx.addVirtualFragment(newFrag);
-            }
-        });
-
-        return appendedFlag.get() ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
-    }
 }
