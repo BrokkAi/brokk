@@ -207,7 +207,7 @@ public class SearchAgent {
             }
 
             // Start tracking this turn (only after successful LLM planning)
-            Set<String> filesBeforeSet = getWorkspaceFileSet();
+            Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
             metrics.startTurn();
 
             // Final tools are executed only when they are the sole requested action in a turn.
@@ -650,7 +650,7 @@ public class SearchAgent {
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         long scanStartTime = System.currentTimeMillis();
-        Set<String> filesBeforeScan = getWorkspaceFileSet();
+        Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
@@ -687,11 +687,11 @@ public class SearchAgent {
         }
 
         // Track metrics
-        Set<String> filesAfterScan = getWorkspaceFileSet();
-        Set<String> filesAdded = new HashSet<>(filesAfterScan);
+        Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
+        Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         long scanTime = System.currentTimeMillis() - scanStartTime;
-        metrics.recordContextScan(filesAdded.size(), scanTime, false, filesAdded);
+        metrics.recordContextScan(filesAdded.size(), scanTime, false, toRelativePaths(filesAdded));
     }
 
     // =======================
@@ -801,28 +801,31 @@ public class SearchAgent {
     // Metrics helpers
     // =======================
 
-    private void endTurnAndRecordFileChanges(Set<String> filesBeforeSet) {
-        Set<String> filesAfterSet = getWorkspaceFileSet();
-        Set<String> added = new HashSet<>(filesAfterSet);
+    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
+        Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+        Set<ProjectFile> added = new HashSet<>(filesAfterSet);
         added.removeAll(filesBeforeSet);
         metrics.recordFilesAdded(added.size());
-        metrics.recordFilesAddedPaths(added);
-        metrics.endTurn(filesBeforeSet, filesAfterSet);
+        metrics.recordFilesAddedPaths(toRelativePaths(added));
+        metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
     private void recordFinalWorkspaceState() {
-        metrics.recordFinalWorkspaceFiles(getWorkspaceFileSet());
+        metrics.recordFinalWorkspaceFiles(toRelativePaths(getWorkspaceFileSet()));
         metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
     }
 
-    private Set<String> getWorkspaceFileSet() {
+    private Set<ProjectFile> getWorkspaceFileSet() {
         return cm.topContext()
                 .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                         || f.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(f -> f.files().stream())
-                .map(Object::toString)
                 .collect(Collectors.toSet());
+    }
+
+    private Set<String> toRelativePaths(Set<ProjectFile> files) {
+        return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
     }
 
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
