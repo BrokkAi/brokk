@@ -29,4 +29,46 @@ public class ScalaAnalyzerTest {
                             () -> fail("Could not find code unit 'Foo'!"));
         }
     }
+
+    @Test
+    public void testSimpleUnqualifiedTrait() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                trait Foo {}
+                                """,
+                        "Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("Foo")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isClass());
+                                assertEquals("Foo", cu.fqName());
+                                assertEquals("", cu.packageName());
+                                assertEquals("Foo", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo'!"));
+        }
+    }
+
+    @Test
+    public void testSimpleUnqualifiedCaseClass() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                case class Foo()
+                                """,
+                        "Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("Foo")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isClass());
+                                assertEquals("Foo", cu.fqName());
+                                assertEquals("", cu.packageName());
+                                assertEquals("Foo", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo'!"));
+        }
+    }
 }
