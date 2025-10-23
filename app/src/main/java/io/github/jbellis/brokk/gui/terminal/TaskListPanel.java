@@ -1082,53 +1082,119 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     /**
      * Update the Tasks tab icon (possibly with a numeric badge) to reflect the number of incomplete tasks.
      * Safe to call from any thread; work is dispatched to the EDT.
+     *
+     * Delegates to {@link #updateTasksTabBadge()} which performs the actual work and ensures EDT safety.
      */
     private void updateTabBadge() {
-        SwingUtilities.invokeLater(() -> {
-            // Compute number of incomplete tasks
+        updateTasksTabBadge();
+    }
+
+    /**
+     * Compute the number of incomplete tasks in the model. Accesses the Swing model on the EDT to remain thread-safe.
+     */
+    private int computeIncompleteCount() {
+        if (SwingUtilities.isEventDispatchThread()) {
             int incomplete = 0;
             for (int i = 0; i < model.getSize(); i++) {
                 TaskList.TaskItem it = requireNonNull(model.get(i));
                 if (!it.done()) incomplete++;
             }
-
-            // Locate parent tabbed pane and this panel's tab index
-            JTabbedPane tabs = findParentTabbedPane();
-            if (tabs == null) {
-                // Not hosted in a tabbed pane; nothing to update
-                return;
+            return incomplete;
+        } else {
+            final int[] result = new int[1];
+            try {
+                SwingUtilities.invokeAndWait(() -> result[0] = computeIncompleteCount());
+            } catch (Exception ex) {
+                logger.debug("Error computing incomplete task count on EDT", ex);
+                return 0;
             }
-            int idx = tabIndexOfSelf(tabs);
-            if (idx < 0) {
-                return;
-            }
+            return result[0];
+        }
+    }
 
-            if (incomplete <= 0) {
-                // Restore base icon when there is no badge to show
-                try {
-                    tabs.setIconAt(idx, tasksBaseIcon);
-                } finally {
-                    tasksTabBadgedIcon = null;
+    /**
+     * Ensure the Tasks tab has a BadgedIcon (if possible) and update it to reflect the current incomplete count.
+     * Safe to call from any thread; UI updates are performed on the EDT.
+     *
+     * Behavior:
+     * - If the panel is not hosted in a JTabbedPane, this is a no-op.
+     * - If the incomplete count is zero, restores the base icon and clears any BadgedIcon instance.
+     * - If a themed BadgedIcon can be created, sets the badge count and applies the icon.
+     * - Otherwise falls back to updating the tab title to include the count.
+     */
+    private void updateTasksTabBadge() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                int incomplete = computeIncompleteCount();
+
+                JTabbedPane tabs = findParentTabbedPane();
+                if (tabs == null) {
+                    // Not hosted in a tabbed pane; nothing to update
+                    return;
                 }
-                return;
-            }
-
-            // Ensure we have a BadgedIcon instance (create only if we have a theme available).
-            if (tasksTabBadgedIcon == null && currentTheme != null) {
-                try {
-                    tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, currentTheme);
-                } catch (Exception ex) {
-                    // Fallback: do not fail if badge creation fails; keep base icon.
-                    tasksTabBadgedIcon = null;
+                int idx = tabIndexOfSelf(tabs);
+                if (idx < 0) {
+                    return;
                 }
-            }
 
-            if (tasksTabBadgedIcon != null) {
-                tasksTabBadgedIcon.setCount(incomplete, tabs);
-                tabs.setIconAt(idx, tasksTabBadgedIcon);
-            } else {
-                // If we couldn't create a BadgedIcon (no theme), fallback to base icon.
-                tabs.setIconAt(idx, tasksBaseIcon);
+                if (incomplete <= 0) {
+                    // Restore base icon when there is no badge to show
+                    try {
+                        tabs.setIconAt(idx, tasksBaseIcon);
+                    } finally {
+                        tasksTabBadgedIcon = null;
+                    }
+                    return;
+                }
+
+                // Ensure a BadgedIcon exists; prefer chrome.getTheme(), fallback to currentTheme
+                if (tasksTabBadgedIcon == null) {
+                    GuiTheme theme = null;
+                    try {
+                        theme = chrome.getTheme();
+                    } catch (Exception ex) {
+                        theme = currentTheme;
+                    }
+
+                    if (theme == null) {
+                        // Cannot create a themed badge without a theme; fallback to title update
+                        try {
+                            String baseTitle = tabs.getTitleAt(idx);
+                            if (baseTitle == null || baseTitle.isBlank()) {
+                                baseTitle = "Tasks";
+                            }
+                            tabs.setTitleAt(idx, baseTitle + " (" + incomplete + ")");
+                        } catch (Exception ex) {
+                            logger.debug("Failed to set tab title fallback for tasks badge", ex);
+                        }
+                        return;
+                    }
+
+                    try {
+                        tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
+                        tasksTabBadgedIcon = null;
+                    }
+                }
+
+                if (tasksTabBadgedIcon != null) {
+                    tasksTabBadgedIcon.setCount(incomplete, tabs);
+                    tabs.setIconAt(idx, tasksTabBadgedIcon);
+                } else {
+                    // As a last-resort fallback, update the tab title to include the count
+                    try {
+                        String baseTitle = tabs.getTitleAt(idx);
+                        if (baseTitle == null || baseTitle.isBlank()) {
+                            baseTitle = "Tasks";
+                        }
+                        tabs.setTitleAt(idx, baseTitle + " (" + incomplete + ")");
+                    } catch (Exception ex) {
+                        logger.debug("Failed to set tab title fallback for tasks badge", ex);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("Error updating tasks tab badge", ex);
             }
         });
     }
