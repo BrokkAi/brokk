@@ -509,7 +509,8 @@ public class WorkspaceTools {
             String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
 
             var next = context.removeFragmentsByIds(List.of(prev.id()));
-            var newFrag = new ContextFragment.StringFragment(context.getContextManager(), combined, description, syntax);
+            var newFrag =
+                    new ContextFragment.StringFragment(context.getContextManager(), combined, description, syntax);
             logger.debug(
                     "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
                     prev.id(),
@@ -517,7 +518,8 @@ public class WorkspaceTools {
             context = next.addVirtualFragment(newFrag);
             return "Appended note to Task Notes.";
         } else {
-            var newFrag = new ContextFragment.StringFragment(context.getContextManager(), markdown, description, syntax);
+            var newFrag =
+                    new ContextFragment.StringFragment(context.getContextManager(), markdown, description, syntax);
             logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
             context = context.addVirtualFragment(newFrag);
             return "Created Task Notes and added the note.";
