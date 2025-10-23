@@ -26,7 +26,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
-import io.github.jbellis.brokk.metrics.DefaultSearchMetrics;
 import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
