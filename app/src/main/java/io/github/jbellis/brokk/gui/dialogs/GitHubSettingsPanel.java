@@ -123,10 +123,12 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         add(actionsPanel, gbc);
 
         // Row: Explanation
-        var explanationLabel = new JLabel("<html>Connect your GitHub account using Brokk's GitHub App.</html>");
-        explanationLabel.setFont(explanationLabel
-                .getFont()
-                .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
+        var explanationLabel = new JLabel(
+                """
+                <html>GitHub integration requires two steps:<br>
+                <b>1.</b> Authorize Brokk to access your account<br>
+                <b>2.</b> Install the GitHub App to your repositories</html>
+                """);
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -192,7 +194,9 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         add(gitHubSuccessMessageLabel, gbc);
 
         // Row: Installation App Reminder (initially hidden) - using reusable component
-        gitHubInstallAppLabel = new GitHubAppInstallLabel(parentComponent);
+        gitHubInstallAppLabel = new GitHubAppInstallLabel(
+                parentComponent,
+                "<html><b>Step 2:</b> To use GitHub features, <a href=\"\">install the GitHub App</a></html>");
         gitHubInstallAppLabel.setVisible(false);
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -200,8 +204,8 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         add(gitHubInstallAppLabel, gbc);
 
         // Row: App Installed Confirmation (initially hidden)
-        gitHubAppInstalledLabel = new JLabel("Brokk GitHub App is installed");
-        gitHubAppInstalledLabel.setFont(gitHubAppInstalledLabel.getFont().deriveFont(Font.PLAIN));
+        gitHubAppInstalledLabel = new JLabel("✓ Step 2 complete: GitHub App is installed");
+        gitHubAppInstalledLabel.setFont(gitHubAppInstalledLabel.getFont().deriveFont(Font.ITALIC));
         gitHubAppInstalledLabel.setForeground(new Color(0, 128, 0)); // Green color
         gitHubAppInstalledLabel.setVisible(false);
         gbc.gridx = 1;
@@ -224,43 +228,39 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
 
         if (gitHubStatusLabel != null) {
             if (authInProgress) {
-                gitHubStatusLabel.setText("Status: Authenticating...");
+                gitHubStatusLabel.setText("Step 1/2: Authenticating...");
+                gitHubStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.PLAIN));
             } else if (currentDeviceCodeResponse != null && !connected) {
-                gitHubStatusLabel.setText("Status: Waiting for you to authorize in browser");
+                gitHubStatusLabel.setText("Step 1/2: Waiting for you to authorize in browser");
+                gitHubStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.PLAIN));
             } else {
                 if (connected) {
                     String username = GitHubAuth.getAuthenticatedUsername();
                     if (username != null) {
-                        gitHubStatusLabel.setText("Status: Connected as @" + username);
+                        gitHubStatusLabel.setText("✓ Step 1 complete: Connected as @" + username);
                     } else {
-                        gitHubStatusLabel.setText("Status: Connected");
+                        gitHubStatusLabel.setText("✓ Step 1 complete: Connected");
                     }
+                    gitHubStatusLabel.setForeground(new Color(0, 128, 0)); // Green for completed step
+                    gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
                 } else {
                     gitHubStatusLabel.setText("Status: Not connected");
+                    gitHubStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
+                    gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.PLAIN));
                 }
             }
-            gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
         }
 
         if (gitHubProgressBar != null) {
             gitHubProgressBar.setVisible(authInProgress);
         }
 
-        // Show success message and app installation reminder
+        // Show app installation reminder (success message removed to avoid redundancy with status label)
         if (gitHubSuccessMessageLabel != null && gitHubInstallAppLabel != null && gitHubAppInstalledLabel != null) {
-            if (justCompleted) {
-                gitHubSuccessMessageLabel.setText("Successfully connected to GitHub!");
-                gitHubSuccessMessageLabel.setVisible(true);
-                // Hide success message after 10 seconds
-                var successLabel = gitHubSuccessMessageLabel;
-                Timer hideMessageTimer = new Timer(10000, e -> {
-                    successLabel.setVisible(false);
-                });
-                hideMessageTimer.setRepeats(false);
-                hideMessageTimer.start();
-            } else if (!connected) {
-                gitHubSuccessMessageLabel.setVisible(false);
-            }
+            // Always hide success message - the status label shows completion
+            gitHubSuccessMessageLabel.setVisible(false);
 
             // Check app installation in background to avoid blocking EDT
             // Use a stricter check: installed for the current user's personal account.
