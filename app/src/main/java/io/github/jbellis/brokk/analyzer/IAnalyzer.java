@@ -115,6 +115,22 @@ public interface IAnalyzer {
         return getDefinition(fqName).isPresent();
     }
 
+    default Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        return getDefinition(cu.fqName());
+    }
+
+    default Optional<ProjectFile> getFileFor(CodeUnit cu) {
+        return getFileFor(cu.fqName());
+    }
+
+    default boolean isDefinitionAvailable(CodeUnit cu) {
+        return isDefinitionAvailable(cu.fqName());
+    }
+
+    default List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+        return getMembersInClass(classUnit.fqName());
+    }
+
     /**
      * Gets the source code for the entire given class. Implementations may return Optional.empty() when the analyzer
      * cannot provide source text for the requested FQCN.
