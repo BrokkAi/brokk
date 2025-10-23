@@ -98,6 +98,15 @@ allprojects {
         maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/")
         maven("https://repo.eclipse.org/content/groups/releases/")
     }
+
+    configurations.all {
+        resolutionStrategy {
+            // Cache dynamic versions for 24 hours instead of default 24 minutes
+            cacheDynamicVersionsFor(24, java.util.concurrent.TimeUnit.HOURS)
+            // Cache changing modules for 24 hours
+            cacheChangingModulesFor(24, java.util.concurrent.TimeUnit.HOURS)
+        }
+    }
 }
 
 tasks.register("printVersion") {
