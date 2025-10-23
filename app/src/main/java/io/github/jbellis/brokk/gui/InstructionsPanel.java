@@ -1225,7 +1225,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     cm,
                     "Ask: " + question,
                     cm.getIo().getLlmRawMessages(),
-                    cm.topContext(),
+                    cm.liveContext(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
@@ -1256,12 +1256,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // construct TaskResult
         requireNonNull(stop);
-        var resultingCtx = cm.topContext();
+        var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
                 "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
-                resultingCtx, // Ask never changes files; use current top context
+                resultingCtx, // Ask never changes files; use current live context
                 stop);
     }
 
