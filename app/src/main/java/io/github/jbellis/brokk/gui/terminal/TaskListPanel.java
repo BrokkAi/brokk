@@ -18,10 +18,6 @@ import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tasks.TaskList;
-import javax.swing.Icon;
-import javax.swing.JTabbedPane;
-import javax.swing.event.ListDataEvent;
-import javax.swing.event.ListDataListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -61,6 +57,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
+import javax.swing.Icon;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -72,6 +69,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JViewport;
@@ -83,6 +81,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
+import javax.swing.event.ListDataEvent;
+import javax.swing.event.ListDataListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -1025,11 +1025,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
 
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                    var it = requireNonNull(model.get(idx));
-                    model.set(idx, new TaskList.TaskItem(it.text(), true));
-                    saveTasksForCurrentSession();
-                    // Task was marked done as part of a successful run; update tab badge immediately.
-                    updateTasksTabBadge();
+                        var it = requireNonNull(model.get(idx));
+                        model.set(idx, new TaskList.TaskItem(it.text(), true));
+                        saveTasksForCurrentSession();
+                        // Task was marked done as part of a successful run; update tab badge immediately.
+                        updateTasksTabBadge();
                     }
                 } finally {
                     // Clear running, advance queue
