@@ -19,7 +19,7 @@ public class AnalyzerUtil {
         maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
             var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
             for (var cu : methodUses) {
-                var source = sourceCodeProvider.getMethodSource(cu.fqName(), true);
+                var source = sourceCodeProvider.getMethodSource(cu, true);
                 if (source.isPresent()) {
                     results.add(new CodeWithSource(source.get(), cu));
                 } else {
@@ -35,7 +35,7 @@ public class AnalyzerUtil {
         maybeSkeletonProvider.ifPresent(skeletonProvider -> {
             var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
             for (var cu : typeUses) {
-                var skeletonHeader = skeletonProvider.getSkeletonHeader(cu.fqName());
+                var skeletonHeader = skeletonProvider.getSkeletonHeader(cu);
                 skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, cu)));
             }
         });
@@ -115,21 +115,20 @@ public class AnalyzerUtil {
             return Map.of();
         }
 
-        Map<String, String> sources = new LinkedHashMap<>(); // Preserve order potentially
+        Map<String, String> sources = new LinkedHashMap<>();
 
-        // Iterate through each requested method name
         for (String methodName : methodNames) {
             if (!methodName.isBlank()) {
-                // Attempt to get the source code for the method
-                analyzer.as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getMethodSource(methodName, true))
-                        // If source is found, add it to the map with a header comment
-                        .ifPresent(methodSource ->
-                                sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
-                // If methodSourceOpt is empty, we simply don't add an entry for this methodName
+                var cuOpt = analyzer.getDefinition(methodName);
+                if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+                    var cu = cuOpt.get();
+                    analyzer.as(SourceCodeProvider.class)
+                            .flatMap(scp -> scp.getMethodSource(cu, true))
+                            .ifPresent(methodSource ->
+                                    sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
+                }
             }
         }
-        // Return the map containing sources for all found methods
         return sources;
     }
 
@@ -147,28 +146,25 @@ public class AnalyzerUtil {
             return Map.of();
         }
 
-        Map<String, String> sources = new LinkedHashMap<>(); // Preserve order potentially
+        Map<String, String> sources = new LinkedHashMap<>();
 
-        // Iterate through each requested class name
         for (String className : classNames) {
             if (!className.isBlank()) {
-                // Attempt to get the source code for the class
-                analyzer.as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getClassSource(className, true))
-                        .filter(classSource -> !classSource.isEmpty())
-                        .ifPresent(classSource -> {
-                            // If source is found, format it with a header and add to the map
-                            String filename = analyzer.getFileFor(className)
-                                    .map(ProjectFile::toString)
-                                    .orElse("unknown file");
-                            String formattedSource =
-                                    "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
-                            sources.put(className, formattedSource);
-                            // If classSource is null or empty, we simply don't add an entry for this className
-                        });
+                var cuOpt = analyzer.getDefinition(className);
+                if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+                    var cu = cuOpt.get();
+                    analyzer.as(SourceCodeProvider.class)
+                            .flatMap(scp -> scp.getClassSource(cu, true))
+                            .filter(classSource -> !classSource.isEmpty())
+                            .ifPresent(classSource -> {
+                                String filename = cu.source().toString();
+                                String formattedSource = "Source code of %s (from %s):\n\n%s"
+                                        .formatted(className, filename, classSource);
+                                sources.put(className, formattedSource);
+                            });
+                }
             }
         }
-        // Return the map containing formatted sources for all found classes
         return sources;
     }
 

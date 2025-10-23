@@ -384,14 +384,19 @@ public class SearchTools {
         final var analyzer = getAnalyzer();
         assert analyzer.as(CallGraphProvider.class).isPresent()
                 : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        // Sanitize methodName: remove potential `(params)` suffix from LLM.
         final var cleanMethodName = stripParams(methodName);
         if (cleanMethodName.isBlank()) {
             throw new IllegalArgumentException("Cannot get call graph: method name is empty");
         }
 
+        var cuOpt = analyzer.getDefinition(cleanMethodName);
+        if (cuOpt.isEmpty() || !cuOpt.get().isFunction()) {
+            return "No method definition found for: " + cleanMethodName;
+        }
+
+        var cu = cuOpt.get();
         var graph = analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphTo(cleanMethodName, 3))
+                .map(cgp -> cgp.getCallgraphTo(cu, 3))
                 .orElse(Collections.emptyMap());
         String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, true);
         if (result.isEmpty()) {
@@ -411,16 +416,19 @@ public class SearchTools {
         final var analyzer = getAnalyzer();
         assert analyzer.as(CallGraphProvider.class).isPresent()
                 : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        assert (analyzer instanceof CallGraphProvider)
-                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        // Sanitize methodName: remove potential `(params)` suffix from LLM.
         final var cleanMethodName = stripParams(methodName);
         if (cleanMethodName.isBlank()) {
             throw new IllegalArgumentException("Cannot get call graph: method name is empty");
         }
 
+        var cuOpt = analyzer.getDefinition(cleanMethodName);
+        if (cuOpt.isEmpty() || !cuOpt.get().isFunction()) {
+            return "No method definition found for: " + cleanMethodName;
+        }
+
+        var cu = cuOpt.get();
         var graph = analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphFrom(cleanMethodName, 3))
+                .map(cgp -> cgp.getCallgraphFrom(cu, 3))
                 .orElse(Collections.emptyMap());
         String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, false);
         if (result.isEmpty()) {

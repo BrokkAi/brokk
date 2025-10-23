@@ -82,14 +82,35 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        var lang = Languages.fromExtension(
+                Files.getFileExtension(cu.source().absPath().toString()));
+        var delegate = delegates.get(lang);
+        if (delegate != null) {
+            return delegate.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu));
+        }
+        return Optional.empty();
+    }
+
+    @Override
     public Optional<String> getSkeleton(String fqName) {
-        return findFirst(analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(fqName)));
+        return getDefinition(fqName).flatMap(this::getSkeleton);
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
+        var lang = Languages.fromExtension(
+                Files.getFileExtension(classUnit.source().absPath().toString()));
+        var delegate = delegates.get(lang);
+        if (delegate != null) {
+            return delegate.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(classUnit));
+        }
+        return Optional.empty();
     }
 
     @Override
     public Optional<String> getSkeletonHeader(String className) {
-        return findFirst(
-                analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(className)));
+        return getDefinition(className).filter(CodeUnit::isClass).flatMap(this::getSkeletonHeader);
     }
 
     @Override
@@ -114,23 +135,40 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
+        var lang = Languages.fromExtension(
+                Files.getFileExtension(method.source().absPath().toString()));
+        var delegate = delegates.get(lang);
+        if (delegate != null) {
+            return delegate.as(SourceCodeProvider.class)
+                    .map(scp -> scp.getMethodSources(method, includeComments))
+                    .orElse(Collections.emptySet());
+        }
+        return Collections.emptySet();
+    }
+
+    @Override
     public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
-                        .map(scp -> scp.getMethodSources(fqName, includeComments))
-                        .filter(sources -> !sources.isEmpty()))
+        return getDefinition(fqName)
+                .filter(CodeUnit::isFunction)
+                .map(cu -> getMethodSources(cu, includeComments))
                 .orElse(Collections.emptySet());
     }
 
     @Override
-    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
-        for (var delegate : delegates.values()) {
-            final var maybeSource =
-                    delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
-            if (maybeSource.isPresent()) {
-                return maybeSource;
-            }
+    public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
+        var lang = Languages.fromExtension(
+                Files.getFileExtension(classUnit.source().absPath().toString()));
+        var delegate = delegates.get(lang);
+        if (delegate != null) {
+            return delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(classUnit, includeComments));
         }
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
+        return getDefinition(fqcn).filter(CodeUnit::isClass).flatMap(cu -> getClassSource(cu, includeComments));
     }
 
     @Override
