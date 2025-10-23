@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.gui.theme.ThemeAware;
+import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tasks.TaskList;
 import java.awt.BorderLayout;
@@ -56,6 +57,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
+import javax.swing.Icon;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -67,6 +69,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JViewport;
@@ -78,6 +81,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
+import javax.swing.event.ListDataEvent;
+import javax.swing.event.ListDataListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -98,6 +103,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton goStopButton;
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
+
+    // Badge support for the Tasks tab: shows number of incomplete tasks.
+    private @Nullable BadgedIcon tasksTabBadgedIcon = null;
+    private final Icon tasksBaseIcon = Icons.LIST;
+    private @Nullable GuiTheme currentTheme = null;
     // These mirror InstructionsPanel's action button dimensions to keep Play/Stop button sizing consistent across
     // panels.
     private static final int ACTION_BUTTON_WIDTH = 140;
@@ -128,6 +138,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Update button states based on selection
         list.addListSelectionListener(e -> {
             updateButtonStates();
+        });
+
+        // Keep the Tasks tab badge in sync with the model (adds/removes/changes).
+        // Use updateTasksTabBadge() which performs EDT-safe updates and richer fallback behavior.
+        model.addListDataListener(new ListDataListener() {
+            @Override
+            public void intervalAdded(ListDataEvent e) {
+                updateTasksTabBadge();
+            }
+
+            @Override
+            public void intervalRemoved(ListDataEvent e) {
+                updateTasksTabBadge();
+            }
+
+            @Override
+            public void contentsChanged(ListDataEvent e) {
+                updateTasksTabBadge();
+            }
         });
 
         // Enable drag-and-drop reordering
@@ -537,6 +566,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
             updateButtonStates();
+            // Ensure the Tasks tab badge updates to reflect newly added tasks.
+            SwingUtilities.invokeLater(this::updateTasksTabBadge);
         }
     }
 
@@ -594,6 +625,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 clearExpansionOnStructureChange();
                 updateButtonStates();
                 saveTasksForCurrentSession();
+                // Update tab badge after tasks have been persisted
+                SwingUtilities.invokeLater(this::updateTasksTabBadge);
             } else {
                 // No-op if only the running/pending tasks were selected
                 updateButtonStates();
@@ -621,6 +654,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (changed) {
                 updateButtonStates();
                 saveTasksForCurrentSession();
+                // Reflect completion toggles in the Tasks tab badge
+                SwingUtilities.invokeLater(this::updateTasksTabBadge);
             }
         }
     }
@@ -821,6 +856,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             isLoadingTasks = false;
             clearExpansionOnStructureChange();
+            // Ensure the Tasks tab badge reflects the freshly loaded model.
+            updateTasksTabBadge();
         }
     }
 
@@ -991,6 +1028,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         var it = requireNonNull(model.get(idx));
                         model.set(idx, new TaskList.TaskItem(it.text(), true));
                         saveTasksForCurrentSession();
+                        // Task was marked done as part of a successful run; update tab badge immediately.
+                        updateTasksTabBadge();
                     }
                 } finally {
                     // Clear running, advance queue
@@ -1032,6 +1071,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
+        // Remember the theme so badges can be themed consistently
+        this.currentTheme = guiTheme;
+
         // Keep default Swing theming; adjust list selection for readability if needed
         boolean dark = guiTheme.isDarkTheme();
         Color selBg = UIManager.getColor("List.selectionBackground");
@@ -1041,8 +1083,153 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setSelectionBackground(selBg);
         list.setSelectionForeground(selFg);
 
+        // Refresh the tab badge so it can pick up theme changes
+        updateTabBadge();
+
         revalidate();
         repaint();
+    }
+
+    /**
+     * Update the Tasks tab icon (possibly with a numeric badge) to reflect the number of incomplete tasks.
+     * Safe to call from any thread; work is dispatched to the EDT.
+     *
+     * Delegates to {@link #updateTasksTabBadge()} which performs the actual work and ensures EDT safety.
+     */
+    private void updateTabBadge() {
+        updateTasksTabBadge();
+    }
+
+    /**
+     * Compute the number of incomplete tasks in the model. Accesses the Swing model on the EDT to remain thread-safe.
+     */
+    private int computeIncompleteCount() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            int incomplete = 0;
+            for (int i = 0; i < model.getSize(); i++) {
+                TaskList.TaskItem it = requireNonNull(model.get(i));
+                if (!it.done()) incomplete++;
+            }
+            return incomplete;
+        } else {
+            final int[] result = new int[1];
+            try {
+                SwingUtilities.invokeAndWait(() -> result[0] = computeIncompleteCount());
+            } catch (Exception ex) {
+                logger.debug("Error computing incomplete task count on EDT", ex);
+                return 0;
+            }
+            return result[0];
+        }
+    }
+
+    /**
+     * Ensure the Tasks tab has a BadgedIcon (if possible) and update it to reflect the current incomplete count.
+     * Safe to call from any thread; UI updates are performed on the EDT.
+     *
+     * Behavior:
+     * - If the panel is not hosted in a JTabbedPane, this is a no-op.
+     * - If the incomplete count is zero, restores the base icon and clears any BadgedIcon instance.
+     * - If a themed BadgedIcon can be created, sets the badge count and applies the icon.
+     * - Otherwise falls back to updating the tab title to include the count.
+     */
+    private void updateTasksTabBadge() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                int incomplete = computeIncompleteCount();
+
+                JTabbedPane tabs = findParentTabbedPane();
+                if (tabs == null) {
+                    // Not hosted in a tabbed pane; nothing to update
+                    return;
+                }
+                int idx = tabIndexOfSelf(tabs);
+                if (idx < 0) {
+                    return;
+                }
+
+                if (incomplete <= 0) {
+                    // Restore base icon when there is no badge to show
+                    try {
+                        tabs.setIconAt(idx, tasksBaseIcon);
+                    } finally {
+                        tasksTabBadgedIcon = null;
+                    }
+                    return;
+                }
+
+                // Ensure a BadgedIcon exists; prefer chrome.getTheme(), fallback to currentTheme
+                if (tasksTabBadgedIcon == null) {
+                    GuiTheme theme = null;
+                    try {
+                        theme = chrome.getTheme();
+                    } catch (Exception ex) {
+                        theme = currentTheme;
+                    }
+
+                    if (theme == null) {
+                        // Cannot create a themed badge without a theme; fallback to title update
+                        try {
+                            String baseTitle = tabs.getTitleAt(idx);
+                            if (baseTitle == null || baseTitle.isBlank()) {
+                                baseTitle = "Tasks";
+                            }
+                            tabs.setTitleAt(idx, baseTitle + " (" + incomplete + ")");
+                        } catch (Exception ex) {
+                            logger.debug("Failed to set tab title fallback for tasks badge", ex);
+                        }
+                        return;
+                    }
+
+                    try {
+                        tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
+                        tasksTabBadgedIcon = null;
+                    }
+                }
+
+                if (tasksTabBadgedIcon != null) {
+                    tasksTabBadgedIcon.setCount(incomplete, tabs);
+                    tabs.setIconAt(idx, tasksTabBadgedIcon);
+                } else {
+                    // As a last-resort fallback, update the tab title to include the count
+                    try {
+                        String baseTitle = tabs.getTitleAt(idx);
+                        if (baseTitle == null || baseTitle.isBlank()) {
+                            baseTitle = "Tasks";
+                        }
+                        tabs.setTitleAt(idx, baseTitle + " (" + incomplete + ")");
+                    } catch (Exception ex) {
+                        logger.debug("Failed to set tab title fallback for tasks badge", ex);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("Error updating tasks tab badge", ex);
+            }
+        });
+    }
+
+    /**
+     * Walk up the component hierarchy looking for an enclosing JTabbedPane.
+     */
+    private @Nullable JTabbedPane findParentTabbedPane() {
+        Container p = getParent();
+        while (p != null) {
+            if (p instanceof JTabbedPane) return (JTabbedPane) p;
+            p = p.getParent();
+        }
+        return null;
+    }
+
+    /**
+     * Return the index of this panel within the given tabs, or -1 if not present.
+     */
+    private int tabIndexOfSelf(JTabbedPane tabs) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            if (tabs.getComponentAt(i) == this) return i;
+        }
+        return -1;
     }
 
     public void setSharedContextArea(JComponent contextArea) {
@@ -1364,6 +1551,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
+        // Combined tasks changed the model; update the Tasks tab badge.
+        SwingUtilities.invokeLater(this::updateTasksTabBadge);
     }
 
     private void splitSelectedTask() {
@@ -1446,6 +1635,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
+        // Splitting changed the set of tasks; update the Tasks tab badge.
+        SwingUtilities.invokeLater(this::updateTasksTabBadge);
         list.revalidate();
         list.repaint();
     }
@@ -1571,6 +1762,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (removedAny) {
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
+            // Clear completed modified the model; refresh the tasks tab badge.
+            SwingUtilities.invokeLater(this::updateTasksTabBadge);
         }
         updateButtonStates();
     }
@@ -1611,6 +1804,68 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Unable to re-register TaskListPanel as context listener", e);
             }
         }
+
+        // Ensure the Tasks tab has a BadgedIcon attached (if this panel is hosted in a JTabbedPane).
+        try {
+            ensureTasksTabBadgeInitialized();
+        } catch (Exception e) {
+            logger.debug("Unable to initialize tasks tab badge on addNotify", e);
+        }
+    }
+
+    /**
+     * Ensure tasksTabBadgedIcon is created and applied to the enclosing JTabbedPane tab (if present).
+     * Safe to call from any thread; UI work runs on the EDT. No-op if not hosted in a JTabbedPane or if theme
+     * information is not available.
+     */
+    private void ensureTasksTabBadgeInitialized() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                JTabbedPane tabs = findParentTabbedPane();
+                if (tabs == null) {
+                    // Not hosted in a tabbed pane (e.g., drawer); nothing to do.
+                    return;
+                }
+                int idx = tabIndexOfSelf(tabs);
+                if (idx < 0) {
+                    return;
+                }
+
+                // Create the badged icon if missing. Prefer chrome.getTheme(), fallback to currentTheme.
+                if (tasksTabBadgedIcon == null) {
+                    GuiTheme theme = null;
+                    try {
+                        theme = chrome.getTheme();
+                    } catch (Exception ex) {
+                        // ignore and fallback
+                        theme = currentTheme;
+                    }
+                    if (theme == null) {
+                        // Cannot create a themed badge without a theme; leave the base icon in place.
+                        return;
+                    }
+                    try {
+                        tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
+                    } catch (Exception ex) {
+                        // If creation fails, do not disturb the tab icon.
+                        logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
+                        tasksTabBadgedIcon = null;
+                        return;
+                    }
+                }
+
+                // Initialize the badge count from the current model.
+                int incomplete = 0;
+                for (int i = 0; i < model.getSize(); i++) {
+                    TaskList.TaskItem it = requireNonNull(model.get(i));
+                    if (!it.done()) incomplete++;
+                }
+                tasksTabBadgedIcon.setCount(incomplete, tabs);
+                tabs.setIconAt(idx, tasksTabBadgedIcon);
+            } catch (Exception ex) {
+                logger.debug("Error initializing tasks tab badge", ex);
+            }
+        });
     }
 
     @Override
@@ -1630,6 +1885,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
+
+        // Clear the tab badge/icon if present so we don't leave stale badge state when this panel is removed.
+        try {
+            JTabbedPane tabs = findParentTabbedPane();
+            if (tabs != null) {
+                int idx = tabIndexOfSelf(tabs);
+                if (idx >= 0) {
+                    try {
+                        tabs.setIconAt(idx, tasksBaseIcon);
+                    } catch (Exception ignore) {
+                        // ignore any issue restoring icon
+                    }
+                }
+            }
+        } catch (Exception ignore) {
+        }
+
         runningFadeTimer.stop();
         super.removeNotify();
     }
