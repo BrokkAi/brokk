@@ -116,6 +116,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton memoryManualRadio = new JRadioButton("Manual:");
     private JSpinner memorySpinner = new JSpinner();
 
+    private JCheckBox instructionsTabInsertIndentationCheckbox =
+            new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
+
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
@@ -623,6 +626,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         panel.add(restartLabel, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5);
+
+        // Instructions panel behavior
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Instructions Input:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(instructionsTabInsertIndentationCheckbox, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -1310,6 +1328,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Persist per-project main window position (default true)
         persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
 
+        // Instructions panel behavior
+        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
+
         // Quick Models Tab
         var loadedFavorites = MainProject.loadFavoriteModels();
         quickModelsTableModel.setFavorites(loadedFavorites);
@@ -1511,6 +1532,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         // Save preference for per-project main window bounds persistence
         GlobalUiSettings.savePersistPerProjectBounds(persistPerProjectWindowCheckbox.isSelected());
+
+        // Instructions panel behavior
+        GlobalUiSettings.saveInstructionsTabInsertIndentation(instructionsTabInsertIndentationCheckbox.isSelected());
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {

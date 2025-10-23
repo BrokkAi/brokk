@@ -50,6 +50,7 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_INFO_NOTIFICATIONS = "notifications.info.enabled";
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
+    private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -339,6 +340,15 @@ public final class GlobalUiSettings {
 
     public static void saveShowFreeInternalLLMCostNotifications(boolean show) {
         setBoolean(KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS, show);
+    }
+
+    // Instructions panel preferences
+    public static boolean isInstructionsTabInsertIndentation() {
+        return getBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, false);
+    }
+
+    public static void saveInstructionsTabInsertIndentation(boolean enabled) {
+        setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
     }
 
     private static int getInt(String key) {
