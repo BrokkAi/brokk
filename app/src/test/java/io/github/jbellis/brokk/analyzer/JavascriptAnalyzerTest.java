@@ -103,7 +103,7 @@ public final class JavascriptAnalyzerTest {
                 skelJsx.get(plainJsxFunc).trim(),
                 "PlainJsxFunc skeleton mismatch");
 
-        Set<CodeUnit> declarationsInJsx = jsAnalyzer.getDeclarationsInFile(helloJsxFile);
+        Set<CodeUnit> declarationsInJsx = jsAnalyzer.getDeclarations(helloJsxFile);
         assertTrue(
                 declarationsInJsx.contains(jsxClass),
                 "getDeclarationsInFile mismatch for Hello.jsx: missing jsxClass. Found: " + declarationsInJsx);
@@ -317,7 +317,7 @@ public final class JavascriptAnalyzerTest {
         assertEquals("let localVarJs = \"abc\"", skelVars.get(localVarJsCU).strip());
 
         // Ensure these are not mistaken for classes
-        Set<CodeUnit> declarationsInVarsJs = jsAnalyzer.getDeclarationsInFile(varsJsFile);
+        Set<CodeUnit> declarationsInVarsJs = jsAnalyzer.getDeclarations(varsJsFile);
         assertTrue(
                 declarationsInVarsJs.contains(topConstJsCU),
                 "Vars.js.TOP_CONST_JS should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);

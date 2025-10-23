@@ -18,6 +18,7 @@ import java.util.function.Predicate;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeWillExpandListener;
+import javax.swing.filechooser.FileSystemView;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -431,7 +432,7 @@ public class FileSelectionTree extends JTree {
         @Override
         public String toString() {
             // Special display for root drives
-            javax.swing.filechooser.FileSystemView fsv = javax.swing.filechooser.FileSystemView.getFileSystemView();
+            FileSystemView fsv = FileSystemView.getFileSystemView();
             String name = fsv.getSystemDisplayName(file);
             return name != null && !name.isEmpty() ? name : file.getAbsolutePath(); // Fallback to absolute path
         }
@@ -465,15 +466,13 @@ public class FileSelectionTree extends JTree {
                 if (userObject instanceof FileTreeNode fileNode) {
                     // External file system node
                     File file = fileNode.getFile();
-                    javax.swing.filechooser.FileSystemView fsv =
-                            javax.swing.filechooser.FileSystemView.getFileSystemView();
+                    FileSystemView fsv = FileSystemView.getFileSystemView();
                     icon = fsv.getSystemIcon(file); // Preferred way to get OS-specific icons
                     toolTip = file.getAbsolutePath();
                     // Text is already set by super call using fileNode.toString()
                 } else if (userObject instanceof String name) {
                     // Project file/folder node (repo mode or root "File System" node)
-                    javax.swing.filechooser.FileSystemView fsv =
-                            javax.swing.filechooser.FileSystemView.getFileSystemView();
+                    FileSystemView fsv = FileSystemView.getFileSystemView();
                     if (node.isRoot() && name.equals("File System")) {
                         // Maybe a computer icon? Default folder is okay.
                         icon = fsv.getSystemIcon(new File(".")); // Generic folder/file icon

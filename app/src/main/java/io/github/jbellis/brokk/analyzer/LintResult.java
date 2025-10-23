@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Result of linting files, containing any diagnostic messages found. */
 public record LintResult(List<LintDiagnostic> diagnostics) {
@@ -20,7 +21,7 @@ public record LintResult(List<LintDiagnostic> diagnostics) {
 
     /** Returns diagnostics for specific files. */
     public List<LintDiagnostic> getDiagnosticsForFiles(Set<ProjectFile> files) {
-        var filePaths = files.stream().map(ProjectFile::toString).collect(java.util.stream.Collectors.toSet());
+        var filePaths = files.stream().map(ProjectFile::toString).collect(Collectors.toSet());
         return diagnostics.stream().filter(d -> filePaths.contains(d.file())).toList();
     }
 

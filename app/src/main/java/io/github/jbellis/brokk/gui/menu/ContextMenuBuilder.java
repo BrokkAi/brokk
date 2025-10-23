@@ -4,8 +4,11 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.Languages;
+import io.github.jbellis.brokk.analyzer.MultiAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import io.github.jbellis.brokk.util.FileManagerUtil;
@@ -15,6 +18,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -221,7 +225,7 @@ public class ContextMenuBuilder {
 
         var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
         openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
-        java.nio.file.Path target;
+        Path target;
         if (files.size() == 1) {
             target = files.getFirst().absPath();
         } else {
@@ -499,21 +503,20 @@ public class ContextMenuBuilder {
                 if (analyzer != null) {
                     try {
                         // Try direct TreeSitterAnalyzer cast first
-                        var tsAnalyzer = analyzer.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class);
+                        var tsAnalyzer = analyzer.as(TreeSitterAnalyzer.class);
 
                         // If direct cast fails, try to get the delegate from MultiAnalyzer
-                        if (tsAnalyzer.isEmpty()
-                                && analyzer instanceof io.github.jbellis.brokk.analyzer.MultiAnalyzer multiAnalyzer) {
+                        if (tsAnalyzer.isEmpty() && analyzer instanceof MultiAnalyzer multiAnalyzer) {
                             var delegates = multiAnalyzer.getDelegates();
 
                             // Get the appropriate delegate based on file extension
                             var fileExtension = com.google.common.io.Files.getFileExtension(
                                     symbol.source().absPath().toString());
-                            var language = io.github.jbellis.brokk.analyzer.Languages.fromExtension(fileExtension);
+                            var language = Languages.fromExtension(fileExtension);
 
                             var delegate = delegates.get(language);
                             if (delegate != null) {
-                                tsAnalyzer = delegate.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class);
+                                tsAnalyzer = delegate.as(TreeSitterAnalyzer.class);
                             }
                         }
 
@@ -614,7 +617,7 @@ public class ContextMenuBuilder {
             return;
         }
 
-        java.nio.file.Path target;
+        Path target;
         if (files.size() == 1) {
             target = files.getFirst().absPath();
         } else {

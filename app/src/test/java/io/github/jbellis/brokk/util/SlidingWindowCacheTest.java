@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -582,8 +585,8 @@ class SlidingWindowCacheTest {
         }
     }
 
-    private java.util.Set<Integer> calculateExpectedWindow(int center, int total, int windowSize) {
-        var indices = new java.util.HashSet<Integer>();
+    private Set<Integer> calculateExpectedWindow(int center, int total, int windowSize) {
+        var indices = new HashSet<Integer>();
         int halfWindow = windowSize / 2;
         int start = Math.max(0, center - halfWindow);
         int end = Math.min(total - 1, center + halfWindow);
@@ -695,7 +698,7 @@ class SlidingWindowCacheTest {
         cache.updateWindowCenter(1, 10);
 
         // Add edited files inside the window
-        java.util.List<TestDisposable> editedFiles = new java.util.ArrayList<>();
+        List<TestDisposable> editedFiles = new ArrayList<>();
         for (int i = 0; i < editedFilesCount; i++) {
             var edited = new TestDisposable("edited" + i);
             edited.setHasUnsavedChanges(true);

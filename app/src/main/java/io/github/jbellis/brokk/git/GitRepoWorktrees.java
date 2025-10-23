@@ -7,13 +7,9 @@ import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.git.IGitRepo.WorktreeInfo;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +18,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Repository;
 
 /**
  * Helper class extracted from GitRepo to encapsulate worktree operations.
@@ -32,13 +29,11 @@ public class GitRepoWorktrees {
     private static final Logger logger = LogManager.getLogger(GitRepoWorktrees.class);
 
     private final GitRepo repo;
-    private final org.eclipse.jgit.lib.Repository repository;
-    private final java.nio.file.Path projectRoot;
+    private final Repository repository;
 
     public GitRepoWorktrees(GitRepo repo) {
         this.repo = repo;
         this.repository = repo.getRepository();
-        this.projectRoot = repo.getProjectRoot();
     }
 
     /** Lists worktrees and invalid paths (those that don't exist on disk). */
@@ -131,29 +126,11 @@ public class GitRepoWorktrees {
                 command = String.format("git worktree add -b %s %s", branch, absolutePath);
             }
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
-
-            // Recursively copy .brokk/dependencies from the project root into the new worktree
-            var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
-            if (!Files.exists(sourceDependenciesDir)) {
-                return;
-            }
-
-            // Ensure .brokk exists in the new worktree
-            var targetDependenciesDir = absolutePath.resolve(".brokk").resolve("dependencies");
-            Files.createDirectories(targetDependenciesDir.getParent());
-
-            // copy
-            Files.walkFileTree(
-                    sourceDependenciesDir, new CopyingFileVisitor(sourceDependenciesDir, targetDependenciesDir));
         } catch (Environment.SubprocessException e) {
             throw new GitRepo.GitRepoException(
                     "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
-        } catch (IOException e) {
-            throw new GitRepo.GitRepoException("Failed to copy dependencies", e);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepo.GitRepoException(
-                    "Adding worktree at " + path + " for branch " + branch + " was interrupted", e);
+            throw new RuntimeException(e);
         }
     }
 
@@ -293,33 +270,6 @@ public class GitRepoWorktrees {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while checking for git executable, disabling worktree support", e);
             return false;
-        }
-    }
-
-    // -------------------- Internal helpers --------------------
-    private static class CopyingFileVisitor extends SimpleFileVisitor<Path> {
-        private final Path sourceRoot;
-        private final Path targetRoot;
-
-        CopyingFileVisitor(Path sourceRoot, Path targetRoot) {
-            this.sourceRoot = sourceRoot;
-            this.targetRoot = targetRoot;
-        }
-
-        @Override
-        public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-            var relative = sourceRoot.relativize(dir);
-            var targetDir = targetRoot.resolve(relative);
-            Files.createDirectories(targetDir);
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-            var relative = sourceRoot.relativize(file);
-            var targetFile = targetRoot.resolve(relative);
-            Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-            return FileVisitResult.CONTINUE;
         }
     }
 }

@@ -277,8 +277,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        var baseDeclarations = super.getDeclarationsInFile(file);
+    public Set<CodeUnit> getDeclarations(ProjectFile file) {
+        var baseDeclarations = super.getDeclarations(file);
         var mergedSkeletons = getSkeletons(file);
         var result = new HashSet<CodeUnit>();
         var namespaceCodeUnits = new HashSet<CodeUnit>();

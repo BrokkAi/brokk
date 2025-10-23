@@ -16,11 +16,13 @@ import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.FilePathLookupService;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import io.github.jbellis.brokk.util.Messages;
+import java.awt.Component;
 import java.awt.KeyboardFocusManager;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,7 +55,7 @@ public final class MOPBridge {
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
-    private volatile @Nullable java.awt.Component hostComponent;
+    private volatile @Nullable Component hostComponent;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -353,7 +355,7 @@ public final class MOPBridge {
         this.chrome = chrome;
     }
 
-    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+    public void setHostComponent(@Nullable Component hostComponent) {
         this.hostComponent = hostComponent;
     }
 
@@ -677,7 +679,7 @@ public final class MOPBridge {
                 logger.trace("Analyzer languages unavailable from project", t);
             }
 
-            var payload = new java.util.LinkedHashMap<String, Object>();
+            var payload = new LinkedHashMap<String, Object>();
             payload.put("version", version);
             payload.put("projectName", projectName);
             payload.put("nativeFileCount", nativeFileCount);

@@ -5,6 +5,7 @@ import static io.github.jbellis.brokk.analyzer.python.PythonTreeSitterNodeTypes.
 import io.github.jbellis.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
@@ -31,7 +32,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             "parameters", // parametersFieldName
             "return_type", // returnTypeFieldName
             "", // typeParametersFieldName (Python doesn't have explicit type parameters)
-            java.util.Map.of( // captureConfiguration
+            Map.of( // captureConfiguration
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "function.definition", SkeletonType.FUNCTION_LIKE,
                     "field.definition", SkeletonType.FIELD_LIKE),

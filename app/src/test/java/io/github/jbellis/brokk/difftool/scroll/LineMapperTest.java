@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.Patch;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -280,7 +281,7 @@ class LineMapperTest {
     // =================================================================
 
     private List<String> createNumberedLines(int count) {
-        return IntStream.range(0, count).mapToObj(i -> "line_" + i).collect(java.util.stream.Collectors.toList());
+        return IntStream.range(0, count).mapToObj(i -> "line_" + i).collect(Collectors.toList());
     }
 
     private Patch<String> createInsertPatch(int position, String... linesToInsert) {

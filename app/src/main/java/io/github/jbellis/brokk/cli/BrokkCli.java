@@ -478,7 +478,7 @@ public final class BrokkCli implements Callable<Integer> {
                     .findFirst()
                     .orElseThrow();
             var agent = new ContextAgent(cm, planModel, goalForScan);
-            var recommendations = agent.getRecommendations(false);
+            var recommendations = agent.getRecommendations();
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
 
@@ -492,7 +492,7 @@ public final class BrokkCli implements Callable<Integer> {
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
+                            cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
                         default -> cm.addSummaries(fragment.files(), Set.of());

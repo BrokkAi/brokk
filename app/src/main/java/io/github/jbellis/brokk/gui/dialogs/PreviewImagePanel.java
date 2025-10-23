@@ -4,6 +4,9 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -93,19 +96,59 @@ public class PreviewImagePanel extends JPanel {
         frame.setBounds(storedBounds);
 
         // Add listener to save bounds
-        frame.addComponentListener(new java.awt.event.ComponentAdapter() {
+        frame.addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
+            public void componentMoved(ComponentEvent e) {
                 project.savePreviewWindowBounds(frame); // Save JFrame bounds
             }
 
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 project.savePreviewWindowBounds(frame); // Save JFrame bounds
             }
         });
 
         frame.setVisible(true);
+    }
+
+    /**
+     * Gets the BrokkFile associated with this preview panel.
+     *
+     * @return The BrokkFile, or null if this preview is not associated with a file
+     */
+    @Nullable
+    public BrokkFile getFile() {
+        return file;
+    }
+
+    /** Refreshes the image from disk if the file has changed. */
+    public void refreshFromDisk() {
+        if (file == null) {
+            return;
+        }
+
+        try {
+            // Check if file still exists
+            if (!java.nio.file.Files.exists(file.absPath())) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(
+                            this, "Image file has been deleted: " + file, "File Deleted", JOptionPane.WARNING_MESSAGE);
+                });
+                return;
+            }
+
+            // Reload the image
+            var newImage = ImageIO.read(file.absPath().toFile());
+            if (newImage == null) {
+                return; // Could not read image, keep current one
+            }
+
+            // Update the displayed image
+            setImage(newImage);
+
+        } catch (IOException e) {
+            // Silently fail - keep existing image displayed
+        }
     }
 
     /** Registers ESC key to close the preview panel */
@@ -117,7 +160,7 @@ public class PreviewImagePanel extends JPanel {
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
         getActionMap().put("closePreview", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 Window window = SwingUtilities.getWindowAncestor(PreviewImagePanel.this);
                 if (window != null) {
                     window.dispose();

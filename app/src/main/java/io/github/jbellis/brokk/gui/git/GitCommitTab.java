@@ -21,11 +21,17 @@ import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -84,9 +90,9 @@ public class GitCommitTab extends JPanel {
         uncommittedFilesTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
         // Double-click => show diff
-        uncommittedFilesTable.addMouseListener(new java.awt.event.MouseAdapter() {
+        uncommittedFilesTable.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     int row = uncommittedFilesTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
@@ -122,9 +128,9 @@ public class GitCommitTab extends JPanel {
         uncommittedContextMenu.add(rollbackChangesItem);
 
         // Select row under right-click
-        uncommittedContextMenu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+        uncommittedContextMenu.addPopupMenuListener(new PopupMenuListener() {
             @Override
-            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     var point = MouseInfo.getPointerInfo().getLocation();
                     SwingUtilities.convertPointFromScreen(point, uncommittedFilesTable);
@@ -146,10 +152,10 @@ public class GitCommitTab extends JPanel {
             }
 
             @Override
-            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
 
             @Override
-            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+            public void popupMenuCanceled(PopupMenuEvent e) {
                 // Reset rightClickedFile if menu is cancelled
                 rightClickedFile = null;
             }
@@ -595,8 +601,8 @@ public class GitCommitTab extends JPanel {
                             .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
                             .collect(Collectors.toList());
 
-                    var leftSources = new java.util.ArrayList<BufferSource>();
-                    var rightSources = new java.util.ArrayList<BufferSource>();
+                    var leftSources = new ArrayList<BufferSource>();
+                    var rightSources = new ArrayList<BufferSource>();
 
                     for (var file : normalizedFiles) {
                         var rightSource =
@@ -676,12 +682,12 @@ public class GitCommitTab extends JPanel {
                             var ppf = (ContextFragment.ProjectPathFragment) f;
                             try {
                                 return new ContextHistory.DeletedFile(ppf.file(), ppf.text(), true);
-                            } catch (java.io.UncheckedIOException e) {
+                            } catch (UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
                             }
                         })
-                        .filter(java.util.Objects::nonNull)
+                        .filter(Objects::nonNull)
                         .toList();
 
                 // 5. Drop the fragments for "new" files from the workspace *before* creating the history entry.

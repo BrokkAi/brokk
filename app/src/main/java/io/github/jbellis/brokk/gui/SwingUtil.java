@@ -127,7 +127,7 @@ public class SwingUtil {
     }
 
     /** Replacement for the deprecated {@code JTextComponent.modelToView(int)}. */
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     public static Rectangle modelToView(JTextComponent comp, int pos) throws BadLocationException {
         var r2d = comp.modelToView2D(pos);
         return r2d == null
@@ -138,10 +138,10 @@ public class SwingUtil {
     private static Icon createSimpleFallbackIcon() {
         return new Icon() {
             @Override
-            public void paintIcon(Component c, java.awt.Graphics g, int x, int y) {
-                g.setColor(java.awt.Color.GRAY);
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                g.setColor(Color.GRAY);
                 g.fillRect(x, y, 16, 16);
-                g.setColor(java.awt.Color.DARK_GRAY);
+                g.setColor(Color.DARK_GRAY);
                 g.drawRect(x, y, 15, 15);
             }
 
@@ -161,13 +161,13 @@ public class SwingUtil {
      * Icon wrapper that always fetches the current value from UIManager. By delegating on every call we ensure the
      * image really changes after a theme switch without recreating every component that uses it.
      */
-    public static void applyPrimaryButtonStyle(javax.swing.AbstractButton b) {
-        java.awt.Color bg = UIManager.getColor("Button.default.background");
+    public static void applyPrimaryButtonStyle(AbstractButton b) {
+        Color bg = UIManager.getColor("Button.default.background");
         if (bg == null) {
             bg = UIManager.getColor("Component.linkColor");
         }
 
-        java.awt.Color fg = UIManager.getColor("Button.default.foreground");
+        Color fg = UIManager.getColor("Button.default.foreground");
         if (fg == null) {
             fg = Color.BLACK;
         }

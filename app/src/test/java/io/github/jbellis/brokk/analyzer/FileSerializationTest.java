@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -181,7 +182,7 @@ public class FileSerializationTest {
 
         // Parse back as generic object to check structure
         @SuppressWarnings("unchecked")
-        var jsonMap = (java.util.Map<String, Object>) Json.getMapper().readValue(json, java.util.Map.class);
+        var jsonMap = (Map<String, Object>) Json.getMapper().readValue(json, Map.class);
 
         assertTrue(jsonMap.containsKey("root"));
         assertTrue(jsonMap.containsKey("relPath"));
@@ -195,8 +196,7 @@ public class FileSerializationTest {
 
         String externalJson = Json.toJson(externalFile);
         @SuppressWarnings("unchecked")
-        var externalJsonMap =
-                (java.util.Map<String, Object>) Json.getMapper().readValue(externalJson, java.util.Map.class);
+        var externalJsonMap = (Map<String, Object>) Json.getMapper().readValue(externalJson, Map.class);
 
         assertTrue(externalJsonMap.containsKey("path"));
         assertEquals(externalPath.toString(), externalJsonMap.get("path"));
@@ -353,7 +353,7 @@ public class FileSerializationTest {
 
         // Parse back as generic object to check structure
         @SuppressWarnings("unchecked")
-        var jsonMap = (java.util.Map<String, Object>) Json.getMapper().readValue(json, java.util.Map.class);
+        var jsonMap = (Map<String, Object>) Json.getMapper().readValue(json, Map.class);
 
         assertTrue(jsonMap.containsKey("source"));
         assertTrue(jsonMap.containsKey("kind"));
@@ -366,7 +366,7 @@ public class FileSerializationTest {
 
         // Verify source is a nested object with correct structure
         @SuppressWarnings("unchecked")
-        var sourceMap = (java.util.Map<String, Object>) jsonMap.get("source");
+        var sourceMap = (Map<String, Object>) jsonMap.get("source");
         assertTrue(sourceMap.containsKey("root"));
         assertTrue(sourceMap.containsKey("relPath"));
     }

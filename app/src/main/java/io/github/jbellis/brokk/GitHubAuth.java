@@ -4,6 +4,8 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
@@ -54,15 +56,14 @@ public class GitHubAuth {
      * @throws IllegalArgumentException If the project is null.
      */
     public static synchronized GitHubAuth getOrCreateInstance(IProject project) throws IOException {
-        io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
+        IssueProvider provider = project.getIssuesProvider();
         String effectiveOwner = null;
         String effectiveRepoName = null;
         String effectiveHost = null; // For GHES
         boolean usingOverride = false;
 
-        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.GITHUB
-                && provider.config()
-                        instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.GithubConfig githubConfig) {
+        if (provider.type() == IssueProviderType.GITHUB
+                && provider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
             // Check if any part of the GithubConfig is non-default.
             // isDefault() now checks owner, repo, and host.
             if (!githubConfig.isDefault()) {

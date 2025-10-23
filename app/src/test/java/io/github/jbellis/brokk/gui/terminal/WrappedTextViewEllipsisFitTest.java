@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import java.awt.Font;
+import java.awt.image.BufferedImage;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -7,10 +9,10 @@ public class WrappedTextViewEllipsisFitTest {
 
     @Test
     public void testEllipsisFit() {
-        var image = new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        var image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         var g = image.getGraphics();
         try {
-            var font = new java.awt.Font("SansSerif", java.awt.Font.PLAIN, 12);
+            var font = new Font("SansSerif", Font.PLAIN, 12);
             g.setFont(font);
             var fm = g.getFontMetrics();
 

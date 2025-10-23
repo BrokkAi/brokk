@@ -352,7 +352,7 @@ public class TreeSitterRepoRunner {
             var declarations = files.stream()
                     .map(file -> {
                         // This triggers actual TreeSitter parsing for each file
-                        var fileDeclarations = analyzer.getDeclarationsInFile(file);
+                        var fileDeclarations = analyzer.getDeclarations(file);
 
                         // Show detailed symbol information if requested
                         if (showDetails) {
@@ -1079,9 +1079,7 @@ public class TreeSitterRepoRunner {
                     reason);
 
             Files.writeString(
-                    file,
-                    header + resultLine,
-                    fileExists ? java.nio.file.StandardOpenOption.APPEND : java.nio.file.StandardOpenOption.CREATE);
+                    file, header + resultLine, fileExists ? StandardOpenOption.APPEND : StandardOpenOption.CREATE);
         }
 
         void saveToFile(Path file) throws IOException {

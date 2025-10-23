@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,6 +51,35 @@ public class SessionManager implements AutoCloseable {
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
+    private static class SessionExecutorThreadFactory implements ThreadFactory {
+        private static final ThreadLocal<Boolean> isSessionExecutorThread = ThreadLocal.withInitial(() -> false);
+        private final ThreadFactory delegate;
+
+        SessionExecutorThreadFactory() {
+            this.delegate = Executors.defaultThreadFactory();
+        }
+
+        @Override
+        public Thread newThread(Runnable r) {
+            Runnable wrappedRunnable = () -> {
+                isSessionExecutorThread.set(true);
+                try {
+                    r.run();
+                } finally {
+                    isSessionExecutorThread.remove();
+                }
+            };
+            var t = delegate.newThread(wrappedRunnable);
+            t.setDaemon(true);
+            t.setName("session-io-" + t.threadId());
+            return t;
+        }
+
+        static boolean isOnSessionExecutorThread() {
+            return isSessionExecutorThread.get();
+        }
+    }
+
     private final ExecutorService sessionExecutor;
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
@@ -56,14 +87,7 @@ public class SessionManager implements AutoCloseable {
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
-        this.sessionExecutor = Executors.newFixedThreadPool(3, r -> {
-            var t = Executors.defaultThreadFactory().newThread(r);
-            // Use daemon threads to prevent blocking JVM shutdown (Issue #1474)
-            // Session I/O operations are background tasks that should not prevent application exit
-            t.setDaemon(true);
-            t.setName("session-io-" + t.threadId());
-            return t;
-        });
+        this.sessionExecutor = Executors.newFixedThreadPool(3, new SessionExecutorThreadFactory());
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
     }
@@ -162,25 +186,43 @@ public class SessionManager implements AutoCloseable {
     /**
      * Moves a session zip into the 'unreadable' subfolder under the sessions directory. Removes the session from the
      * in-memory cache and performs the file move asynchronously.
+     *
+     * Note: If called from within a SessionManager executor thread, executes directly to avoid deadlock.
+     * Otherwise, submits to the executor and waits for completion.
      */
     public void moveSessionToUnreadable(UUID sessionId) {
         sessionsCache.remove(sessionId);
-        var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            Path historyZipPath = getSessionHistoryPath(sessionId);
-            Path unreadableDir = sessionsDir.resolve("unreadable");
+
+        // Check for re-entrancy: if we're already on a SessionManager executor thread, execute directly
+        if (SessionExecutorThreadFactory.isOnSessionExecutorThread()) {
+            moveSessionToUnreadableSync(sessionId);
+        } else {
+            var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                moveSessionToUnreadableSync(sessionId);
+                return null;
+            });
             try {
-                Files.createDirectories(unreadableDir);
-                Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
-                Files.move(historyZipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                logger.info("Moved session zip {} to {}", historyZipPath.getFileName(), unreadableDir);
-            } catch (IOException e) {
-                logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
+                future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
-        });
+        }
+    }
+
+    /**
+     * Synchronously moves a session zip to the unreadable folder. Must only be called from the executor thread
+     * for this session or from a context where it's safe to block on I/O.
+     */
+    private void moveSessionToUnreadableSync(UUID sessionId) {
+        Path historyZipPath = getSessionHistoryPath(sessionId);
+        Path unreadableDir = sessionsDir.resolve("unreadable");
         try {
-            future.get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+            Files.createDirectories(unreadableDir);
+            Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
+            Files.move(historyZipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            logger.info("Moved session zip {} to {}", historyZipPath.getFileName(), unreadableDir);
+        } catch (IOException e) {
+            logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
         }
     }
 
@@ -602,7 +644,7 @@ public class SessionManager implements AutoCloseable {
         if (!Files.exists(wsPropsPath)) {
             return Optional.empty();
         }
-        var props = new java.util.Properties();
+        var props = new Properties();
         try (var reader = Files.newBufferedReader(wsPropsPath)) {
             props.load(reader);
         } catch (IOException e) {
@@ -615,7 +657,7 @@ public class SessionManager implements AutoCloseable {
         }
         UUID sessionId;
         try {
-            sessionId = java.util.UUID.fromString(sessionIdStr.trim());
+            sessionId = UUID.fromString(sessionIdStr.trim());
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid session UUID '{}' in workspace properties at {}", sessionIdStr, wsPropsPath);
             return Optional.empty();

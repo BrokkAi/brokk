@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.dialogs.CreateBranchDialog;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
@@ -26,6 +27,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -39,6 +42,9 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -55,6 +61,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.CherryPickResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.TransportException;
 import org.jetbrains.annotations.Nullable;
 
 public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListener {
@@ -96,7 +103,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private JTextField commitSearchTextField;
     // Debounce timer used for incremental search-as-you-type (default 300 ms)
     @Nullable
-    private javax.swing.Timer debounceTimer;
+    private Timer debounceTimer;
 
     // Default debounce timeout in milliseconds (can be made configurable later)
     private static final int DEFAULT_DEBOUNCE_MILLIS = 300;
@@ -121,7 +128,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     @Nullable
     private String currentBranchOrContextName; // Used by push/pull actions
     // Timer to refresh relative commit date strings once a minute
-    private javax.swing.Timer relativeTimeRefreshTimer;
+    private Timer relativeTimeRefreshTimer;
 
     @SuppressWarnings("NullAway.Init") // Initialization is handled by buildCommitBrowserUI and its helpers
     public GitCommitBrowserPanel(
@@ -135,7 +142,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         buildCommitBrowserUI();
 
         // Start a repaint timer so the relative date strings stay up-to-date
-        relativeTimeRefreshTimer = new javax.swing.Timer(60_000, e -> commitsTable.repaint());
+        relativeTimeRefreshTimer = new Timer(60_000, e -> commitsTable.repaint());
         relativeTimeRefreshTimer.setRepeats(true);
         relativeTimeRefreshTimer.start();
         MainProject.addSettingsChangeListener(this);
@@ -202,8 +209,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             });
 
             // Initialize debounce timer: when it fires, run the centralized performSearch on the EDT.
-            debounceTimer = new javax.swing.Timer(DEFAULT_DEBOUNCE_MILLIS, ev -> {
-                ((javax.swing.Timer) ev.getSource()).stop(); // stop after firing
+            debounceTimer = new Timer(DEFAULT_DEBOUNCE_MILLIS, ev -> {
+                ((Timer) ev.getSource()).stop(); // stop after firing
                 SwingUtilities.invokeLater(
                         () -> performSearch(commitSearchTextField.getText().trim()));
             });
@@ -323,7 +330,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     @Override
                     public Class<?> getColumnClass(int columnIndex) {
                         return switch (columnIndex) {
-                            case 2 -> java.time.Instant.class;
+                            case 2 -> Instant.class;
                             case 4 -> Boolean.class;
                             case 5 -> ICommitInfo.class;
                             default -> String.class;
@@ -384,8 +391,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                             unpushed ? ThemeColors.getDiffChanged(isDark).darker() : table.getSelectionBackground());
                     c.setForeground(table.getSelectionForeground());
                 }
-                if (column == 2 && value instanceof java.time.Instant instant) {
-                    var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
+                if (column == 2 && value instanceof Instant instant) {
+                    var today = LocalDate.now(ZoneId.systemDefault());
                     setText(GitUiUtil.formatRelativeDate(instant, today));
                 } else {
                     setValue(value);
@@ -819,7 +826,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             if (selectedRows.length == 1) {
                 ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
                 // Show dialog to create branch
-                io.github.jbellis.brokk.gui.dialogs.CreateBranchDialog.showDialog(
+                CreateBranchDialog.showDialog(
                         (Frame) SwingUtilities.getWindowAncestor(this),
                         contextManager,
                         chrome,
@@ -830,8 +837,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handleStashAction(
-            java.util.function.Function<ICommitInfo, Optional<Integer>> stashIndexExtractor,
-            java.util.function.IntConsumer stashOperation) {
+            Function<ICommitInfo, Optional<Integer>> stashIndexExtractor, IntConsumer stashOperation) {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
         if (row != -1) {
             var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
@@ -1001,7 +1007,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         });
     }
 
-    private void handleSingleFileSingleCommitAction(java.util.function.BiConsumer<String, String> action) {
+    private void handleSingleFileSingleCommitAction(BiConsumer<String, String> action) {
         var paths = changesTree.getSelectionPaths();
         int[] selRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
         if (paths != null
@@ -1239,8 +1245,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     /* package-private so tests in the same package can call it */ void performSearch(String query) {
         // Ensure UI-related actions run on the Event Dispatch Thread.
         // If called off-EDT, re-dispatch and return immediately.
-        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
-            javax.swing.SwingUtilities.invokeLater(() -> performSearch(query));
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> performSearch(query));
             return;
         }
 
@@ -1524,7 +1530,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                             "Push Rejected");
                     pushButton.setEnabled(true);
                 });
-            } catch (org.eclipse.jgit.api.errors.TransportException ex) {
+            } catch (TransportException ex) {
                 logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
                 SwingUtil.runOnEdt(() -> {
                     String errorMessage;
@@ -1742,7 +1748,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         String dateStr = "";
         if (commit.date() != null) {
-            dateStr = DateTimeFormatter.ofPattern("EEE MMM d HH:mm:ss yyyy Z", java.util.Locale.US)
+            dateStr = DateTimeFormatter.ofPattern("EEE MMM d HH:mm:ss yyyy Z", Locale.US)
                     .format(ZonedDateTime.ofInstant(commit.date(), ZoneId.systemDefault()));
         }
 

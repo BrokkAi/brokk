@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.difftool.ui.unified;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,7 +79,7 @@ class UnifiedDiffGeneratorOmittedLinesTest {
      * changes to create gaps in 3-line context mode.
      */
     private List<String> createLinesWithGaps() {
-        var lines = new java.util.ArrayList<String>();
+        var lines = new ArrayList<String>();
 
         // First change area (lines 1-10)
         for (int i = 1; i <= 10; i++) {
@@ -108,7 +109,7 @@ class UnifiedDiffGeneratorOmittedLinesTest {
 
     /** Create modified content that will generate a diff with gaps. */
     private List<String> createModifiedLinesWithGaps() {
-        var lines = new java.util.ArrayList<String>();
+        var lines = new ArrayList<String>();
 
         // First change area (lines 1-10)
         for (int i = 1; i <= 10; i++) {

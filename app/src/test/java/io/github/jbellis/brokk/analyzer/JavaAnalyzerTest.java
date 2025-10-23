@@ -300,7 +300,7 @@ public class JavaAnalyzerTest {
         final var maybeFile = analyzer.getFileFor("D");
         assertTrue(maybeFile.isPresent());
         final var file = maybeFile.get();
-        final var classes = analyzer.getDeclarationsInFile(file);
+        final var classes = analyzer.getDeclarations(file);
 
         final var expected = Set.of(
                 // Classes
@@ -319,7 +319,7 @@ public class JavaAnalyzerTest {
     @Test
     public void declarationsInPackagedFileTest() {
         final var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
-        final var declarations = analyzer.getDeclarationsInFile(file);
+        final var declarations = analyzer.getDeclarations(file);
         final var expected = Set.of(
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
@@ -679,7 +679,7 @@ public class JavaAnalyzerTest {
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
-        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+        var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
         assertEquals(1, topLevelUnits.size(), "Should return only the top-level class D");
         var topLevelClass = topLevelUnits.get(0);
@@ -693,7 +693,7 @@ public class JavaAnalyzerTest {
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
-        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+        var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
         assertEquals(1, topLevelUnits.size(), "Should return only the top-level class A, not nested classes");
         var topLevelClass = topLevelUnits.get(0);
@@ -705,7 +705,7 @@ public class JavaAnalyzerTest {
     public void testTopLevelCodeUnitsOfPackagedFile() {
         var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
 
-        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+        var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
         assertEquals(1, topLevelUnits.size(), "Should return only the top-level class Foo");
         var topLevelClass = topLevelUnits.get(0);
@@ -719,7 +719,7 @@ public class JavaAnalyzerTest {
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
-        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+        var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
         assertEquals(1, topLevelUnits.size(), "Should return only the enum class");
         var topLevelEnum = topLevelUnits.get(0);
@@ -733,7 +733,7 @@ public class JavaAnalyzerTest {
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
-        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+        var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
         assertEquals(1, topLevelUnits.size(), "Should return only the interface");
         var topLevelInterface = topLevelUnits.get(0);
@@ -745,7 +745,7 @@ public class JavaAnalyzerTest {
     public void testTopLevelCodeUnitsOfNonExistentFile() {
         var nonExistentFile = new ProjectFile(testProject.getRoot(), "NonExistent.java");
 
-        var topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentFile);
+        var topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
     }

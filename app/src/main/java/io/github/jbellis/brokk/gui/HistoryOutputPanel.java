@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -32,6 +33,9 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -54,6 +58,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -122,26 +127,26 @@ public class HistoryOutputPanel extends JPanel {
 
     // Resolve notification colors from ThemeColors for current theme.
     // Returns a list of [background, foreground, border] colors.
-    private java.util.List<Color> resolveNotificationColors(IConsoleIO.NotificationRole role) {
+    private List<Color> resolveNotificationColors(IConsoleIO.NotificationRole role) {
         boolean isDark = chrome.themeManager.isDarkTheme();
         return switch (role) {
             case ERROR ->
-                java.util.List.of(
+                List.of(
                         ThemeColors.getColor(isDark, "notif_error_bg"),
                         ThemeColors.getColor(isDark, "notif_error_fg"),
                         ThemeColors.getColor(isDark, "notif_error_border"));
             case CONFIRM ->
-                java.util.List.of(
+                List.of(
                         ThemeColors.getColor(isDark, "notif_confirm_bg"),
                         ThemeColors.getColor(isDark, "notif_confirm_fg"),
                         ThemeColors.getColor(isDark, "notif_confirm_border"));
             case COST ->
-                java.util.List.of(
+                List.of(
                         ThemeColors.getColor(isDark, "notif_cost_bg"),
                         ThemeColors.getColor(isDark, "notif_cost_fg"),
                         ThemeColors.getColor(isDark, "notif_cost_border"));
             case INFO ->
-                java.util.List.of(
+                List.of(
                         ThemeColors.getColor(isDark, "notif_info_bg"),
                         ThemeColors.getColor(isDark, "notif_info_fg"),
                         ThemeColors.getColor(isDark, "notif_info_border"));
@@ -152,7 +157,7 @@ public class HistoryOutputPanel extends JPanel {
 
     // Diff caching
     private final Map<UUID, List<Context.DiffEntry>> diffCache = new ConcurrentHashMap<>();
-    private final java.util.Set<UUID> diffInFlight = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> diffInFlight = ConcurrentHashMap.newKeySet();
     private Map<UUID, Context> previousContextMap = new HashMap<>();
 
     @Nullable
@@ -171,7 +176,7 @@ public class HistoryOutputPanel extends JPanel {
 
     // Session AI response counts and in-flight loaders
     private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
-    private final java.util.Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -403,8 +408,7 @@ public class HistoryOutputPanel extends JPanel {
             // Clear and repopulate all sessions (dropdown shows at most 10 rows, scroll for more)
             sessionComboBox.removeAllItems();
             var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(
-                    java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
+            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
             for (var session : sessions) {
                 sessionComboBox.addItem(session);
             }
@@ -1765,8 +1769,7 @@ public class HistoryOutputPanel extends JPanel {
         }
         if (mainTask != null) {
             String titleHint = context.getAction();
-            new OutputWindow(
-                    this, historyTasks, mainTask, titleHint, io.github.jbellis.brokk.MainProject.getTheme(), false);
+            new OutputWindow(this, historyTasks, mainTask, titleHint, MainProject.getTheme(), false);
         }
     }
 
@@ -1777,8 +1780,8 @@ public class HistoryOutputPanel extends JPanel {
         var history = contextManager.topContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
-        OutputWindow newStreamingWindow = new OutputWindow(
-                this, history, mainTask, titleHint, io.github.jbellis.brokk.MainProject.getTheme(), true);
+        OutputWindow newStreamingWindow =
+                new OutputWindow(this, history, mainTask, titleHint, MainProject.getTheme(), true);
         if (lastSpinnerMessage != null) {
             newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
         }
@@ -1983,14 +1986,14 @@ public class HistoryOutputPanel extends JPanel {
             }
 
             // Add listeners to save position/size on change
-            addComponentListener(new java.awt.event.ComponentAdapter() {
+            addComponentListener(new ComponentAdapter() {
                 @Override
-                public void componentResized(java.awt.event.ComponentEvent e) {
+                public void componentResized(ComponentEvent e) {
                     project.saveOutputWindowBounds(OutputWindow.this);
                 }
 
                 @Override
-                public void componentMoved(java.awt.event.ComponentEvent e) {
+                public void componentMoved(ComponentEvent e) {
                     project.saveOutputWindowBounds(OutputWindow.this);
                 }
             });
@@ -2003,7 +2006,7 @@ public class HistoryOutputPanel extends JPanel {
             inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
             actionMap.put("closeWindow", new AbstractAction() {
                 @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
+                public void actionPerformed(ActionEvent e) {
                     dispose();
                 }
             });

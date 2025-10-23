@@ -201,6 +201,198 @@ public class LlmTest {
     }
 
     @Test
+    void testParseJsonToToolRequests() {
+        var llm = new Llm(
+                contextManager.getService().getModel("test"),
+                "testParseJsonToToolRequests",
+                contextManager,
+                false,
+                false,
+                false,
+                false);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // Case 1: Pure JSON with tool calls
+        var pureJson =
+                """
+                {
+                  "tool_calls": [
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "London"}
+                    },
+                    {
+                      "name": "get_time",
+                      "arguments": {"timezone": "UTC"}
+                    }
+                  ]
+                }
+                """;
+        var result1 = createStreamingResult(pureJson);
+        var parsed1 = llm.parseJsonToToolRequests(result1, mapper);
+        assertEquals(2, parsed1.toolRequests().size());
+        assertEquals("get_weather", parsed1.toolRequests().get(0).name());
+        assertEquals("get_time", parsed1.toolRequests().get(1).name());
+
+        // Case 2: JSON with explanatory text before braces
+        var textBeforeJson =
+                """
+                Let me call the weather tool:
+
+                {
+                  "tool_calls": [
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "Paris"}
+                    }
+                  ]
+                }
+                """;
+        var result2 = createStreamingResult(textBeforeJson);
+        var parsed2 = llm.parseJsonToToolRequests(result2, mapper);
+        assertEquals(1, parsed2.toolRequests().size());
+        assertEquals("get_weather", parsed2.toolRequests().get(0).name());
+
+        // Case 3: JSON with explanatory text after braces
+        var textAfterJson =
+                """
+                {
+                  "tool_calls": [
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "Tokyo"}
+                    }
+                  ]
+                }
+
+                This will help us get the weather information.
+                """;
+        var result3 = createStreamingResult(textAfterJson);
+        var parsed3 = llm.parseJsonToToolRequests(result3, mapper);
+        assertEquals(1, parsed3.toolRequests().size());
+        assertEquals("get_weather", parsed3.toolRequests().get(0).name());
+
+        // Case 4: JSON surrounded by text on both sides
+        var textBothSides =
+                """
+                I'm going to call these tools:
+
+                {
+                  "tool_calls": [
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "Berlin"}
+                    }
+                  ]
+                }
+
+                That should solve your problem.
+                """;
+        var result4 = createStreamingResult(textBothSides);
+        var parsed4 = llm.parseJsonToToolRequests(result4, mapper);
+        assertEquals(1, parsed4.toolRequests().size());
+        assertEquals("get_weather", parsed4.toolRequests().get(0).name());
+
+        // Case 5: JSON wrapped in markdown code fences
+        var markdownJson =
+                """
+                ```json
+                {
+                  "tool_calls": [
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "Sydney"}
+                    }
+                  ]
+                }
+                ```
+                """;
+        var result5 = createStreamingResult(markdownJson);
+        var parsed5 = llm.parseJsonToToolRequests(result5, mapper);
+        assertEquals(1, parsed5.toolRequests().size());
+        assertEquals("get_weather", parsed5.toolRequests().get(0).name());
+
+        // Case 6: JSON with think tool
+        var jsonWithThink =
+                """
+                {
+                  "tool_calls": [
+                    {
+                      "name": "think",
+                      "arguments": {"reasoning": "The user asked for weather in NYC"}
+                    },
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "New York"}
+                    }
+                  ]
+                }
+                """;
+        var result6 = createStreamingResult(jsonWithThink);
+        var parsed6 = llm.parseJsonToToolRequests(result6, mapper);
+        assertEquals(1, parsed6.toolRequests().size()); // think is filtered out
+        assertEquals("get_weather", parsed6.toolRequests().get(0).name());
+        assertEquals("The user asked for weather in NYC", parsed6.reasoningContent());
+
+        // Case 7: Multiple tool calls with think tool and surrounding text
+        var complexJson =
+                """
+                Based on the request, I'll execute the following tools:
+
+                {
+                  "tool_calls": [
+                    {
+                      "name": "think",
+                      "arguments": {"reasoning": "Need weather for multiple cities"}
+                    },
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "London"}
+                    },
+                    {
+                      "name": "get_weather",
+                      "arguments": {"location": "Tokyo"}
+                    }
+                  ]
+                }
+
+                These calls will gather the necessary information.
+                """;
+        var result7 = createStreamingResult(complexJson);
+        var parsed7 = llm.parseJsonToToolRequests(result7, mapper);
+        assertEquals(2, parsed7.toolRequests().size()); // think is filtered out
+        assertEquals("get_weather", parsed7.toolRequests().get(0).name());
+        assertEquals("get_weather", parsed7.toolRequests().get(1).name());
+        assertEquals("Need weather for multiple cities", parsed7.reasoningContent());
+
+        // Case 8: Invalid JSON (no braces)
+        var noBraces = "This is just plain text with no JSON at all";
+        var result8 = createStreamingResult(noBraces);
+        assertThrows(IllegalArgumentException.class, () -> llm.parseJsonToToolRequests(result8, mapper));
+
+        // Case 9: Malformed JSON inside braces
+        var malformedJson =
+                """
+                Here's the data:
+                {
+                  "tool_calls": [
+                    { invalid json here }
+                  ]
+                }
+                """;
+        var result9 = createStreamingResult(malformedJson);
+        assertThrows(IllegalArgumentException.class, () -> llm.parseJsonToToolRequests(result9, mapper));
+    }
+
+    /**
+     * Helper to create a StreamingResult with text content for testing parseJsonToToolRequests
+     */
+    private Llm.StreamingResult createStreamingResult(String text) {
+        var nsr = new Llm.NullSafeResponse(text, null, List.of(), null);
+        return new Llm.StreamingResult(nsr, null);
+    }
+
+    @Test
     void testEmulateToolExecutionResults() {
         var user1 = new UserMessage("Initial request");
         var term1 = ToolExecutionResultMessage.toolExecutionResultMessage("t1", "toolA", "Result A");

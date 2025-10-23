@@ -1,39 +1,59 @@
 package io.github.jbellis.brokk.gui.components;
 
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FragmentColorUtils;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.*;
+import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.WordUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
+
+    public enum WarningLevel {
+        NONE,
+        YELLOW,
+        RED
+    }
+
+    private WarningLevel warningLevel = WarningLevel.NONE;
+
+    @Nullable
+    private Service.ModelConfig modelConfig = null;
 
     // Fallback counters if fragments aren't provided
     private int fallbackCurrentTokens = 0;
 
     private int maxTokens = 1; // Avoid division by zero
 
-    // Hover state for highlight
-    private boolean hovered = false;
+    // Hovered segment state and callbacks
+    @Nullable
+    private volatile Segment hoveredSegment = null;
+
+    @Nullable
+    private volatile BiConsumer<Collection<ContextFragment>, Boolean> onHoverFragments = null;
 
     @Nullable
     private volatile Runnable onClick = null;
@@ -47,12 +67,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile List<ContextFragment> fragments = List.of();
     private volatile List<Segment> segments = List.of();
     private final ConcurrentHashMap<String, Integer> tokenCache = new ConcurrentHashMap<>();
+    private volatile Set<ContextFragment> hoveredFragments = Set.of();
+    private volatile boolean readOnly = false;
 
     // Tooltip for unfilled part (model/max/cost)
     @Nullable
     private volatile String unfilledTooltipHtml = null;
 
-    public TokenUsageBar() {
+    public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
@@ -60,32 +82,109 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Seed to enable tooltips; actual content comes from getToolTipText(MouseEvent)
         setToolTipText("Shows Workspace token usage.");
 
-        // Track hover and support left-click to trigger action if provided
-        addMouseListener(new MouseAdapter() {
+        // Track hover per segment and support left-click to trigger action if provided
+        MouseAdapter mouseAdapter = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                Runnable r = onClick;
-                if (r != null && isEnabled() && SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
-                    try {
-                        r.run();
-                    } catch (Exception ex) {
-                        logger.debug("TokenUsageBar onClick handler threw", ex);
+                if (!isEnabled() || readOnly) {
+                    return;
+                }
+                if (SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
+                    Segment seg = findSegmentAt(e.getX());
+                    if (seg != null && !seg.fragments.isEmpty()) {
+                        if (seg.isSummaryGroup) {
+                            // Open combined preview for all summaries (mirrors synthetic chip behavior)
+                            int totalFiles = (int) seg.fragments.stream()
+                                    .flatMap(f -> f.files().stream())
+                                    .map(ProjectFile::toString)
+                                    .distinct()
+                                    .count();
+                            String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+
+                            StringBuilder combinedText = new StringBuilder();
+                            for (var f : seg.fragments) {
+                                try {
+                                    combinedText.append(f.text()).append("\n\n");
+                                } catch (Exception ex) {
+                                    logger.debug("Failed reading summary text for preview", ex);
+                                }
+                            }
+                            var previewPanel = new PreviewTextPanel(
+                                    chrome.getContextManager(),
+                                    null,
+                                    combinedText.toString(),
+                                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                                    chrome.getTheme(),
+                                    null);
+                            chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                        } else if (seg.fragments.size() == 1) {
+                            // Single fragment: open its preview
+                            chrome.openFragmentPreview(seg.fragments.iterator().next());
+                        } else {
+                            // Grouped segment (e.g., "Other"): no direct preview action
+                            Runnable r = onClick;
+                            if (r != null) {
+                                try {
+                                    r.run();
+                                } catch (Exception ex) {
+                                    logger.debug("TokenUsageBar onClick handler threw", ex);
+                                }
+                            }
+                        }
+                    } else {
+                        Runnable r = onClick;
+                        if (r != null) {
+                            try {
+                                r.run();
+                            } catch (Exception ex) {
+                                logger.debug("TokenUsageBar onClick handler threw", ex);
+                            }
+                        }
                     }
                 }
             }
 
             @Override
-            public void mouseEntered(MouseEvent e) {
-                hovered = true;
-                repaint();
+            public void mouseExited(MouseEvent e) {
+                Segment prev = hoveredSegment;
+                hoveredSegment = null;
+                if (prev != null && onHoverFragments != null && isEnabled() && !readOnly) {
+                    try {
+                        onHoverFragments.accept(prev.getFragments(), false);
+                    } catch (Exception ex) {
+                        logger.trace("onHoverFragments exit callback threw", ex);
+                    }
+                }
             }
 
             @Override
-            public void mouseExited(MouseEvent e) {
-                hovered = false;
-                repaint();
+            public void mouseMoved(MouseEvent e) {
+                if (!isEnabled() || readOnly) {
+                    return;
+                }
+                Segment seg = findSegmentAt(e.getX());
+                if (!Objects.equals(seg, hoveredSegment)) {
+                    Segment prev = hoveredSegment;
+                    hoveredSegment = seg;
+                    if (prev != null && onHoverFragments != null) {
+                        try {
+                            onHoverFragments.accept(prev.getFragments(), false);
+                        } catch (Exception ex) {
+                            logger.trace("onHoverFragments exit callback threw", ex);
+                        }
+                    }
+                    if (seg != null && onHoverFragments != null) {
+                        try {
+                            onHoverFragments.accept(seg.getFragments(), true);
+                        } catch (Exception ex) {
+                            logger.trace("onHoverFragments enter callback threw", ex);
+                        }
+                    }
+                }
             }
-        });
+        };
+        addMouseListener(mouseAdapter);
+        addMouseMotionListener(mouseAdapter);
     }
 
     /**
@@ -118,6 +217,38 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         repaint();
     }
 
+    public void setOnHoverFragments(@Nullable BiConsumer<Collection<ContextFragment>, Boolean> cb) {
+        this.onHoverFragments = cb;
+    }
+
+    public void applyGlobalStyling(Set<ContextFragment> targets) {
+        this.hoveredFragments = targets;
+        repaint();
+    }
+
+    // Overload to support existing callers that pass a Collection
+    public void applyGlobalStyling(Collection<ContextFragment> targets) {
+        applyGlobalStyling(Set.copyOf(targets));
+    }
+
+    /**
+     * Highlight the segment corresponding to the given fragment.
+     * If the fragment belongs to a grouped segment, that segment is highlighted.
+     */
+    public void highlightForFragment(ContextFragment fragment, boolean entered) {
+        if (entered) {
+            // Find the segment containing this fragment
+            for (var seg : segments) {
+                if (seg.fragments.contains(fragment)) {
+                    applyGlobalStyling(seg.fragments);
+                    return;
+                }
+            }
+        } else {
+            applyGlobalStyling(Set.of());
+        }
+    }
+
     public void setMaxTokens(int max) {
         this.maxTokens = Math.max(1, max);
         repaint();
@@ -129,13 +260,105 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     public void setFragments(List<ContextFragment> fragments) {
         this.fragments = List.copyOf(fragments);
         // Invalidate token cache entries for removed ids to keep memory bounded
-        var validIds = this.fragments.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
+        var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
         repaint();
     }
 
+    /**
+     * Update the bar with fragments from the given Context.
+     * - Schedules UI update on the EDT.
+     * - Pre-warms token counts off-EDT to avoid doing heavy work during paint.
+     * - Repaints on completion so segment widths reflect computed tokens.
+     */
+    public void setFragmentsForContext(Context context) {
+        List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
+
+        // Update UI on EDT
+        SwingUtilities.invokeLater(() -> setFragments(frags));
+
+        // Precompute token counts off-EDT to avoid jank during paint and tooltips
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                for (var f : frags) {
+                    try {
+                        if (f.isText() || f.getType().isOutput()) {
+                            // This will compute and cache the token count for the fragment
+                            tokensForFragment(f);
+                        }
+                    } catch (Exception ignore) {
+                        // Best-effort pre-warm; failures are non-fatal and will be handled lazily
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                SwingUtilities.invokeLater(TokenUsageBar.this::repaint);
+            }
+        }.execute();
+    }
+
+    /**
+     * Enable or disable interactive behavior and visuals for read-only mode. Runs on the EDT.
+     */
+    public void setReadOnly(boolean readOnly) {
+        SwingUtilities.invokeLater(() -> {
+            this.readOnly = readOnly;
+            setEnabled(!readOnly);
+            repaint();
+        });
+    }
+
+    public void setWarningLevel(WarningLevel level, @Nullable Service.ModelConfig config) {
+        this.warningLevel = level;
+        this.modelConfig = config;
+        repaint();
+    }
+
+    @Nullable
+    public Service.ModelConfig getModelConfig() {
+        return modelConfig;
+    }
+
     @Override
     public String getToolTipText(MouseEvent event) {
+        if (warningLevel != WarningLevel.NONE && modelConfig != null) {
+            String modelName = modelConfig.name();
+            if (modelName.contains("-nothink")) {
+                modelName = modelName.replace("-nothink", "");
+            }
+            modelName = StringEscapeUtils.escapeHtml4(modelName);
+
+            int usedTokens = computeUsedTokens();
+            int successRate = ModelBenchmarkData.getSuccessRate(modelConfig, usedTokens);
+
+            String reason = warningLevel == WarningLevel.YELLOW
+                    ? "a lower success rate (&lt;50%)"
+                    : "a very low success rate (&lt;30%)";
+
+            // Indicate if we're extrapolating beyond tested ranges
+            String extrapolationNote = "";
+            if (usedTokens > 131071) {
+                extrapolationNote =
+                        "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
+            } else if (usedTokens < 4096) {
+                extrapolationNote =
+                        "<br/><br/><i>Note: This success rate is extrapolated from the smallest tested range (&lt;4K tokens).</i>";
+            }
+
+            return String.format(
+                    "<html><body style='width: 300px'>"
+                            + "<b>Warning: Potential performance issue</b><br/><br/>"
+                            + "The model <b>%s</b> might perform poorly at this token count due to %s.<br/><br/>"
+                            + "Observed success rate from benchmarks: <b>%d%%</b>"
+                            + "%s"
+                            + "</body></html>",
+                    modelName, reason, successRate, extrapolationNote);
+        }
+
         try {
             int width = getWidth();
             // Ensure segments correspond to current size
@@ -156,6 +379,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return super.getToolTipText(event);
     }
 
+    @Nullable
+    private Segment findSegmentAt(int x) {
+        int width = getWidth();
+        var segs = computeSegments(width);
+        int clamped = Math.max(0, Math.min(x, width));
+        for (var s : segs) {
+            if (clamped >= s.startX && clamped < s.startX + s.widthPx) {
+                return s;
+            }
+        }
+        return null;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -170,26 +406,41 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             g2d.setColor(getTrackColor());
             g2d.fillRoundRect(0, 0, width, height, ARC, ARC);
 
-            // Draw per-fragment segments
+            // Draw per-fragment segments with rounded borders similar to chips
             var segs = computeSegments(width);
             for (var s : segs) {
                 if (s.widthPx <= 0) continue;
-                g2d.setColor(s.bg);
-                g2d.fillRoundRect(s.startX, 0, s.widthPx, height, ARC, ARC);
-                // Optional border (only outer border looks good; inner borders between segments can look jagged)
-                // We skip borders to keep it clean.
-            }
 
-            // Hover affordance (subtle overlay + outline) regardless of clickability
-            if (hovered && isEnabled()) {
-                g2d.setComposite(AlphaComposite.SrcOver.derive(0.08f));
-                g2d.setColor(getAccentColor());
-                g2d.fillRoundRect(0, 0, width, height, ARC, ARC);
+                boolean isHovered = !hoveredFragments.isEmpty() && !Collections.disjoint(s.fragments, hoveredFragments);
+                boolean isDimmed = !hoveredFragments.isEmpty() && !isHovered;
+                Composite originalComposite = g2d.getComposite();
+                if (isDimmed) {
+                    g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                }
 
-                g2d.setComposite(AlphaComposite.SrcOver);
-                g2d.setColor(getAccentColor());
-                g2d.setStroke(new BasicStroke(1.0f));
-                g2d.drawRoundRect(0, 0, width - 1, height - 1, ARC, ARC);
+                try {
+                    // Fill
+                    g2d.setColor(s.bg);
+                    g2d.fillRoundRect(s.startX, 0, s.widthPx, height, ARC, ARC);
+
+                    // Border: summary group uses summary border; else derive from fragment kind
+                    Color borderColor;
+                    if (s.isSummaryGroup) {
+                        borderColor = ThemeColors.getColor(isDarkTheme(), ThemeColors.CHIP_SUMMARY_BORDER);
+                    } else {
+                        ContextFragment fragForBorder =
+                                s.fragments.size() == 1 ? s.fragments.iterator().next() : null;
+                        borderColor = getSegmentBorderColor(fragForBorder);
+                    }
+                    g2d.setColor(borderColor);
+                    int bw = Math.max(1, s.widthPx - 1);
+                    int bh = Math.max(1, height - 1);
+                    g2d.drawRoundRect(s.startX, 0, bw, bh, ARC, ARC);
+                } finally {
+                    if (isDimmed) {
+                        g2d.setComposite(originalComposite);
+                    }
+                }
             }
 
             // Draw text on top: current tokens in white, aligned to the fill's east edge
@@ -199,6 +450,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     segs.isEmpty() ? 0 : segs.get(segs.size() - 1).startX + segs.get(segs.size() - 1).widthPx;
             int usedTokens = computeUsedTokens();
             drawText(g2d, width, height, fillPixelEnd, usedTokens);
+
+            // Dim overlay when disabled/read-only to provide a visual cue
+            if (!isEnabled() || readOnly) {
+                Composite orig = g2d.getComposite();
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
+                g2d.setColor(new Color(0, 0, 0, 120));
+                g2d.fillRoundRect(0, 0, width, height, ARC, ARC);
+                g2d.setComposite(orig);
+            }
         } finally {
             g2d.dispose();
         }
@@ -215,7 +475,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         if (!hasContext) {
             String msg =
-                    "No context yet - add some by clicking the paperclip icon or drag-and-drop files from the Project Files panel.";
+                    "No context yet - use Lutz mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
             int maxTextWidth = Math.max(0, width - 2 * padding);
             String shown = elide(msg, fm, maxTextWidth);
 
@@ -306,7 +566,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
-            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "");
+            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "", Set.of(), false);
             this.segments = List.of(s);
             return this.segments;
         }
@@ -316,7 +576,25 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 .filter(f -> f.isText() || f.getType().isOutput())
                 .toList();
 
-        int totalTokens = usable.stream().mapToInt(this::tokensForFragment).sum();
+        if (usable.isEmpty()) {
+            this.segments = List.of();
+            return this.segments;
+        }
+
+        // Separate summaries (SKELETON) to form a single "Summaries" segment
+        var summaries = usable.stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .toList();
+        var nonSummaries = usable.stream()
+                .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
+                .toList();
+
+        int tokensSummaries =
+                summaries.stream().mapToInt(this::tokensForFragment).sum();
+        int tokensNonSummaries =
+                nonSummaries.stream().mapToInt(this::tokensForFragment).sum();
+        int totalTokens = tokensSummaries + tokensNonSummaries;
+
         if (totalTokens <= 0) {
             this.segments = List.of();
             return this.segments;
@@ -329,23 +607,31 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Pass 1: mark small fragments (but never group HISTORY fragments)
-        double[] rawWidths = new double[usable.size()];
+        // Mark small fragments among non-summaries (but never group HISTORY fragments)
+        double[] rawWidths = new double[nonSummaries.size()];
         List<ContextFragment> small = new ArrayList<>();
-        for (int i = 0; i < usable.size(); i++) {
-            int t = tokensForFragment(usable.get(i));
+        for (int i = 0; i < nonSummaries.size(); i++) {
+            int t = tokensForFragment(nonSummaries.get(i));
             rawWidths[i] = (t * 1.0 / totalTokens) * fillWidth;
-            if (rawWidths[i] < MIN_SEGMENT_PX && usable.get(i).getType() != ContextFragment.FragmentType.HISTORY) {
-                small.add(usable.get(i));
+            if (rawWidths[i] < MIN_SEGMENT_PX
+                    && nonSummaries.get(i).getType() != ContextFragment.FragmentType.HISTORY) {
+                small.add(nonSummaries.get(i));
             }
         }
         int smallCount = small.size();
         int otherTokens = small.stream().mapToInt(this::tokensForFragment).sum();
 
-        // Build allocation items: large fragments + optional "Other"
-        record AllocItem(@Nullable ContextFragment frag, boolean isOther, int tokens, double rawWidth, int minWidth) {}
+        // Build allocation items: non-small fragments + optional "Other" + optional "Summaries" group
+        record AllocItem(
+                @Nullable ContextFragment frag,
+                boolean isOther,
+                boolean isSummaryGroup,
+                int tokens,
+                double rawWidth,
+                int minWidth) {}
 
-        int nItems = (smallCount > 1) ? (usable.size() - smallCount + 1) : usable.size();
+        int nBaseItems = (smallCount > 1) ? (nonSummaries.size() - smallCount + 1) : nonSummaries.size();
+        int nItems = nBaseItems + (summaries.isEmpty() ? 0 : 1);
         int totalGaps = Math.max(0, nItems - 1);
         int effectiveFill = Math.max(0, fillWidth - totalGaps * SEGMENT_GAP);
 
@@ -353,36 +639,41 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         if (smallCount == 1) {
             // Exactly one "small" fragment: place it normally with a min width and normal label
             ContextFragment onlySmall = small.get(0);
-            for (var f : usable) {
+            for (var f : nonSummaries) {
                 int t = tokensForFragment(f);
                 double rw = (t * 1.0 / totalTokens) * effectiveFill;
                 int min = (f == onlySmall) ? Math.min(MIN_SEGMENT_PX, effectiveFill) : 0;
-                items.add(new AllocItem(f, false, t, rw, min));
+                items.add(new AllocItem(f, false, false, t, rw, min));
             }
         } else {
             // Add all non-small individually
-            for (int i = 0; i < usable.size(); i++) {
-                var f = usable.get(i);
+            for (var f : nonSummaries) {
                 if (small.contains(f)) continue;
                 int t = tokensForFragment(f);
                 double rw = (t * 1.0 / totalTokens) * effectiveFill;
-                items.add(new AllocItem(f, false, t, rw, 0));
+                items.add(new AllocItem(f, false, false, t, rw, 0));
             }
             // Group remaining as "Other" if there are multiple small ones
             if (smallCount > 1) {
                 double rw = (otherTokens * 1.0 / totalTokens) * effectiveFill;
                 int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
-                items.add(new AllocItem(null, true, otherTokens, rw, min));
+                items.add(new AllocItem(null, true, false, otherTokens, rw, min));
             }
         }
 
-        // If nothing left after grouping (edge-case), bail
+        // Add a single "Summaries" item if present
+        if (!summaries.isEmpty()) {
+            double rw = (tokensSummaries * 1.0 / totalTokens) * effectiveFill;
+            int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
+            items.add(new AllocItem(null, false, true, tokensSummaries, rw, min));
+        }
+
         if (items.isEmpty()) {
             this.segments = List.of();
             return this.segments;
         }
 
-        // Pass 2: largest-remainder with min width clamping
+        // Largest-remainder with min width clamping
         class Working {
             final AllocItem item;
             int width;
@@ -406,14 +697,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         int deficit = effectiveFill - sum;
         if (deficit > 0) {
-            // Distribute extra pixels by largest remainder
             work.stream()
                     .sorted(Comparator.comparingDouble((Working w) -> w.remainder)
                             .reversed())
                     .limit(deficit)
                     .forEach(w -> w.width++);
         } else if (deficit < 0) {
-            // Reclaim pixels from items above their minWidth, preferring smallest remainder
             int need = -deficit;
             Predicate<Working> canShrink = w -> w.width > w.item.minWidth;
             while (need > 0) {
@@ -450,14 +739,26 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         int x = 0;
         for (var w : work) {
             if (w.width <= 0) continue;
-            ContextFragment frag = w.item.frag;
-            boolean isOther = w.item.isOther;
-            FragmentColorUtils.FragmentKind kind = isOther
-                    ? FragmentColorUtils.FragmentKind.OTHER
-                    : FragmentColorUtils.classify(Objects.requireNonNull(frag));
-            Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
-            String tip = isOther ? buildOtherTooltip(small) : buildFragmentTooltip(Objects.requireNonNull(frag));
-            out.add(new Segment(x, w.width, bg, tip));
+
+            if (w.item.isSummaryGroup) {
+                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
+                String tip = buildAggregateSummaryTooltip(summaries);
+                Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
+                out.add(new Segment(x, w.width, bg, tip, segmentFrags, true));
+            } else if (w.item.isOther) {
+                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
+                String tip = buildOtherTooltip(small);
+                Set<ContextFragment> segmentFrags = Set.copyOf(small);
+                out.add(new Segment(x, w.width, bg, tip, segmentFrags, false));
+            } else {
+                ContextFragment frag = Objects.requireNonNull(w.item.frag);
+                FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
+                Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
+                String tip = buildFragmentTooltip(frag);
+                Set<ContextFragment> segmentFrags = Set.of(frag);
+                out.add(new Segment(x, w.width, bg, tip, segmentFrags, false));
+            }
+
             x += w.width + SEGMENT_GAP;
         }
 
@@ -473,6 +774,28 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 .filter(f -> f.isText() || f.getType().isOutput())
                 .mapToInt(this::tokensForFragment)
                 .sum();
+    }
+
+    private Color getSegmentBorderColor(@Nullable ContextFragment frag) {
+        boolean isDark = isDarkTheme();
+        if (frag == null) {
+            // Grouped "Other" bucket
+            return ThemeColors.getColor(isDark, ThemeColors.CHIP_OTHER_BORDER);
+        }
+        try {
+            if (frag.getType().isEditable()) {
+                return ThemeColors.getColor(isDark, ThemeColors.CHIP_EDIT_BORDER);
+            }
+            if (frag.getType() == ContextFragment.FragmentType.SKELETON) {
+                return ThemeColors.getColor(isDark, ThemeColors.CHIP_SUMMARY_BORDER);
+            }
+            if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
+                return ThemeColors.getColor(isDark, ThemeColors.CHIP_HISTORY_BORDER);
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        return ThemeColors.getColor(isDark, ThemeColors.CHIP_OTHER_BORDER);
     }
 
     private int tokensForFragment(ContextFragment f) {
@@ -499,12 +822,26 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         final int widthPx;
         final Color bg;
         final String tooltipHtml;
+        final Set<ContextFragment> fragments;
+        final boolean isSummaryGroup;
 
-        Segment(int startX, int widthPx, Color bg, String tooltipHtml) {
+        Segment(
+                int startX,
+                int widthPx,
+                Color bg,
+                String tooltipHtml,
+                Set<ContextFragment> fragments,
+                boolean isSummaryGroup) {
             this.startX = startX;
             this.widthPx = widthPx;
             this.bg = bg;
             this.tooltipHtml = tooltipHtml;
+            this.fragments = fragments;
+            this.isSummaryGroup = isSummaryGroup;
+        }
+
+        Set<ContextFragment> getFragments() {
+            return fragments;
         }
     }
 
@@ -635,6 +972,52 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return wrapTooltipHtml(body.toString(), 420);
     }
 
+    private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
+        var allFiles = summaries.stream()
+                .flatMap(f -> f.files().stream())
+                .map(ProjectFile::toString)
+                .distinct()
+                .sorted()
+                .toList();
+
+        StringBuilder body = new StringBuilder();
+
+        // Aggregate metrics (LOC + tokens) across all summaries
+        int totalLoc = 0;
+        int totalTokens = 0;
+        try {
+            for (var summary : summaries) {
+                String text = summary.text();
+                totalLoc += text.split("\\r?\\n", -1).length;
+                totalTokens += Messages.getApproximateTokens(text);
+            }
+            body.append("<div>")
+                    .append(formatCount(totalLoc))
+                    .append(" LOC \u2022 ~")
+                    .append(formatCount(totalTokens))
+                    .append(" tokens</div><br/>");
+        } catch (Exception e) {
+            logger.trace("Failed to compute aggregate summary metrics", e);
+        }
+
+        // Header and divider
+        body.append("<div><b>Summaries</b></div>");
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+
+        if (allFiles.isEmpty()) {
+            body.append("Multiple summaries");
+        } else {
+            body.append("<ul style='margin:0;padding-left:16px'>");
+            for (var f : allFiles) {
+                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+            }
+            body.append("</ul>");
+        }
+
+        body.append("<br/><i>Click to preview all contents</i>");
+        return wrapTooltipHtml(body.toString(), 420);
+    }
+
     private Color getTrackColor() {
         Color panel = UIManager.getColor("Panel.background");
         boolean dark = isDarkTheme();
@@ -648,15 +1031,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private boolean isDarkTheme() {
         return UIManager.getBoolean("laf.dark");
-    }
-
-    private Color getAccentColor() {
-        Color c = UIManager.getColor("Component.focusColor");
-        if (c == null) c = UIManager.getColor("Focus.color");
-        if (c == null) c = UIManager.getColor("List.selectionBackground");
-        if (c == null) c = ThemeColors.getColor(isDarkTheme(), "mode_answer_accent");
-        if (c == null) c = new Color(0x1F6FEB);
-        return c;
     }
 
     private static Color lighten(Color base, float amount) {

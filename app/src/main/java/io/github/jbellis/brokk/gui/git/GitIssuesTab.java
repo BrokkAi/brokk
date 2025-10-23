@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
+import io.github.jbellis.brokk.gui.components.IssueHeaderCellRenderer;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
@@ -24,6 +25,8 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.URI;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -351,10 +354,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         }
 
         // Title renderer
-        issueTable
-                .getColumnModel()
-                .getColumn(1)
-                .setCellRenderer(new io.github.jbellis.brokk.gui.components.IssueHeaderCellRenderer());
+        issueTable.getColumnModel().getColumn(1).setCellRenderer(new IssueHeaderCellRenderer());
 
         ToolTipManager.sharedInstance().registerComponent(issueTable);
 
@@ -636,8 +636,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static IssueService createDefaultIssueService(ContextManager contextManager) {
         IProject project = contextManager.getProject();
         // This line will cause a compile error until IProject.getIssuesProvider() is added. This is expected.
-        io.github.jbellis.brokk.issues.IssueProviderType providerType =
-                project.getIssuesProvider().type();
+        IssueProviderType providerType = project.getIssuesProvider().type();
         Logger staticLogger = LogManager.getLogger(GitIssuesTab.class);
 
         return switch (providerType) {
@@ -785,14 +784,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 final String assigneeVal =
                         getBaseFilterValue(assigneeFilter.getSelected()); // For GitHub server-side search
 
-                io.github.jbellis.brokk.issues.FilterOptions apiFilterOptions;
+                FilterOptions apiFilterOptions;
                 if (this.issueService instanceof JiraIssueService) {
                     String resolutionVal = (resolutionFilter != null)
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
                     // For Jira, author/label/assignee are client-filtered. Query is passed for server-side text search.
-                    apiFilterOptions = new io.github.jbellis.brokk.issues.JiraFilterOptions(
-                            statusVal, resolutionVal, null, null, null, queryForApi);
+                    apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
                     logger.debug(
                             "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
                             statusVal,
@@ -801,8 +799,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 } else { // GitHub or default
                     // For GitHub, all filters including query are passed for server-side search if query is present.
                     // If query is null, service handles client-side filtering for author/label/assignee.
-                    apiFilterOptions = new io.github.jbellis.brokk.issues.GitHubFilterOptions(
-                            statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    apiFilterOptions =
+                            new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                     logger.debug(
                             "GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
                             statusVal,
@@ -936,7 +934,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             if (displayedIssues.isEmpty()) {
                 disableIssueActions();
             } else {
-                var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
+                var today = LocalDate.now(ZoneId.systemDefault());
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
                             ? ""
@@ -1111,7 +1109,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
         List<ChatMessage> chatMessages = new ArrayList<>();
 
-        for (io.github.jbellis.brokk.issues.Comment comment : dtoComments) {
+        for (Comment comment : dtoComments) {
             String author = comment.author().isBlank() ? "unknown" : comment.author();
             String originalCommentBody = comment.markdownBody(); // HTML from Jira, Markdown from GitHub
             String commentBodyForCapture = originalCommentBody;
@@ -1161,7 +1159,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 if (ImageUtil.isImageUri(imageUri, clientToUse)) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Downloading image: " + imageUri.toString());
-                    java.awt.Image image = ImageUtil.downloadImage(imageUri, clientToUse);
+                    Image image = ImageUtil.downloadImage(imageUri, clientToUse);
                     if (image != null) {
                         String description = String.format("Issue %s: Image", header.id());
                         contextManager.addPastedImageFragment(image, description);

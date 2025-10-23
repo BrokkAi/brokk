@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -37,6 +39,17 @@ public class CommitDialog extends JDialog {
             GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
+        this(owner, chrome, contextManager, workflowService, filesToCommit, null, onCommitSuccessCallback);
+    }
+
+    public CommitDialog(
+            Frame owner,
+            Chrome chrome,
+            ContextManager contextManager,
+            GitWorkflow workflowService,
+            List<ProjectFile> filesToCommit,
+            @Nullable String prefilledMessage,
+            Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         super(owner, "Commit Changes", true);
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -50,8 +63,15 @@ public class CommitDialog extends JDialog {
         commitMessageArea = new JTextArea(10, 50);
         commitMessageArea.setLineWrap(true);
         commitMessageArea.setWrapStyleWord(true);
-        commitMessageArea.setEnabled(false);
-        commitMessageArea.setText(PLACEHOLDER_INFERRING);
+
+        // If pre-filled message provided, use it directly; otherwise start with placeholder
+        if (prefilledMessage != null && !prefilledMessage.isEmpty()) {
+            commitMessageArea.setText(prefilledMessage);
+            commitMessageArea.setEnabled(true);
+        } else {
+            commitMessageArea.setEnabled(false);
+            commitMessageArea.setText(PLACEHOLDER_INFERRING);
+        }
 
         JScrollPane scrollPane = new JScrollPane(commitMessageArea);
 
@@ -82,24 +102,30 @@ public class CommitDialog extends JDialog {
         setLocationRelativeTo(owner);
 
         // Enable commit button when text area is enabled and not empty (after LLM or manual input)
-        commitMessageArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 checkCommitButtonState();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 checkCommitButtonState();
             }
 
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 checkCommitButtonState();
             }
         });
 
-        initiateCommitMessageSuggestion();
+        // Only initiate LLM suggestion if no pre-filled message was provided
+        if (prefilledMessage == null || prefilledMessage.isEmpty()) {
+            initiateCommitMessageSuggestion();
+        } else {
+            commitMessageArea.requestFocusInWindow();
+            checkCommitButtonState();
+        }
     }
 
     private void checkCommitButtonState() {

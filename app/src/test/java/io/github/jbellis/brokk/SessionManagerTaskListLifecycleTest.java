@@ -7,7 +7,9 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,7 +31,7 @@ class SessionManagerTaskListLifecycleTest {
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
         if (Files.exists(sessionsDir)) {
             try (var walk = Files.walk(sessionsDir)) {
-                walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                     try {
                         Files.deleteIfExists(p);
                     } catch (IOException ignored) {
@@ -130,7 +132,7 @@ class SessionManagerTaskListLifecycleTest {
 
     /** Low-level helper: read tasklist.json directly from a given session zip path. */
     private static TaskList.TaskListData readTaskListDirect(Path zipPath) throws IOException {
-        try (var fs = FileSystems.newFileSystem(zipPath, java.util.Map.of())) {
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
             Path tasklist = fs.getPath("tasklist.json");
             if (!Files.exists(tasklist)) {
                 return new TaskList.TaskListData(List.of());

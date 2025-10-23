@@ -27,6 +27,9 @@ import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -201,15 +204,15 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         closeButton.setToolTipText("Close terminal");
         var closeFg = UIManager.getColor("Button.close.foreground");
         closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
-        closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
+        closeButton.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
+            public void mouseEntered(MouseEvent e) {
                 closeButton.setForeground(Color.RED);
                 closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             }
 
             @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
+            public void mouseExited(MouseEvent e) {
                 var closeFg = UIManager.getColor("Button.close.foreground");
                 closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
@@ -383,7 +386,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         }
         String shell = System.getenv("SHELL");
         if (shell == null || shell.isBlank()) {
-            if (new java.io.File("/bin/zsh").exists()) {
+            if (new File("/bin/zsh").exists()) {
                 shell = "/bin/zsh";
             } else {
                 shell = "/bin/bash";

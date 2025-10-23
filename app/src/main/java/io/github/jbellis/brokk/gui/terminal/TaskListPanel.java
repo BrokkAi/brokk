@@ -21,18 +21,30 @@ import io.github.jbellis.brokk.tasks.TaskList;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -47,6 +59,7 @@ import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
@@ -57,6 +70,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JViewport;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
@@ -186,6 +200,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var toggleItem = new JMenuItem("Toggle Done");
         toggleItem.addActionListener(e -> toggleSelectedDone());
         popup.add(toggleItem);
+        var runItem = new JMenuItem("Run");
+        runItem.addActionListener(e -> {
+            int[] sel = list.getSelectedIndices();
+            if (sel.length > 0) {
+                runArchitectOnIndices(sel);
+            }
+        });
+        popup.add(runItem);
         var editItem = new JMenuItem("Edit");
         editItem.addActionListener(e -> editSelected());
         popup.add(editItem);
@@ -198,12 +220,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var copyItem = new JMenuItem("Copy");
         copyItem.addActionListener(e -> copySelectedTasks());
         popup.add(copyItem);
+        popup.add(new JSeparator());
         var deleteItem = new JMenuItem("Delete");
         deleteItem.addActionListener(e -> removeSelected());
         popup.add(deleteItem);
 
-        list.addMouseListener(new java.awt.event.MouseAdapter() {
-            private void showContextMenu(java.awt.event.MouseEvent e) {
+        list.addMouseListener(new MouseAdapter() {
+            private void showContextMenu(MouseEvent e) {
                 if (!e.isPopupTrigger()) {
                     return;
                 }
@@ -229,19 +252,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 toggleItem.setEnabled(!block);
                 editItem.setEnabled(!block);
                 boolean exactlyOne = sel.length == 1;
+                editItem.setEnabled(!block && exactlyOne);
                 splitItem.setEnabled(!block && exactlyOne && !queueActive);
                 combineItem.setEnabled(!block && sel.length >= 2);
                 deleteItem.setEnabled(!block);
+                runItem.setEnabled(!block && sel.length > 0);
                 popup.show(list, e.getX(), e.getY());
             }
 
             @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
                 showContextMenu(e);
             }
 
             @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) {
+            public void mouseReleased(MouseEvent e) {
                 showContextMenu(e);
             }
         });
@@ -299,12 +324,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         goStopButton = new MaterialButton() {
             @Override
-            protected void paintComponent(java.awt.Graphics g) {
+            protected void paintComponent(Graphics g) {
                 // Paint rounded background to match InstructionsPanel
-                var g2 = (java.awt.Graphics2D) g.create();
+                var g2 = (Graphics2D) g.create();
                 try {
-                    g2.setRenderingHint(
-                            java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int arc = 12;
                     var bg = getBackground();
                     if (!isEnabled()) {
@@ -326,12 +350,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             @Override
-            protected void paintBorder(java.awt.Graphics g) {
+            protected void paintBorder(Graphics g) {
                 // Paint border, which will be visible even when disabled
-                var g2 = (java.awt.Graphics2D) g.create();
+                var g2 = (Graphics2D) g.create();
                 try {
-                    g2.setRenderingHint(
-                            java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int arc = 12;
                     Color borderColor;
                     if (isFocusOwner()) {
@@ -401,7 +424,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Vertical separator between groups
             JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
-            sep.setPreferredSize(new java.awt.Dimension(8, 24));
+            sep.setPreferredSize(new Dimension(8, 24));
             topToolbar.add(sep);
 
             // Right group: Clear Completed
@@ -416,9 +439,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Recompute wrapping and ellipsis when the viewport/list width changes
         var vp = scroll.getViewport();
-        vp.addComponentListener(new java.awt.event.ComponentAdapter() {
+        vp.addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 // Trigger layout and re-render so the renderer recalculates available width per row
                 list.revalidate();
                 list.repaint();
@@ -427,9 +450,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
         // Also listen on the JList itself in case LAF resizes the list directly
-        list.addComponentListener(new java.awt.event.ComponentAdapter() {
+        list.addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 list.revalidate();
                 list.repaint();
                 // Force recalculation of variable row heights and ellipsis on width change
@@ -455,14 +478,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
 
         // Double-click opens modal edit dialog; single-click only selects.
-        list.addMouseListener(new java.awt.event.MouseAdapter() {
+        list.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) return;
 
                 int index = list.locationToIndex(e.getPoint());
                 if (index < 0) return;
-                java.awt.Rectangle cell = list.getCellBounds(index, index);
+                Rectangle cell = list.getCellBounds(index, index);
                 if (cell == null || !cell.contains(e.getPoint())) return;
 
                 if (e.getClickCount() == 2) {
@@ -637,28 +660,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void openEditDialog(int index) {
         TaskList.TaskItem current = requireNonNull(model.get(index));
 
-        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
-        javax.swing.JDialog dialog = (owner != null)
-                ? new javax.swing.JDialog(owner, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL)
-                : new javax.swing.JDialog(
-                        (java.awt.Window) null, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = (owner != null)
+                ? new JDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL)
+                : new JDialog((Window) null, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
 
-        javax.swing.JTextArea ta = new javax.swing.JTextArea(current.text());
+        JTextArea ta = new JTextArea(current.text());
         ta.setLineWrap(true);
         ta.setWrapStyleWord(true);
         ta.setFont(list.getFont());
 
-        javax.swing.JScrollPane sp = new javax.swing.JScrollPane(
-                ta,
-                javax.swing.JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        sp.setPreferredSize(new java.awt.Dimension(520, 220));
+        JScrollPane sp =
+                new JScrollPane(ta, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        sp.setPreferredSize(new Dimension(520, 220));
 
-        javax.swing.JPanel content = new javax.swing.JPanel(new java.awt.BorderLayout(6, 6));
-        content.add(new javax.swing.JLabel("Edit task:"), java.awt.BorderLayout.NORTH);
-        content.add(sp, java.awt.BorderLayout.CENTER);
+        JPanel content = new JPanel(new BorderLayout(6, 6));
+        content.add(new JLabel("Edit task:"), BorderLayout.NORTH);
+        content.add(sp, BorderLayout.CENTER);
 
-        javax.swing.JPanel buttons = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT));
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         MaterialButton saveBtn = new MaterialButton("Save");
         SwingUtil.applyPrimaryButtonStyle(saveBtn);
         MaterialButton cancelBtn = new MaterialButton("Cancel");
@@ -680,7 +700,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         buttons.add(saveBtn);
         buttons.add(cancelBtn);
-        content.add(buttons, java.awt.BorderLayout.SOUTH);
+        content.add(buttons, BorderLayout.SOUTH);
 
         dialog.setContentPane(content);
         dialog.setResizable(true);
@@ -1023,7 +1043,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         // Add the shared context area above the controls.
         southPanel.add(contextArea, 0);
-        southPanel.add(javax.swing.Box.createVerticalStrut(2), 1);
+        southPanel.add(Box.createVerticalStrut(2), 1);
         revalidate();
         repaint();
     }
@@ -1384,7 +1404,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var scroll = new JScrollPane(
                 textArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setPreferredSize(new java.awt.Dimension(420, 180));
+        scroll.setPreferredSize(new Dimension(420, 180));
 
         var panel = new JPanel(new BorderLayout(6, 6));
         panel.add(new JLabel("Enter one task per line:"), BorderLayout.NORTH);
@@ -1420,7 +1440,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     static List<String> normalizeSplitLines(@Nullable String input) {
-        if (input == null) return java.util.Collections.emptyList();
+        if (input == null) return Collections.emptyList();
         return Arrays.stream(input.split("\\R+"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
@@ -1566,6 +1586,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     @Override
+    public void addNotify() {
+        super.addNotify();
+        // Re-register the listener if it was previously removed.
+        if (registeredContextManager == null) {
+            try {
+                IContextManager cm = chrome.getContextManager();
+                registeredContextManager = cm;
+                cm.addContextListener(this);
+                // Refresh tasks, in case the model changed while the panel was not showing.
+                loadTasksForCurrentSession();
+            } catch (Exception e) {
+                logger.debug("Unable to re-register TaskListPanel as context listener", e);
+            }
+        }
+    }
+
+    @Override
     public void removeNotify() {
         try {
             saveTasksForCurrentSession();
@@ -1652,9 +1689,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Compute wrapping height based on available width (with safe fallbacks for first render)
             int checkboxRegionWidth = 28;
             // Prefer the viewport's width — that's the visible region we should wrap to.
-            java.awt.Container parent = list.getParent();
+            Container parent = list.getParent();
             int width;
-            if (parent instanceof javax.swing.JViewport vp) {
+            if (parent instanceof JViewport vp) {
                 width = vp.getWidth();
             } else {
                 width = list.getWidth();
@@ -1683,7 +1720,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Add a descent-based buffer when expanded to ensure the bottom line is never clipped.
             // Using the font descent gives a robust buffer across LAFs and DPI settings.
             int heightToSet = minHeight;
-            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, heightToSet));
+            this.setPreferredSize(new Dimension(available + checkboxRegionWidth, heightToSet));
 
             // Vertically center the text within the row by applying top padding as a paint offset.
             // We intentionally avoid changing layouts or switching to HTML so that wrapping remains predictable
@@ -1700,19 +1737,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 double t = ((now - start) % (long) periodMs) / periodMs; // 0..1
                 double ratio = 0.5 * (1 - Math.cos(2 * Math.PI * t)); // 0..1 smooth in/out
 
-                java.awt.Color bgBase = list.getBackground();
-                java.awt.Color selBg = list.getSelectionBackground();
+                Color bgBase = list.getBackground();
+                Color selBg = list.getSelectionBackground();
                 if (selBg == null) selBg = bgBase;
 
                 int r = (int) Math.round(bgBase.getRed() * (1 - ratio) + selBg.getRed() * ratio);
                 int g = (int) Math.round(bgBase.getGreen() * (1 - ratio) + selBg.getGreen() * ratio);
                 int b = (int) Math.round(bgBase.getBlue() * (1 - ratio) + selBg.getBlue() * ratio);
-                setBackground(new java.awt.Color(r, g, b));
+                setBackground(new Color(r, g, b));
 
                 if (isSelected) {
                     view.setForeground(list.getSelectionForeground());
-                    java.awt.Color borderColor = selBg.darker();
-                    setBorder(javax.swing.BorderFactory.createLineBorder(borderColor, 1));
+                    Color borderColor = selBg.darker();
+                    setBorder(BorderFactory.createLineBorder(borderColor, 1));
                 } else {
                     view.setForeground(list.getForeground());
                     setBorder(null);

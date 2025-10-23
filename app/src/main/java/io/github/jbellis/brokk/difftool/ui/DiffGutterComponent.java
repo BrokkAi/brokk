@@ -17,6 +17,7 @@ import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JComponent;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
@@ -223,7 +224,7 @@ public class DiffGutterComponent extends JComponent {
     public void setUnifiedDocument(UnifiedDiffDocument document) {
         this.unifiedDocument = document;
         // Force immediate repaint to ensure line numbers are updated
-        javax.swing.SwingUtilities.invokeLater(() -> repaint());
+        SwingUtilities.invokeLater(() -> repaint());
     }
 
     /** Clear the unified diff document reference. */
@@ -329,15 +330,15 @@ public class DiffGutterComponent extends JComponent {
 
     /** Set up scroll listener to ensure the gutter repaints when the text area scrolls. */
     private void setupScrollListener() {
-        javax.swing.SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> {
             // Listen to text area viewport changes
-            if (textArea.getParent() instanceof javax.swing.JViewport textAreaViewport) {
+            if (textArea.getParent() instanceof JViewport textAreaViewport) {
                 textAreaViewport.addChangeListener(e -> repaint());
             }
 
             // Also listen to our own parent viewport changes (row header viewport)
-            javax.swing.SwingUtilities.invokeLater(() -> {
-                if (getParent() instanceof javax.swing.JViewport rowHeaderViewport) {
+            SwingUtilities.invokeLater(() -> {
+                if (getParent() instanceof JViewport rowHeaderViewport) {
                     rowHeaderViewport.addChangeListener(e -> repaint());
                 }
             });
@@ -386,7 +387,7 @@ public class DiffGutterComponent extends JComponent {
 
         try {
             var textAreaViewport = textArea.getParent();
-            if (textAreaViewport instanceof javax.swing.JViewport) {
+            if (textAreaViewport instanceof JViewport) {
                 int textAreaStartY = clipBounds.y;
                 int textAreaEndY = clipBounds.y + clipBounds.height;
 

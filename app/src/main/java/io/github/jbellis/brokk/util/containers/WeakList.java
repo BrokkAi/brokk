@@ -17,7 +17,7 @@ import org.jetbrains.annotations.Unmodifiable;
  * Implementation of the {@link Collection} interface which:
  *
  * <ul>
- *   <li>Stores elements using weak semantics (see {@link java.lang.ref.WeakReference})
+ *   <li>Stores elements using weak semantics (see {@link WeakReference})
  *   <li>Automatically reclaims storage for garbage collected elements
  *   <li>Is thread safe
  *   <li>Is NOT RandomAccess, because garbage collector can remove element at any time

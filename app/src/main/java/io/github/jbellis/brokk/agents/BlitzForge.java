@@ -8,6 +8,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -20,6 +21,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -27,6 +29,7 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -77,15 +80,11 @@ public final class BlitzForge {
     public record FileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
 
     private final @Nullable IContextManager cm;
-    private final @Nullable io.github.jbellis.brokk.Service service;
+    private final @Nullable Service service;
     private final RunConfig config;
     private final Listener listener;
 
-    public BlitzForge(
-            @Nullable IContextManager cm,
-            @Nullable io.github.jbellis.brokk.Service service,
-            RunConfig config,
-            Listener listener) {
+    public BlitzForge(@Nullable IContextManager cm, @Nullable Service service, RunConfig config, Listener listener) {
         this.cm = cm;
         this.service = service;
         this.config = config;
@@ -126,7 +125,7 @@ public final class BlitzForge {
         } else {
             // Fallback simple fixed pool
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
-            executor = java.util.concurrent.Executors.newFixedThreadPool(pool);
+            executor = Executors.newFixedThreadPool(pool);
         }
 
         int processedCount = 0;
@@ -151,7 +150,7 @@ public final class BlitzForge {
 
             // Submit the rest using a completion service
             CompletionService<FileResult> completionService = new ExecutorCompletionService<>(executor);
-            java.util.IdentityHashMap<Future<FileResult>, ProjectFile> futureFiles = new java.util.IdentityHashMap<>();
+            IdentityHashMap<Future<FileResult>, ProjectFile> futureFiles = new IdentityHashMap<>();
             for (var file : sortedFiles.subList(startIdx, sortedFiles.size())) {
                 listener.onFileStart(file);
 

@@ -12,6 +12,8 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.McpToolTable;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.JDeploySettingsUtil;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.mcp.HttpMcpServer;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
@@ -21,6 +23,8 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -29,15 +33,22 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.EventObject;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
+import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -100,6 +111,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JComboBox<String> uiScaleCombo; // Hidden on macOS
 
+    // JVM memory settings controls (General tab)
+    private JRadioButton memoryAutoRadio = new JRadioButton("Automatic (recommended)");
+    private JRadioButton memoryManualRadio = new JRadioButton("Manual:");
+    private JSpinner memorySpinner = new JSpinner();
+
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
@@ -133,6 +149,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void initComponents() {
         // globalSubTabbedPane is already initialized
+
+        // General Tab
+        var generalPanel = createGeneralPanel();
+        globalSubTabbedPane.addTab("General", null, generalPanel, "General settings");
 
         // Service Tab
         var servicePanel = createServicePanel();
@@ -185,12 +205,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JPanel createKeybindingsPanel() {
         var panel = new JPanel(new GridBagLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        final java.util.concurrent.atomic.AtomicInteger row = new java.util.concurrent.atomic.AtomicInteger(0);
+        final AtomicInteger row = new AtomicInteger(0);
 
         class RowAdder {
             void add(String id, String label) {
-                javax.swing.KeyStroke def = defaultFor(id);
-                javax.swing.KeyStroke cur = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(id, def);
+                KeyStroke def = defaultFor(id);
+                KeyStroke cur = GlobalUiSettings.getKeybinding(id, def);
 
                 int r = row.getAndIncrement();
                 var gbcLabel = new GridBagConstraints();
@@ -228,9 +248,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(clearBtn, gbcClear);
 
                 setBtn.addActionListener(ev -> {
-                    javax.swing.KeyStroke captured = captureKeyStroke(panel);
+                    KeyStroke captured = captureKeyStroke(panel);
                     if ("global.closeWindow".equals(id)
-                            && captured.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE
+                            && captured.getKeyCode() == KeyEvent.VK_ESCAPE
                             && captured.getModifiers() == 0) {
                         JOptionPane.showMessageDialog(
                                 panel,
@@ -256,7 +276,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         }
                     }
 
-                    io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, captured);
+                    GlobalUiSettings.saveKeybinding(id, captured);
                     field.setText(formatKeyStroke(captured));
                     // Immediately refresh global keybindings so changes take effect
                     try {
@@ -268,7 +288,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 });
 
                 clearBtn.addActionListener(ev -> {
-                    io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, def);
+                    GlobalUiSettings.saveKeybinding(id, def);
                     field.setText(formatKeyStroke(def));
                 });
             }
@@ -359,12 +379,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return panel;
     }
 
-    private static String formatKeyStroke(javax.swing.KeyStroke ks) {
+    private static String formatKeyStroke(KeyStroke ks) {
         try {
             int modifiers = ks.getModifiers();
             int keyCode = ks.getKeyCode();
-            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
-            String keyText = java.awt.event.KeyEvent.getKeyText(keyCode);
+            String modText = InputEvent.getModifiersExText(modifiers);
+            String keyText = KeyEvent.getKeyText(keyCode);
             if (modText == null || modText.isBlank()) return keyText;
             return modText + "+" + keyText;
         } catch (Exception e) {
@@ -372,10 +392,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
-    private static javax.swing.KeyStroke captureKeyStroke(java.awt.Component parent) {
-        final javax.swing.KeyStroke[] result = new javax.swing.KeyStroke[1];
-        final java.awt.KeyboardFocusManager kfm = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager();
-        java.awt.KeyEventDispatcher[] ref = new java.awt.KeyEventDispatcher[1];
+    private static KeyStroke captureKeyStroke(Component parent) {
+        final KeyStroke[] result = new KeyStroke[1];
+        final KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+        KeyEventDispatcher[] ref = new KeyEventDispatcher[1];
 
         var dialog = new JDialog((Frame) null, "Press new shortcut", true);
         var label = new JLabel("Press the desired key combination now (ESC to cancel)...");
@@ -384,20 +404,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         dialog.setSize(420, 140);
         dialog.setLocationRelativeTo(parent);
 
-        java.awt.KeyEventDispatcher dispatcher = e -> {
-            if (e.getID() != java.awt.event.KeyEvent.KEY_PRESSED) return false;
+        KeyEventDispatcher dispatcher = e -> {
+            if (e.getID() != KeyEvent.KEY_PRESSED) return false;
             int code = e.getKeyCode();
             // Ignore pure modifier presses; wait for a real key
-            if (code == java.awt.event.KeyEvent.VK_SHIFT
-                    || code == java.awt.event.KeyEvent.VK_CONTROL
-                    || code == java.awt.event.KeyEvent.VK_ALT
-                    || code == java.awt.event.KeyEvent.VK_META) {
+            if (code == KeyEvent.VK_SHIFT
+                    || code == KeyEvent.VK_CONTROL
+                    || code == KeyEvent.VK_ALT
+                    || code == KeyEvent.VK_META) {
                 return true;
             }
-            if (code == java.awt.event.KeyEvent.VK_ESCAPE && e.getModifiersEx() == 0) {
+            if (code == KeyEvent.VK_ESCAPE && e.getModifiersEx() == 0) {
                 result[0] = null; // cancel
             } else {
-                result[0] = javax.swing.KeyStroke.getKeyStroke(code, e.getModifiersEx());
+                result[0] = KeyStroke.getKeyStroke(code, e.getModifiersEx());
             }
             dialog.dispose();
             return true;
@@ -413,11 +433,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } finally {
             if (ref[0] != null) kfm.removeKeyEventDispatcher(ref[0]);
         }
-        return result[0] == null ? javax.swing.KeyStroke.getKeyStroke(0, 0) : result[0];
+        return result[0] == null ? KeyStroke.getKeyStroke(0, 0) : result[0];
     }
 
     /** Checks if a KeyStroke conflicts with any existing keybinding. */
-    private static @Nullable String findConflictingKeybinding(javax.swing.KeyStroke newKeyStroke, String excludeId) {
+    private static @Nullable String findConflictingKeybinding(KeyStroke newKeyStroke, String excludeId) {
         if (newKeyStroke.getKeyCode() == 0) return null;
 
         // List of all keybinding IDs to check
@@ -451,8 +471,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         for (String id : allKeybindingIds) {
             if (id.equals(excludeId)) continue; // Skip the one we're setting
 
-            javax.swing.KeyStroke existing =
-                    io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(id, defaultFor(id));
+            KeyStroke existing = GlobalUiSettings.getKeybinding(id, defaultFor(id));
             if (existing.equals(newKeyStroke)) {
                 return getKeybindingDisplayName(id);
             }
@@ -521,13 +540,98 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         };
 
         for (String id : allKeybindingIds) {
-            javax.swing.KeyStroke defaultValue = defaultFor(id);
-            io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, defaultValue);
+            KeyStroke defaultValue = defaultFor(id);
+            GlobalUiSettings.saveKeybinding(id, defaultValue);
         }
     }
 
     public JTabbedPane getGlobalSubTabbedPane() {
         return globalSubTabbedPane;
+    }
+
+    private JPanel createGeneralPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
+
+        // Title
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("JVM Memory Allocation:"), gbc);
+
+        // Radio group
+        var memoryGroup = new ButtonGroup();
+        memoryGroup.add(memoryAutoRadio);
+        memoryGroup.add(memoryManualRadio);
+
+        // Auto option
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        var autoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        autoPanel.add(memoryAutoRadio);
+        panel.add(autoPanel, gbc);
+
+        // Manual option with spinner
+        var spinnerModel = new SpinnerNumberModel(4096, 512, 16384, 128);
+        try {
+            long maxBytes = Runtime.getRuntime().maxMemory();
+            int detectedMb;
+            if (maxBytes <= 0 || maxBytes == Long.MAX_VALUE) {
+                detectedMb = 4096; // fallback when not detectable
+            } else {
+                detectedMb = (int) Math.round(maxBytes / 1024.0 / 1024.0);
+                if (detectedMb < 512) detectedMb = 512;
+                if (detectedMb > 16384) detectedMb = 16384;
+                // Snap to nearest 128MB for nicer alignment with step size
+                detectedMb = ((detectedMb + 64) / 128) * 128;
+            }
+            spinnerModel.setValue(detectedMb);
+        } catch (Exception ignored) {
+            spinnerModel.setValue(4096);
+        }
+        memorySpinner.setModel(spinnerModel);
+        memorySpinner.setEditor(new JSpinner.NumberEditor(memorySpinner, "#0"));
+
+        var manualPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        manualPanel.add(memoryManualRadio);
+        manualPanel.add(Box.createHorizontalStrut(5));
+        manualPanel.add(memorySpinner);
+        manualPanel.add(Box.createHorizontalStrut(5));
+        manualPanel.add(new JLabel("MB"));
+
+        gbc.gridy = row++;
+        panel.add(manualPanel, gbc);
+
+        // Listeners to enable/disable spinner
+        memoryAutoRadio.addActionListener(e -> memorySpinner.setEnabled(false));
+        memoryManualRadio.addActionListener(e -> memorySpinner.setEnabled(true));
+
+        // Default selection
+        memoryAutoRadio.setSelected(true);
+        memorySpinner.setEnabled(false);
+
+        // Restart note
+        var restartLabel = new JLabel("Restart required after changing memory settings");
+        restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
+        gbc.gridy = row++;
+        gbc.insets = new Insets(0, 25, 2, 5);
+        panel.add(restartLabel, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5);
+
+        // Filler
+        gbc.gridy = row;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.VERTICAL;
+        panel.add(Box.createVerticalGlue(), gbc);
+
+        return panel;
     }
 
     private JPanel createServicePanel() {
@@ -940,7 +1044,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 0.0;
         topPanel.add(new JLabel("Preferred Code Model:"), gbc);
 
-        preferredCodeModelCombo = new JComboBox<>(availableModelNames);
+        preferredCodeModelCombo = new JComboBox<>();
+        // Will be populated with favorite model aliases in loadSettings()
         // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
         var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         comboHolder.add(preferredCodeModelCombo);
@@ -1089,6 +1194,36 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     public void loadSettings() {
+        // General Tab - JVM Memory
+        try {
+            var mem = MainProject.getJvmMemorySettings();
+            if (mem.automatic()) {
+                memoryAutoRadio.setSelected(true);
+                memorySpinner.setEnabled(false);
+            } else {
+                memoryManualRadio.setSelected(true);
+                memorySpinner.setEnabled(true);
+                try {
+                    int v = mem.manualMb();
+                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
+                    int min = ((Number) model.getMinimum()).intValue();
+                    int max = ((Number) model.getMaximum()).intValue();
+                    if (v < min) v = min;
+                    if (v > max) v = max;
+                    int step = model.getStepSize().intValue();
+                    if (step > 0) {
+                        int rem = v % step;
+                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
+                    }
+                    memorySpinner.setValue(v);
+                } catch (Exception ignore) {
+                    // leave spinner as-is
+                }
+            }
+        } catch (Exception ignore) {
+            // Use defaults if there is any problem reading settings
+        }
+
         // Service Tab
         brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
@@ -1174,9 +1309,31 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
 
         // Quick Models Tab
-        quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
+        var loadedFavorites = MainProject.loadFavoriteModels();
+        quickModelsTableModel.setFavorites(loadedFavorites);
+
+        // Populate preferred code model combo with favorite aliases
+        preferredCodeModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current code config
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
-        preferredCodeModelCombo.setSelectedItem(currentCodeConfig.name());
+        String selectedAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentCodeConfig.name())
+                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
+                    && favorite.config().tier() == currentCodeConfig.tier()) {
+                selectedAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            preferredCodeModelCombo.setSelectedIndex(0);
+        }
 
         // GitHub Tab
         if (gitHubSettingsPanel != null) {
@@ -1258,6 +1415,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
 
+        // General Tab - JVM Memory
+        try {
+            boolean automatic = memoryAutoRadio.isSelected();
+            int mb = ((Number) memorySpinner.getValue()).intValue();
+            var jvmSettings = new MainProject.JvmMemorySettings(automatic, mb);
+            MainProject.setJvmMemorySettings(jvmSettings);
+            JDeploySettingsUtil.updateJvmMemorySettings(jvmSettings);
+            logger.debug(
+                    "Applied JVM memory settings: mode={}, mb={}",
+                    automatic ? "auto" : "manual",
+                    automatic ? "n/a" : mb);
+        } catch (Exception e) {
+            logger.warn("Failed to persist JVM memory settings", e);
+        }
+
         // Appearance Tab
         // Get theme from the selected radio button's client property
         String newTheme = GuiTheme.THEME_LIGHT; // default
@@ -1301,7 +1473,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
             } else {
                 String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
-                var allowed = java.util.Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
+                var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
                 if (!allowed.contains(txt)) {
                     JOptionPane.showMessageDialog(
                             this,
@@ -1346,10 +1518,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // Preferred Code Model
-        var selectedCodeModel = (String) preferredCodeModelCombo.getSelectedItem();
-        if (selectedCodeModel != null && !selectedCodeModel.isEmpty()) {
-            var codeConfig = new Service.ModelConfig(selectedCodeModel);
-            chrome.getProject().getMainProject().setCodeModelConfig(codeConfig);
+        var selectedAlias = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedAlias != null && !selectedAlias.isEmpty()) {
+            try {
+                var favoriteModel = MainProject.getFavoriteModel(selectedAlias);
+                chrome.getProject().getMainProject().setCodeModelConfig(favoriteModel.config());
+            } catch (IllegalArgumentException e) {
+                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedAlias);
+            }
         }
 
         // GitHub Tab - managed via Connect/Disconnect flow
@@ -1504,8 +1680,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return mcpPanel;
     }
 
-    private void showMcpServerDialog(
-            String title, @Nullable HttpMcpServer existing, java.util.function.Consumer<McpServer> onSave) {
+    private void showMcpServerDialog(String title, @Nullable HttpMcpServer existing, Consumer<McpServer> onSave) {
         final var fetchedTools =
                 new AtomicReference<@Nullable List<String>>(existing != null ? existing.tools() : null);
         final var fetchedToolDetails = new AtomicReference<@Nullable List<McpSchema.Tool>>(null);
@@ -1555,7 +1730,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             tokenLabel.setVisible(sel);
             tokenPanel.setVisible(sel);
             SwingUtilities.invokeLater(() -> {
-                java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
+                Window w = SwingUtilities.getWindowAncestor(tokenPanel);
                 if (w != null) w.pack();
                 tokenPanel.revalidate();
                 tokenPanel.repaint();
@@ -1631,7 +1806,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     fetchedTools);
         };
 
-        final javax.swing.Timer[] throttleTimer = new javax.swing.Timer[1];
+        final Timer[] throttleTimer = new Timer[1];
         Runnable validationAction = () -> {
             String current = urlField.getText().trim();
             if (!isUrlValid(current)) {
@@ -1654,7 +1829,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 fetcher.run();
             } else {
                 int delay = (int) (2000L - elapsed);
-                throttleTimer[0] = new javax.swing.Timer(delay, ev -> {
+                throttleTimer[0] = new Timer(delay, ev -> {
                     String latest = urlField.getText().trim();
                     if (!isUrlValid(latest)) {
                         return;
@@ -1692,29 +1867,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
                 nameErrorLabel.setVisible(duplicate);
                 SwingUtilities.invokeLater(() -> {
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(nameField);
+                    Window w = SwingUtilities.getWindowAncestor(nameField);
                     if (w != null) w.pack();
                 });
             }
 
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 validateName();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 validateName();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 validateName();
             }
         });
         // Initial validation for name field
         SwingUtilities.invokeLater(() -> {
-            java.awt.Window w = SwingUtilities.getWindowAncestor(nameField);
+            Window w = SwingUtilities.getWindowAncestor(nameField);
             nameErrorLabel.setVisible(false);
             if (w != null) w.pack();
         });
@@ -1871,15 +2046,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         dialog.setVisible(true);
     }
 
-    private void showStdioMcpServerDialog(
-            String title, @Nullable StdioMcpServer existing, java.util.function.Consumer<McpServer> onSave) {
+    private void showStdioMcpServerDialog(String title, @Nullable StdioMcpServer existing, Consumer<McpServer> onSave) {
 
         // Inputs
         JTextField nameField = new JTextField(existing != null ? existing.name() : "");
         JTextField commandField = new JTextField(existing != null ? existing.command() : "");
 
         List<String> initialArgs = existing != null ? existing.args() : new ArrayList<>();
-        Map<String, String> initialEnv = existing != null ? existing.env() : java.util.Collections.emptyMap();
+        Map<String, String> initialEnv = existing != null ? existing.env() : Collections.emptyMap();
 
         ArgsTableModel argsModel = new ArgsTableModel(initialArgs);
         JTable argsTable = new JTable(argsModel);
@@ -1945,23 +2119,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
                 nameErrorLabel.setVisible(duplicate);
                 SwingUtilities.invokeLater(() -> {
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(nameField);
+                    Window w = SwingUtilities.getWindowAncestor(nameField);
                     if (w != null) w.pack();
                 });
             }
 
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 validateName();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 validateName();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 validateName();
             }
         });
@@ -2030,7 +2204,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 fetchErrorTextArea.setText("Command cannot be empty.");
                 toolsScrollPane.setVisible(false);
                 fetchErrorScrollPane.setVisible(true);
-                java.awt.Window w = SwingUtilities.getWindowAncestor(fetchErrorScrollPane);
+                Window w = SwingUtilities.getWindowAncestor(fetchErrorScrollPane);
                 if (w != null) w.pack();
                 return;
             }
@@ -2239,13 +2413,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
      */
     private DocumentListener createUrlValidationListener(
             JTextField urlField, JLabel urlErrorLabel, Runnable onValidUrl) {
-        final javax.swing.Timer[] debounceTimer = new javax.swing.Timer[1];
+        final Timer[] debounceTimer = new Timer[1];
         return new DocumentListener() {
             private void scheduleValidation() {
                 if (debounceTimer[0] != null && debounceTimer[0].isRunning()) {
                     debounceTimer[0].stop();
                 }
-                debounceTimer[0] = new javax.swing.Timer(500, ev -> {
+                debounceTimer[0] = new Timer(500, ev -> {
                     String text = urlField.getText().trim();
                     boolean ok = isUrlValid(text);
                     urlErrorLabel.setVisible(!ok);
@@ -2254,7 +2428,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     }
                     // Repack containing dialog/window so visibility change is applied
                     SwingUtilities.invokeLater(() -> {
-                        java.awt.Window w = SwingUtilities.getWindowAncestor(urlField);
+                        Window w = SwingUtilities.getWindowAncestor(urlField);
                         if (w != null) w.pack();
                     });
                 });
@@ -2263,17 +2437,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
 
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 scheduleValidation();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 scheduleValidation();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 scheduleValidation();
             }
         };
@@ -2767,7 +2941,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         @Override
-        public boolean isCellEditable(java.util.EventObject anEvent) {
+        public boolean isCellEditable(EventObject anEvent) {
             int editingRow = table.getEditingRow();
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
@@ -2872,7 +3046,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         @Override
-        public boolean isCellEditable(java.util.EventObject anEvent) {
+        public boolean isCellEditable(EventObject anEvent) {
             int editingRow = table.getEditingRow();
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
@@ -2903,166 +3077,137 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     // --- Default keybinding definitions ---
-    private static javax.swing.KeyStroke defaultToggleMode() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_M);
+    private static KeyStroke defaultToggleMode() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
     }
 
     // Global text editing defaults
-    private static javax.swing.KeyStroke defaultUndo() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_Z);
+    private static KeyStroke defaultUndo() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_Z);
     }
 
-    private static javax.swing.KeyStroke defaultRedo() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(
-                java.awt.event.KeyEvent.VK_Z);
+    private static KeyStroke defaultRedo() {
+        return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_Z);
     }
 
-    private static javax.swing.KeyStroke defaultCopy() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_C);
+    private static KeyStroke defaultCopy() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_C);
     }
 
-    private static javax.swing.KeyStroke defaultPaste() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_V);
+    private static KeyStroke defaultPaste() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_V);
     }
 
     // Voice and interface defaults
-    private static javax.swing.KeyStroke defaultToggleMicrophone() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_L);
+    private static KeyStroke defaultToggleMicrophone() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
     }
 
     // Panel navigation defaults (Alt/Cmd+Number)
-    private static javax.swing.KeyStroke defaultSwitchToProjectFiles() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, modifier);
+    private static KeyStroke defaultSwitchToProjectFiles() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToDependencies() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, modifier);
+    private static KeyStroke defaultSwitchToDependencies() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToChanges() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, modifier);
+    private static KeyStroke defaultSwitchToChanges() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToWorktrees() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, modifier);
+    private static KeyStroke defaultSwitchToWorktrees() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToLog() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, modifier);
+    private static KeyStroke defaultSwitchToLog() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToPullRequests() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_6, modifier);
+    private static KeyStroke defaultSwitchToPullRequests() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToIssues() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, modifier);
+    private static KeyStroke defaultSwitchToIssues() {
+        int modifier = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")
+                ? KeyEvent.META_DOWN_MASK
+                : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(KeyEvent.VK_7, modifier);
     }
 
     // General navigation defaults
-    private static javax.swing.KeyStroke defaultCloseWindow() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_W);
+    private static KeyStroke defaultCloseWindow() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
     }
 
-    private static javax.swing.KeyStroke defaultOpenSettings() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_COMMA);
+    private static KeyStroke defaultOpenSettings() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
     }
 
     // Drawer navigation defaults
-    private static javax.swing.KeyStroke defaultToggleTerminalDrawer() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_T,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
-                        | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+    private static KeyStroke defaultToggleTerminalDrawer() {
+        return KeyStroke.getKeyStroke(
+                KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
     }
 
-    private static javax.swing.KeyStroke defaultToggleDependenciesDrawer() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_D,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
-                        | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+    private static KeyStroke defaultToggleDependenciesDrawer() {
+        return KeyStroke.getKeyStroke(
+                KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToTerminalTab() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_T,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    private static KeyStroke defaultSwitchToTerminalTab() {
+        return KeyStroke.getKeyStroke(KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
-    private static javax.swing.KeyStroke defaultSwitchToTasksTab() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_K,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    private static KeyStroke defaultSwitchToTasksTab() {
+        return KeyStroke.getKeyStroke(KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
     // View control defaults
-    private static javax.swing.KeyStroke defaultZoomIn() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_PLUS,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    private static KeyStroke defaultZoomIn() {
+        return KeyStroke.getKeyStroke(
+                KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
-    private static javax.swing.KeyStroke defaultZoomInAlt() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_EQUALS,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    private static KeyStroke defaultZoomInAlt() {
+        return KeyStroke.getKeyStroke(
+                KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
-    private static javax.swing.KeyStroke defaultZoomOut() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_MINUS,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    private static KeyStroke defaultZoomOut() {
+        return KeyStroke.getKeyStroke(
+                KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
-    private static javax.swing.KeyStroke defaultResetZoom() {
-        return javax.swing.KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_0,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    private static KeyStroke defaultResetZoom() {
+        return KeyStroke.getKeyStroke(KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
     @SuppressWarnings("UnusedMethod")
-    private static javax.swing.KeyStroke defaultFor(String id) {
+    private static KeyStroke defaultFor(String id) {
         return switch (id) {
             // Instructions panel
             case "instructions.submit" ->
-                javax.swing.KeyStroke.getKeyStroke(
-                        java.awt.event.KeyEvent.VK_ENTER,
-                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
             case "instructions.toggleMode" -> defaultToggleMode();
 
             // Global text editing
@@ -3100,9 +3245,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.closeWindow" -> defaultCloseWindow();
 
             default ->
-                javax.swing.KeyStroke.getKeyStroke(
-                        java.awt.event.KeyEvent.VK_ENTER,
-                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         };
     }
 }

@@ -5,10 +5,13 @@ import static io.github.jbellis.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -307,7 +310,7 @@ public class EditBlock {
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
-            java.nio.file.Files.deleteIfExists(file.absPath()); // remove from disk
+            Files.deleteIfExists(file.absPath()); // remove from disk
             contextManager.getRepo().remove(file); // stage deletion
             return; // Do not write the blank content
         }
@@ -726,7 +729,7 @@ public class EditBlock {
         var fqName = markerMatcher.group(2).trim();
 
         var analyzer = contextManager.getAnalyzer();
-        var scpOpt = analyzer.as(io.github.jbellis.brokk.analyzer.SourceCodeProvider.class);
+        var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
             throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
         }
@@ -753,7 +756,7 @@ public class EditBlock {
             try {
                 sources = scp.getMethodSources(fqName, true);
             } catch (io.github.jbellis.brokk.analyzer.SymbolNotFoundException e) {
-                sources = java.util.Collections.emptySet();
+                sources = Collections.emptySet();
             }
             if (sources.isEmpty()) {
                 var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;

@@ -37,6 +37,7 @@ public class FragmentDtos {
                     StringFragmentDto,
                     SearchFragmentDto,
                     SkeletonFragmentDto,
+                    SummaryFragmentDto,
                     UsageFragmentDto,
                     PasteTextFragmentDto,
                     PasteImageFragmentDto,
@@ -134,6 +135,19 @@ public class FragmentDtos {
                 throw new IllegalArgumentException("targetIdentifiers cannot be null or empty");
             }
             targetIdentifiers = List.copyOf(targetIdentifiers);
+            if (summaryType.isEmpty()) {
+                throw new IllegalArgumentException("summaryType cannot be null or empty");
+            }
+        }
+    }
+
+    /** DTO for SummaryFragment - contains a single target identifier and summary type. */
+    public record SummaryFragmentDto(String id, String targetIdentifier, String summaryType)
+            implements VirtualFragmentDto {
+        public SummaryFragmentDto {
+            if (targetIdentifier.isEmpty()) {
+                throw new IllegalArgumentException("targetIdentifier cannot be null or empty");
+            }
             if (summaryType.isEmpty()) {
                 throw new IllegalArgumentException("summaryType cannot be null or empty");
             }

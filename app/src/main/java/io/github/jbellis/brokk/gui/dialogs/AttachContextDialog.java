@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -13,6 +14,9 @@ import java.awt.Dimension;
 import java.awt.Frame;
 import java.awt.Insets;
 import java.awt.Toolkit;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -22,10 +26,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -135,7 +141,7 @@ public class AttachContextDialog extends JDialog {
         filesBtn.setSelected(true);
 
         // Wire up selection changes
-        var tabListener = (java.awt.event.ActionListener) e -> onTabChanged();
+        var tabListener = (ActionListener) e -> onTabChanged();
         filesBtn.addActionListener(tabListener);
         foldersBtn.addActionListener(tabListener);
         classesBtn.addActionListener(tabListener);
@@ -164,14 +170,14 @@ public class AttachContextDialog extends JDialog {
             if (searchField.getText().isEmpty() && !searchField.hasFocus()) searchOverlay.showOverlay();
             else searchOverlay.hideOverlay();
         });
-        searchField.addFocusListener(new java.awt.event.FocusAdapter() {
+        searchField.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
+            public void focusGained(FocusEvent e) {
                 searchOverlay.hideOverlay();
             }
 
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 if (searchField.getText().isEmpty()) searchOverlay.showOverlay();
             }
         });
@@ -237,7 +243,7 @@ public class AttachContextDialog extends JDialog {
                             dispose();
                         },
                         KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Hotkeys for tabs (1-5) - use platform menu shortcut (Cmd on macOS, Ctrl elsewhere)
         var menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
@@ -245,34 +251,34 @@ public class AttachContextDialog extends JDialog {
                 .registerKeyboardAction(
                         ev -> filesBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_1, menuMask),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
                         ev -> foldersBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_2, menuMask),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
                         ev -> classesBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_3, menuMask),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
                         ev -> methodsBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_4, menuMask),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
                         ev -> usagesBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_5, menuMask),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Hotkey for summarize checkbox
         getRootPane()
                 .registerKeyboardAction(
                         ev -> summarizeCheck.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_I, menuMask),
-                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Register analyzer callback to manage gating lifecycle
         registerAnalyzerCallback();
@@ -478,7 +484,7 @@ public class AttachContextDialog extends JDialog {
 
         Set<ContextFragment> fragments = selected.stream()
                 .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         selection = new Result(fragments, summarizeCheck.isSelected());
         dispose();
     }
@@ -596,7 +602,7 @@ public class AttachContextDialog extends JDialog {
             if (pattern.isEmpty() || !cm.getProject().hasGit()) return List.of();
 
             Set<ProjectFile> candidates = cm.getProject().getAllFiles();
-            var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
+            var scored = Completions.scoreShortAndLong(
                     pattern,
                     candidates,
                     ProjectFile::getFileName,
@@ -637,7 +643,7 @@ public class AttachContextDialog extends JDialog {
                 }
             }
 
-            var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
+            var scored = Completions.scoreShortAndLong(
                     pattern,
                     folders,
                     s -> {
@@ -687,7 +693,7 @@ public class AttachContextDialog extends JDialog {
             var pattern = getAlreadyEnteredText(tc).trim();
             if (analyzer == null || pattern.isEmpty()) return List.of();
 
-            List<CodeUnit> cands = io.github.jbellis.brokk.Completions.completeSymbols(pattern, analyzer);
+            List<CodeUnit> cands = Completions.completeSymbols(pattern, analyzer);
             var filtered =
                     switch (mode) {
                         case CLASSES -> cands.stream().filter(CodeUnit::isClass).toList();
@@ -696,7 +702,7 @@ public class AttachContextDialog extends JDialog {
                         case ALL -> cands;
                     };
 
-            var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
+            var scored = Completions.scoreShortAndLong(
                     pattern,
                     filtered,
                     CodeUnit::identifier,

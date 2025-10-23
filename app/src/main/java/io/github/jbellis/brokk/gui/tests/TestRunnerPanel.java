@@ -16,6 +16,8 @@ import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Insets;
 import java.time.Duration;
@@ -127,22 +129,22 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runListScrollPane = new JScrollPane(
                 runList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         runListScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        runListScrollPane.setMinimumSize(new java.awt.Dimension(100, 60));
-        runListScrollPane.setPreferredSize(new java.awt.Dimension(100, 150));
+        runListScrollPane.setMinimumSize(new Dimension(100, 60));
+        runListScrollPane.setPreferredSize(new Dimension(100, 150));
 
         // Title and toolbar (similar to TaskListPanel)
         setBorder(BorderFactory.createTitledBorder("Tests"));
         var border = getBorder();
         if (border != null) {
             var insets = border.getBorderInsets(this);
-            setMinimumSize(new java.awt.Dimension(100, insets.top + insets.bottom));
+            setMinimumSize(new Dimension(100, insets.top + insets.bottom));
         }
-        var topToolbar = new JPanel(new java.awt.BorderLayout());
+        var topToolbar = new JPanel(new BorderLayout());
         topToolbar.setOpaque(false);
 
-        var leftToolbar = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        var leftToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         leftToolbar.setOpaque(false);
-        runAllButton.setIcon(Icons.FAST_FORWARD);
+        runAllButton.setIcon(Icons.PLAY);
         runAllButton.setMargin(new Insets(0, 0, 0, 0));
         runAllButton.setToolTipText(
                 "<html><body style='width:300px'>Run all tests using your build settings.<br>Output is streamed to this panel.</body></html>");
@@ -177,17 +179,17 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         outputScrollPane = new JScrollPane(
                 outputArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        outputScrollPane.setMinimumSize(new java.awt.Dimension(100, 60));
-        outputScrollPane.setPreferredSize(new java.awt.Dimension(100, 200));
-        outputScrollPane.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 200));
+        outputScrollPane.setMinimumSize(new Dimension(100, 60));
+        outputScrollPane.setPreferredSize(new Dimension(100, 200));
+        outputScrollPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
 
         splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, runListScrollPane, outputScrollPane);
         splitPane.setResizeWeight(0.3);
         splitPane.setDividerLocation(150);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
-        splitPane.setMinimumSize(new java.awt.Dimension(100, 200));
+        splitPane.setMinimumSize(new Dimension(100, 200));
 
-        setMinimumSize(new java.awt.Dimension(100, 200));
+        setMinimumSize(new Dimension(100, 200));
 
         add(splitPane, BorderLayout.CENTER);
 
@@ -203,17 +205,24 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             logger.warn("Failed to load persisted test runs: {}", e.getMessage(), e);
         }
 
+        // Initialize Run All button state and enable asynchronously once build details are available
+        runAllButton.setEnabled(false);
         // Enable/disable Run All based on current build details availability
         if (chrome != null) {
-            try {
-                var details = chrome.getProject().awaitBuildDetails();
-                runAllButton.setEnabled(!details.equals(BuildAgent.BuildDetails.EMPTY)
-                        && !details.testAllCommand().isBlank());
-            } catch (Exception ex) {
-                runAllButton.setEnabled(false);
-            }
-        } else {
-            runAllButton.setEnabled(false);
+            chrome.getProject()
+                    .getBuildDetailsFuture()
+                    .thenAccept((details) -> {
+                        SwingUtilities.invokeLater(() -> {
+                            boolean validDetails = !details.equals(BuildAgent.BuildDetails.EMPTY)
+                                    && !details.testAllCommand().isBlank();
+                            runAllButton.setEnabled(validDetails);
+                        });
+                    })
+                    .exceptionally(ex -> {
+                        SwingUtilities.invokeLater(() -> runAllButton.setEnabled(false));
+                        logger.error("Failed to load build details for Run All button: {}", ex.getMessage(), ex);
+                        return null;
+                    });
         }
     }
 
@@ -683,7 +692,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void executeTests(String command, int fileCount, java.util.Map<String, String> environment) {
+    private void executeTests(String command, int fileCount, Map<String, String> environment) {
         if (chrome == null) {
             logger.warn("executeTests called without Chrome context; ignoring.");
             return;

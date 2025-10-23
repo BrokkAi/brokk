@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.difftool.ui;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -106,14 +107,14 @@ public class BufferDiffPanelCrossDriveTest {
         var outsideProject = tempDir.resolve("external");
 
         // Create directories and files for testing
-        java.nio.file.Files.createDirectories(projectRoot.resolve("src"));
-        java.nio.file.Files.createDirectories(outsideProject);
+        Files.createDirectories(projectRoot.resolve("src"));
+        Files.createDirectories(outsideProject);
 
         var insideFile = projectRoot.resolve("src/Main.java");
         var outsideFile = outsideProject.resolve("Library.java");
 
-        java.nio.file.Files.writeString(insideFile, "public class Main {}");
-        java.nio.file.Files.writeString(outsideFile, "public class Library {}");
+        Files.writeString(insideFile, "public class Main {}");
+        Files.writeString(outsideFile, "public class Library {}");
 
         // Test case 1: File inside project (path.startsWith(projectRoot))
         assertTrue(insideFile.startsWith(projectRoot), "Inside file should start with project root");
@@ -153,11 +154,11 @@ public class BufferDiffPanelCrossDriveTest {
         // This tests the fix for the timing issue where baseline was captured after file save
 
         var projectRoot = tempDir.resolve("project").toAbsolutePath();
-        java.nio.file.Files.createDirectories(projectRoot);
+        Files.createDirectories(projectRoot);
 
         var testFile = projectRoot.resolve("test.txt");
         var originalContent = "original content line 1\noriginal content line 2";
-        java.nio.file.Files.writeString(testFile, originalContent);
+        Files.writeString(testFile, originalContent);
 
         // Test the logic pattern used by capturePreSaveBaselinesFromDisk
         var projectFile = new ProjectFile(projectRoot, Path.of("test.txt"));
@@ -172,7 +173,7 @@ public class BufferDiffPanelCrossDriveTest {
         assertEquals(originalContent, preSaveContent, "Pre-save baseline should capture original content from disk");
 
         // Simulate file save (this is what happens in doSave)
-        java.nio.file.Files.writeString(testFile, "modified content");
+        Files.writeString(testFile, "modified content");
 
         // Verify that post-save read would return different content
         var postSaveContent = projectFile.read().orElseThrow();

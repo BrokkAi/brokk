@@ -33,7 +33,7 @@ public final class PythonAnalyzerTest {
 
         ProjectFile fileA = new ProjectFile(project.getRoot(), "a/A.py");
         // Skeletons are now reconstructed. We check CodeUnits first.
-        var classesInFileA = ana.getDeclarationsInFile(fileA);
+        var classesInFileA = ana.getDeclarations(fileA);
         var classA_CU = CodeUnit.cls(fileA, "a", "A");
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
@@ -72,7 +72,7 @@ public final class PythonAnalyzerTest {
         // Note: PythonAnalyzer.getLanguageSpecificIndent() might affect exact string match if not "  "
         assertEquals(classASummary.trim(), classASkeleton.trim(), "Class A skeleton mismatch.");
 
-        Set<CodeUnit> declarationsInA = ana.getDeclarationsInFile(fileA);
+        Set<CodeUnit> declarationsInA = ana.getDeclarations(fileA);
         assertTrue(
                 declarationsInA.contains(classA_CU),
                 "getDeclarationsInFile mismatch for file A: missing classA_CU. Found: " + declarationsInA);
@@ -116,7 +116,7 @@ public final class PythonAnalyzerTest {
                 skelVars.get(exportLikeCU).strip()); // Note: Query captures the whole assignment
 
         // Ensure these are not mistaken for classes
-        Set<CodeUnit> declarationsInVarsPy = analyzer.getDeclarationsInFile(varsPyFile);
+        Set<CodeUnit> declarationsInVarsPy = analyzer.getDeclarations(varsPyFile);
         assertTrue(
                 declarationsInVarsPy.contains(topValueCU),
                 "TOP_VALUE should be in declarations list for vars.py. Found: " + declarationsInVarsPy);

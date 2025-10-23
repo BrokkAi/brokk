@@ -60,7 +60,7 @@ class SqlAnalyzerTest {
         assertTrue(tableCu.isClass(), "Table should be treated as class-like.");
         assertEquals(projectFile, tableCu.source());
 
-        Set<CodeUnit> fileDecls = analyzer.getDeclarationsInFile(projectFile);
+        Set<CodeUnit> fileDecls = analyzer.getDeclarations(projectFile);
         assertEquals(1, fileDecls.size());
         assertTrue(fileDecls.contains(tableCu));
 
@@ -140,7 +140,7 @@ class SqlAnalyzerTest {
         assertTrue(t2Opt.isPresent());
         assertEquals("t2", t2Opt.get().shortName());
 
-        assertEquals(3, analyzer.getDeclarationsInFile(projectFile).size());
+        assertEquals(3, analyzer.getDeclarations(projectFile).size());
     }
 
     @Test
@@ -241,7 +241,7 @@ class SqlAnalyzerTest {
 
         assertTrue(analyzer.isEmpty(), "Analyzer should be empty for an empty SQL file.");
         assertEquals(0, analyzer.getAllDeclarations().size());
-        assertTrue(analyzer.getDeclarationsInFile(projectFile).isEmpty());
+        assertTrue(analyzer.getDeclarations(projectFile).isEmpty());
     }
 
     @Test
@@ -279,7 +279,7 @@ class SqlAnalyzerTest {
     }
 
     @Test
-    void testTopLevelCodeUnitsOfSingleTable() throws IOException {
+    void testGetTopLevelDeclarationsSingleTable() throws IOException {
         Path sqlFile = tempDir.resolve("test_top_level.sql");
         String sqlContent = "CREATE TABLE my_table (id INT, name VARCHAR(100));";
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
@@ -289,13 +289,13 @@ class SqlAnalyzerTest {
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(projectFile);
         assertEquals(1, topLevelUnits.size(), "Should return one top-level code unit.");
         assertEquals("my_table", topLevelUnits.get(0).shortName());
     }
 
     @Test
-    void testTopLevelCodeUnitsOfMultipleTables() throws IOException {
+    void testGetTopLevelDeclarationsMultipleTables() throws IOException {
         Path sqlFile = tempDir.resolve("multi_top_level.sql");
         String sqlContent =
                 """
@@ -310,7 +310,7 @@ class SqlAnalyzerTest {
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(projectFile);
         assertEquals(3, topLevelUnits.size(), "Should return three top-level code units.");
 
         var names = topLevelUnits.stream().map(CodeUnit::fqName).toList();
@@ -320,7 +320,7 @@ class SqlAnalyzerTest {
     }
 
     @Test
-    void testTopLevelCodeUnitsOfEmptyFile() throws IOException {
+    void testGetTopLevelDeclarationsEmptyFile() throws IOException {
         Path sqlFile = tempDir.resolve("empty_top_level.sql");
         Files.writeString(sqlFile, "", StandardCharsets.UTF_8);
 
@@ -329,12 +329,12 @@ class SqlAnalyzerTest {
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(projectFile);
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for empty file.");
     }
 
     @Test
-    void testTopLevelCodeUnitsOfNonExistentFile() throws IOException {
+    void testGetTopLevelDeclarationsNonExistentFile() throws IOException {
         Path existingFile = tempDir.resolve("existing.sql");
         Files.writeString(existingFile, "CREATE TABLE tbl (id INT);", StandardCharsets.UTF_8);
 
@@ -345,7 +345,7 @@ class SqlAnalyzerTest {
         var testProject = createTestProject(Set.of(existingProjectFile));
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
-        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentProjectFile);
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentProjectFile);
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file.");
     }
 

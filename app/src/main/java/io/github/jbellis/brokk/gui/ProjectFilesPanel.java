@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.JTextComponent;
@@ -55,8 +57,8 @@ public class ProjectFilesPanel extends JPanel {
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "Project Files",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
         setupSearchFieldAndAutocomplete();
@@ -85,8 +87,8 @@ public class ProjectFilesPanel extends JPanel {
         splitPane.setResizeWeight(0.7);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
         splitPane.setOneTouchExpandable(false);
-        splitPane.setMinimumSize(new java.awt.Dimension(100, 200));
-        this.testRunnerPanel.setMinimumSize(new java.awt.Dimension(100, 200));
+        splitPane.setMinimumSize(new Dimension(100, 200));
+        this.testRunnerPanel.setMinimumSize(new Dimension(100, 200));
         add(splitPane, BorderLayout.CENTER);
     }
 
@@ -223,8 +225,8 @@ public class ProjectFilesPanel extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 Action contextMenuAction = projectTree.getActionMap().get("showContextMenu");
                 if (contextMenuAction != null) {
-                    contextMenuAction.actionPerformed(new java.awt.event.ActionEvent(
-                            projectTree, java.awt.event.ActionEvent.ACTION_PERFORMED, "showContextMenu"));
+                    contextMenuAction.actionPerformed(
+                            new ActionEvent(projectTree, ActionEvent.ACTION_PERFORMED, "showContextMenu"));
                 }
             });
             return;

@@ -8,6 +8,7 @@ import java.awt.Graphics2D;
 import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import javax.swing.JComponent;
 import javax.swing.JTextArea;
 
@@ -181,7 +182,7 @@ public class WrappedTextView extends JComponent {
             out.add("");
             return;
         }
-        var breaker = BreakIterator.getLineInstance(java.util.Locale.ROOT);
+        var breaker = BreakIterator.getLineInstance(Locale.ROOT);
         breaker.setText(para);
         int start = breaker.first();
         int end = breaker.next();

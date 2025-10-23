@@ -2,14 +2,22 @@ package io.github.jbellis.brokk.analyzer;
 
 import static java.util.Objects.requireNonNull;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.util.FileUtil;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -18,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class RustLanguage implements Language {
@@ -165,7 +174,7 @@ public class RustLanguage implements Language {
 
         var manifestPath = pkg.sourcePath();
         if (!Files.exists(manifestPath)) {
-            javax.swing.SwingUtilities.invokeLater(() -> chrome.toolError(
+            SwingUtilities.invokeLater(() -> chrome.toolError(
                     "Could not locate crate sources in local Cargo cache for " + pkg.displayName()
                             + ".\nPlease run 'cargo build' in your project, then retry.",
                     "Rust Import"));
@@ -180,19 +189,19 @@ public class RustLanguage implements Language {
 
         final var currentListener = lifecycle;
         if (currentListener != null) {
-            javax.swing.SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
+            SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
         chrome.getContextManager().submitBackgroundTask("Copying Rust crate: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(targetRoot.getParent());
                 if (Files.exists(targetRoot)) {
-                    if (!io.github.jbellis.brokk.util.FileUtil.deleteRecursively(targetRoot)) {
+                    if (!FileUtil.deleteRecursively(targetRoot)) {
                         throw new IOException("Failed to delete existing destination: " + targetRoot);
                     }
                 }
                 copyRustCrate(sourceRoot, targetRoot);
-                javax.swing.SwingUtilities.invokeLater(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Rust crate copied to " + targetRoot + ". Reopen project to incorporate the new files.");
@@ -201,7 +210,7 @@ public class RustLanguage implements Language {
             } catch (Exception ex) {
                 logger.error(
                         "Error copying Rust crate {} from {} to {}", pkg.displayName(), sourceRoot, targetRoot, ex);
-                javax.swing.SwingUtilities.invokeLater(
+                SwingUtilities.invokeLater(
                         () -> chrome.toolError("Error copying Rust crate: " + ex.getMessage(), "Rust Import"));
             }
             return null;
@@ -227,16 +236,14 @@ public class RustLanguage implements Language {
         var process = pb.start();
 
         var stdout = new StringBuilder();
-        try (var reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+        try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) stdout.append(line).append('\n');
         }
         int exit = process.waitFor();
         if (exit != 0) throw new IOException("cargo metadata failed with exit code " + exit);
 
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper()
-                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        var mapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return mapper.readValue(stdout.toString(), CargoMetadata.class);
     }
 
@@ -276,7 +283,7 @@ public class RustLanguage implements Language {
                                 name.startsWith("readme") || name.startsWith("license") || name.startsWith("copying");
                         if (isRs || isManifest || isDoc) {
                             Files.createDirectories(requireNonNull(dst.getParent()));
-                            Files.copy(src, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
                         }
                     }
                 } catch (IOException e) {
@@ -309,13 +316,13 @@ public class RustLanguage implements Language {
     }
 
     // --- cargo metadata DTOs for Rust importer ---
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class CargoMetadata {
         public List<CargoPackage> packages = List.of();
         public List<String> workspace_members = List.of();
     }
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class CargoPackage {
         public String id = "";
         public String name = "";
@@ -325,7 +332,7 @@ public class RustLanguage implements Language {
         public List<CargoDependency> dependencies = List.of();
     }
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class CargoDependency {
         public String name = "";
         public @Nullable String kind;

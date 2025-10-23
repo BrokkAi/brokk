@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.issues;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.IssueProvider;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,9 +33,9 @@ public class JiraIssueServiceTest {
         // Return an anonymous implementation of IProject
         return new IProject() {
             @Override
-            public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+            public IssueProvider getIssuesProvider() {
                 var jiraConfig = new IssuesProviderConfig.JiraConfig(jiraBaseUrl, jiraApiToken, projectKeyFromTest);
-                return new io.github.jbellis.brokk.IssueProvider(IssueProviderType.JIRA, jiraConfig);
+                return new IssueProvider(IssueProviderType.JIRA, jiraConfig);
             }
 
             @Override

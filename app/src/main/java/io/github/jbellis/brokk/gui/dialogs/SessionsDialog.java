@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
@@ -19,6 +20,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -29,6 +31,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -39,6 +42,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
@@ -99,7 +104,7 @@ public class SessionsDialog extends JDialog {
         sessionsTable = new JTable(sessionsTableModel) {
             @Override
             public String getToolTipText(MouseEvent event) {
-                java.awt.Point p = event.getPoint();
+                Point p = event.getPoint();
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
                     SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, 3);
@@ -160,7 +165,7 @@ public class SessionsDialog extends JDialog {
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
         markdownOutputPanel.withContextForLookups(contextManager, chrome);
-        markdownOutputPanel.updateTheme(io.github.jbellis.brokk.MainProject.getTheme());
+        markdownOutputPanel.updateTheme(MainProject.getTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -296,19 +301,19 @@ public class SessionsDialog extends JDialog {
         });
 
         // Search box listener with debounce
-        searchBox.addDocumentListener(new javax.swing.event.DocumentListener() {
+        searchBox.addDocumentListener(new DocumentListener() {
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 scheduleSessionsTableRefresh();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 scheduleSessionsTableRefresh();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 scheduleSessionsTableRefresh();
             }
         });
@@ -324,7 +329,7 @@ public class SessionsDialog extends JDialog {
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeDialog");
         actionMap.put("closeDialog", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 dispose();
             }
         });
@@ -430,7 +435,7 @@ public class SessionsDialog extends JDialog {
                     .collect(Collectors.toList());
         }
 
-        sessions.sort(java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Sort newest first
+        sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed()); // Sort newest first
 
         UUID currentSessionId = contextManager.getCurrentSessionId();
         for (var session : sessions) {
@@ -473,7 +478,7 @@ public class SessionsDialog extends JDialog {
         }
 
         int[] selectedRows = sessionsTable.getSelectedRows();
-        var selectedSessions = java.util.Arrays.stream(selectedRows)
+        var selectedSessions = Arrays.stream(selectedRows)
                 .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 3))
                 .toList();
 
@@ -526,12 +531,11 @@ public class SessionsDialog extends JDialog {
                     return;
                 }
 
-                var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
+                var futures = new ArrayList<CompletableFuture<?>>();
                 for (var s : deletableSessions) {
                     futures.add(contextManager.deleteSessionAsync(s.id()));
                 }
-                java.util.concurrent.CompletableFuture.allOf(
-                                futures.toArray(new java.util.concurrent.CompletableFuture[0]))
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .whenComplete((Void v, @Nullable Throwable t) -> {
                             SwingUtilities.invokeLater(this::refreshSessionsTable);
                             contextManager.getProject().getMainProject().sessionsListChanged();
@@ -546,15 +550,14 @@ public class SessionsDialog extends JDialog {
         /* ---------- duplicate (single or multi) ---------- */
         JMenuItem dupItem = new JMenuItem(selectedSessions.size() == 1 ? "Duplicate" : "Duplicate Selected");
         dupItem.addActionListener(ev -> {
-            var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
+            var futures = new ArrayList<CompletableFuture<?>>();
             for (var s : selectedSessions) {
                 futures.add(contextManager.copySessionAsync(s.id(), s.name()));
             }
-            java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                    .thenRun(() -> {
-                        SwingUtilities.invokeLater(this::refreshSessionsTable);
-                        contextManager.getProject().getMainProject().sessionsListChanged();
-                    });
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenRun(() -> {
+                SwingUtilities.invokeLater(this::refreshSessionsTable);
+                contextManager.getProject().getMainProject().sessionsListChanged();
+            });
         });
         popup.add(dupItem);
 
@@ -750,8 +753,7 @@ public class SessionsDialog extends JDialog {
                 JOptionPane.showInputDialog(parent, "Enter new name for session '" + info.name() + "':", info.name());
         if (newName != null && !newName.trim().isBlank()) {
             contextManager
-                    .renameSessionAsync(
-                            info.id(), java.util.concurrent.CompletableFuture.completedFuture(newName.trim()))
+                    .renameSessionAsync(info.id(), CompletableFuture.completedFuture(newName.trim()))
                     .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         }
     }

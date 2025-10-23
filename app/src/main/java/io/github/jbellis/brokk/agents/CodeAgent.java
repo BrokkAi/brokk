@@ -4,7 +4,9 @@ import static java.util.Objects.requireNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Patch;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -238,11 +240,6 @@ public class CodeAgent {
                 stopDetails = fatalApply.stopDetails();
                 break;
             }
-            if (applyOutcome instanceof Step.Retry retryApply) {
-                cs = retryApply.cs();
-                es = retryApply.es();
-                continue; // Restart main loop
-            }
             cs = applyOutcome.cs();
             es = applyOutcome.es();
 
@@ -266,6 +263,12 @@ public class CodeAgent {
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
                 context = context.addPathFragments(newFrags);
+            }
+
+            if (applyOutcome instanceof Step.Retry retryApply) {
+                cs = retryApply.cs();
+                es = retryApply.es();
+                continue; // Restart main loop
             }
 
             // After a successful apply, consider compacting the turn into a clean, synthetic summary.
@@ -500,9 +503,7 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
         coder.setOutput(io);
 
-        // Use up to 5 related classes as context
-        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment
-        // directly
+        // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents = file.read().orElse("");
@@ -575,18 +576,28 @@ public class CodeAgent {
      * Appends request + AI message to the conversation or ends on error. After successfully recording the exchange,
      * this method returns a ConversationState where {@code nextRequest} has been nulled out to enforce single-use
      * semantics (see TODO resolution).
+     *
+     * If an error occurred but partial text was captured, proceeds with the partial so parsePhase can parse what
+     * was received and ask the LLM to continue, rather than treating it as a fatal error.
      */
     Step requestPhase(
             ConversationState cs, EditState es, StreamingResult streamingResultFromLlm, @Nullable Metrics metrics) {
         var llmError = streamingResultFromLlm.error();
         if (llmError != null) {
-            String message;
-            TaskResult.StopDetails fatalDetails;
-            message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
-            fatalDetails =
-                    new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
-            io.toolError(message);
-            return new Step.Fatal(fatalDetails);
+            // If there's no usable text, this is a fatal error
+            if (streamingResultFromLlm.isEmpty()) {
+                String message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
+                TaskResult.StopDetails fatalDetails = new TaskResult.StopDetails(
+                        TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
+                io.toolError(message);
+                return new Step.Fatal(fatalDetails);
+            }
+
+            // Partial text exists despite the error; proceed and let parsePhase handle it
+            logger.warn(
+                    "LLM connection dropped but partial text captured ({} chars); proceeding to parse",
+                    streamingResultFromLlm.text().length());
+            report("LLM connection interrupted; parsing partial response and asking to continue.");
         }
 
         // Append request and AI message to taskMessages
@@ -1124,7 +1135,7 @@ public class CodeAgent {
      *
      * <p>Task 3: {@code nextRequest} is now {@code @Nullable}. We deliberately null it out in
      * {@link #requestPhase(ConversationState, EditState, StreamingResult, Metrics)} after sending, to prevent stale
-     * reuse. Callers that need to send a request must {@link java.util.Objects#requireNonNull(Object) requireNonNull}
+     * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
      * it first.
      */
     record ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
@@ -1299,8 +1310,7 @@ public class CodeAgent {
                 var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
 
                 try {
-                    com.github.difflib.patch.Patch<String> patch =
-                            com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
+                    Patch<String> patch = DiffUtils.diff(originalLines, revisedLines);
 
                     // 1) Build minimal windows per delta in original line space
                     record Window(int start, int end) {

@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.analyzer.ranking;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import org.eclipse.jgit.api.Git;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,9 +109,7 @@ public final class GitDistanceTestSuite {
             Path gitDir = testPath.resolve(".git");
             if (Files.exists(gitDir)) {
                 try (final var walk = Files.walk(gitDir)) {
-                    walk.sorted(java.util.Comparator.reverseOrder())
-                            .map(Path::toFile)
-                            .forEach(java.io.File::delete);
+                    walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
                 } catch (Exception e) {
                     logger.warn("Failed to delete git directory: {}", e.getMessage());
                 }

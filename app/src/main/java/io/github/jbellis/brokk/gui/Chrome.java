@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -41,6 +42,7 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -59,7 +61,8 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
+public class Chrome
+        implements AutoCloseable, IConsoleIO, IContextManager.ContextListener, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Track open Chrome instances for window cascading
@@ -83,6 +86,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
     private @Nullable Rectangle dependenciesDialogBounds = null;
+
+    // Track preview windows by ProjectFile for refresh on file changes
+    private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -536,11 +542,25 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (selected == instructionsPanel) {
                 // Move shared Context area back to Instructions
                 taskListPanel.restoreControls();
-                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
-                instructionsPanel.revalidate();
-                instructionsPanel.repaint();
+                try {
+                    // Remove from any existing parent first
+                    var currentParent = contextAreaContainer.getParent();
+                    if (currentParent != null) {
+                        currentParent.remove(contextAreaContainer);
+                        currentParent.revalidate();
+                        currentParent.repaint();
+                    }
+                    // Insert just below the command input (index 1 is safe for current layout)
+                    var center = instructionsPanel.getCenterPanel();
+                    int targetIndex = Math.min(1, Math.max(0, center.getComponentCount()));
+                    center.add(contextAreaContainer, targetIndex);
+                    center.revalidate();
+                    center.repaint();
+                } catch (Exception ex) {
+                    logger.debug("Unable to move Context area back to Instructions", ex);
+                }
 
-                // Move shared ModelSelector back to Instructions bottom bar
+                // Move shared ModelSelector back to Instructions bottom bar (always try this)
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 // Move shared Context area to Tasks
@@ -658,8 +678,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             globalToggleMicAction.updateEnabledState();
         });
 
-        // Listen for context changes (Chrome already implements IContextManager.ContextListener)
+        // Listen for context changes and analyzer events
         contextManager.addContextListener(this);
+        contextManager.addAnalyzerCallback(this);
 
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
@@ -818,6 +839,34 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
+
+                // Open commit dialog with prebaked message for project files
+                SwingUtilities.invokeLater(() -> {
+                    // Get the files that were just staged (including .gitignore if it was added)
+                    var filesToCommit = new ArrayList<ProjectFile>();
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+                    // Open commit dialog with prebaked message
+                    var dialog = new CommitDialog(
+                            frame,
+                            this,
+                            contextManager,
+                            new GitWorkflow(contextManager),
+                            filesToCommit,
+                            "Add Brokk project files", // Pre-filled message
+                            commitResult -> {
+                                showNotification(
+                                        NotificationRole.INFO,
+                                        "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                                                + commitResult.firstLine());
+                                updateCommitPanel();
+                                updateLogTab();
+                            });
+                    dialog.setVisible(true);
+                });
             } catch (Exception e) {
                 logger.error(e);
                 toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
@@ -863,6 +912,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             isEditable = latestContext.equals(ctx);
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
+            // Toggle read-only state for InstructionsPanel UI (chips + token bar)
+            instructionsPanel.setContextReadOnly(!isEditable);
+            // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
+            instructionsPanel.contextChanged(ctx);
             if (updateOutput) {
                 var taskHistory = ctx.getTaskHistory();
                 if (taskHistory.isEmpty()) {
@@ -1200,7 +1253,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Alt/Cmd+2 for Dependencies
-        KeyStroke switchToDependencies = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke switchToDependencies = GlobalUiSettings.getKeybinding(
                 "panel.switchToDependencies", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
         bindKey(rootPane, switchToDependencies, "switchToDependencies");
         rootPane.getActionMap().put("switchToDependencies", new AbstractAction() {
@@ -1491,6 +1544,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    @Override
+    public void onTrackedFileChange() {
+        // Refresh preview windows when tracked files change
+        // Get all currently open preview files
+        Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
+        logger.debug("onTrackedFileChange called - open preview files: {}", openPreviewFiles);
+        if (!openPreviewFiles.isEmpty()) {
+            refreshPreviewsForFiles(openPreviewFiles);
+        }
+    }
+
     /**
      * Creates a searchable content panel with a MarkdownOutputPanel and integrated search bar. This is shared
      * functionality used by both preview windows and detached output windows.
@@ -1649,9 +1713,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // Add listener to save bounds using the "preview" key
             final JFrame finalFrameForBounds = previewFrame;
-            previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
+            previewFrame.addComponentListener(new ComponentAdapter() {
                 @Override
-                public void componentMoved(java.awt.event.ComponentEvent e) {
+                public void componentMoved(ComponentEvent e) {
                     if (isDependencies) {
                         dependenciesDialogBounds = finalFrameForBounds.getBounds();
                     } else {
@@ -1660,7 +1724,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 @Override
-                public void componentResized(java.awt.event.ComponentEvent e) {
+                public void componentResized(ComponentEvent e) {
                     if (isDependencies) {
                         dependenciesDialogBounds = finalFrameForBounds.getBounds();
                     } else {
@@ -1716,15 +1780,34 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
 
-        // Add window cleanup listener to remove from tracking map when window is disposed
+        // Track ProjectFile mapping if this is a file preview
+        ProjectFile projectFile = null;
+        if (contentComponent instanceof PreviewTextPanel textPanel) {
+            projectFile = textPanel.getFile();
+        } else if (contentComponent instanceof PreviewImagePanel imagePanel) {
+            var brokkFile = imagePanel.getFile();
+            if (brokkFile instanceof ProjectFile pf) {
+                projectFile = pf;
+            }
+        }
+
+        if (projectFile != null) {
+            projectFileToPreviewWindow.put(projectFile, previewFrame);
+        }
+
+        // Add window cleanup listener to remove from tracking maps when window is disposed
         final String finalWindowKey = windowKey;
         final JFrame finalPreviewFrame = previewFrame;
+        final ProjectFile finalProjectFile = projectFile;
         if (isNewWindow) {
             previewFrame.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosed(WindowEvent e) {
-                    // Remove from tracking map when window is closed
+                    // Remove from tracking maps when window is closed
                     activePreviewWindows.remove(finalWindowKey, finalPreviewFrame);
+                    if (finalProjectFile != null) {
+                        projectFileToPreviewWindow.remove(finalProjectFile, finalPreviewFrame);
+                    }
                 }
             });
         }
@@ -1738,7 +1821,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
         actionMap.put("closeWindow", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 // Simulate window closing event to trigger the WindowListener logic
                 finalFrameForESC.dispatchEvent(new WindowEvent(finalFrameForESC, WindowEvent.WINDOW_CLOSING));
             }
@@ -1776,7 +1859,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
+    /**
+     * Closes all active preview windows and clears the tracking maps. Useful for cleanup or when switching projects.
+     */
     public void closeAllPreviewWindows() {
         for (JFrame frame : activePreviewWindows.values()) {
             if (frame.isDisplayable()) {
@@ -1784,6 +1869,58 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
         activePreviewWindows.clear();
+        projectFileToPreviewWindow.clear();
+    }
+
+    /**
+     * Refreshes preview windows that display the given files. Called when files change on disk (external edits or
+     * internal saves).
+     *
+     * @param changedFiles The set of files that have changed
+     */
+    public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles) {
+        refreshPreviewsForFiles(changedFiles, null);
+    }
+
+    /**
+     * Refreshes preview windows that display the given files, optionally excluding a specific frame. Called when files
+     * change on disk (external edits or internal saves).
+     *
+     * @param changedFiles The set of files that have changed
+     * @param excludeFrame Optional frame to exclude from refresh (typically the one that just saved)
+     */
+    public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
+        logger.debug("refreshPreviewsForFiles called with files: {}, excludeFrame: {}", changedFiles, excludeFrame);
+        SwingUtilities.invokeLater(() -> {
+            for (ProjectFile file : changedFiles) {
+                JFrame previewFrame = projectFileToPreviewWindow.get(file);
+                logger.debug("Preview frame for {}: {}", file, previewFrame);
+                if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
+                    // Get the content panel from the frame
+                    Container contentPane = previewFrame.getContentPane();
+
+                    // Refresh based on panel type
+                    if (contentPane instanceof PreviewTextPanel textPanel) {
+                        logger.debug("Refreshing PreviewTextPanel for {}", file);
+                        textPanel.refreshFromDisk();
+                    } else if (contentPane instanceof PreviewImagePanel imagePanel) {
+                        logger.debug("Refreshing PreviewImagePanel for {}", file);
+                        imagePanel.refreshFromDisk();
+                    } else {
+                        // Content might be nested in a BorderLayout
+                        Component centerComponent =
+                                ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+                        if (centerComponent instanceof PreviewTextPanel textPanel) {
+                            logger.debug("Refreshing nested PreviewTextPanel for {}", file);
+                            textPanel.refreshFromDisk();
+                        } else if (centerComponent instanceof PreviewImagePanel imagePanel) {
+                            logger.debug("Refreshing nested PreviewImagePanel for {}", file);
+                            imagePanel.refreshFromDisk();
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /**
@@ -2031,7 +2168,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         boolean persistPerProject = GlobalUiSettings.isPersistPerProjectBounds();
 
         // Per-project first (only if enabled)
-        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : java.util.Optional.<Rectangle>empty();
+        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : Optional.<Rectangle>empty();
         if (boundsOpt.isPresent()) {
             var bounds = boundsOpt.get();
             frame.setSize(bounds.width, bounds.height);
@@ -2089,9 +2226,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Listener to save bounds on move/resize:
         // - always save globally (for cascade fallback)
         // - save per-project only if enabled
-        frame.addComponentListener(new java.awt.event.ComponentAdapter() {
+        frame.addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 GlobalUiSettings.saveMainWindowBounds(frame);
                 if (GlobalUiSettings.isPersistPerProjectBounds()) {
                     getProject().saveMainWindowBounds(frame);
@@ -2099,7 +2236,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
+            public void componentMoved(ComponentEvent e) {
                 GlobalUiSettings.saveMainWindowBounds(frame);
                 if (GlobalUiSettings.isPersistPerProjectBounds()) {
                     getProject().saveMainWindowBounds(frame);
@@ -2353,8 +2490,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void updateContextHistoryTable(
-            @org.jetbrains.annotations.Nullable Context contextToSelect) { // contextToSelect can be null
+    public void updateContextHistoryTable(@Nullable Context contextToSelect) { // contextToSelect can be null
         historyOutputPanel.updateHistoryTable(contextToSelect);
     }
 
@@ -2528,15 +2664,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var closeFg = UIManager.getColor("Button.close.foreground");
         closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
 
-        closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
+        closeButton.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
+            public void mouseEntered(MouseEvent e) {
                 closeButton.setForeground(Color.RED);
                 closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             }
 
             @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
+            public void mouseExited(MouseEvent e) {
                 var closeFg = UIManager.getColor("Button.close.foreground");
                 closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
                 closeButton.setCursor(Cursor.getDefaultCursor());
@@ -2639,7 +2775,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return globalToggleMicAction;
     }
 
-    private boolean isFocusInContextArea(@org.jetbrains.annotations.Nullable Component focusOwner) {
+    private boolean isFocusInContextArea(@Nullable Component focusOwner) {
         if (focusOwner == null) return false;
         // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
         boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
@@ -2784,9 +2920,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (lastRelevantFocusOwner == null) {
                 // leave it false
             } else if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                canPasteNow = java.awt.Toolkit.getDefaultToolkit()
-                        .getSystemClipboard()
-                        .isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor);
+                canPasteNow =
+                        Toolkit.getDefaultToolkit().getSystemClipboard().isDataFlavorAvailable(DataFlavor.stringFlavor);
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
                 // ContextPanel's doPasteAction checks clipboard content type
                 canPasteNow = true;
@@ -3113,7 +3248,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setToolTipText(tooltip);
 
         // If this is a themed icon wrapper, ask it to ensure its delegate is resolved (non-blocking).
-        if (icon instanceof io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon themedIcon) {
+        if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
             try {
                 themedIcon.ensureResolved();
             } catch (Exception ex) {
@@ -3292,7 +3427,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             return;
         }
         int dividerSize = mainVerticalSplitPane.getDividerSize();
-        java.awt.Component bottom = mainVerticalSplitPane.getBottomComponent();
+        Component bottom = mainVerticalSplitPane.getBottomComponent();
         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
 
         int target = Math.max(0, desiredBottomPx);

@@ -96,8 +96,8 @@ public class TestRepo implements IGitRepo {
     // or be implemented with simple stubs if needed by tests.
 
     @Override
-    public String showDiff(@Nullable String newCommitId, @Nullable String oldCommitId) throws GitAPIException {
-        if (newCommitId == null || oldCommitId == null) {
+    public String getDiff(@Nullable String oldRev, @Nullable String newRev) throws GitAPIException {
+        if (newRev == null || oldRev == null) {
             throw new GitAPIException("Commit IDs cannot be null for diffing in InMemoryRepo") {};
         }
         return String.format(
@@ -109,7 +109,7 @@ public class TestRepo implements IGitRepo {
                              @@ -0,0 +0,0 @@
                              [Simulated diff content for %s vs %s in InMemoryRepo]
                              """,
-                oldCommitId, newCommitId, oldCommitId, newCommitId, newCommitId, oldCommitId);
+                oldRev, newRev, oldRev, newRev, newRev, oldRev);
     }
 
     /** Clears all tracked, added, and removed files. For test cleanup. */

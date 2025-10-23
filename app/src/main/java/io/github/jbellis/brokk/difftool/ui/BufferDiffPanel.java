@@ -19,6 +19,8 @@ import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -26,11 +28,13 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
+import javax.swing.event.UndoableEditEvent;
 import javax.swing.event.UndoableEditListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
@@ -437,9 +441,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         }
 
         // Re-add resize listener for scroll synchronization
-        addComponentListener(new java.awt.event.ComponentAdapter() {
+        addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     if (scrollSynchronizer != null) {
                         scrollSynchronizer.invalidateViewportCacheForBothPanels();
@@ -453,8 +457,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     public JPanel activateBarDialog(String columns) {
         // Use the same FormLayout structure as the file panels to align search bars with text areas
         var rows = "6px, pref";
-        var layout = new com.jgoodies.forms.layout.FormLayout(columns, rows);
-        var cc = new com.jgoodies.forms.layout.CellConstraints();
+        var layout = new FormLayout(columns, rows);
+        var cc = new CellConstraints();
         var barContainer = new JPanel(layout);
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
@@ -726,9 +730,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         }
 
         // Use ComponentListener to wait for visibility
-        var componentListener = new java.awt.event.ComponentAdapter() {
+        var componentListener = new ComponentAdapter() {
             @Override
-            public void componentShown(java.awt.event.ComponentEvent e) {
+            public void componentShown(ComponentEvent e) {
                 if (areComponentsReady(leftScrollPane, rightScrollPane)) {
                     performAutoScroll();
                     // Remove listeners to prevent memory leaks
@@ -743,7 +747,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         rightScrollPane.addComponentListener(componentListener);
 
         // Safety timeout - if components don't become ready within 3 seconds, give up
-        javax.swing.Timer timeoutTimer = new javax.swing.Timer(3000, e -> {
+        Timer timeoutTimer = new Timer(3000, e -> {
             leftScrollPane.removeComponentListener(componentListener);
             rightScrollPane.removeComponentListener(componentListener);
             // Reset the concurrency flag since we're giving up
@@ -754,8 +758,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     /** Check if scroll pane components are ready for auto-scroll. */
-    private boolean areComponentsReady(
-            javax.swing.JScrollPane leftScrollPane, javax.swing.JScrollPane rightScrollPane) {
+    private boolean areComponentsReady(JScrollPane leftScrollPane, JScrollPane rightScrollPane) {
         boolean leftReady = leftScrollPane.isDisplayable()
                 && leftScrollPane.isShowing()
                 && leftScrollPane.getViewport().getSize().height > 0;
@@ -794,8 +797,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
                     rightPanel.getEditor().setCaretPosition(0);
 
                     // Ensure the scroll position is at the top
-                    leftPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
-                    rightPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
+                    leftPanel.getScrollPane().getViewport().setViewPosition(new Point(0, 0));
+                    rightPanel.getScrollPane().getViewport().setViewPosition(new Point(0, 0));
 
                 } catch (Exception e) {
                     // Ignore scrolling errors during auto-scroll
@@ -952,7 +955,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         assert SwingUtilities.isEventDispatchThread();
 
         var undoState = captureUndoState(delta);
-        var documentEdits = new ArrayList<javax.swing.undo.UndoableEdit>();
+        var documentEdits = new ArrayList<UndoableEdit>();
         var editCapture = createEditCaptureListener(documentEdits);
 
         executeWithEditTracking(changedEditor, editCapture, () -> {
@@ -971,9 +974,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     private UndoableEditListener createEditCaptureListener(List<UndoableEdit> documentEdits) {
-        return new javax.swing.event.UndoableEditListener() {
+        return new UndoableEditListener() {
             @Override
-            public void undoableEditHappened(javax.swing.event.UndoableEditEvent e) {
+            public void undoableEditHappened(UndoableEditEvent e) {
                 documentEdits.add(e.getEdit());
             }
         };
@@ -1241,7 +1244,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     /** ThemeAware implementation - update highlight colours and syntax themes when the global GUI theme changes. */
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        assert javax.swing.SwingUtilities.isEventDispatchThread() : "applyTheme must be invoked on the EDT";
+        assert SwingUtilities.isEventDispatchThread() : "applyTheme must be invoked on the EDT";
         this.guiTheme = guiTheme;
 
         // Refresh RSyntax themes and highlights in each child FilePanel
@@ -1649,9 +1652,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * so baselines from disk are pre-save.
      */
     @Override
-    public java.util.List<AggregatedChange> collectChangesForAggregation() {
+    public List<AggregatedChange> collectChangesForAggregation() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        var changes = new java.util.ArrayList<AggregatedChange>();
+        var changes = new ArrayList<AggregatedChange>();
 
         // Capture current content and project file mapping up-front
         var currentFileData = captureCurrentFileDataOnEdt();
@@ -1691,8 +1694,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * Returns list of ProjectFiles for documents that have changes and will be saved. Used to identify external files
      * that need to be added to workspace before saving.
      */
-    public java.util.List<ProjectFile> getFilesBeingSaved() {
-        var files = new java.util.ArrayList<ProjectFile>();
+    public List<ProjectFile> getFilesBeingSaved() {
+        var files = new ArrayList<ProjectFile>();
 
         // Capture current file data to get ProjectFile mappings
         var currentFileData = captureCurrentFileDataOnEdt();
@@ -1716,8 +1719,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
     @Override
     public SaveResult writeChangedDocuments() {
-        var succeeded = new java.util.LinkedHashSet<String>();
-        var failed = new java.util.LinkedHashMap<String, String>();
+        var succeeded = new LinkedHashSet<String>();
+        var failed = new LinkedHashMap<String, String>();
 
         for (var fp : filePanels.values()) {
             if (!fp.isDocumentChanged()) continue;
@@ -1738,7 +1741,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
                                 JOptionPane.ERROR_MESSAGE);
             }
         }
-        return new SaveResult(java.util.Set.copyOf(succeeded), java.util.Map.copyOf(failed));
+        return new SaveResult(Set.copyOf(succeeded), Map.copyOf(failed));
     }
 
     /** Finalize state after a save-all operation: refresh baselines and dirty flags for all files. */
@@ -1752,13 +1755,13 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * files.
      */
     @Override
-    public void finalizeAfterSaveAggregation(java.util.Set<String> savedFilenames) {
+    public void finalizeAfterSaveAggregation(Set<String> savedFilenames) {
         updateBaselineContentAfterSave(savedFilenames);
         recalcDirty();
     }
 
     /** Update baseline only for the specified filenames after a successful save. */
-    private void updateBaselineContentAfterSave(java.util.Set<String> savedFilenames) {
+    private void updateBaselineContentAfterSave(Set<String> savedFilenames) {
         // Capture current content on EDT
         var currentFileDataMap = captureCurrentFileDataOnEdt();
 

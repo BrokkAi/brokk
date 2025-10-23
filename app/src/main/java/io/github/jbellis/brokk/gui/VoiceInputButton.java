@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.IConsoleIO.NotificationRole;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -289,7 +290,7 @@ public class VoiceInputButton extends JButton {
             iConsoleIO1.showNotification(NotificationRole.INFO, "Transcribing audio");
             try {
                 // Create an AudioInputStream wrapping the raw data + format
-                try (var bais = new java.io.ByteArrayInputStream(audioBytes);
+                try (var bais = new ByteArrayInputStream(audioBytes);
                         var ais = new AudioInputStream(bais, format, audioBytes.length / format.getFrameSize())) {
                     // Write to a temp .wav
                     var tempFile = Files.createTempFile("brokk-stt-", ".wav");
@@ -339,7 +340,7 @@ public class VoiceInputButton extends JButton {
                                         List<String> parts = Splitter.on('.').splitToList(s);
                                         return !parts.isEmpty() ? parts.getLast() : null;
                                     })
-                                    .filter(java.util.Objects::nonNull)
+                                    .filter(Objects::nonNull)
                                     .forEach(tempSymbols::add); // Add to the effectively final temporary set
                             symbolsForTranscription = tempSymbols; // Assign to the field
                             logger.debug("Using context symbols for transcription: {}", symbolsForTranscription.size());

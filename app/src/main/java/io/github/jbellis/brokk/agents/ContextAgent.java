@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -74,9 +73,6 @@ public class ContextAgent {
     private final IAnalyzer analyzer;
     private final StreamingChatModel model;
 
-    /** If the entire group fits under this, we can skip LLM pruning/eval and include everything. */
-    private final int skipPruningBudget;
-
     /** Budget for the evaluate-for-relevance stage (uncapped *0.65 of input). */
     private final int evaluationBudget;
 
@@ -104,16 +100,13 @@ public class ContextAgent {
         this.llm = contextManager.getLlm(options);
 
         // Token budgets
-        int maxInputTokens = contextManager.getService().getMaxInputTokens(model);
-        this.skipPruningBudget = min(32_000, maxInputTokens / 4);
         int outputTokens = model.defaultRequestParameters().maxCompletionTokens();
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
         this.evaluationBudget = (int) (actualInputTokens * 0.65);
         this.filesPruningBudget = min(100_000, evaluationBudget);
         logger.debug(
-                "ContextAgent initialized. Budgets: SkipPruning={}, FilesPruning={}, Evaluation={}",
-                skipPruningBudget,
+                "ContextAgent initialized. Budgets: FilesPruning={}, Evaluation={}",
                 filesPruningBudget,
                 evaluationBudget);
     }
@@ -179,8 +172,7 @@ public class ContextAgent {
                             fragment.description());
                 }
             } else if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-                var skeletonFragment = (ContextFragment.SkeletonFragment) fragment;
-                totalTokens += Messages.getApproximateTokens(skeletonFragment.text());
+                totalTokens += Messages.getApproximateTokens(fragment.text());
             } else {
                 logger.warn("Unhandled ContextFragment type for token calculation: {}", fragment.getClass());
             }
@@ -192,11 +184,9 @@ public class ContextAgent {
      * Determines the best initial context based on project size and budgets, splitting analyzed vs un-analyzed into
      * separate LLM context windows and processing them in parallel.
      *
-     * @param allowSkipPruning If true, allows the agent to skip LLM-based pruning if a group's data fits
-     *     {@code skipPruningBudget}.
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
-    public RecommendationResult getRecommendations(boolean allowSkipPruning) throws InterruptedException {
+    public RecommendationResult getRecommendations() throws InterruptedException {
         var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext());
 
         // Subtract workspace tokens from both budgets.
@@ -232,14 +222,11 @@ public class ContextAgent {
         }
 
         // Group by analyzed (summarizable via SkeletonProvider) vs un-analyzed (need full content)
-        var skpOpt = analyzer.as(SkeletonProvider.class);
-        Map<CodeUnit, String> allSummaries = skpOpt.map(skp -> candidates.parallelStream()
-                        .map(skp::getSkeletons)
-                        .map(Map::entrySet)
-                        .flatMap(Set::stream)
-                        .filter(e -> !e.getValue().isEmpty())
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1)))
-                .orElseGet(Map::of);
+        Map<CodeUnit, String> allSummaries = candidates.parallelStream()
+                .flatMap(c -> analyzer.getTopLevelDeclarations(c).stream())
+                .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getSubDeclarations(cu).stream()
+                        .map(CodeUnit::shortName)
+                        .collect(Collectors.joining(", "))));
         Set<ProjectFile> analyzedFileSet =
                 allSummaries.keySet().stream().map(CodeUnit::source).collect(Collectors.toSet());
         List<ProjectFile> analyzedFiles =
@@ -251,7 +238,7 @@ public class ContextAgent {
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
         // Process each group in parallel
-        RecommendationResult[] results = new RecommendationResult[2];
+        LlmRecommendation[] results = new LlmRecommendation[2];
         Throwable[] errors = new Throwable[2];
 
         Thread t1 = Thread.ofVirtual().start(() -> {
@@ -261,10 +248,8 @@ public class ContextAgent {
                         analyzedFiles,
                         allSummaries,
                         workspaceRepresentation,
-                        allowSkipPruning,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                        pruneBudgetRemaining);
             } catch (Throwable t) {
                 errors[0] = t;
             }
@@ -277,10 +262,8 @@ public class ContextAgent {
                         unAnalyzedFiles,
                         Map.of(),
                         workspaceRepresentation,
-                        allowSkipPruning,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        existingFiles);
+                        pruneBudgetRemaining);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -292,61 +275,60 @@ public class ContextAgent {
         if (errors[0] != null) throw new RuntimeException(errors[0]);
         if (errors[1] != null) throw new RuntimeException(errors[1]);
 
-        var analyzedResult = results[0];
-        var unAnalyzedResult = results[1];
+        var analyzedRec = results[0];
+        var unAnalyzedRec = results[1];
 
-        boolean success = analyzedResult.success || unAnalyzedResult.success;
-        var combinedFragments = Stream.concat(analyzedResult.fragments.stream(), unAnalyzedResult.fragments.stream())
-                .toList();
-        var combinedReasoning = Stream.of(analyzedResult.reasoning, unAnalyzedResult.reasoning)
+        boolean success = !analyzedRec.recommendedFiles().isEmpty()
+                || !analyzedRec.recommendedClasses().isEmpty()
+                || !unAnalyzedRec.recommendedFiles().isEmpty()
+                || !unAnalyzedRec.recommendedClasses().isEmpty();
+
+        // Union files and classes from both groups. Since both groups are processed independently,
+        // the LLM may recommend the same file/class in both. We use HashSet to automatically deduplicate
+        // at the semantic level (canonical ProjectFile and CodeUnit objects).
+        var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
+        mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
+
+        var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
+        mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
+
+        var combinedReasoning = Stream.of(analyzedRec.reasoning(), unAnalyzedRec.reasoning())
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
-        var combinedUsage = addTokenUsage(analyzedResult.tokenUsage, unAnalyzedResult.tokenUsage);
+        var combinedUsage = addTokenUsage(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
 
-        return new RecommendationResult(success, combinedFragments, combinedReasoning, combinedUsage);
+        var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, combinedReasoning, combinedUsage);
+        var result = createResult(unifiedRec, existingFiles);
+
+        return new RecommendationResult(success, result, combinedReasoning, combinedUsage);
     }
 
     // --- Group processing ---
 
-    private RecommendationResult processGroup(
+    private LlmRecommendation processGroup(
             GroupType type,
             List<ProjectFile> groupFiles,
             Map<CodeUnit, String> allSummariesForAnalyzed,
             Collection<ChatMessage> workspaceRepresentation,
-            boolean allowSkipPruning,
             int evalBudgetRemaining,
-            int pruneBudgetRemaining,
-            Set<ProjectFile> existingFiles)
+            int pruneBudgetRemaining)
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
             String msg = "No " + type.name().toLowerCase(Locale.ROOT) + " items to process.";
-            return new RecommendationResult(true, List.of(), msg, null);
+            return new LlmRecommendation(Set.of(), Set.of(), msg, null);
         }
 
         // Build initial payload preview for token estimation
         int initialTokens;
         if (type == GroupType.ANALYZED) {
-            var groupSummaries = filterSummariesByFiles(allSummariesForAnalyzed, groupFiles);
-            initialTokens = Messages.getApproximateTokens(groupSummaries.values());
+            initialTokens = Messages.getApproximateTokens(allSummariesForAnalyzed.values());
         } else {
             var contentsMap = readFileContents(groupFiles);
             initialTokens = Messages.getApproximateTokens(contentsMap.values());
         }
 
         logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
-
-        // If small, include everything without LLM
-        if (allowSkipPruning && initialTokens <= skipPruningBudget) {
-            LlmRecommendation rec = (type == GroupType.ANALYZED)
-                    ? new LlmRecommendation(
-                            List.of(),
-                            new ArrayList<>(filterSummariesByFiles(allSummariesForAnalyzed, groupFiles)
-                                    .keySet()),
-                            "Under skip-pruning budget (" + type + ")")
-                    : new LlmRecommendation(groupFiles, List.of(), "Under skip-pruning budget (" + type + ")");
-            return createResult(rec, existingFiles);
-        }
 
         List<ProjectFile> workingFiles = groupFiles;
 
@@ -371,8 +353,8 @@ public class ContextAgent {
 
             if (workingFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
-                return new RecommendationResult(
-                        true, List.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
+                return new LlmRecommendation(
+                        Set.of(), Set.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
             }
         }
 
@@ -392,14 +374,7 @@ public class ContextAgent {
                     evalRec.recommendedFiles(), evalRec.recommendedClasses(), evalRec.reasoning(), usage);
         }
 
-        return createResult(evalRec, existingFiles);
-    }
-
-    private Map<CodeUnit, String> filterSummariesByFiles(Map<CodeUnit, String> allSummaries, List<ProjectFile> files) {
-        Set<ProjectFile> fileSet = new HashSet<>(files);
-        return allSummaries.entrySet().stream()
-                .filter(e -> fileSet.contains(e.getKey().source()))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return evalRec;
     }
 
     private LlmRecommendation evaluateWithHalving(
@@ -411,8 +386,7 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<CodeUnit, String> summaries =
-                    (type == GroupType.ANALYZED) ? filterSummariesByFiles(allSummariesForAnalyzed, current) : Map.of();
+            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? allSummariesForAnalyzed : Map.of();
 
             Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
 
@@ -434,7 +408,7 @@ public class ContextAgent {
 
     // --- Result assembly ---
 
-    private RecommendationResult createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
+    private List<ContextFragment> createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
         var originalFiles = llmRecommendation.recommendedFiles();
         var filteredFiles =
                 originalFiles.stream().filter(f -> !existingFiles.contains(f)).toList();
@@ -457,7 +431,6 @@ public class ContextAgent {
                     recommendedClasses.size());
         }
 
-        var reasoning = llmRecommendation.reasoning();
         var recommendedSummaries = getSummaries(recommendedClasses);
 
         int recommendedSummaryTokens = Messages.getApproximateTokens(String.join("\n", recommendedSummaries.values()));
@@ -474,22 +447,19 @@ public class ContextAgent {
                 recommendedContentTokens,
                 totalRecommendedTokens);
 
-        var skeletonFragments = skeletonPerSummary(cm, recommendedSummaries);
+        var summaryFragments = summaryPerCodeUnit(cm, recommendedSummaries);
         var pathFragments = filteredFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
-                .toList();
-
-        return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
+        return Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
     }
 
-    /** one SkeletonFragment per summary so ArchitectAgent can easily ask user which ones to include */
-    private static List<ContextFragment> skeletonPerSummary(
+    /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
+    private static List<ContextFragment> summaryPerCodeUnit(
             IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
         return relevantSummaries.keySet().stream()
-                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(
-                        contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .map(cu -> (ContextFragment) new ContextFragment.SummaryFragment(
+                        contextManager, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }
 
@@ -525,7 +495,7 @@ public class ContextAgent {
         return askLlmDeepPruneFilenames(filenames, workspaceRepresentation);
     }
 
-    private @NotNull LlmRecommendation askLlmDeepPruneFilenames(
+    private LlmRecommendation askLlmDeepPruneFilenames(
             List<String> filenames, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
 
         var systemPrompt =

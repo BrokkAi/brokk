@@ -187,6 +187,68 @@ class ToolRegistryTest {
         assertThrows(ToolRegistry.ToolValidationException.class, () -> registry.validateTool(tools, req));
     }
 
+    @Test
+    void getExplanationForToolRequest_ValidTool() throws Exception {
+        Method m = TestTools.class.getDeclaredMethod("getClassSources", List.class, String.class);
+        String json = jsonArgs(m, List.of("com.a.A", "com.b.B"), "analyzing dependencies");
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments(json)
+                .build();
+
+        String explanation = registry.getExplanationForToolRequest(tools, req);
+
+        assertFalse(explanation.isBlank());
+        assertTrue(explanation.contains("Fetching class source"));
+        assertTrue(explanation.contains("com.a.A"));
+        assertTrue(explanation.contains("com.b.B"));
+        assertTrue(explanation.contains("analyzing dependencies"));
+    }
+
+    @Test
+    void getExplanationForToolRequest_MissingParameter() throws Exception {
+        // Build args missing the second parameter ("reasoning")
+        var map = new LinkedHashMap<String, Object>();
+        map.put("classNames", List.of("com.a.A"));
+        var json = MAPPER.writeValueAsString(map);
+
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments(json)
+                .build();
+
+        // Should NOT throw - validation errors return empty string (details logged only)
+        String explanation = registry.getExplanationForToolRequest(tools, req);
+
+        assertTrue(explanation.isBlank());
+    }
+
+    @Test
+    void getExplanationForToolRequest_InvalidJson() {
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments("not valid json at all")
+                .build();
+
+        // Should NOT throw - validation errors return empty string (details logged only)
+        String explanation = registry.getExplanationForToolRequest(tools, req);
+
+        assertTrue(explanation.isBlank());
+    }
+
+    @Test
+    void getExplanationForToolRequest_ToolNotFound() {
+        var req = ToolExecutionRequest.builder()
+                .name("noSuchTool")
+                .arguments("{}")
+                .build();
+
+        // Should NOT throw - validation errors return empty string (details logged only)
+        String explanation = registry.getExplanationForToolRequest(tools, req);
+
+        assertTrue(explanation.isBlank());
+    }
+
     // Build a JSON args string using actual parameter names as seen by reflection,
     // to be robust regardless of -parameters compiler flag.
     private static String jsonArgs(Method m, Object... values) throws JsonProcessingException {

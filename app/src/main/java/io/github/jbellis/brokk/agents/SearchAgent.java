@@ -30,7 +30,6 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -39,6 +38,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -126,15 +126,14 @@ public class SearchAgent {
     }
 
     private @NotNull TaskResult executeInternal() throws InterruptedException {
+        // Single pruning turn if workspace is not empty
+        performInitialPruningTurn();
+
+        // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
+        scanInitialContext();
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
             // Beast mode triggers
-            if (Thread.interrupted()) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Search interrupted; attempting to finalize with available information");
-                beastMode = true;
-            }
             var inputLimit = cm.getService().getMaxInputTokens(model);
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
@@ -268,35 +267,41 @@ public class SearchAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        // System role: similar to Architect, with stronger emphasis on pruning
+        var reminder = CodePrompts.instance.askReminder();
+        var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
+                .map(Language::name)
+                .collect(Collectors.joining(", "));
+
         var sys = new SystemMessage(
                 """
-                        You are the Search Agent.
-                        Your job:
-                          - find and organize code relevant to the user's question or task,
-                          - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
-                          - never write code yourself.
+                <instructions>
+                You are the Search Agent.
+                Your job:
+                  - find and organize code relevant to the user's question or task,
+                  - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
+                  - never write code yourself.
 
-                        Critical rules:
-                          1) PRUNE FIRST at every turn.
-                             - Remove fragments that are not directly useful for the goal.
-                             - Prefer concise, goal-focused summaries over full files.
-                             - When you pull information from a long fragment, first add your extraction, then drop the original.
-                             - Keep the Workspace focused on answering/solving the goal.
-                          2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                          3) The symbol-based tools only have visibility into the following file types: %s
-                             Use text-based tools if you need to search other file types.
-                          4) Group related lookups into a single call when possible.
-                          5) Make multiple tool calls at once when searching for different types of code.
+                Critical rules:
+                  1) PRUNE FIRST at every turn.
+                     - Remove fragments that are not directly useful for the goal.
+                     - Prefer concise, goal-focused summaries over full files.
+                     - When you pull information from a long fragment, first add your extraction, then drop the original.
+                     - Keep the Workspace focused on answering/solving the goal.
+                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                  3) The symbol-based tools only have visibility into the following file types: %s
+                     Use text-based tools if you need to search other file types.
+                  4) Group related lookups into a single call when possible.
+                  5) Make multiple tool calls at once when searching for different types of code.
 
-                        Output discipline:
-                          - Start each turn by pruning and summarizing before any new exploration.
-                          - Think before calling tools.
-                          - If you already know what to add, use Workspace tools directly; do not search redundantly.
-                        """
-                        .formatted(cm.getProject().getAnalyzerLanguages().stream()
-                                .map(Language::name)
-                                .collect(Collectors.joining(", "))));
+                Output discipline:
+                  - Start each turn by pruning and summarizing before any new exploration.
+                  - Think before calling tools.
+                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                %s
+                </instructions>
+                """
+                        .formatted(supportedTypes, reminder));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -309,8 +314,8 @@ public class SearchAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related classes (auto-context) like Architect
-        var auto = cm.liveContext().buildAutoContext(10);
-        var ac = auto.text();
+        var acList = cm.liveContext().buildAutoContext(10);
+        var ac = ContextFragment.SummaryFragment.combinedText(acList);
         if (!ac.isBlank()) {
             messages.add(new UserMessage(
                     """
@@ -354,7 +359,7 @@ public class SearchAgent {
         var finals = new ArrayList<String>();
         if (allowedTerminals.contains(Terminal.ANSWER)) {
             finals.add(
-                    "- Use answer(String) when the request is purely informational and you have enough information to answer.");
+                    "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
@@ -365,6 +370,7 @@ public class SearchAgent {
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
                         - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
+                        - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
                     """);
         }
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
@@ -631,9 +637,71 @@ public class SearchAgent {
         };
     }
 
-    // =======================
-    // Initial context seeding
-    // =======================
+    private void performInitialPruningTurn() throws InterruptedException {
+        // Skip if workspace is empty
+        if (cm.liveContext().isEmpty()) {
+            return;
+        }
+
+        // Build pruning prompt
+        var messages = buildInitialPruningPrompt();
+        var toolSpecs = new ArrayList<>(toolRegistry.getTools(this, List.of("performedInitialReview")));
+        toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("dropWorkspaceFragments")));
+
+        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
+        var jLlm = cm.getLlm(new Llm.Options(cm.getService().getScanModel(), "Janitor: " + goal).withEcho());
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, this));
+        if (result.error() != null || result.isEmpty()) {
+            return;
+        }
+
+        // Record the turn
+        sessionMessages.add(new UserMessage("Review the current workspace. If relevant, prune irrelevant fragments."));
+        sessionMessages.add(result.aiMessage());
+
+        // Execute tool requests
+        var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+        for (var req : ai.toolExecutionRequests()) {
+            try {
+                toolRegistry.executeTool(this, req);
+            } catch (Exception e) {
+                logger.warn("Tool execution failed during initial pruning for {}: {}", req.name(), e.getMessage());
+            }
+        }
+    }
+
+    private List<ChatMessage> buildInitialPruningPrompt() {
+        var messages = new ArrayList<ChatMessage>();
+
+        var sys = new SystemMessage(
+                """
+                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
+                fragments before proceeding; they are highly distracting to the other Agents.
+
+                Your task:
+                  - Evaluate the current workspace contents.
+                  - Call dropWorkspaceFragments to remove irrelevant fragments.
+                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
+                """);
+        messages.add(sys);
+
+        // Current Workspace contents
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+
+        // Goal and project context
+        messages.add(new UserMessage(
+                """
+                <goal>
+                %s
+                </goal>
+
+                Review the Workspace above. Remove ALL fragments that are not directly useful for accomplishing the goal.
+                If the workspace is already well-curated, you're done!
+                """
+                        .formatted(goal)));
+
+        return messages;
+    }
 
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
@@ -646,10 +714,10 @@ public class SearchAgent {
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
-        var recommendation = contextAgent.getRecommendations(true);
+        var recommendation = contextAgent.getRecommendations();
         if (!recommendation.reasoning().isEmpty()) {
             io.llmOutput(
-                    "\n\nReasoning for contextual insights: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
+                    "\n\nReasoning for contextual insights: \n" + recommendation.reasoning(), ChatMessageType.CUSTOM);
         }
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
@@ -671,7 +739,8 @@ public class SearchAgent {
                             .orElseThrow()
                             .syntaxStyle()));
         } else {
-            WorkspaceTools.addToWorkspace(cm, recommendation);
+            logger.debug("Recommended context fits within final budget.");
+            addToWorkspace(recommendation);
             io.llmOutput(
                     "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.",
                     ChatMessageType.CUSTOM);
@@ -685,9 +754,41 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), scanTime, false, toRelativePaths(filesAdded));
     }
 
+    public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
+        logger.debug("Recommended context fits within final budget.");
+        List<ContextFragment> selected = recommendationResult.fragments();
+        // Group selected fragments by type
+        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
+
+        // Process ProjectPathFragments
+        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
+                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .toList();
+        if (!pathFragments.isEmpty()) {
+            logger.debug(
+                    "Adding selected ProjectPathFragments: {}",
+                    pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
+            cm.addPathFragments(pathFragments);
+        }
+
+        // Process SkeletonFragments
+        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
+                .map(ContextFragment.SummaryFragment.class::cast)
+                .toList();
+        if (!skeletonFragments.isEmpty()) {
+            cm.addVirtualFragments(skeletonFragments);
+        }
+    }
+
     // =======================
     // Answer/abort tools
     // =======================
+
+    @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
+    public String performedInitialReview() {
+        logger.debug("performedInitialReview: workspace is already well-curated");
+        return "Initial review complete; workspace is well-curated.";
+    }
 
     @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
     public String answer(
@@ -719,7 +820,7 @@ public class SearchAgent {
             @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
                     @Nullable
                     Map<String, Object> arguments) {
-        Map<String, Object> args = java.util.Objects.requireNonNullElseGet(arguments, HashMap::new);
+        Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
         var mcpToolOptional =
                 mcpTools.stream().filter(t -> t.toolName().equals(toolName)).findFirst();
 

@@ -3,15 +3,20 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterCSharp;
 
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
-    static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CSharpAnalyzer.class);
+    static final Logger log = LoggerFactory.getLogger(CSharpAnalyzer.class);
 
     private static final LanguageSyntaxProfile CS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(
@@ -29,7 +34,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "parameters",
             "type",
             "type_parameter_list", // typeParametersFieldName (C# generics)
-            java.util.Map.of(
+            Map.of(
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "function.definition", SkeletonType.FUNCTION_LIKE,
                     "constructor.definition", SkeletonType.FUNCTION_LIKE,
@@ -178,7 +183,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         // C# namespaces are determined by traversing up from the definition node
         // to find enclosing namespace_declaration nodes.
         // The 'file' parameter is not used here as namespace is derived from AST content.
-        java.util.List<String> namespaceParts = new java.util.ArrayList<>();
+        List<String> namespaceParts = new ArrayList<>();
         TSNode current = definitionNode.getParent();
 
         while (current != null && !current.isNull() && !current.equals(rootNode)) {

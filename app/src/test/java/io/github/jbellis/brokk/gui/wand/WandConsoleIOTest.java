@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
+import java.awt.HeadlessException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -138,7 +141,7 @@ class WandConsoleIOTest {
     @Test
     void testCancellation_showInterruptDialog_doesNotAlterTextAndHandlesHeadless() throws Exception {
         // Not all implementations may have a cancellation dialog; skip if absent
-        java.lang.reflect.Method method;
+        Method method;
         try {
             method = WandAction.WandConsoleIO.class.getDeclaredMethod("showInterruptDialog");
         } catch (NoSuchMethodException e) {
@@ -155,10 +158,10 @@ class WandConsoleIOTest {
                     // protected method within same package; invoke directly
                     try {
                         method.invoke(wandConsoleIO);
-                    } catch (java.lang.reflect.InvocationTargetException ite) {
+                    } catch (InvocationTargetException ite) {
                         // Unwrap and rethrow unless it's headless-related
                         Throwable cause = ite.getCause();
-                        if (cause instanceof java.awt.HeadlessException) {
+                        if (cause instanceof HeadlessException) {
                             // Acceptable under headless CI; proceed to assertions
                             return;
                         }
@@ -174,7 +177,7 @@ class WandConsoleIOTest {
                     throw new RuntimeException(roe);
                 }
             });
-        } catch (java.awt.HeadlessException he) {
+        } catch (HeadlessException he) {
             // Acceptable under headless environment
         }
 

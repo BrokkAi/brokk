@@ -1,9 +1,14 @@
 package io.github.jbellis.brokk.gui;
 
+import com.formdev.flatlaf.FlatLightLaf;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.Map;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableRowSorter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -21,7 +26,7 @@ public final class SwingIconUtil {
     /** Prints all available UIManager icons to console. */
     public static void printAvailableIcons() {
         var defaults = UIManager.getDefaults();
-        var iconEntries = new java.util.ArrayList<Map.Entry<String, Icon>>();
+        var iconEntries = new ArrayList<Map.Entry<String, Icon>>();
 
         for (var key : defaults.keySet()) {
             try {
@@ -55,7 +60,7 @@ public final class SwingIconUtil {
     public static void showLookAndFeelIconFrame() {
         SwingUtilities.invokeLater(() -> {
             // Collect all icons
-            var iconEntries = new java.util.ArrayList<Map.Entry<String, Icon>>();
+            var iconEntries = new ArrayList<Map.Entry<String, Icon>>();
             for (var key : UIManager.getDefaults().keySet()) {
                 try {
                     var value = UIManager.get(key);
@@ -116,26 +121,26 @@ public final class SwingIconUtil {
 
             // Add search
             var searchField = new JTextField(20);
-            var rowSorter = (javax.swing.table.TableRowSorter<?>) table.getRowSorter();
-            searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            var rowSorter = (TableRowSorter<?>) table.getRowSorter();
+            searchField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override
-                public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                public void insertUpdate(DocumentEvent e) {
                     filter();
                 }
 
                 @Override
-                public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                public void removeUpdate(DocumentEvent e) {
                     filter();
                 }
 
                 @Override
-                public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                public void changedUpdate(DocumentEvent e) {
                     filter();
                 }
 
                 private void filter() {
                     var text = searchField.getText().trim();
-                    rowSorter.setRowFilter(text.isEmpty() ? null : javax.swing.RowFilter.regexFilter("(?i)" + text, 1));
+                    rowSorter.setRowFilter(text.isEmpty() ? null : RowFilter.regexFilter("(?i)" + text, 1));
                 }
             });
 
@@ -159,7 +164,7 @@ public final class SwingIconUtil {
      * @param args Use "icons" to show GUI browser, otherwise prints to console
      */
     public static void main(String[] args) {
-        com.formdev.flatlaf.FlatLightLaf.setup();
+        FlatLightLaf.setup();
 
         // Register Brokk's custom icons so they appear in the browser
         // Makes Null Away Grumpy

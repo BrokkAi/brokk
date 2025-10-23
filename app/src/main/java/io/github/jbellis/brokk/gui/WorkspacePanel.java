@@ -36,6 +36,7 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.*;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -47,10 +48,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -467,7 +471,7 @@ public class WorkspacePanel extends JPanel {
      * Custom table cell renderer for the Description column that displays description text on top and file reference
      * badges below.
      */
-    private static class DescriptionWithBadgesRenderer implements javax.swing.table.TableCellRenderer {
+    private static class DescriptionWithBadgesRenderer implements TableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -722,7 +726,7 @@ public class WorkspacePanel extends JPanel {
 
         contextTable = new JTable(tableModel) {
             @Override
-            public Component prepareRenderer(javax.swing.table.TableCellRenderer renderer, int row, int column) {
+            public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component c = super.prepareRenderer(renderer, row, column);
                 if (c != null) {
                     c.setEnabled(workspaceCurrentlyEditable);
@@ -738,7 +742,7 @@ public class WorkspacePanel extends JPanel {
                 .setCellRenderer(new DescriptionWithBadgesRenderer());
 
         // Set right alignment for LOC column numbers with font metrics-based baseline alignment
-        var locRenderer = new javax.swing.table.DefaultTableCellRenderer() {
+        var locRenderer = new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -818,8 +822,8 @@ public class WorkspacePanel extends JPanel {
                                         var afl = (TableUtils.FileReferenceList.AdaptiveFileReferenceList)
                                                 TableUtils.findFileReferenceList((Container) rendererComp);
 
-                                        java.util.List<TableUtils.FileReferenceList.FileReferenceData> hiddenFiles =
-                                                afl != null ? afl.getHiddenFiles() : java.util.List.of();
+                                        List<TableUtils.FileReferenceList.FileReferenceData> hiddenFiles =
+                                                afl != null ? afl.getHiddenFiles() : List.of();
 
                                         TableUtils.showOverflowPopup(
                                                 chrome, contextTable, row, DESCRIPTION_COLUMN, hiddenFiles);
@@ -995,7 +999,7 @@ public class WorkspacePanel extends JPanel {
                             .toAbsolutePath()
                             .normalize();
                     // Map to ProjectFile inside this project; ignore anything outside
-                    java.util.LinkedHashSet<ProjectFile> projectFiles = files.stream()
+                    LinkedHashSet<ProjectFile> projectFiles = files.stream()
                             .map(File::toPath)
                             .map(Path::toAbsolutePath)
                             .map(Path::normalize)
@@ -1008,7 +1012,7 @@ public class WorkspacePanel extends JPanel {
                             })
                             .map(projectRoot::relativize)
                             .map(rel -> new ProjectFile(projectRoot, rel))
-                            .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+                            .collect(Collectors.toCollection(LinkedHashSet::new));
 
                     if (projectFiles.isEmpty()) {
                         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No project files found in drop");
@@ -1020,9 +1024,9 @@ public class WorkspacePanel extends JPanel {
                             .flatMap(lang -> lang.getExtensions().stream())
                             .collect(Collectors.toSet());
                     boolean canSummarize = projectFiles.stream().anyMatch(pf -> analyzedExts.contains(pf.extension()));
-                    java.awt.Point pointer = null;
+                    Point pointer = null;
                     try {
-                        var pi = java.awt.MouseInfo.getPointerInfo();
+                        var pi = MouseInfo.getPointerInfo();
                         if (pi != null) {
                             pointer = pi.getLocation();
                         }
@@ -1046,8 +1050,7 @@ public class WorkspacePanel extends JPanel {
                                 return false;
                             }
                             contextManager.submitContextTask(() -> {
-                                contextManager.addSummaries(
-                                        new java.util.HashSet<>(projectFiles), Collections.emptySet());
+                                contextManager.addSummaries(new HashSet<>(projectFiles), Collections.emptySet());
                             });
                         }
                         default -> {
@@ -1068,8 +1071,7 @@ public class WorkspacePanel extends JPanel {
 
         // Add Ctrl+V paste handler for the table
         var pasteKeyStroke = KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_V,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         var pasteActionKey = "pasteAction";
         contextTable.getInputMap(JComponent.WHEN_FOCUSED).put(pasteKeyStroke, pasteActionKey);
         contextTable.getActionMap().put(pasteActionKey, new AbstractAction() {
@@ -1727,8 +1729,8 @@ public class WorkspacePanel extends JPanel {
 
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
-        var sel = new java.awt.datatransfer.StringSelection(content);
-        var cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        var sel = new StringSelection(content);
+        var cb = Toolkit.getDefaultToolkit().getSystemClipboard();
         cb.setContents(sel, sel);
         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
@@ -1768,7 +1770,7 @@ public class WorkspacePanel extends JPanel {
     private void doPasteAction() {
         assert !SwingUtilities.isEventDispatchThread();
 
-        var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         var contents = clipboard.getContents(null);
         if (contents == null) {
             chrome.toolError("Clipboard is empty or unavailable");
@@ -1779,7 +1781,7 @@ public class WorkspacePanel extends JPanel {
         var flavors = contents.getTransferDataFlavors();
         logger.debug(
                 "Clipboard flavors available: {}",
-                java.util.Arrays.stream(flavors).map(DataFlavor::getMimeType).collect(Collectors.joining(", ")));
+                Arrays.stream(flavors).map(DataFlavor::getMimeType).collect(Collectors.joining(", ")));
 
         // Prioritize Image Flavors - check all available flavors for image compatibility
         for (var flavor : flavors) {
@@ -1788,20 +1790,19 @@ public class WorkspacePanel extends JPanel {
                 if (flavor.isFlavorJavaFileListType() || flavor.getMimeType().startsWith("image/")) {
                     logger.debug("Attempting to process flavor: {}", flavor.getMimeType());
                     Object data = contents.getTransferData(flavor);
-                    java.awt.Image image = null;
+                    Image image = null;
 
                     switch (data) {
                         case Image image1 -> image = image1;
-                        case java.io.InputStream inputStream ->
+                        case InputStream inputStream ->
                             // Try to read the stream as an image using ImageIO
-                            image = javax.imageio.ImageIO.read(inputStream);
+                            image = ImageIO.read(inputStream);
                         case List<?> fileList
                         when !fileList.isEmpty() -> {
                             // Handle file list (e.g., dragged image file from file manager)
                             var file = fileList.getFirst();
-                            if (file instanceof java.io.File f
-                                    && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
-                                image = javax.imageio.ImageIO.read(f);
+                            if (file instanceof File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
+                                image = ImageIO.read(f);
                             }
                         }
                         default -> {}
@@ -1824,10 +1825,10 @@ public class WorkspacePanel extends JPanel {
         }
 
         // Text Flavor
-        if (contents.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+        if (contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
             String clipboardText;
             try {
-                clipboardText = (String) contents.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
+                clipboardText = (String) contents.getTransferData(DataFlavor.stringFlavor);
                 if (clipboardText.isBlank()) {
                     chrome.toolError("Clipboard text is empty");
                     return;
@@ -1858,7 +1859,7 @@ public class WorkspacePanel extends JPanel {
                         try {
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO, "Fetching image from " + clipboardText);
-                            java.awt.Image image = ImageUtil.downloadImage(uri, httpClient);
+                            Image image = ImageUtil.downloadImage(uri, httpClient);
                             if (image != null) {
                                 contextManager.addPastedImageFragment(image);
                                 chrome.showNotification(

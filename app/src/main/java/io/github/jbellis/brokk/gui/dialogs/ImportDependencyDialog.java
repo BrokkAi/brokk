@@ -5,7 +5,9 @@ import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
+import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.git.GitRepoRemote;
@@ -18,6 +20,7 @@ import io.github.jbellis.brokk.util.FileUtil;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Dialog;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -38,6 +41,7 @@ import java.util.function.Predicate;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
@@ -121,7 +125,7 @@ public class ImportDependencyDialog {
         }
 
         void buildAndShow() {
-            dialog = new JDialog(owner, "Import Dependency", java.awt.Dialog.ModalityType.DOCUMENT_MODAL);
+            dialog = new JDialog(owner, "Import Dependency", Dialog.ModalityType.DOCUMENT_MODAL);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.setLayout(new BorderLayout(10, 10));
 
@@ -332,10 +336,10 @@ public class ImportDependencyDialog {
                     path.isAbsolute() ? path : chrome.getProject().getRoot().resolve(path);
             if (Files.exists(resolvedPath)) {
                 BrokkFile bf = resolvedPath.startsWith(chrome.getProject().getRoot())
-                        ? new io.github.jbellis.brokk.analyzer.ProjectFile(
+                        ? new ProjectFile(
                                 chrome.getProject().getRoot(),
                                 chrome.getProject().getRoot().relativize(resolvedPath))
-                        : new io.github.jbellis.brokk.analyzer.ExternalFile(resolvedPath);
+                        : new ExternalFile(resolvedPath);
                 updateDirectorySelection(bf);
             } else {
                 selectedDirectory = null;
@@ -490,9 +494,9 @@ public class ImportDependencyDialog {
                         dialog,
                         "The selected directory might already be part of the project's analyzed sources. Proceed?",
                         "Confirm Import",
-                        javax.swing.JOptionPane.YES_NO_OPTION,
-                        javax.swing.JOptionPane.WARNING_MESSAGE);
-                if (proceedResponse == javax.swing.JOptionPane.NO_OPTION) {
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (proceedResponse == JOptionPane.NO_OPTION) {
                     importButton.setEnabled(true);
                     return;
                 }
@@ -504,9 +508,9 @@ public class ImportDependencyDialog {
                         dialog,
                         "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
                         "Confirm Overwrite",
-                        javax.swing.JOptionPane.YES_NO_OPTION,
-                        javax.swing.JOptionPane.WARNING_MESSAGE);
-                if (overwriteResponse == javax.swing.JOptionPane.NO_OPTION) {
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (overwriteResponse == JOptionPane.NO_OPTION) {
                     importButton.setEnabled(true);
                     return;
                 }
@@ -537,11 +541,11 @@ public class ImportDependencyDialog {
                 } catch (IOException ex) {
                     logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
                     SwingUtilities.invokeLater(() -> {
-                        javax.swing.JOptionPane.showMessageDialog(
+                        JOptionPane.showMessageDialog(
                                 dialog,
                                 "Error copying directory: " + ex.getMessage(),
                                 "Error",
-                                javax.swing.JOptionPane.ERROR_MESSAGE);
+                                JOptionPane.ERROR_MESSAGE);
                         importButton.setEnabled(true);
                     });
                 }
@@ -551,11 +555,8 @@ public class ImportDependencyDialog {
 
         private void performGitImport() {
             if (remoteInfo == null) {
-                javax.swing.JOptionPane.showMessageDialog(
-                        dialog,
-                        "No valid Git repository selected.",
-                        "Import Error",
-                        javax.swing.JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(
+                        dialog, "No valid Git repository selected.", "Import Error", JOptionPane.ERROR_MESSAGE);
                 importButton.setEnabled(true);
                 return;
             }
@@ -575,9 +576,9 @@ public class ImportDependencyDialog {
                         dialog,
                         "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
                         "Confirm Overwrite",
-                        javax.swing.JOptionPane.YES_NO_OPTION,
-                        javax.swing.JOptionPane.WARNING_MESSAGE);
-                if (overwriteResponse == javax.swing.JOptionPane.NO_OPTION) {
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (overwriteResponse == JOptionPane.NO_OPTION) {
                     importButton.setEnabled(true);
                     return;
                 }

@@ -10,17 +10,21 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -109,7 +113,7 @@ public final class NodeJsDependencyHelper {
             pkgs.add(new Language.DependencyCandidate(display, dir, kind, files));
         }
 
-        pkgs.sort(java.util.Comparator.comparing(Language.DependencyCandidate::displayName));
+        pkgs.sort(Comparator.comparing(Language.DependencyCandidate::displayName));
         return pkgs;
     }
 
@@ -123,7 +127,7 @@ public final class NodeJsDependencyHelper {
 
         var sourceRoot = pkg.sourcePath();
         if (!Files.exists(sourceRoot)) {
-            javax.swing.SwingUtilities.invokeLater(() -> chrome.toolError(
+            SwingUtilities.invokeLater(() -> chrome.toolError(
                     "Could not locate NPM package sources at " + sourceRoot
                             + ".\nPlease run 'npm install' or 'pnpm install' in your project, then retry.",
                     "NPM Import"));
@@ -142,19 +146,19 @@ public final class NodeJsDependencyHelper {
 
         final var currentListener = lifecycle;
         if (currentListener != null) {
-            javax.swing.SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
+            SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
         chrome.getContextManager().submitBackgroundTask("Copying NPM package: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(requireNonNull(targetRoot.getParent()));
                 if (Files.exists(targetRoot)) {
-                    if (!io.github.jbellis.brokk.util.FileUtil.deleteRecursively(targetRoot)) {
+                    if (!FileUtil.deleteRecursively(targetRoot)) {
                         throw new IOException("Failed to delete existing destination: " + targetRoot);
                     }
                 }
                 copyNodePackage(sourceRoot, targetRoot);
-                javax.swing.SwingUtilities.invokeLater(() -> {
+                SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "NPM package copied to " + targetRoot + ". Reopen project to incorporate the new files.");
@@ -163,7 +167,7 @@ public final class NodeJsDependencyHelper {
             } catch (Exception ex) {
                 logger.error(
                         "Error copying NPM package {} from {} to {}", pkg.displayName(), sourceRoot, targetRoot, ex);
-                javax.swing.SwingUtilities.invokeLater(
+                SwingUtilities.invokeLater(
                         () -> chrome.toolError("Error copying NPM package: " + ex.getMessage(), "NPM Import"));
             }
             return null;
@@ -239,7 +243,7 @@ public final class NodeJsDependencyHelper {
                                 || name.endsWith(".d.ts");
                         if (isAllowed) {
                             Files.createDirectories(requireNonNull(dst.getParent()));
-                            Files.copy(src, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
                         }
                     }
                 } catch (IOException e) {

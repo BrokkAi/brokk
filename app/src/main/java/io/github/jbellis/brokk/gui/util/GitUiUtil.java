@@ -4,6 +4,7 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
@@ -11,10 +12,16 @@ import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.git.IGitRepo.ModificationType;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.util.SyntaxDetector;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -90,7 +97,7 @@ public final class GitUiUtil {
 
         contextManager.submitContextTask(() -> {
             try {
-                var diff = repo.showFileDiff(commitId + "^", commitId, file);
+                var diff = repo.getDiff(file, commitId + "^", commitId);
                 if (diff.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "No changes found for " + file.getFileName());
@@ -185,7 +192,7 @@ public final class GitUiUtil {
                 var oldestCommitId = oldestCommitInSelection.id();
 
                 // Diff is from oldestCommit's parent up to newestCommit.
-                String diff = repo.showDiff(newestCommitId, oldestCommitId + "^");
+                String diff = repo.getDiff(oldestCommitId + "^", newestCommitId);
                 if (diff.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO, "No changes found in the selected commit range");
@@ -197,7 +204,9 @@ public final class GitUiUtil {
                     changedFiles = newestCommitInSelection.changedFiles();
                 } else {
                     // Files changed between oldest selected commit's parent and newest selected commit
-                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^");
+                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^").stream()
+                            .map(IGitRepo.ModifiedFile::file)
+                            .collect(Collectors.toList());
                 }
 
                 var fileNamesSummary = formatFileList(changedFiles);
@@ -250,8 +259,8 @@ public final class GitUiUtil {
     public static void addFilesChangeToContext(
             ContextManager contextManager,
             Chrome chrome,
-            String firstCommitId,
-            String lastCommitId,
+            String newestCommitId,
+            String oldestCommitId,
             List<ProjectFile> files) {
         contextManager.submitContextTask(() -> {
             try {
@@ -264,7 +273,7 @@ public final class GitUiUtil {
                 var diffs = files.stream()
                         .map(file -> {
                             try {
-                                return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
+                                return repo.getDiff(file, oldestCommitId + "^", newestCommitId);
                             } catch (GitAPIException e) {
                                 logger.warn(e);
                                 return "";
@@ -278,10 +287,10 @@ public final class GitUiUtil {
                             "No changes found for the selected files in the commit range");
                     return;
                 }
-                var firstShort = ((GitRepo) repo).shortHash(firstCommitId);
-                var lastShort = ((GitRepo) repo).shortHash(lastCommitId);
+                var newShort = ((GitRepo) repo).shortHash(newestCommitId);
+                var oldShort = ((GitRepo) repo).shortHash(oldestCommitId);
                 var shortHash =
-                        firstCommitId.equals(lastCommitId) ? firstShort : "%s..%s".formatted(firstShort, lastShort);
+                        newestCommitId.equals(oldestCommitId) ? newShort : "%s..%s".formatted(oldShort, newShort);
 
                 var filesTxt = files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
                 var description = "Diff of %s [%s]".formatted(filesTxt, shortHash);
@@ -360,10 +369,10 @@ public final class GitUiUtil {
     }
 
     /** Format commit date to show e.g. "HH:MM:SS today" if it is today's date. */
-    public static String formatRelativeDate(java.time.Instant commitInstant, java.time.LocalDate today) {
+    public static String formatRelativeDate(Instant commitInstant, LocalDate today) {
         try {
-            var now = java.time.Instant.now();
-            var duration = java.time.Duration.between(commitInstant, now);
+            var now = Instant.now();
+            var duration = Duration.between(commitInstant, now);
             // 1) seconds ago
             long seconds = duration.toSeconds();
             if (seconds < 60) {
@@ -379,8 +388,7 @@ public final class GitUiUtil {
 
             // 2) hours ago (same calendar day)
             long hours = duration.toHours();
-            var commitDate =
-                    commitInstant.atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+            var commitDate = commitInstant.atZone(ZoneId.systemDefault()).toLocalDate();
             if (hours < 24 && commitDate.equals(today)) {
                 long n = Math.max(1, hours);
                 return n + " hour" + (n == 1 ? "" : "s") + " ago";
@@ -391,14 +399,14 @@ public final class GitUiUtil {
                 return "Yesterday";
             }
 
-            var zdt = commitInstant.atZone(java.time.ZoneId.systemDefault());
+            var zdt = commitInstant.atZone(ZoneId.systemDefault());
             if (zdt.getYear() == today.getYear()) {
                 // 4) older, same year: "d MMM" (e.g., 7 Apr)
-                return zdt.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
+                return zdt.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
             }
 
             // 5) previous years: "MMM yy" (e.g., Apr 23)
-            return zdt.format(java.time.format.DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()));
+            return zdt.format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()));
         } catch (Exception e) {
             logger.debug("Could not format date: {}", commitInstant, e);
             return commitInstant.toString();
@@ -469,8 +477,7 @@ public final class GitUiUtil {
      * @param compareBranchName The name of the branch to compare against the base.
      */
     /** Open a BrokkDiffPanel showing all file changes in the specified commit. */
-    public static void openCommitDiffPanel(
-            ContextManager cm, Chrome chrome, io.github.jbellis.brokk.git.ICommitInfo commitInfo) {
+    public static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -519,10 +526,7 @@ public final class GitUiUtil {
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
     public static void openCommitDiffPanel(
-            ContextManager cm,
-            Chrome chrome,
-            io.github.jbellis.brokk.git.ICommitInfo commitInfo,
-            String targetFileName) {
+            ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -571,8 +575,7 @@ public final class GitUiUtil {
         });
     }
 
-    private static String getFileContentOrEmpty(
-            io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
+    private static String getFileContentOrEmpty(IGitRepo repo, String commitId, ProjectFile file) {
         try {
             return repo.getFileContent(commitId, file);
         } catch (Exception e) {
@@ -627,7 +630,7 @@ public final class GitUiUtil {
 
         cm.submitContextTask(() -> {
             try {
-                var diff = repo.showDiff(compareBranchName, baseBranchName);
+                var diff = repo.getDiff(baseBranchName, compareBranchName);
                 if (diff.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
@@ -713,7 +716,7 @@ public final class GitUiUtil {
     public static List<ProjectFile> filterTextFiles(List<GitRepo.ModifiedFile> modifiedFiles) {
         return modifiedFiles.stream()
                 .map(GitRepo.ModifiedFile::file)
-                .filter(io.github.jbellis.brokk.analyzer.BrokkFile::isText)
+                .filter(BrokkFile::isText)
                 .collect(Collectors.toList());
     }
 
@@ -748,7 +751,7 @@ public final class GitUiUtil {
                     effectiveBaseSha = prBaseSha;
                 }
 
-                String diff = repo.showDiff(prHeadSha, effectiveBaseSha);
+                String diff = repo.getDiff(effectiveBaseSha, prHeadSha);
                 if (diff.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
@@ -758,7 +761,10 @@ public final class GitUiUtil {
                     return;
                 }
 
-                List<ProjectFile> changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha);
+                List<ProjectFile> changedFiles =
+                        repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha).stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .collect(Collectors.toList());
                 String fileNamesSummary = formatFileList(changedFiles);
 
                 String description = String.format(
@@ -894,7 +900,7 @@ public final class GitUiUtil {
 
                     BufferSource leftSource, rightSource;
 
-                    if ("deleted".equals(status)) {
+                    if (status == ModificationType.DELETED) {
                         // Deleted: left side has content from base, right side is empty (but still track head SHA for
                         // context)
                         leftSource = new BufferSource.StringSource(
@@ -904,7 +910,7 @@ public final class GitUiUtil {
                                 prBaseSha);
                         rightSource = new BufferSource.StringSource(
                                 "", prHeadSha + " (Deleted)", projectFile.toString(), prHeadSha);
-                    } else if ("new".equals(status)) {
+                    } else if (status == ModificationType.NEW) {
                         // New: left side is empty (but still track base SHA for context), right side has content from
                         // head
                         leftSource = new BufferSource.StringSource(

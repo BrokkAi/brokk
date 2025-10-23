@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.context;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -10,7 +11,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
-import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -123,10 +123,27 @@ public class Context {
             }
         });
 
+        // Convert legacy SkeletonFragments to individual SummaryFragments
+        var expandedFragments = new ArrayList<ContextFragment>();
+        for (var fragment : newFragments) {
+            if (fragment instanceof ContextFragment.SkeletonFragment skeleton) {
+                logger.debug(
+                        "Converting legacy SkeletonFragment id={} with {} target(s) to individual SummaryFragments",
+                        skeleton.id(),
+                        skeleton.getTargetIdentifiers().size());
+                for (String targetId : skeleton.getTargetIdentifiers()) {
+                    var summary = new ContextFragment.SummaryFragment(cm, targetId, skeleton.getSummaryType());
+                    expandedFragments.add(summary);
+                }
+            } else {
+                expandedFragments.add(fragment);
+            }
+        }
+
         return new Context(
                 frozen.id(),
                 cm,
-                List.copyOf(newFragments),
+                List.copyOf(expandedFragments),
                 frozen.getTaskHistory(),
                 frozen.getParsedOutput(),
                 frozen.action);
@@ -158,26 +175,47 @@ public class Context {
         return withFragments(newFragments, CompletableFuture.completedFuture(action));
     }
 
-    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        // Deduplicate among existing virtual fragments only
-        boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                ? fragments.stream()
-                        .filter(f -> f.getType().isVirtual())
-                        .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                : fragments.stream()
-                        .filter(f -> f.getType().isVirtual())
-                        .map(f -> (ContextFragment.VirtualFragment) f)
-                        .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
-
-        if (isDuplicate) {
+    public Context addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> toAdd) {
+        if (toAdd.isEmpty()) {
             return this;
         }
 
         var newFragments = new ArrayList<>(fragments);
-        newFragments.add(fragment);
+        var existingVirtuals = fragments.stream()
+                .filter(f -> f.getType().isVirtual())
+                .map(f -> (ContextFragment.VirtualFragment) f)
+                .toList();
 
-        String action = "Added " + fragment.shortDescription();
+        for (var fragment : toAdd) {
+            // Deduplicate among existing virtual fragments only
+            boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
+                    ? existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
+                            || newFragments.stream()
+                                    .filter(f -> f.getType().isVirtual())
+                                    .map(f -> (ContextFragment.VirtualFragment) f)
+                                    .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
+                    : existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()))
+                            || newFragments.stream()
+                                    .filter(f -> f.getType().isVirtual())
+                                    .map(f -> (ContextFragment.VirtualFragment) f)
+                                    .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+
+            if (!isDuplicate) {
+                newFragments.add(fragment);
+            }
+        }
+
+        if (newFragments.size() == fragments.size()) {
+            return this;
+        }
+
+        int addedCount = newFragments.size() - fragments.size();
+        String action = "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
         return withFragments(newFragments, CompletableFuture.completedFuture(action));
+    }
+
+    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
+        return addVirtualFragments(List.of(fragment));
     }
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
@@ -185,7 +223,7 @@ public class Context {
     }
 
     /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
-    public List<ProjectFile> getMostRelevantFiles(int topK) {
+    public List<ProjectFile> getMostRelevantFiles(int topK) throws InterruptedException {
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
                 .flatMap(f -> f.files().stream())
@@ -205,38 +243,44 @@ public class Context {
             return List.of();
         }
 
-        var gitDistanceResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
+        var gitDistanceResults =
+                GitDistance.getRelatedFiles((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
         return gitDistanceResults.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
-                .limit(topK)
                 .toList();
     }
 
     /**
-     * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
-     * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
+     * 1) Gather all classes from each fragment.
+     * 2) Compute related files and take up to topK.
+     * 3) Return a List of SummaryFragment for the top results.
      */
-    public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
+    public List<ContextFragment.SummaryFragment> buildAutoContext(int topK) throws InterruptedException {
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
         var relevantFiles = getMostRelevantFiles(topK);
         if (relevantFiles.isEmpty()) {
-            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            return List.of();
         }
 
         List<String> targetFqns = new ArrayList<>();
         for (var sourceFile : relevantFiles) {
-            targetFqns.addAll(analyzer.topLevelCodeUnitsOf(sourceFile).stream()
+            targetFqns.addAll(analyzer.getTopLevelDeclarations(sourceFile).stream()
                     .map(CodeUnit::fqName)
                     .toList());
             if (targetFqns.size() >= topK) break;
         }
 
         if (targetFqns.isEmpty()) {
-            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            return List.of();
         }
-        return new SkeletonFragment(contextManager, targetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+        return targetFqns.stream()
+                .limit(topK)
+                .map(fqn -> new ContextFragment.SummaryFragment(
+                        contextManager, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .toList();
     }
 
     // ---------------------------------------------------------
@@ -406,17 +450,11 @@ public class Context {
     public static Context createWithId(
             UUID id,
             IContextManager cm,
-            List<ContextFragment> editable,
-            List<ContextFragment> readonly,
-            List<ContextFragment.VirtualFragment> virtuals,
+            List<ContextFragment> fragments,
             List<TaskEntry> history,
             @Nullable ContextFragment.TaskFragment parsed,
-            java.util.concurrent.Future<String> action) {
-        var combined = Streams.concat(
-                        Streams.concat(editable.stream(), readonly.stream()),
-                        virtuals.stream().map(v -> (ContextFragment) v))
-                .toList();
-        return new Context(id, cm, combined, history, parsed, action);
+            Future<String> action) {
+        return new Context(id, cm, fragments, history, parsed, action);
     }
 
     /**
@@ -551,9 +589,7 @@ public class Context {
 
         var mapper = Json.getMapper();
         try {
-            return mapper.readValue(
-                    existingDiscarded.get().text(),
-                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
+            return mapper.readValue(existingDiscarded.get().text(), new TypeReference<Map<String, String>>() {});
         } catch (Exception e) {
             logger.warn("Failed to parse DISCARDED_CONTEXT JSON", e);
             return Map.of();
@@ -682,7 +718,7 @@ public class Context {
                             oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
                     int newLineCount =
                             newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-                    logger.debug(
+                    logger.trace(
                             "getDiff: fragment='{}' id={} oldLines={} newLines={}",
                             ff.shortDescription(),
                             id,
@@ -692,7 +728,7 @@ public class Context {
                     var result = ContentDiffUtils.computeDiffResult(
                             oldContent, newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
 
-                    logger.debug(
+                    logger.trace(
                             "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
                             ff.shortDescription(),
                             result.added(),

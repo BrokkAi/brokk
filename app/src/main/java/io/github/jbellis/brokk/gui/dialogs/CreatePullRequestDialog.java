@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
@@ -20,7 +21,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Stream;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -457,19 +464,19 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void setupInputListeners() {
-        javax.swing.event.DocumentListener inputChangedListener = new javax.swing.event.DocumentListener() {
+        DocumentListener inputChangedListener = new DocumentListener() {
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 updateCreatePrButtonState();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 updateCreatePrButtonState();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 updateCreatePrButtonState();
             }
         };
@@ -484,7 +491,7 @@ public class CreatePullRequestDialog extends JDialog {
         this.createPrButton.addActionListener(e -> createPullRequest());
 
         // Style Create PR button as primary action (bright blue with white text)
-        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(this.createPrButton);
+        SwingUtil.applyPrimaryButtonStyle(this.createPrButton);
         buttonPanel.add(this.createPrButton);
 
         var cancelButton = new MaterialButton("Cancel");
@@ -549,7 +556,7 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private List<String> getSourceBranches(List<String> localBranches, List<String> remoteBranches) {
-        return java.util.stream.Stream.concat(localBranches.stream(), remoteBranches.stream())
+        return Stream.concat(localBranches.stream(), remoteBranches.stream())
                 .distinct()
                 .sorted()
                 .toList();
@@ -747,7 +754,7 @@ public class CreatePullRequestDialog extends JDialog {
                     setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                     showDescriptionHint(false);
                 });
-            } catch (java.util.concurrent.CancellationException e) {
+            } catch (CancellationException e) {
                 logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
                     streamingIO.onComplete();
@@ -755,7 +762,7 @@ public class CreatePullRequestDialog extends JDialog {
                     setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
                     showDescriptionHint(false);
                 });
-            } catch (java.util.concurrent.ExecutionException e) {
+            } catch (ExecutionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof InterruptedException interruptedException) {
                     Thread.currentThread().interrupt();
@@ -806,7 +813,7 @@ public class CreatePullRequestDialog extends JDialog {
         }
     }
 
-    private static void setTextAndResetCaret(javax.swing.text.JTextComponent textComponent, String text) {
+    private static void setTextAndResetCaret(JTextComponent textComponent, String text) {
         textComponent.setText(text);
         textComponent.setCaretPosition(0);
     }

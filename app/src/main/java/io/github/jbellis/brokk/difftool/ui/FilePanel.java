@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Patch;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
@@ -14,9 +16,11 @@ import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
 import java.awt.*;
 import java.awt.Font;
+import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
+import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
@@ -106,10 +110,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         visualComponentContainer = new JPanel(new BorderLayout());
 
         // Initialize status panel for file notifications
-        statusPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 5, 2));
+        statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         statusLabel = new JLabel();
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        statusLabel.setForeground(new java.awt.Color(204, 120, 50)); // Orange color for warnings
+        statusLabel.setForeground(new Color(204, 120, 50)); // Orange color for warnings
         statusPanel.add(statusLabel);
         statusPanel.setVisible(false); // Hidden by default
 
@@ -180,7 +184,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         });
         typingStateTimer.setRepeats(false);
         // Apply syntax theme but don't trigger reDisplay yet (no diff data available)
-        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(editor));
     }
 
@@ -412,12 +416,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /** Fallback method to paint all deltas (original behavior). */
-    private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch, boolean isOriginal) {
+    private void paintAllDeltas(Patch<String> patch, boolean isOriginal) {
         // Highlight text area
         patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
 
         // Build gutter highlights to match text area
-        var gutterHighlights = new java.util.ArrayList<DiffGutterComponent.DiffHighlightInfo>();
+        var gutterHighlights = new ArrayList<DiffGutterComponent.DiffHighlightInfo>();
         boolean isDark = diffPanel.isDarkTheme();
 
         for (var delta : patch.getDeltas()) {
@@ -747,7 +751,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         // Apply current theme
-        String themeName = io.github.jbellis.brokk.MainProject.getTheme();
+        String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {
             // Ensure syntax style is set before applying theme
             if (bufferDocument != null) {
@@ -808,7 +812,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * PERFORMANCE OPTIMIZATION: Unified update handler to coordinate diff and highlight updates. Reduces timer overhead
      * and prevents conflicting operations.
      */
-    private void handleUnifiedUpdate(java.awt.event.ActionEvent e) {
+    private void handleUnifiedUpdate(ActionEvent e) {
         if (!initialSetupComplete) return;
 
         // Skip updates while actively typing to prevent flickering
@@ -971,7 +975,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         this.plainDocument = newPlainDoc;
         var rsyntaxDoc = editor.getDocument();
-        var guard = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var guard = new AtomicBoolean(false);
 
         plainToEditorListener = createMirroringListener(this.plainDocument, rsyntaxDoc, guard, true);
         editorToPlainListener = createMirroringListener(rsyntaxDoc, this.plainDocument, guard, false);
@@ -990,10 +994,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * @return A configured DocumentListener.
      */
     private DocumentListener createMirroringListener(
-            Document sourceDoc,
-            Document destinationDoc,
-            java.util.concurrent.atomic.AtomicBoolean guard,
-            boolean runDestinationUpdateOnEdt) {
+            Document sourceDoc, Document destinationDoc, AtomicBoolean guard, boolean runDestinationUpdateOnEdt) {
         return new DocumentListener() {
             private void performIncrementalSync(DocumentEvent e) {
                 Runnable syncTask = () -> {

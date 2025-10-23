@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryException;
 import org.treesitter.TSQueryMatch;
@@ -26,7 +27,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             "parameters", // parametersFieldName
             "", // returnTypeFieldName (JS doesn't have a standard named child for return type)
             "", // typeParametersFieldName (JS doesn't have type parameters)
-            java.util.Map.of( // captureConfiguration
+            Map.of( // captureConfiguration
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "function.definition", SkeletonType.FUNCTION_LIKE,
                     "field.definition", SkeletonType.FIELD_LIKE),
@@ -270,7 +271,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             cursor.exec(mutationQuery, bodyNode);
             TSQueryMatch match = new TSQueryMatch(); // Reusable match object
             while (cursor.nextMatch(match)) {
-                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                for (TSQueryCapture capture : match.getCaptures()) {
                     String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
                     if ("mutated.id".equals(captureName)) {
                         mutatedIdentifiers.add(textSlice(capture.getNode(), src));

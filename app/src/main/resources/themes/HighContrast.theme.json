@@ -729,6 +729,16 @@
       "git_badge_background": "#1AEBFF",
       "git_badge_text": "#000000",
 
+      "mode_answer_bg": "#00FFFF",
+      "mode_answer_fg": "#000000",
+      "mode_answer_accent": "#00FFFF",
+      "mode_code_bg": "#00FF00",
+      "mode_code_fg": "#000000",
+      "mode_code_accent": "#00FF00",
+      "mode_lutz_bg": "#FFD333",
+      "mode_lutz_fg": "#000000",
+      "mode_lutz_accent": "#FFD333",
+
       "badge_border": "#1AEBFF",
       "badge_foreground": "#1AEBFF",
       "badge_hover_border": "#00EAFF",
@@ -760,7 +770,20 @@
       "diff_deleted": "#330000",
 
       "search_highlight": "#FFD333",
-      "search_current": "#F58231"
+      "search_current": "#F58231",
+
+      "chip_edit_bg": "#1AEBFF",
+      "chip_edit_fg": "#000000",
+      "chip_edit_border": "#FFFFFF",
+      "chip_summary_bg": "#000080",
+      "chip_summary_fg": "#1AEBFF",
+      "chip_summary_border": "#1AEBFF",
+      "chip_history_bg": "#003300",
+      "chip_history_fg": "#00FF00",
+      "chip_history_border": "#00FF00",
+      "chip_other_bg": "#0066FF",
+      "chip_other_fg": "#FFFFFF",
+      "chip_other_border": "#00FFFF"
     }
   },
 

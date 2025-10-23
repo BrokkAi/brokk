@@ -30,27 +30,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 class CodeAgentTest {
 
-    private static class ScriptedLanguageModel implements StreamingChatModel {
-        private final Queue<String> responses;
-
-        ScriptedLanguageModel(String... cannedTexts) {
-            this.responses = new LinkedList<>(Arrays.asList(cannedTexts));
-        }
-
-        @Override
-        public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
-            String responseText = responses.poll();
-            if (responseText == null) {
-                fail("ScriptedLanguageModel ran out of responses.");
-            }
-            handler.onPartialResponse(responseText);
-            var cr = ChatResponse.builder()
-                    .aiMessage(new AiMessage(responseText))
-                    .build();
-            handler.onCompleteResponse(cr);
-        }
-    }
-
     private static class CountingPreprocessorModel implements StreamingChatModel {
         private final AtomicInteger preprocessingCallCount = new AtomicInteger(0);
         private final String cannedResponse;
@@ -365,7 +344,7 @@ class CodeAgentTest {
         contextManager.getProject().setBuildDetails(bd);
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
-        var attempt = new java.util.concurrent.atomic.AtomicInteger(0);
+        var attempt = new AtomicInteger(0);
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             int currentAttempt = attempt.getAndIncrement();
             // Log the attempt to help diagnose mock behavior using a more visible marker
@@ -437,7 +416,7 @@ class CodeAgentTest {
     // L-1: Loop termination - "no edits, no error"
     @Test
     void testRunTask_exitsSuccessOnNoEdits() {
-        var stubModel = new ScriptedLanguageModel("Okay, I see no changes are needed.");
+        var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
 
@@ -472,7 +451,7 @@ class CodeAgentTest {
                             </block>
                             """;
         var secondResponse = "I am unable to fix the build error.";
-        var stubModel = new ScriptedLanguageModel(firstResponse, secondResponse);
+        var stubModel = new TestScriptedLanguageModel(firstResponse, secondResponse);
 
         // Make the build command fail once
         var buildAttempt = new AtomicInteger(0);
@@ -819,5 +798,52 @@ class CodeAgentTest {
                 countingModel.getPreprocessingCallCount(),
                 "BuildOutputPreprocessor.processForLlm should only be called once per build failure "
                         + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
+    }
+
+    // REQ-1: requestPhase with partial response + error should continue, not exit fatally
+    @Test
+    void testRequestPhase_partialResponseWithTransportError_shouldContinueAndLetParseHandle() {
+        // Create a model that returns partial text (some valid blocks) + error (simulating connection drop)
+        var partialBlockText =
+                """
+                <block>
+                test.txt
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """;
+
+        // Prepare the Llm.StreamingResult with partial text and an error.
+        // Note: when error is non-null, originalResponse must be null (it's a synthetic partial response)
+        var partialResponse = new Llm.NullSafeResponse(
+                partialBlockText, // text
+                null, // reasoningContent
+                List.of(), // toolRequests
+                null); // originalResponse must be null when paired with an error
+        var streamingResult = new Llm.StreamingResult(partialResponse, new RuntimeException("Connection reset"), 0);
+
+        var cs = createBasicConversationState();
+        var es = createEditState(List.of(), 0);
+
+        // Act: Call requestPhase with the partial + error result
+        var result = codeAgent.requestPhase(cs, es, streamingResult, null);
+
+        // Assert: Should continue (not fatal), so that parsePhase can handle the partial
+        assertInstanceOf(
+                CodeAgent.Step.Continue.class,
+                result,
+                "requestPhase should continue when partial text is present, even with error");
+        var continueStep = (CodeAgent.Step.Continue) result;
+
+        // The request and AI message should be appended
+        assertEquals(2, continueStep.cs().taskMessages().size());
+        String aiMessageText = Messages.getText(continueStep.cs().taskMessages().get(1));
+        assertTrue(aiMessageText.contains("goodbye"), "AI message should contain the partial block content");
+
+        // nextRequest should be null after sending (Task 3 semantics)
+        assertNull(continueStep.cs().nextRequest(), "nextRequest should be null after recording");
     }
 }

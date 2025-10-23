@@ -40,8 +40,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,10 +55,10 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea} with syntax highlighting,
+ * Displays text (typically code) using an {@link RSyntaxTextArea} with syntax highlighting,
  * search, and AI-assisted editing via "Quick Edit".
  *
- * <p>Supports editing {@link io.github.jbellis.brokk.analyzer.ProjectFile} content and capturing revisions.
+ * <p>Supports editing {@link ProjectFile} content and capturing revisions.
  */
 public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
@@ -80,6 +83,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
     private final String contentBeforeSave;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
+
+    @Nullable
+    private DocumentListener saveButtonDocumentListener;
 
     @Nullable
     private final Future<Set<CodeUnit>> fileDeclarations;
@@ -179,7 +185,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         if (saveButton != null) {
             // Use the final reference created for the ActionListener
             final MaterialButton finalSaveButtonRef = saveButton;
-            textArea.getDocument().addDocumentListener(new DocumentListener() {
+            saveButtonDocumentListener = new DocumentListener() {
                 @Override
                 public void insertUpdate(DocumentEvent e) {
                     finalSaveButtonRef.setEnabled(true);
@@ -194,7 +200,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 public void changedUpdate(DocumentEvent e) {
                     finalSaveButtonRef.setEnabled(true);
                 }
-            });
+            };
+            textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
         }
 
         // Put the text area in a scroll pane
@@ -228,7 +235,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         if (file != null) {
             fileDeclarations = cm.submitBackgroundTask("Fetch Declarations", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
-                return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
+                return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarations(file);
             });
             analyzerCapabilities = cm.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
@@ -302,9 +309,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             menu.add(quickEditAction);
 
             // Listener to enable/disable actions and add dynamic "Capture usages" items
-            menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            menu.addPopupMenuListener(new PopupMenuListener() {
                 @Override
-                public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                     var textSelected = getSelectedText() != null;
 
                     // Enable Quick Edit only if text is selected and it's a project file
@@ -530,14 +537,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 }
 
                 @Override
-                public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
                     // Clear dynamic items when the menu closes
                     dynamicMenuItems.forEach(menu::remove);
                     dynamicMenuItems.clear();
                 }
 
                 @Override
-                public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                public void popupMenuCanceled(PopupMenuEvent e) {
                     // Clear dynamic items if the menu is canceled
                     dynamicMenuItems.forEach(menu::remove);
                     dynamicMenuItems.clear();
@@ -591,8 +598,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 BorderFactory.createTitledBorder(
                         BorderFactory.createEtchedBorder(),
                         "Instructions",
-                        javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                        javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
                         new Font(Font.DIALOG, Font.BOLD, 12)),
                 new EmptyBorder(5, 5, 5, 5)));
 
@@ -626,7 +633,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             // Submit the task to fetch symbols in the background
             symbolsFuture = cm.submitBackgroundTask("Fetch File Symbols", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
-                return analyzer.getSymbols(analyzer.getDeclarationsInFile(file));
+                return analyzer.getSymbols(analyzer.getDeclarations(file));
             });
         }
 
@@ -766,8 +773,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         systemScrollPane.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "System Messages",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
         systemArea.setText("Request sent");
         systemScrollPane.setPreferredSize(new Dimension(400, 200));
@@ -956,7 +963,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 } finally {
                     textArea.endAtomicEdit();
                 }
-            } catch (javax.swing.text.BadLocationException ex) {
+            } catch (BadLocationException ex) {
                 logger.error("Error applying quick edit change", ex);
                 // Fallback to direct text replacement
                 textArea.setText(textArea.getText().replace(selectedText.stripLeading(), snippet.stripLeading()));
@@ -1079,6 +1086,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 }
                 quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
                 logger.debug("File saved: " + file);
+
+                // Notify other preview windows to refresh (but not this one)
+                SwingUtilities.invokeLater(() -> {
+                    if (cm.getIo() instanceof io.github.jbellis.brokk.gui.Chrome chrome) {
+                        var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                        chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
+                    }
+                });
+
                 return true; // Save successful
 
             } catch (IOException ex) {
@@ -1135,6 +1151,100 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Gets the ProjectFile associated with this preview panel.
+     *
+     * @return The ProjectFile, or null if this preview is not associated with a file
+     */
+    @Nullable
+    public ProjectFile getFile() {
+        return file;
+    }
+
+    /**
+     * Refreshes the content from disk if the file has changed. Preserves caret position and viewport position when
+     * possible. Does not refresh if there are unsaved changes.
+     */
+    public void refreshFromDisk() {
+        logger.debug("refreshFromDisk() called for file: {}", file);
+        if (file == null) {
+            logger.debug("Skipping refresh - file is null");
+            return;
+        }
+
+        // Don't refresh if there are unsaved changes
+        if (saveButton != null && saveButton.isEnabled()) {
+            logger.debug("Skipping refresh of {} - unsaved changes present", file);
+            return;
+        }
+
+        logger.debug("Attempting to refresh {} from disk", file);
+        try {
+            // Check if file still exists
+            if (!java.nio.file.Files.exists(file.absPath())) {
+                logger.debug("File no longer exists: {}", file);
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(
+                            this, "File has been deleted: " + file, "File Deleted", JOptionPane.WARNING_MESSAGE);
+                });
+                return;
+            }
+
+            // Read new content
+            var newContent = file.read();
+            if (newContent.isEmpty()) {
+                logger.warn("Could not read file for refresh: {}", file);
+                return;
+            }
+
+            var newContentStr = newContent.get();
+            var currentContent = textArea.getText();
+
+            // Skip refresh if content hasn't changed
+            if (currentContent.equals(newContentStr)) {
+                logger.debug("Content unchanged for {}, skipping refresh", file);
+                return;
+            }
+
+            logger.info("Refreshing preview content for: {} (content changed)", file);
+
+            // Save current state
+            int caretPos = textArea.getCaretPosition();
+            Point viewportPos = scrollPane.getViewport().getViewPosition();
+
+            // Temporarily remove document listener to avoid triggering save button during programmatic update
+            if (saveButtonDocumentListener != null) {
+                textArea.getDocument().removeDocumentListener(saveButtonDocumentListener);
+            }
+
+            try {
+                // Update content
+                textArea.setText(newContentStr);
+            } finally {
+                // Re-add document listener
+                if (saveButtonDocumentListener != null) {
+                    textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
+                }
+            }
+
+            // Restore position (best effort)
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    int newLength = textArea.getDocument().getLength();
+                    textArea.setCaretPosition(Math.min(caretPos, newLength));
+                    scrollPane.getViewport().setViewPosition(viewportPos);
+                } catch (Exception e) {
+                    // Position restoration failed, just scroll to top
+                    logger.debug("Could not restore caret position after refresh", e);
+                    textArea.setCaretPosition(0);
+                }
+            });
+
+        } catch (Exception e) {
+            logger.error("Error refreshing preview from disk for {}", file, e);
+        }
+    }
+
+    /**
      * Sets the caret position in the text area to the specified character offset.
      *
      * @param position The character offset position to set the caret to
@@ -1183,7 +1293,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     centerX = Math.min(centerX, maxX);
                     centerY = Math.min(centerY, maxY);
 
-                    viewport.setViewPosition(new java.awt.Point((int) centerX, (int) centerY));
+                    viewport.setViewPosition(new Point((int) centerX, (int) centerY));
                 }
             } catch (Exception e) {
                 // If centering fails, fall back to basic scrolling

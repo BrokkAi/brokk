@@ -52,7 +52,7 @@ public class CppAnalyzerTest {
 
     private List<CodeUnit> getAllDeclarations() {
         return testProject.getAllFiles().stream()
-                .flatMap(file -> analyzer.getDeclarationsInFile(file).stream())
+                .flatMap(file -> analyzer.getDeclarations(file).stream())
                 .collect(Collectors.toList());
     }
 
@@ -86,7 +86,7 @@ public class CppAnalyzerTest {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("geometry.cpp not found"));
 
-        var allDeclarations = analyzer.getDeclarationsInFile(geometryFile);
+        var allDeclarations = analyzer.getDeclarations(geometryFile);
 
         var allFunctions = allDeclarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
 
@@ -387,7 +387,7 @@ public class CppAnalyzerTest {
 
         assertTrue(advancedFile.isPresent(), "Should find advanced_features.h test file");
 
-        var declarations = analyzer.getDeclarationsInFile(advancedFile.get());
+        var declarations = analyzer.getDeclarations(advancedFile.get());
 
         assertTrue(
                 declarations.size() >= 5,

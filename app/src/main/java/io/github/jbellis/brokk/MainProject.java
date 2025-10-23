@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,7 +61,6 @@ public final class MainProject extends AbstractProject {
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
-    private static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
@@ -271,7 +271,7 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private static synchronized Properties loadGlobalProperties() {
+    public static synchronized Properties loadGlobalProperties() {
         if (globalPropertiesCache != null) {
             return (Properties) globalPropertiesCache.clone();
         }
@@ -352,6 +352,16 @@ public final class MainProject extends AbstractProject {
         return detailsFuture;
     }
 
+    /**
+     * Blocking call that waits for build details to be available.
+     *
+     * <p>Important: this must NOT be invoked on the Swing Event Dispatch Thread (EDT) as it will
+     * block the UI and can deadlock. From the EDT, prefer {@link #getBuildDetailsFuture()} and
+     * update the UI when the future completes.
+     *
+     * @return the resolved build details
+     * @throws IllegalStateException if called on the Swing EDT
+     */
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
         try {
@@ -479,26 +489,6 @@ public final class MainProject extends AbstractProject {
             logger.warn("Unable to determine size of file {}: {}", pf, e.getMessage());
             return 0L;
         }
-    }
-
-    /**
-     * Detects the primary Language used by a dependency directory by scanning file extensions inside it and selecting
-     * the most frequently occurring language. Falls back to Language.NONE if none detected.
-     */
-    private static Language detectLanguageForDependency(ProjectFile depDir) {
-        var counts = new IProject.Dependency(depDir, Languages.NONE)
-                .files().stream()
-                        .map(pf -> com.google.common.io.Files.getFileExtension(
-                                pf.absPath().toString()))
-                        .filter(ext -> !ext.isEmpty())
-                        .map(Languages::fromExtension)
-                        .filter(lang -> lang != Languages.NONE)
-                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
-
-        return counts.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(Languages.NONE);
     }
 
     @Override
@@ -1105,9 +1095,24 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public static String getGlobalActionMode() {
+        var props = loadGlobalProperties();
+        return props.getProperty("actionMode", "");
+    }
+
+    public static void setGlobalActionMode(String mode) {
+        var props = loadGlobalProperties();
+        if (mode.isEmpty()) {
+            props.remove("actionMode");
+        } else {
+            props.setProperty("actionMode", mode);
+        }
+        saveGlobalProperties(props);
+    }
+
     public static boolean getExceptionReportingEnabled() {
         var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "false"));
+        return Boolean.parseBoolean(props.getProperty(EXCEPTION_REPORTING_ENABLED_KEY, "true"));
     }
 
     public static void setExceptionReportingEnabled(boolean enabled) {
@@ -1245,6 +1250,44 @@ public final class MainProject extends AbstractProject {
             props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
         }
         saveGlobalProperties(props);
+    }
+
+    // JVM memory settings (global)
+    private static final String JVM_MEMORY_MODE_KEY = "jvmMemoryMode";
+    private static final String JVM_MEMORY_MB_KEY = "jvmMemoryMb";
+
+    public record JvmMemorySettings(boolean automatic, int manualMb) {}
+
+    public static JvmMemorySettings getJvmMemorySettings() {
+        var props = loadGlobalProperties();
+        String mode = props.getProperty(JVM_MEMORY_MODE_KEY, "auto");
+        boolean automatic = !"manual".equalsIgnoreCase(mode);
+        int mb = 4096;
+        String mbStr = props.getProperty(JVM_MEMORY_MB_KEY);
+        if (mbStr != null) {
+            try {
+                mb = Integer.parseInt(mbStr.trim());
+            } catch (NumberFormatException ignore) {
+                // keep default
+            }
+        }
+        return new JvmMemorySettings(automatic, mb);
+    }
+
+    public static void setJvmMemorySettings(JvmMemorySettings settings) {
+        var props = loadGlobalProperties();
+        if (settings.automatic()) {
+            props.setProperty(JVM_MEMORY_MODE_KEY, "auto");
+            props.remove(JVM_MEMORY_MB_KEY);
+        } else {
+            props.setProperty(JVM_MEMORY_MODE_KEY, "manual");
+            props.setProperty(JVM_MEMORY_MB_KEY, Integer.toString(settings.manualMb()));
+        }
+        saveGlobalProperties(props);
+        logger.debug(
+                "Saved JVM memory settings: mode={}, mb={}",
+                settings.automatic() ? "auto" : "manual",
+                settings.automatic() ? "n/a" : settings.manualMb());
     }
 
     public static String getBrokkKey() {
@@ -1416,7 +1459,7 @@ public final class MainProject extends AbstractProject {
         var allLoadedEntries = new HashMap<Path, ProjectPersistentInfo>();
         var props = loadProjectsProperties();
         for (String key : props.stringPropertyNames()) {
-            if (!key.contains(java.io.File.separator) || key.endsWith("_activeSession")) {
+            if (!key.contains(File.separator) || key.endsWith("_activeSession")) {
                 continue;
             }
             String propertyValue = props.getProperty(key);
@@ -1481,7 +1524,7 @@ public final class MainProject extends AbstractProject {
                 .collect(Collectors.toSet());
 
         List<String> keysToRemove = props.stringPropertyNames().stream()
-                .filter(key -> key.contains(java.io.File.separator) && !key.endsWith("_activeSession"))
+                .filter(key -> key.contains(File.separator) && !key.endsWith("_activeSession"))
                 .filter(key -> !pathsToKeep.contains(key))
                 .toList();
         keysToRemove.forEach(props::remove);

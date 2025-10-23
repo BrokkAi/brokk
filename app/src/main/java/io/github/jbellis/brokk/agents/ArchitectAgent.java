@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
@@ -587,14 +588,15 @@ public class ArchitectAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
-        var reminder = CodePrompts.instance.architectReminder(cm.getService(), planningModel);
+        var reminder = CodePrompts.instance.architectReminder();
         messages.add(ArchitectPrompts.instance.systemMessage(cm, reminder));
 
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
         // Add auto-context as a separate message/ack pair
-        var topClassesRaw = cm.liveContext().buildAutoContext(10).text();
+        var acList = cm.liveContext().buildAutoContext(10);
+        var topClassesRaw = ContextFragment.SummaryFragment.combinedText(acList);
         if (!topClassesRaw.isBlank()) {
             var topClassesText =
                     """
