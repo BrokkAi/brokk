@@ -55,4 +55,68 @@ public class ScalaSkeletonTest {
                             () -> fail("Could not find source code for 'Foo'!"));
         }
     }
+
+    @Test
+    public void testGenericMethodSkeleton() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk;
+
+                                class GenericFoo[R]() {
+                                    def genericMethod[T](arg: T): T = {
+                                        return arg;
+                                    }
+                                }
+                                """,
+                        "GenericFoo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var scp = analyzer.as(SkeletonProvider.class)
+                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
+            scp.getSkeleton("ai.brokk.GenericFoo")
+                    .ifPresentOrElse(
+                            source -> assertEquals(
+                                    """
+                                            class GenericFoo[R]() {
+                                              genericMethod[T](arg: T): T
+                                            }
+                                            """
+                                            .strip(),
+                                    source),
+                            () -> fail("Could not find source code for 'GenericFoo'!"));
+        }
+    }
+
+    @Test
+    public void testImplicitParameterMethodSkeleton() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk;
+
+                                import scala.concurrent.ExecutionContext;
+
+                                class ImplicitFoo() {
+                                    def implicitMethod(arg: Int)(implicit ec: ExecutionContext): String = {
+                                        return "done";
+                                    }
+                                }
+                                """,
+                        "ImplicitFoo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var scp = analyzer.as(SkeletonProvider.class)
+                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
+            scp.getSkeleton("ai.brokk.ImplicitFoo")
+                    .ifPresentOrElse(
+                            source -> assertEquals(
+                                    """
+                                            class ImplicitFoo() {
+                                              implicitMethod(arg: Int)(implicit ec: ExecutionContext): String
+                                            }
+                                            """
+                                            .strip(),
+                                    source),
+                            () -> fail("Could not find source code for 'ImplicitFoo'!"));
+        }
+    }
 }
