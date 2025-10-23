@@ -222,6 +222,18 @@ val baselineJvmArgsProvider = object : CommandLineArgumentProvider {
 
 val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
     override fun asArguments(): Iterable<String> {
+        // Check if debugging is explicitly disabled
+        val disableDebug = (project.findProperty("disableDebug") as String?)?.toBoolean() ?: false
+        if (disableDebug) {
+            return emptyList()
+        }
+
+        // Only add JDWP if not already present (IntelliJ adds it when debugging)
+        val jdwpAlreadyPresent = System.getProperty("jdwp.present") == "true"
+        if (jdwpAlreadyPresent) {
+            return emptyList()
+        }
+
         val port = (project.findProperty("debugPort") as String?) ?: "5005"
         // Use "*" so it works on macOS 13+/JDK 21+ where "address=*:5005" is the recommended form.
         return listOf("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:$port")
