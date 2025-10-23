@@ -27,7 +27,6 @@ import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
@@ -123,40 +122,41 @@ public class BuildAgent {
                 detectedSystem,
                 this.currentExcludedDirectories);
 
-        // Add exclusions from .gitignore
-        var repo = project.getRepo();
-        if (repo instanceof GitRepo gitRepo) {
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            var addedFromGitignore = new ArrayList<String>();
-            for (var pattern : ignoredPatterns) {
-                // Skip glob patterns explicitly - they're handled by AbstractProject's IgnoreNode filtering
-                if (containsGlobPattern(pattern)) {
-                    continue;
+        // Add directory exclusions based on gitignore filtering
+        // Instead of parsing .gitignore directly, we analyze which directories are missing
+        // from the filtered file list to infer ignored directories
+        var addedFromGitignore = new ArrayList<String>();
+        if (project.hasGit()) {
+            try {
+                // Get all potential directories vs. actually included directories
+                var allFiles = project.getAllFiles();
+                var includedDirectories = allFiles.stream()
+                        .map(pf -> pf.getRelPath().getParent())
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+                
+                // Look for directories that exist but are not in the filtered list
+                try (var dirStream = Files.walk(project.getRoot(), 1)) {
+                    dirStream.filter(Files::isDirectory)
+                            .filter(path -> !path.equals(project.getRoot())) // Skip root
+                            .map(path -> project.getRoot().relativize(path).toString())
+                            .filter(dirName -> !dirName.startsWith(".")) // Skip hidden dirs like .git
+                            .filter(dirName -> !includedDirectories.contains(Path.of(dirName)))
+                            .forEach(dirName -> {
+                                this.currentExcludedDirectories.add(dirName);
+                                addedFromGitignore.add(dirName);
+                            });
                 }
-
-                Path path;
-                try {
-                    path = project.getRoot().resolve(pattern);
-                } catch (InvalidPathException e) {
-                    // Skip invalid paths
-                    continue;
-                }
-                // include non-existing paths if they end with `/` in case they get created later
-                var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!pattern.startsWith("!") && isDirectory) {
-                    this.currentExcludedDirectories.add(pattern);
-                    addedFromGitignore.add(pattern);
-                }
+                        
+            } catch (IOException e) {
+                logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
             }
-            if (!addedFromGitignore.isEmpty()) {
-                logger.debug(
-                        "Added the following directory patterns from .gitignore to excluded directories: {}",
-                        addedFromGitignore);
-            }
-
-        } else {
+        }
+        
+        if (!addedFromGitignore.isEmpty()) {
             logger.debug(
-                    "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
+                    "Added the following directory patterns from gitignore analysis to excluded directories: {}",
+                    addedFromGitignore);
         }
 
         // 2. Iteration Loop

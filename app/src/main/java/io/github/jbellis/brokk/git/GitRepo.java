@@ -1902,29 +1902,6 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Reads the .gitignore file from the repository root and returns a list of patterns. Filters out empty lines and
-     * comments (lines starting with #).
-     *
-     * @return A list of patterns from .gitignore, or an empty list if the file doesn't exist or an error occurs.
-     */
-    public List<String> getIgnoredPatterns() {
-        var gitignoreFile = this.gitTopLevel.resolve(".gitignore");
-        if (!Files.exists(gitignoreFile) || !Files.isReadable(gitignoreFile)) {
-            logger.debug(".gitignore file not found or not readable at {}", gitignoreFile);
-            return List.of();
-        }
-
-        try (var lines = Files.lines(gitignoreFile, StandardCharsets.UTF_8)) {
-            return lines.map(String::trim)
-                    .filter(line -> !line.isEmpty() && !line.startsWith("#"))
-                    .collect(Collectors.toList());
-        } catch (IOException e) {
-            logger.warn("Error reading .gitignore file at {}: {}", gitignoreFile, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
      * Search commits whose full message, author name, or author e-mail match the supplied regular expression
      * (case-insensitive).
      *

@@ -629,4 +629,62 @@ class ProjectFilteringGitRepoTest {
 
         project.close();
     }
+
+    /**
+     * Test that nested .gitignore files are properly loaded and applied.
+     * Structure:
+     * /root/.gitignore (ignores *.log)
+     * /root/subdir/.gitignore (ignores build/*, !build/keep/)
+     *
+     * Note: Using build/* instead of build/ because Git doesn't allow re-including
+     * files if their parent directory is excluded. See gitignore docs:
+     * "It is not possible to re-include a file if a parent directory of that file is excluded."
+     */
+    @Test
+    void getAllFiles_handles_nested_gitignore_files(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files in root
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "debug.log", "log content");
+        createFile(tempDir, "README.md", "readme");
+
+        // Create files in subdirectory
+        createFile(tempDir, "subdir/src/App.java", "class App {}");
+        createFile(tempDir, "subdir/trace.log", "trace log");
+        createFile(tempDir, "subdir/build/Generated.java", "class Generated {}");
+        createFile(tempDir, "subdir/build/keep/Important.java", "class Important {}");
+
+        trackFiles(tempDir);
+
+        // Create root .gitignore (ignores *.log)
+        Files.writeString(tempDir.resolve(".gitignore"), "*.log\n");
+
+        // Create subdir .gitignore (ignores build/*, but not build/keep/)
+        // Using build/* instead of build/ so negation pattern works
+        Files.createDirectories(tempDir.resolve("subdir"));
+        Files.writeString(tempDir.resolve("subdir/.gitignore"), "build/*\n!build/keep/\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // Root .gitignore should exclude *.log files
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("debug.log")),
+                "Root .gitignore should exclude debug.log");
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("trace.log")),
+                "Subdir .log files should also be excluded by root .gitignore");
+
+        // Subdir .gitignore should exclude build/* except build/keep/
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/Generated.java")),
+                "Subdir .gitignore should exclude build/Generated.java");
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/keep/Important.java")),
+                "Subdir .gitignore negation should include build/keep/Important.java");
+
+        // Other files should be included
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("subdir/src/App.java")));
+
+        project.close();
+    }
 }

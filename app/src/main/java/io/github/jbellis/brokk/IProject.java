@@ -266,6 +266,8 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+
+
     // Git specific info
     default boolean isGitHubRepo() {
         return false;
