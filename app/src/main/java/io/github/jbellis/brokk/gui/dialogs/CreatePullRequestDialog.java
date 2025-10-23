@@ -10,11 +10,11 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.GitHubAppInstallLabel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
-import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
@@ -52,7 +52,7 @@ public class CreatePullRequestDialog extends JDialog {
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
-    private JLabel gitHubRepoInstallWarningLabel;
+    private GitHubAppInstallLabel gitHubRepoInstallWarningLabel;
     private MaterialLoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
@@ -253,24 +253,12 @@ public class CreatePullRequestDialog extends JDialog {
         row++;
 
         // Repo-install preflight warning (hidden by default). Click opens app installation page.
-        gitHubRepoInstallWarningLabel =
-                new JLabel("<html><b>Warning:</b> Brokk GitHub App is not installed for this repository. "
-                        + "<a href=\"\">Install the app</a>.</html>");
-        gitHubRepoInstallWarningLabel.setForeground(new Color(184, 134, 11)); // warning-ish color
-        gitHubRepoInstallWarningLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        gitHubRepoInstallWarningLabel = new GitHubAppInstallLabel(
+                this,
+                "<html><b>Warning:</b> Brokk GitHub App is not installed for this repository. "
+                        + "<a href=\"\">Install the app</a>.</html>",
+                new Color(184, 134, 11));
         gitHubRepoInstallWarningLabel.setVisible(false);
-        gitHubRepoInstallWarningLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                try {
-                    Environment.openInBrowser(
-                            "https://github.com/apps/brokkai/installations/select_target",
-                            SwingUtilities.getWindowAncestor(CreatePullRequestDialog.this));
-                } catch (Exception ex) {
-                    logger.error("Failed to open GitHub App installation page", ex);
-                }
-            }
-        });
         var warnGbc = createGbc(0, row);
         warnGbc.gridwidth = 2;
         warnGbc.fill = GridBagConstraints.HORIZONTAL;
@@ -307,10 +295,8 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void scheduleRepoInstallPrecheck() {
-        if (gitHubRepoInstallWarningLabel == null) return;
-
         if (!GitHubAuth.tokenPresent()) {
-            SwingUtilities.invokeLater(() -> gitHubRepoInstallWarningLabel.setVisible(false));
+            SwingUtil.runOnEdt(() -> gitHubRepoInstallWarningLabel.setVisible(false));
             return;
         }
 
@@ -324,7 +310,11 @@ public class CreatePullRequestDialog extends JDialog {
                 needsInstall = false; // don't show warning on unknown
             }
             final boolean show = needsInstall;
-            SwingUtilities.invokeLater(() -> gitHubRepoInstallWarningLabel.setVisible(show));
+            SwingUtil.runOnEdt(() -> {
+                if (gitHubRepoInstallWarningLabel.isDisplayable()) {
+                    gitHubRepoInstallWarningLabel.setVisible(show);
+                }
+            });
         });
     }
 
@@ -883,8 +873,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         // Pre-flight: ensure GitHub account is connected
         if (!GitHubAuth.tokenPresent()) {
-            int choice = JOptionPane.showConfirmDialog(
-                    CreatePullRequestDialog.this,
+            int choice = chrome.showConfirmDialog(
                     """
                     You are not connected to GitHub.
 
@@ -951,20 +940,8 @@ public class CreatePullRequestDialog extends JDialog {
                         errorMessage = "Push failed: " + ex.getMessage();
                     }
 
-                    // Offer to open Settings if GitHub is not connected
-                    if (!GitHubAuth.tokenPresent()) {
-                        int choice = JOptionPane.showConfirmDialog(
-                                CreatePullRequestDialog.this,
-                                errorMessage + "\n\nOpen Settings to connect your GitHub account now?",
-                                "Connect GitHub Account",
-                                JOptionPane.YES_NO_OPTION,
-                                JOptionPane.WARNING_MESSAGE);
-                        if (choice == JOptionPane.YES_OPTION) {
-                            SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
-                        }
-                    } else {
-                        chrome.toolError(errorMessage, "Push Permission Denied");
-                    }
+                    // Show error message
+                    chrome.toolError(errorMessage, "Push Permission Denied");
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
                     }
