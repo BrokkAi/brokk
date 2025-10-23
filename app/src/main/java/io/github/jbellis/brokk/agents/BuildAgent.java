@@ -42,7 +42,6 @@ import java.io.StringWriter;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -134,10 +133,11 @@ public class BuildAgent {
                         .map(pf -> pf.getRelPath().getParent())
                         .filter(Objects::nonNull)
                         .collect(Collectors.toSet());
-                
+
                 // Look for directories that exist but are not in the filtered list
                 try (var dirStream = Files.walk(project.getRoot(), 1)) {
-                    dirStream.filter(Files::isDirectory)
+                    dirStream
+                            .filter(Files::isDirectory)
                             .filter(path -> !path.equals(project.getRoot())) // Skip root
                             .map(path -> project.getRoot().relativize(path).toString())
                             .filter(dirName -> !dirName.startsWith(".")) // Skip hidden dirs like .git
@@ -147,12 +147,12 @@ public class BuildAgent {
                                 addedFromGitignore.add(dirName);
                             });
                 }
-                        
+
             } catch (IOException e) {
                 logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
             }
         }
-        
+
         if (!addedFromGitignore.isEmpty()) {
             logger.debug(
                     "Added the following directory patterns from gitignore analysis to excluded directories: {}",

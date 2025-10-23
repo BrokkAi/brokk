@@ -669,21 +669,64 @@ class ProjectFilteringGitRepoTest {
         var allFiles = project.getAllFiles();
 
         // Root .gitignore should exclude *.log files
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("debug.log")),
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("debug.log")),
                 "Root .gitignore should exclude debug.log");
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("trace.log")),
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("trace.log")),
                 "Subdir .log files should also be excluded by root .gitignore");
 
         // Subdir .gitignore should exclude build/* except build/keep/
-        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/Generated.java")),
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/Generated.java")),
                 "Subdir .gitignore should exclude build/Generated.java");
-        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/keep/Important.java")),
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("build/keep/Important.java")),
                 "Subdir .gitignore negation should include build/keep/Important.java");
 
         // Other files should be included
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("subdir/src/App.java")));
+
+        project.close();
+    }
+
+    /**
+     * Test that .git/info/exclude is properly loaded and applied.
+     * .git/info/exclude works like .gitignore but is local to the repository and not committed.
+     */
+    @Test
+    void getAllFiles_respects_git_info_exclude(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create test files
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "local-config.yaml", "config: local");
+        createFile(tempDir, "temp-notes.txt", "temporary notes");
+        createFile(tempDir, "README.md", "readme");
+
+        trackFiles(tempDir);
+
+        // Create .git/info/exclude with local ignore patterns
+        var gitInfoDir = tempDir.resolve(".git/info");
+        Files.createDirectories(gitInfoDir);
+        Files.writeString(gitInfoDir.resolve("exclude"), "# Local excludes\n" + "local-config.yaml\n" + "temp-*.txt\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // Files matching .git/info/exclude should be excluded
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("local-config.yaml")),
+                ".git/info/exclude should exclude local-config.yaml");
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("temp-notes.txt")),
+                ".git/info/exclude should exclude temp-notes.txt (wildcard pattern)");
+
+        // Other files should be included
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("README.md")));
 
         project.close();
     }
