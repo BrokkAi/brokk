@@ -109,7 +109,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
-            Set.of(), // METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
+            Set.of(FUNCTION_DEFINITION, CONSTRUCTOR_DEFINITION),
             Set.of(), // FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
             IMPORT_DECLARATION,

@@ -12,6 +12,8 @@ public class ScalaTreeSitterNodeTypes {
     public static final String ENUM_DEFINITION = "enum_definition";
 
     // Function-like declarations
+    public static final String CONSTRUCTOR_DEFINITION = "class_parameters";
+    public static final String FUNCTION_DEFINITION = "function_definition";
 
     // Import declaration
     public static final String IMPORT_DECLARATION = "import_declaration";

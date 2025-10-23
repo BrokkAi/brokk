@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class ScalaAnalyzerTest {
@@ -112,6 +113,103 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Bar", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Bar'!"));
+        }
+    }
+
+    @Test
+    public void testSimpleMethodsWithinClasses() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                class Foo {
+                                  def test1(): Unit = {}
+                                }
+                                trait Bar {
+                                  def test2: Unit = {}
+                                }
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("ai.brokk.Foo.test1")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isFunction());
+                                assertEquals("ai.brokk.Foo.test1", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Foo.test1", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo.test1'!"));
+            analyzer.getDefinition("ai.brokk.Bar.test2")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isFunction());
+                                assertEquals("ai.brokk.Bar.test2", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Bar.test2", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Bar.test2'!"));
+        }
+    }
+
+    @Test
+    @Disabled("TSA only supports nested functions in the context of JavaTSA lambdas")
+    public void testSimpleNestedMethodsWithinClasses() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                class Foo {
+                                  def test1(): Unit = {
+                                    def test2: Unit = {}
+                                  }
+                                }
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("ai.brokk.Foo.test1")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isFunction());
+                                assertEquals("ai.brokk.Foo.test1", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Foo.test1", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo.test1'!"));
+            analyzer.getDefinition("ai.brokk.Foo.test1.test2")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isFunction());
+                                assertEquals("ai.brokk.Foo.test1.test2", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Foo.test1.test2", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo.test1.test2'!"));
+        }
+    }
+
+    @Test
+    public void testSimpleConstructorInClassDefinition() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                class Foo(a: Int,  b: String)
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("ai.brokk.Foo.Foo")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isFunction());
+                                assertEquals("ai.brokk.Foo.Foo", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Foo.Foo", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo.Foo'!"));
         }
     }
 }

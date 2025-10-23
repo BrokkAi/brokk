@@ -23,3 +23,7 @@
 (enum_definition
   name: (identifier) @class.name
   ) @enum.definition
+
+; Method declarations
+(function_definition
+  name: (identifier) @method.name) @method.definition
