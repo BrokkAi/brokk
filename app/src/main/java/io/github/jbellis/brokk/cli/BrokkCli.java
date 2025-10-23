@@ -381,12 +381,12 @@ public final class BrokkCli implements Callable<Integer> {
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
-                var agent = new SearchAgent(searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics);
-                if (!disableContextScan) {
-                    agent.scanInitialContext();
-                } else {
-                    // Record that context scan was skipped
+                var agent = new SearchAgent(
+                        searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics);
+                if (disableContextScan) {
                     metrics.recordContextScan(0, 0, true, Set.of());
+                } else {
+                    agent.scanInitialContext();
                 }
                 searchResult = agent.execute();
                 scope.append(searchResult);

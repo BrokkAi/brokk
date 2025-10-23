@@ -129,8 +129,6 @@ public class SearchAgent {
         // Single pruning turn if workspace is not empty
         performInitialPruningTurn();
 
-        // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
-        scanInitialContext();
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
             // Beast mode triggers
