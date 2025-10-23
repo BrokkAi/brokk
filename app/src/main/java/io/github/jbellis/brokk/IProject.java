@@ -266,16 +266,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Reads the .gitignore file from the repository root and returns a list of patterns.
-     * This method is provided for compatibility with BuildAgent.
-     * Filters out empty lines and comments (lines starting with #).
-     *
-     * @return A list of patterns from .gitignore, or an empty list if the file doesn't exist or an error occurs.
-     */
-    default List<String> getIgnoredPatterns() {
-        throw new UnsupportedOperationException();
-    }
+
 
     // Git specific info
     default boolean isGitHubRepo() {

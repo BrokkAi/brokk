@@ -122,32 +122,40 @@ public class BuildAgent {
                 detectedSystem,
                 this.currentExcludedDirectories);
 
-        // Add exclusions from .gitignore
-        var ignoredPatterns = project.getIgnoredPatterns();
+        // Add directory exclusions based on gitignore filtering
+        // Instead of parsing .gitignore directly, we analyze which directories are missing
+        // from the filtered file list to infer ignored directories
         var addedFromGitignore = new ArrayList<String>();
-        for (var pattern : ignoredPatterns) {
-            // Skip glob patterns explicitly - they're handled by AbstractProject's IgnoreNode filtering
-            if (containsGlobPattern(pattern)) {
-                continue;
-            }
-
-            Path path;
+        if (project.hasGit()) {
             try {
-                path = project.getRoot().resolve(pattern);
-            } catch (InvalidPathException e) {
-                // Skip invalid paths
-                continue;
-            }
-            // include non-existing paths if they end with `/` in case they get created later
-            var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-            if (!pattern.startsWith("!") && isDirectory) {
-                this.currentExcludedDirectories.add(pattern);
-                addedFromGitignore.add(pattern);
+                // Get all potential directories vs. actually included directories
+                var allFiles = project.getAllFiles();
+                var includedDirectories = allFiles.stream()
+                        .map(pf -> pf.getRelPath().getParent())
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+                
+                // Look for directories that exist but are not in the filtered list
+                try (var dirStream = Files.walk(project.getRoot(), 1)) {
+                    dirStream.filter(Files::isDirectory)
+                            .filter(path -> !path.equals(project.getRoot())) // Skip root
+                            .map(path -> project.getRoot().relativize(path).toString())
+                            .filter(dirName -> !dirName.startsWith(".")) // Skip hidden dirs like .git
+                            .filter(dirName -> !includedDirectories.contains(Path.of(dirName)))
+                            .forEach(dirName -> {
+                                this.currentExcludedDirectories.add(dirName);
+                                addedFromGitignore.add(dirName);
+                            });
+                }
+                        
+            } catch (IOException e) {
+                logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
             }
         }
+        
         if (!addedFromGitignore.isEmpty()) {
             logger.debug(
-                    "Added the following directory patterns from .gitignore to excluded directories: {}",
+                    "Added the following directory patterns from gitignore analysis to excluded directories: {}",
                     addedFromGitignore);
         }
 

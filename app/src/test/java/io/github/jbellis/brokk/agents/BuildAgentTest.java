@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.agents;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.git.GitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -126,9 +127,12 @@ class BuildAgentTest {
             git.commit().setMessage("Initial commit").call();
         }
 
-        // Get the ignored patterns from Project
-        var project = new MainProject(tempDir);
-        var ignoredPatterns = project.getIgnoredPatterns();
+        // Read .gitignore patterns directly for testing
+        var gitignoreFile = tempDir.resolve(".gitignore");
+        var ignoredPatterns = Files.lines(gitignoreFile)
+                .map(String::trim)
+                .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                .toList();
 
         // Helper to detect glob patterns
         Predicate<String> containsGlobPattern =

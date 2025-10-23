@@ -21,8 +21,6 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.treewalk.FileTreeIterator;
-import org.eclipse.jgit.treewalk.TreeWalk;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -533,11 +531,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Set<ProjectFile> allFilesCache;
 
-    @Nullable
-    private volatile FileTreeIterator workingTreeIteratorCache;
-
-    private volatile long iteratorCacheTimestamp;
-
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
@@ -562,25 +555,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return allFilesCache;
     }
 
-    private FileTreeIterator getWorkingTreeIterator(GitRepo gitRepo) throws IOException {
-        // Use gitTopLevel modification time for cache invalidation
-        Path gitTopLevel = gitRepo.getGitTopLevel();
-        long currentTimestamp = Files.exists(gitTopLevel)
-                ? Files.getLastModifiedTime(gitTopLevel).toMillis()
-                : 0;
-
-        if (workingTreeIteratorCache != null && iteratorCacheTimestamp == currentTimestamp) {
-            return workingTreeIteratorCache;
-        }
-
-        // Create new iterator for the entire Git working tree
-        FileTreeIterator iterator = new FileTreeIterator(gitRepo.getGit().getRepository());
-
-        workingTreeIteratorCache = iterator;
-        iteratorCacheTimestamp = currentTimestamp;
-
-        return iterator;
-    }
 
     private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
         // Convert from projectRoot-relative to gitTopLevel-relative
@@ -593,52 +567,82 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return gitRelPath.toString().replace('\\', '/');
     }
 
-    private boolean isPathIgnored(FileTreeIterator iterator, GitRepo gitRepo, Path projectRelPath) throws IOException {
+    /**
+     * Checks if a path is ignored by gitignore rules using JGit's IgnoreNode.
+     * This approach correctly handles:
+     * - Root .gitignore patterns
+     * - Negation patterns (e.g., !build/keep/)
+     * - Directory-specific patterns
+     *
+     * Note: This currently only checks root .gitignore. For full support of nested .gitignore
+     * files, .git/info/exclude, and global gitignore, additional work is needed.
+     *
+     * @param gitRepo The git repository
+     * @param projectRelPath Path relative to project root
+     * @return true if the path is ignored by gitignore rules
+     */
+    private boolean isPathIgnored(GitRepo gitRepo, Path projectRelPath) throws IOException {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
 
-        // Navigate TreeWalk to find the specific entry
-        try (TreeWalk walk = new TreeWalk(gitRepo.getGit().getRepository())) {
-            walk.addTree(iterator);
-            walk.setRecursive(true);
-
-            while (walk.next()) {
-                if (walk.getPathString().equals(gitRelPath)) {
-                    return iterator.isEntryIgnored();
-                }
-            }
-
-            // If not found, check if parent directories are ignored
-            return checkParentDirectoriesIgnored(iterator, gitRepo, gitRelPath);
+        // Load .gitignore patterns using IgnoreNode
+        var gitignoreFile = gitRepo.getGitTopLevel().resolve(".gitignore");
+        if (!Files.exists(gitignoreFile)) {
+            return false; // No .gitignore, nothing is ignored
         }
-    }
 
-    private boolean checkParentDirectoriesIgnored(FileTreeIterator iterator, GitRepo gitRepo, String gitRelPath)
-            throws IOException {
+        var ignoreNode = new org.eclipse.jgit.ignore.IgnoreNode();
+        try (var inputStream = Files.newInputStream(gitignoreFile)) {
+            ignoreNode.parse(inputStream);
+        }
+
+        // Check if path is a directory (needed for IgnoreNode)
+        Path absPath = root.resolve(projectRelPath);
+        boolean isDirectory = Files.isDirectory(absPath);
+
+        var result = ignoreNode.isIgnored(gitRelPath, isDirectory);
+
+        // Handle the three possible results:
+        // - IGNORED: explicitly ignored by a pattern
+        // - NOT_IGNORED: explicitly not ignored (negation pattern)
+        // - CHECK_PARENT: not matched, need to check if parent directory is ignored
+
+        if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+            logger.debug("Path {} (isDir: {}) ignored: true (result: IGNORED)", gitRelPath, isDirectory);
+            return true;
+        }
+
+        if (result == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+            logger.debug("Path {} (isDir: {}) ignored: false (result: NOT_IGNORED - negation)", gitRelPath, isDirectory);
+            return false;
+        }
+
+        // CHECK_PARENT - need to check if any parent directory is ignored
         Path path = Path.of(gitRelPath);
         Path parent = path.getParent();
-
         while (parent != null && !parent.toString().isEmpty()) {
             String parentPath = parent.toString().replace('\\', '/');
+            var parentResult = ignoreNode.isIgnored(parentPath, true); // parent is a directory
 
-            try (TreeWalk walk = new TreeWalk(gitRepo.getGit().getRepository())) {
-                walk.addTree(iterator);
-                walk.setRecursive(false);
-
-                while (walk.next()) {
-                    if (walk.getPathString().equals(parentPath)) {
-                        if (iterator.isEntryIgnored()) {
-                            return true; // Parent directory is ignored
-                        }
-                        break;
-                    }
-                }
+            if (parentResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.IGNORED) {
+                logger.debug("Path {} ignored: true (parent {} is ignored)", gitRelPath, parentPath);
+                return true;
             }
 
+            if (parentResult == org.eclipse.jgit.ignore.IgnoreNode.MatchResult.NOT_IGNORED) {
+                // Parent has a negation pattern, so this path is explicitly not ignored
+                logger.debug("Path {} ignored: false (parent {} has negation)", gitRelPath, parentPath);
+                return false;
+            }
+
+            // Parent also returned CHECK_PARENT, continue up the tree
             parent = parent.getParent();
         }
 
+        // No parent was ignored
+        logger.debug("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
         return false;
     }
+
 
     private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
         return baselineExclusions.stream().anyMatch(exclusion -> {
@@ -663,8 +667,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         try {
-            FileTreeIterator iterator = getWorkingTreeIterator(gitRepo);
-
             // Apply baseline exclusions from build details
             var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
                     .map(s -> s.replace('\\', '/').trim())
@@ -682,7 +684,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 }
 
                 // Check comprehensive gitignore rules
-                if (isPathIgnored(iterator, gitRepo, file.getRelPath())) {
+                if (isPathIgnored(gitRepo, file.getRelPath())) {
                     continue;
                 }
 
@@ -696,41 +698,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    /**
-     * Reads the .gitignore file from the repository root and returns a list of patterns.
-     * This method is provided for compatibility with BuildAgent.
-     * Filters out empty lines and comments (lines starting with #).
-     *
-     * @return A list of patterns from .gitignore, or an empty list if the file doesn't exist or an error occurs.
-     */
-    @Override
-    public List<String> getIgnoredPatterns() {
-        if (!hasGit()) {
-            return List.of();
-        }
 
-        var gitRepo = (GitRepo) repo;
-        var gitignoreFile = gitRepo.getGitTopLevel().resolve(".gitignore");
-        if (!Files.exists(gitignoreFile) || !Files.isReadable(gitignoreFile)) {
-            logger.debug(".gitignore file not found or not readable at {}", gitignoreFile);
-            return List.of();
-        }
-
-        try (var lines = Files.lines(gitignoreFile, StandardCharsets.UTF_8)) {
-            return lines.map(String::trim)
-                    .filter(line -> !line.isEmpty() && !line.startsWith("#"))
-                    .collect(Collectors.toList());
-        } catch (IOException e) {
-            logger.warn("Error reading .gitignore file at {}: {}", gitignoreFile, e.getMessage());
-            return List.of();
-        }
-    }
 
     @Override
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
-        workingTreeIteratorCache = null;
-        iteratorCacheTimestamp = 0;
     }
 
     @Override
