@@ -1523,7 +1523,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     cm,
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    SearchMetrics.noOp());
+                    SearchMetrics.noOp(),
+                    cm.liveContext());
             agent.scanInitialContext();
             var result = agent.execute();
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);

@@ -45,7 +45,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -923,7 +922,7 @@ public class SearchAgent {
         recordFinalWorkspaceState();
         metrics.recordFailure(stopDetails.reason(), getWorkspaceFileSet().size());
 
-        return new TaskResult(action, fragment, Set.of(), context, stopDetails);
+        return new TaskResult(action, fragment, context, stopDetails);
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
@@ -940,7 +939,7 @@ public class SearchAgent {
         recordFinalWorkspaceState();
         metrics.recordFailure(details.reason(), getWorkspaceFileSet().size());
 
-        return new TaskResult(action, fragment, context, Set.of(), details);
+        return new TaskResult(action, fragment, context, details);
     }
 
     // =======================

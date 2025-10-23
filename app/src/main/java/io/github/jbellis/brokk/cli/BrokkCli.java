@@ -29,6 +29,7 @@ import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.tasks.TaskList;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -381,7 +382,8 @@ public final class BrokkCli implements Callable<Integer> {
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
-                var agent = new SearchAgent(searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics);
+                var agent = new SearchAgent(
+                        searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics, cm.liveContext());
                 if (disableContextScan) {
                     metrics.recordContextScan(0, 0, true, Set.of());
                 } else {
@@ -422,7 +424,7 @@ public final class BrokkCli implements Callable<Integer> {
             return success ? 0 : 1;
         }
 
-        var workspaceTools = new WorkspaceTools(cm);
+        var workspaceTools = new WorkspaceTools(cm.liveContext());
 
         // --- Name Resolution and Context Building ---
         boolean callsAndUsagesRequired = !addCallers.isEmpty() || !addCallees.isEmpty();
@@ -630,7 +632,8 @@ public final class BrokkCli implements Callable<Integer> {
                             cm,
                             planModel,
                             EnumSet.of(Terminal.ANSWER),
-                            SearchMetrics.noOp());
+                            SearchMetrics.noOp(),
+                            cm.liveContext());
                     agent.scanInitialContext();
                     result = agent.execute();
                     scope.append(result);
@@ -681,7 +684,8 @@ public final class BrokkCli implements Callable<Integer> {
                             cm,
                             planModel,
                             EnumSet.of(Terminal.TASK_LIST),
-                            SearchMetrics.noOp());
+                            SearchMetrics.noOp(),
+                            cm.liveContext());
                     agent.scanInitialContext();
                     result = agent.execute();
                     scope.append(result);

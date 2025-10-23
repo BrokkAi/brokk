@@ -212,8 +212,7 @@ public class ContextAgent {
         }
 
         // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
-        var existingFiles = context.liveContext()
-                .allFragments()
+        var existingFiles = context.allFragments()
                 .filter(ContextAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
