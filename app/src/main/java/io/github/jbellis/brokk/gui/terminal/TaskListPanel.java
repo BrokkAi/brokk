@@ -1721,6 +1721,68 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Unable to re-register TaskListPanel as context listener", e);
             }
         }
+
+        // Ensure the Tasks tab has a BadgedIcon attached (if this panel is hosted in a JTabbedPane).
+        try {
+            ensureTasksTabBadgeInitialized();
+        } catch (Exception e) {
+            logger.debug("Unable to initialize tasks tab badge on addNotify", e);
+        }
+    }
+
+    /**
+     * Ensure tasksTabBadgedIcon is created and applied to the enclosing JTabbedPane tab (if present).
+     * Safe to call from any thread; UI work runs on the EDT. No-op if not hosted in a JTabbedPane or if theme
+     * information is not available.
+     */
+    private void ensureTasksTabBadgeInitialized() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                JTabbedPane tabs = findParentTabbedPane();
+                if (tabs == null) {
+                    // Not hosted in a tabbed pane (e.g., drawer); nothing to do.
+                    return;
+                }
+                int idx = tabIndexOfSelf(tabs);
+                if (idx < 0) {
+                    return;
+                }
+
+                // Create the badged icon if missing. Prefer chrome.getTheme(), fallback to currentTheme.
+                if (tasksTabBadgedIcon == null) {
+                    GuiTheme theme = null;
+                    try {
+                        theme = chrome.getTheme();
+                    } catch (Exception ex) {
+                        // ignore and fallback
+                        theme = currentTheme;
+                    }
+                    if (theme == null) {
+                        // Cannot create a themed badge without a theme; leave the base icon in place.
+                        return;
+                    }
+                    try {
+                        tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
+                    } catch (Exception ex) {
+                        // If creation fails, do not disturb the tab icon.
+                        logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
+                        tasksTabBadgedIcon = null;
+                        return;
+                    }
+                }
+
+                // Initialize the badge count from the current model.
+                int incomplete = 0;
+                for (int i = 0; i < model.getSize(); i++) {
+                    TaskList.TaskItem it = requireNonNull(model.get(i));
+                    if (!it.done()) incomplete++;
+                }
+                tasksTabBadgedIcon.setCount(incomplete, tabs);
+                tabs.setIconAt(idx, tasksTabBadgedIcon);
+            } catch (Exception ex) {
+                logger.debug("Error initializing tasks tab badge", ex);
+            }
+        });
     }
 
     @Override
