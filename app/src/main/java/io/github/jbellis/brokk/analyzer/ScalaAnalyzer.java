@@ -42,9 +42,20 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final String fqName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
-
+        var effectiveSimpleName = simpleName;
         var skeletonType = getSkeletonTypeForCapture(captureName);
+
+        if (simpleName.equals("this") && skeletonType.equals(SkeletonType.FUNCTION_LIKE)) {
+            // This is a secondary constructor, which is named `this`. The simple name should be the class name.
+            // The classChain is the simple name of the enclosing class.
+            if (!classChain.isEmpty()) {
+                var lastDot = classChain.lastIndexOf('.');
+                effectiveSimpleName = lastDot < 0 ? classChain : classChain.substring(lastDot + 1);
+            }
+        }
+
+        final String fqName = classChain.isEmpty() ? effectiveSimpleName : classChain + "." + effectiveSimpleName;
+
         var type =
                 switch (skeletonType) {
                     case CLASS_LIKE -> CodeUnitType.CLASS;
@@ -109,7 +120,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     private static final LanguageSyntaxProfile SCALA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DEFINITION, OBJECT_DEFINITION, INTERFACE_DEFINITION, ENUM_DEFINITION),
-            Set.of(FUNCTION_DEFINITION, CONSTRUCTOR_DEFINITION),
+            Set.of(FUNCTION_DEFINITION),
             Set.of(), // FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
             IMPORT_DECLARATION,

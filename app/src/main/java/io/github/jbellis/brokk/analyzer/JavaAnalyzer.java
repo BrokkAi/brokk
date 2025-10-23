@@ -82,7 +82,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final String fqName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
         var type =
@@ -98,7 +98,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     }
                 };
 
-        return new CodeUnit(file, type, packageName, fqName);
+        return new CodeUnit(file, type, packageName, shortName);
     }
 
     @Override

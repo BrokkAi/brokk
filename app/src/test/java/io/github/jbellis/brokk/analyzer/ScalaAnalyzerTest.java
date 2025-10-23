@@ -212,4 +212,29 @@ public class ScalaAnalyzerTest {
                             () -> fail("Could not find code unit 'Foo.Foo'!"));
         }
     }
+
+    @Test
+    public void testConstructorsInClassDefinition() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                class Foo(a: Int) {
+                                  def this(a: Int,  b: String) = this(a)
+                                }
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var constructors = analyzer.searchDefinitions("ai.brokk.Foo.Foo");
+            assertEquals(2, constructors.size());
+
+            for (var cu : constructors) {
+                assertTrue(cu.isFunction());
+                assertEquals("ai.brokk.Foo.Foo", cu.fqName());
+                assertEquals("ai.brokk", cu.packageName());
+                assertEquals("Foo.Foo", cu.shortName());
+            }
+        }
+    }
 }

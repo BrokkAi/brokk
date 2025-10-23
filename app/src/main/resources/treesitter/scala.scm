@@ -26,4 +26,11 @@
 
 ; Method declarations
 (function_definition
-  name: (identifier) @method.name) @method.definition
+  name: (identifier) @method.name
+  ) @method.definition
+
+; Secondary constructor
+;(function_definition
+;  name: (this) @constructor.name
+;) @constructor.definition
+

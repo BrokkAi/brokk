@@ -1067,7 +1067,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * method to apply language-specific FQName correction logic.
      */
     protected String buildParentFqName(String packageName, String classChain) {
-        return packageName.isEmpty() ? classChain : packageName + "." + classChain;
+        return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 
     /**
