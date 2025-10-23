@@ -237,4 +237,60 @@ public class ScalaAnalyzerTest {
                             () -> fail("Could not find code unit 'Foo.Foo'!"));
         }
     }
+
+    @Test
+    public void testFieldsWithinClassesAndCompilationUnit() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                package ai.brokk
+
+                                var GLOBAL_VAR = "foo"
+                                val GLOBAL_VAL = "bar"
+
+                                class Foo:
+                                  val Field1 = "123"
+                                  var Field2 = 456
+                                """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            analyzer.getDefinition("ai.brokk.GLOBAL_VAR")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.GLOBAL_VAR", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("GLOBAL_VAR", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'GLOBAL_VAR'!"));
+            analyzer.getDefinition("ai.brokk.GLOBAL_VAL")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.GLOBAL_VAL", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("GLOBAL_VAL", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'GLOBAL_VAL'!"));
+
+            analyzer.getDefinition("ai.brokk.Foo.Field1")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.Foo.Field1", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Foo.Field1", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo.Field1'!"));
+            analyzer.getDefinition("ai.brokk.Foo.Field2")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isField());
+                                assertEquals("ai.brokk.Foo.Field2", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Foo.Field2", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Foo.Field2'!"));
+        }
+    }
 }
