@@ -29,6 +29,7 @@ import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.wand.WandAction;
+import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
@@ -1519,7 +1520,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     cm,
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    io.github.jbellis.brokk.metrics.SearchMetrics.noOp());
+                    SearchMetrics.noOp());
             agent.scanInitialContext();
             var result = agent.execute();
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);

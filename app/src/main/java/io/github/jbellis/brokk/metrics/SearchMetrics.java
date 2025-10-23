@@ -1,7 +1,14 @@
 package io.github.jbellis.brokk.metrics;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.TaskResult;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Interface for collecting SearchAgent metrics.
@@ -74,7 +81,7 @@ public interface SearchMetrics {
     /**
      * Information about a fragment in the workspace.
      */
-    record FragmentInfo(String type, String id, String description, java.util.List<String> files) {}
+    record FragmentInfo(String type, String id, String description, List<String> files) {}
 
     /**
      * Convenience factory for a no-op metrics instance.
@@ -117,13 +124,13 @@ public interface SearchMetrics {
         public void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {}
 
         @Override
-        public void recordFailure(io.github.jbellis.brokk.TaskResult.StopReason reason, int workspaceSize) {}
+        public void recordFailure(TaskResult.StopReason reason, int workspaceSize) {}
 
         @Override
         public void recordFinalWorkspaceFiles(Set<String> finalFiles) {}
 
         @Override
-        public void recordFinalWorkspaceFragments(java.util.List<FragmentInfo> fragmentDescriptions) {}
+        public void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions) {}
 
         @Override
         public String toJson(String query, int turns, long elapsedMs, boolean success) {
@@ -137,34 +144,33 @@ public interface SearchMetrics {
      * Methods are synchronized to be safe if accessed from multiple threads.
      */
     class Tracking implements SearchMetrics {
-        private static final org.apache.logging.log4j.Logger logger =
-                org.apache.logging.log4j.LogManager.getLogger(Tracking.class);
+        private static final Logger logger = LogManager.getLogger(Tracking.class);
 
         // Context scan metrics
         private int contextScanFilesAdded = 0;
         private long contextScanTimeMs = 0;
         private boolean contextScanSkipped = false;
-        private Set<String> contextScanFilesAddedPaths = new java.util.HashSet<>();
+        private Set<String> contextScanFilesAddedPaths = new HashSet<>();
 
         // Per-turn metrics
         private int turnCounter = 0;
-        private final java.util.List<TurnMetrics> turns = new java.util.ArrayList<>();
-        private @org.jetbrains.annotations.Nullable TurnMetrics currentTurn = null;
+        private final List<TurnMetrics> turns = new ArrayList<>();
+        private @Nullable TurnMetrics currentTurn = null;
         private long turnStartTimeMs = 0;
 
         // Failure classification
-        private @org.jetbrains.annotations.Nullable String failureType = null;
-        private @org.jetbrains.annotations.Nullable String stopReason = null;
+        private @Nullable String failureType = null;
+        private @Nullable String stopReason = null;
         private int finalWorkspaceSize = 0;
 
         // Final workspace files snapshot (project-relative paths)
-        private @org.jetbrains.annotations.Nullable Set<String> finalWorkspaceFiles = null;
+        private @Nullable Set<String> finalWorkspaceFiles = null;
 
         // Final workspace fragments information
-        private @org.jetbrains.annotations.Nullable java.util.List<FragmentInfo> finalWorkspaceFragments = null;
+        private @Nullable List<FragmentInfo> finalWorkspaceFragments = null;
 
         // LLM history directory path
-        private @org.jetbrains.annotations.Nullable String llmHistoryPath = null;
+        private @Nullable String llmHistoryPath = null;
 
         @Override
         public synchronized void recordContextScan(
@@ -209,7 +215,7 @@ public interface SearchMetrics {
         public synchronized void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {
             if (currentTurn != null) {
                 // Compute files removed during this turn
-                Set<String> removed = new java.util.HashSet<>(filesBeforeTurn);
+                Set<String> removed = new HashSet<>(filesBeforeTurn);
                 removed.removeAll(filesAfterTurn);
                 currentTurn.addRemovedFilePaths(removed);
 
@@ -222,8 +228,7 @@ public interface SearchMetrics {
         }
 
         @Override
-        public synchronized void recordFailure(
-                io.github.jbellis.brokk.TaskResult.StopReason reason, int workspaceSize) {
+        public synchronized void recordFailure(TaskResult.StopReason reason, int workspaceSize) {
             this.stopReason = reason.toString();
             this.finalWorkspaceSize = workspaceSize;
 
@@ -246,22 +251,22 @@ public interface SearchMetrics {
 
         @Override
         public synchronized void recordFinalWorkspaceFiles(Set<String> finalFiles) {
-            this.finalWorkspaceFiles = new java.util.HashSet<>(finalFiles);
+            this.finalWorkspaceFiles = new HashSet<>(finalFiles);
         }
 
         @Override
-        public synchronized void recordFinalWorkspaceFragments(java.util.List<FragmentInfo> fragmentDescriptions) {
-            this.finalWorkspaceFragments = new java.util.ArrayList<>(fragmentDescriptions);
+        public synchronized void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions) {
+            this.finalWorkspaceFragments = new ArrayList<>(fragmentDescriptions);
         }
 
         /** Get the final workspace files that were recorded. Used by BrokkCli to infer the found file. */
-        public synchronized @org.jetbrains.annotations.Nullable Set<String> getFinalWorkspaceFiles() {
+        public synchronized @Nullable Set<String> getFinalWorkspaceFiles() {
             return finalWorkspaceFiles;
         }
 
         /** Get the turn history with files added per turn. Used by BrokkCli to determine the last file added. */
-        public synchronized java.util.List<TurnMetrics> getTurns() {
-            return new java.util.ArrayList<>(turns);
+        public synchronized List<TurnMetrics> getTurns() {
+            return new ArrayList<>(turns);
         }
 
         /** Generate enhanced JSON output with metrics. Maintains backward compatibility. */
@@ -272,7 +277,7 @@ public interface SearchMetrics {
                     "Building found_files: contextScanFilesAddedPaths size={}, paths={}",
                     contextScanFilesAddedPaths.size(),
                     contextScanFilesAddedPaths);
-            Set<String> allFoundFiles = new java.util.HashSet<>(contextScanFilesAddedPaths);
+            Set<String> allFoundFiles = new HashSet<>(contextScanFilesAddedPaths);
             for (TurnMetrics turn : this.turns) {
                 logger.info(
                         "Turn {}: adding {} files: {}",
@@ -281,15 +286,14 @@ public interface SearchMetrics {
                         turn.getFiles_added_paths());
                 allFoundFiles.addAll(turn.getFiles_added_paths());
             }
-            java.util.List<String> foundFiles = allFoundFiles.stream().sorted().toList();
+            List<String> foundFiles = allFoundFiles.stream().sorted().toList();
             logger.info("Final found_files size={}, files={}", foundFiles.size(), foundFiles);
 
             var contextScan = new ContextScanInfo(
                     contextScanFilesAdded,
                     contextScanTimeMs,
                     contextScanSkipped,
-                    new java.util.ArrayList<>(
-                            contextScanFilesAddedPaths.stream().sorted().toList()));
+                    new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()));
             var result = new SearchResult(
                     query,
                     foundFiles,
@@ -297,18 +301,18 @@ public interface SearchMetrics {
                     elapsedMs,
                     success,
                     contextScan,
-                    new java.util.ArrayList<>(this.turns),
+                    new ArrayList<>(this.turns),
                     failureType,
                     stopReason,
                     finalWorkspaceSize,
-                    finalWorkspaceFragments != null ? new java.util.ArrayList<>(finalWorkspaceFragments) : null,
+                    finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null,
                     llmHistoryPath);
 
             try {
                 return io.github.jbellis.brokk.AbstractProject.objectMapper
                         .writerWithDefaultPrettyPrinter()
                         .writeValueAsString(result);
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            } catch (JsonProcessingException e) {
                 throw new RuntimeException("Failed to serialize search result", e);
             }
         }
@@ -316,29 +320,29 @@ public interface SearchMetrics {
         /** Complete search result with all metrics. */
         public record SearchResult(
                 String query,
-                java.util.List<String> found_files,
+                List<String> found_files,
                 int turns,
                 long elapsed_ms,
                 boolean success,
                 ContextScanInfo context_scan,
-                java.util.List<TurnMetrics> turns_detail,
-                @org.jetbrains.annotations.Nullable String failure_type,
-                @org.jetbrains.annotations.Nullable String stop_reason,
+                List<TurnMetrics> turns_detail,
+                @Nullable String failure_type,
+                @Nullable String stop_reason,
                 int final_workspace_size,
-                @org.jetbrains.annotations.Nullable java.util.List<FragmentInfo> final_workspace_fragments,
-                @org.jetbrains.annotations.Nullable String llm_history_path) {}
+                @Nullable List<FragmentInfo> final_workspace_fragments,
+                @Nullable String llm_history_path) {}
 
         /** Context scan metrics. */
         public record ContextScanInfo(
-                int files_added, long scan_time_ms, boolean skipped, java.util.List<String> files_added_paths) {}
+                int files_added, long scan_time_ms, boolean skipped, List<String> files_added_paths) {}
 
         /** Metrics for a single search turn. */
         public static class TurnMetrics {
             private final int turn;
-            private final java.util.List<String> tool_calls = new java.util.ArrayList<>();
+            private final List<String> tool_calls = new ArrayList<>();
             private int files_added = 0;
-            private final Set<String> files_added_paths = new java.util.HashSet<>();
-            private final Set<String> files_removed_paths = new java.util.HashSet<>();
+            private final Set<String> files_added_paths = new HashSet<>();
+            private final Set<String> files_removed_paths = new HashSet<>();
             private long time_ms = 0;
 
             public TurnMetrics(int turnNumber) {
