@@ -1,14 +1,16 @@
 package io.github.jbellis.brokk.analyzer;
 
-import com.google.common.io.Files;
 import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MultiAnalyzer
         implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+    private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -36,6 +38,36 @@ public class MultiAnalyzer
                                 list1.stream(), list2.stream())
                         .distinct()
                         .collect(Collectors.toList())));
+    }
+
+    /**
+     * Get the delegate analyzer for the language of the given CodeUnit.
+     *
+     * @param cu The CodeUnit whose language to detect
+     * @return The delegate analyzer for that language, or empty if no delegate exists
+     */
+    private Optional<IAnalyzer> delegateFor(CodeUnit cu) {
+        var lang = Languages.fromExtension(cu.source().extension());
+        var delegate = delegates.get(lang);
+        if (delegate == null) {
+            log.debug("No delegate found for language {} (from file {})", lang, cu.source());
+        }
+        return Optional.ofNullable(delegate);
+    }
+
+    /**
+     * Get the delegate analyzer for the language of the given ProjectFile.
+     *
+     * @param file The ProjectFile whose language to detect
+     * @return The delegate analyzer for that language, or empty if no delegate exists
+     */
+    private Optional<IAnalyzer> delegateFor(ProjectFile file) {
+        var lang = Languages.fromExtension(file.extension());
+        var delegate = delegates.get(lang);
+        if (delegate == null) {
+            log.debug("No delegate found for language {} (from file {})", lang, file);
+        }
+        return Optional.ofNullable(delegate);
     }
 
     @Override
@@ -83,13 +115,9 @@ public class MultiAnalyzer
 
     @Override
     public Optional<String> getSkeleton(CodeUnit cu) {
-        var lang = Languages.fromExtension(
-                Files.getFileExtension(cu.source().absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu));
-        }
-        return Optional.empty();
+        return delegateFor(cu)
+                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
+                .flatMap(skp -> skp.getSkeleton(cu));
     }
 
     @Override
@@ -99,13 +127,9 @@ public class MultiAnalyzer
 
     @Override
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
-        var lang = Languages.fromExtension(
-                Files.getFileExtension(classUnit.source().absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(classUnit));
-        }
-        return Optional.empty();
+        return delegateFor(classUnit)
+                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
+                .flatMap(skp -> skp.getSkeletonHeader(classUnit));
     }
 
     @Override
@@ -115,36 +139,22 @@ public class MultiAnalyzer
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getTopLevelDeclarations(file);
-        }
-        return List.of();
+        return delegateFor(file)
+                .map(delegate -> delegate.getTopLevelDeclarations(file))
+                .orElse(List.of());
     }
 
     @Override
     public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        var lang = Languages.fromExtension(
-                Files.getFileExtension(cu.source().absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getSubDeclarations(cu);
-        }
-        return List.of();
+        return delegateFor(cu).map(delegate -> delegate.getSubDeclarations(cu)).orElse(List.of());
     }
 
     @Override
     public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
-        var lang = Languages.fromExtension(
-                Files.getFileExtension(method.source().absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.as(SourceCodeProvider.class)
-                    .map(scp -> scp.getMethodSources(method, includeComments))
-                    .orElse(Collections.emptySet());
-        }
-        return Collections.emptySet();
+        return delegateFor(method)
+                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
+                .map(scp -> scp.getMethodSources(method, includeComments))
+                .orElse(Collections.emptySet());
     }
 
     @Override
@@ -157,13 +167,9 @@ public class MultiAnalyzer
 
     @Override
     public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
-        var lang = Languages.fromExtension(
-                Files.getFileExtension(classUnit.source().absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(classUnit, includeComments));
-        }
-        return Optional.empty();
+        return delegateFor(classUnit)
+                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
+                .flatMap(scp -> scp.getClassSource(classUnit, includeComments));
     }
 
     @Override
@@ -179,15 +185,10 @@ public class MultiAnalyzer
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate == null) {
-            return Collections.emptyMap();
-        } else {
-            return delegate.as(SkeletonProvider.class)
-                    .map(sk -> sk.getSkeletons(file))
-                    .orElse(Collections.emptyMap());
-        }
+        return delegateFor(file)
+                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
+                .map(sk -> sk.getSkeletons(file))
+                .orElse(Collections.emptyMap());
     }
 
     @Override
@@ -210,12 +211,7 @@ public class MultiAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
-        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getDeclarations(file);
-        }
-        return Set.of();
+        return delegateFor(file).map(delegate -> delegate.getDeclarations(file)).orElse(Set.of());
     }
 
     @Override
