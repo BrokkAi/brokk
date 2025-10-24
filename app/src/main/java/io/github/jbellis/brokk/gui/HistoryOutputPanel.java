@@ -1114,7 +1114,11 @@ public class HistoryOutputPanel extends JPanel {
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
-        // Compress control moved to left buttons; right-side panel removed
+        // Add New Session button to the east side
+        JPanel eastPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        eastPanel.setOpaque(false);
+        eastPanel.add(newSessionButton);
+        panel.add(eastPanel, BorderLayout.EAST);
 
         var popupListener = new MouseAdapter() {
             private void showPopupMenu(MouseEvent e) {
