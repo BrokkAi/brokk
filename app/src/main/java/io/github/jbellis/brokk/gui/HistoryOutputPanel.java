@@ -225,7 +225,144 @@ public class HistoryOutputPanel extends JPanel {
         // Initialize sessionNameLabel (read-only label that displays current session)
         this.sessionNameLabel = new JLabel();
         this.newSessionButton = new SplitButton("");
+
+        // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
+
+        // Provide a popup menu supplier for the new session button that mirrors the
+        // BranchSelectorButton behavior: top-level actions followed by a scrollable
+        // list of sessions rendered with SessionInfoRenderer.
+        this.newSessionButton.setMenuSupplier(() -> {
+            var popup = new JPopupMenu();
+
+            // Top-level actions ------------------------------------------------
+            var newFromWorkspaceItem = new JMenuItem("New + Copy Workspace");
+            newFromWorkspaceItem.addActionListener(evt -> {
+                try {
+                    var ctx = contextManager.topContext();
+                    contextManager
+                            .createSessionFromContextAsync(ctx, ContextManager.DEFAULT_SESSION_NAME)
+                            .exceptionally(ex -> {
+                                chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
+                                return null;
+                            });
+                } catch (Throwable t) {
+                    chrome.toolError("Failed to create new session from workspace: " + t.getMessage());
+                }
+            });
+            popup.add(newFromWorkspaceItem);
+
+            var manageSessionsItem = new JMenuItem("Manage Sessions...");
+            manageSessionsItem.addActionListener(evt -> {
+                // Show the SessionsDialog as a managed dialog
+                try {
+                    var dlg = new SessionsDialog(chrome, contextManager);
+                    dlg.setLocationRelativeTo(chrome.getFrame());
+                    dlg.setVisible(true);
+                } catch (Throwable t) {
+                    chrome.toolError("Failed to open Sessions dialog: " + t.getMessage());
+                }
+            });
+            popup.add(manageSessionsItem);
+
+            var renameCurrentItem = new JMenuItem("Rename Current Session");
+            renameCurrentItem.addActionListener(evt -> {
+                SessionsDialog.renameCurrentSession(chrome.getFrame(), chrome, contextManager);
+            });
+            popup.add(renameCurrentItem);
+
+            var deleteCurrentItem = new JMenuItem("Delete Current Session");
+            deleteCurrentItem.addActionListener(evt -> {
+                SessionsDialog.deleteCurrentSession(chrome.getFrame(), chrome, contextManager);
+            });
+            popup.add(deleteCurrentItem);
+
+            // Separator before the session list ---------------------------------
+            popup.addSeparator();
+
+            // Build the sessions list model and list UI -------------------------
+            var model = new DefaultListModel<SessionInfo>();
+            var sessions = contextManager.getProject().getSessionManager().listSessions();
+            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
+            for (var s : sessions) model.addElement(s);
+
+            var list = new JList<SessionInfo>(model);
+            list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setCellRenderer(new SessionInfoRenderer());
+
+            // Keep a reference so other code can update it
+            sessionsList = list;
+
+            // Select current session in the list (if present)
+            var currentSessionId = contextManager.getCurrentSessionId();
+            for (int i = 0; i < model.getSize(); i++) {
+                if (model.getElementAt(i).id().equals(currentSessionId)) {
+                    list.setSelectedIndex(i);
+                    break;
+                }
+            }
+
+            // Mouse click: switch session and close popup
+            list.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    var sel = list.getSelectedValue();
+                    if (sel == null) return;
+                    UUID current = contextManager.getCurrentSessionId();
+                    if (!sel.id().equals(current)) {
+                        contextManager.switchSessionAsync(sel.id());
+                    }
+                    // Close enclosing popup if present
+                    Component c = list;
+                    while (c != null && !(c instanceof JPopupMenu)) {
+                        c = c.getParent();
+                    }
+                    if (c instanceof JPopupMenu popupOwner) {
+                        popupOwner.setVisible(false);
+                    }
+                }
+            });
+
+            // Enter key: switch session and close popup
+            list.addKeyListener(new java.awt.event.KeyAdapter() {
+                @Override
+                public void keyPressed(KeyEvent e) {
+                    if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                        var sel = list.getSelectedValue();
+                        if (sel == null) return;
+                        UUID current = contextManager.getCurrentSessionId();
+                        if (!sel.id().equals(current)) {
+                            contextManager.switchSessionAsync(sel.id());
+                        }
+                        Component c = list;
+                        while (c != null && !(c instanceof JPopupMenu)) {
+                            c = c.getParent();
+                        }
+                        if (c instanceof JPopupMenu popupOwner) {
+                            popupOwner.setVisible(false);
+                        }
+                    }
+                }
+            });
+
+            // Wrap the list to make it scrollable
+            var scroll = new JScrollPane(list);
+            scroll.setBorder(BorderFactory.createEmptyBorder());
+            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            // Limit preferred size so the popup doesn't grow excessively
+            int prefWidth = 360;
+            int rowHeight = list.getFont().getSize() + 6;
+            int prefHeight = Math.min(list.getVisibleRowCount() * rowHeight, 8 * rowHeight);
+            scroll.setPreferredSize(new Dimension(prefWidth, prefHeight));
+
+            popup.add(scroll);
+
+            // Allow theme manager to style the popup consistently
+            chrome.themeManager.registerPopupMenu(popup);
+
+            return popup;
+        });
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
