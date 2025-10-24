@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
+import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -36,6 +37,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -73,6 +75,7 @@ public class SearchAgent {
     private final String goal;
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
+    private final SearchMetrics metrics;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -84,15 +87,11 @@ public class SearchAgent {
     private boolean beastMode;
 
     public SearchAgent(
-            String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
-        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext());
-    }
-
-    public SearchAgent(
             String goal,
             ContextManager contextManager,
             StreamingChatModel model,
             Set<Terminal> allowedTerminals,
+            SearchMetrics metrics,
             Context initialContext) {
         this.goal = goal;
         this.cm = contextManager;
@@ -105,6 +104,7 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
+        this.metrics = metrics;
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();
@@ -136,9 +136,6 @@ public class SearchAgent {
 
         // Single pruning turn if workspace is not empty
         performInitialPruningTurn(tr);
-
-        // Expand Workspace with ContextAgent scan
-        addInitialContextToWorkspace();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -211,6 +208,10 @@ public class SearchAgent {
                 continue;
             }
 
+            // Start tracking this turn (only after successful LLM planning)
+            Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
+            metrics.startTurn();
+
             // Final tools are executed only when they are the sole requested action in a turn.
             // This ensures research results are evaluated by the LLM before finalization.
 
@@ -224,6 +225,9 @@ public class SearchAgent {
             String executedFinalTool = null;
             String executedFinalText = "";
             for (var req : sortedCalls) {
+                // Record tool call
+                metrics.recordToolCall(req.name());
+
                 ToolExecutionResult exec;
                 try {
                     exec = tr.executeTool(req);
@@ -266,6 +270,9 @@ public class SearchAgent {
                     executedFinalText = display;
                 }
             }
+
+            // End turn tracking after tool execution
+            endTurnAndRecordFileChanges(filesBeforeSet);
 
             // If we executed a final tool, finalize appropriately
             if (executedFinalTool != null) {
@@ -550,6 +557,24 @@ public class SearchAgent {
                     """);
         }
 
+        if (hasAnswer && !hasTaskList) {
+            assert !hasWorkspace;
+            return new TerminalObjective(
+                    "query",
+                    """
+                    Deliver a written answer using the answer(String) tool.
+                    """);
+        }
+
+        if (hasTaskList && !hasAnswer) {
+            assert !hasWorkspace;
+            return new TerminalObjective(
+                    "task",
+                    """
+                    Deliver a task list using the createTaskList(List<String>) tool.
+                    """);
+        }
+
         if (hasWorkspace) {
             assert !hasAnswer && !hasTaskList;
             return new TerminalObjective(
@@ -718,7 +743,14 @@ public class SearchAgent {
         return messages;
     }
 
-    private void addInitialContextToWorkspace() throws InterruptedException {
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     * Callers should invoke this before calling execute() if they want the initial context scan.
+     */
+    public void scanInitialContext() throws InterruptedException {
+        long scanStartTime = System.currentTimeMillis();
+        Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
+
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
@@ -729,6 +761,8 @@ public class SearchAgent {
         }
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
+            long scanTime = System.currentTimeMillis() - scanStartTime;
+            metrics.recordContextScan(0, scanTime, false, Set.of());
             return;
         }
 
@@ -751,6 +785,13 @@ public class SearchAgent {
                     "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.",
                     ChatMessageType.CUSTOM);
         }
+
+        // Track metrics
+        Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
+        Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
+        filesAdded.removeAll(filesBeforeScan);
+        long scanTime = System.currentTimeMillis() - scanStartTime;
+        metrics.recordContextScan(filesAdded.size(), scanTime, false, toRelativePaths(filesAdded));
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
@@ -864,6 +905,10 @@ public class SearchAgent {
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
 
+        // Record final metrics
+        recordFinalWorkspaceState();
+        metrics.recordFailure(stopDetails.reason(), getWorkspaceFileSet().size());
+
         return new TaskResult(action, fragment, context, stopDetails);
     }
 
@@ -877,7 +922,53 @@ public class SearchAgent {
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
 
+        // Record final metrics
+        recordFinalWorkspaceState();
+        metrics.recordFailure(details.reason(), getWorkspaceFileSet().size());
+
         return new TaskResult(action, fragment, context, details);
+    }
+
+    // =======================
+    // Metrics helpers
+    // =======================
+
+    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
+        Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+        Set<ProjectFile> added = new HashSet<>(filesAfterSet);
+        added.removeAll(filesBeforeSet);
+        metrics.recordFilesAdded(added.size());
+        metrics.recordFilesAddedPaths(toRelativePaths(added));
+        metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
+    }
+
+    private void recordFinalWorkspaceState() {
+        metrics.recordFinalWorkspaceFiles(toRelativePaths(getWorkspaceFileSet()));
+        metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
+    }
+
+    private Set<ProjectFile> getWorkspaceFileSet() {
+        return cm.topContext()
+                .allFragments()
+                .filter(ContextAgent::isWorkspaceFileFragment)
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+    }
+
+    private Set<String> toRelativePaths(Set<ProjectFile> files) {
+        return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
+    }
+
+    private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
+        return cm.topContext()
+                .allFragments()
+                .filter(ContextAgent::isWorkspaceFileFragment)
+                .map(f -> new SearchMetrics.FragmentInfo(
+                        f.getType().toString(),
+                        f.id(),
+                        f.description(),
+                        f.files().stream().map(Object::toString).sorted().toList()))
+                .toList();
     }
 
     // =======================

@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
@@ -25,7 +27,9 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.tasks.TaskList;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,7 +59,7 @@ import picocli.CommandLine;
 public final class BrokkCli implements Callable<Integer> {
     private static final Logger logger = LogManager.getLogger(BrokkCli.class);
 
-    @CommandLine.Option(names = "--project", description = "Path to the project root.", required = true)
+    @CommandLine.Option(names = "--project", description = "Path to the project root.")
     @Nullable
     private Path projectPath;
 
@@ -158,6 +162,29 @@ public final class BrokkCli implements Callable<Integer> {
             description = "Perform a Deep Scan to suggest additional relevant context.")
     private boolean deepScan = false;
 
+    @CommandLine.Option(
+            names = "--search-workspace",
+            description =
+                    "Run Search agent in benchmark mode to find relevant context for the given query. Outputs JSON report to stdout.")
+    @Nullable
+    private String searchWorkspace;
+
+    @CommandLine.Option(
+            names = "--commit",
+            description = "Git commit hash to checkout before running search. Used for benchmark reproducibility.")
+    @Nullable
+    private String commit;
+
+    @CommandLine.Option(
+            names = "--disable-context-scan",
+            description = "Skip the initial ContextAgent scan in --search-workspace mode.")
+    private boolean disableContextScan = false;
+
+    @CommandLine.Option(
+            names = "--list-models",
+            description = "List available model aliases and their corresponding model names as JSON and exit.")
+    private boolean listModels = false;
+
     private ContextManager cm;
     private AbstractProject project;
 
@@ -171,22 +198,50 @@ public final class BrokkCli implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+
+        // Handle --list-models early exit
+        if (listModels) {
+            String modelsJson = getModelsJson();
+            System.out.println(modelsJson);
+            return 0;
+        }
+
+        // Validate --project is provided when not using --build-commit or --list-models
+        if (projectPath == null) {
+            System.err.println("Error: --project is required.");
+            return 1;
+        }
+
         // --- Action Validation ---
         long actionCount = Stream.of(
-                        architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt, lutzLitePrompt)
+                        architectPrompt,
+                        codePrompt,
+                        askPrompt,
+                        searchAnswerPrompt,
+                        lutzPrompt,
+                        lutzLitePrompt,
+                        searchWorkspace)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) or --worktree is required.");
             return 1;
+        }
+
+        // Add search-workspace validation
+        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
+            if (codeModelName != null) {
+                System.err.println("--codemodel is not valid with --search-workspace.");
+                return 1;
+            }
         }
 
         //  Expand @file syntax for prompt parameters
@@ -197,6 +252,7 @@ public final class BrokkCli implements Callable<Integer> {
             searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
             lutzPrompt = maybeLoadFromFile(lutzPrompt);
             lutzLitePrompt = maybeLoadFromFile(lutzLitePrompt);
+            searchWorkspace = maybeLoadFromFile(searchWorkspace);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -220,11 +276,19 @@ public final class BrokkCli implements Callable<Integer> {
                 logger.debug("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
-                    var defaultBranch = gitRepo.getDefaultBranch();
-                    var commitId = gitRepo.resolveToCommit(defaultBranch).getName();
-                    gitRepo.worktrees().addWorktreeDetached(worktreePath, commitId);
+                    // Use --commit if provided, otherwise default branch HEAD
+                    String targetCommit;
+                    if (commit != null) {
+                        targetCommit = gitRepo.resolveToCommit(commit).getName();
+                        logger.debug("Using commit from --commit option: " + targetCommit);
+                    } else {
+                        var defaultBranch = gitRepo.getDefaultBranch();
+                        targetCommit = gitRepo.resolveToCommit(defaultBranch).getName();
+                        logger.debug("Using default branch " + defaultBranch + " at commit " + targetCommit);
+                    }
+
+                    gitRepo.worktrees().addWorktreeDetached(worktreePath, targetCommit);
                     logger.debug("Successfully created detached worktree at " + worktreePath);
-                    logger.debug("Checked out from " + defaultBranch + " at commit " + commitId);
                 } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
                     logger.error("Error creating worktree", e);
                     System.err.println("Error creating worktree: " + e.getMessage());
@@ -234,6 +298,7 @@ public final class BrokkCli implements Callable<Integer> {
             if (actionCount == 0) {
                 return 0; // successfully created worktree and no other action was requested
             }
+            projectPath = worktreePath;
         }
 
         // Create Project + ContextManager
@@ -261,6 +326,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         StreamingChatModel planModel = null;
         StreamingChatModel codeModel = null;
+        StreamingChatModel taskModelOverride = null;
 
         // Determine which models are required by the chosen action(s).
         boolean needsPlanModel = architectPrompt != null
@@ -268,7 +334,8 @@ public final class BrokkCli implements Callable<Integer> {
                 || lutzPrompt != null
                 || lutzLitePrompt != null
                 || deepScan
-                || merge;
+                || merge
+                || (searchWorkspace != null && !searchWorkspace.isBlank());
         boolean needsCodeModel =
                 codePrompt != null || askPrompt != null || architectPrompt != null || lutzLitePrompt != null || merge;
 
@@ -290,6 +357,7 @@ public final class BrokkCli implements Callable<Integer> {
                 return 1;
             }
             planModel = service.getModel(fav.config());
+            taskModelOverride = planModel;
             assert planModel != null : service.getAvailableModels();
         }
 
@@ -304,6 +372,59 @@ public final class BrokkCli implements Callable<Integer> {
             codeModel = service.getModel(fav.config());
             assert codeModel != null : service.getAvailableModels();
         }
+
+        // --- Search Workspace Mode ---
+        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
+            long startTime = System.currentTimeMillis();
+            TaskResult searchResult;
+            boolean success;
+            var metrics = (SearchMetrics.Tracking) SearchMetrics.tracking();
+
+            try (var scope = cm.beginTask(searchWorkspace, false)) {
+                var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
+                var agent = new SearchAgent(
+                        searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics, cm.liveContext());
+                if (disableContextScan) {
+                    metrics.recordContextScan(0, 0, true, Set.of());
+                } else {
+                    agent.scanInitialContext();
+                }
+                searchResult = agent.execute();
+                scope.append(searchResult);
+                success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
+            } catch (Throwable th) {
+                logger.error("Fatal error during SearchAgent execution", th);
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                String errorMessage = th.getMessage() != null
+                        ? th.getMessage()
+                        : th.getClass().getName();
+                var errorResult = new SearchErrorResult(searchWorkspace, "", -1, elapsedTime, false, errorMessage);
+                try {
+                    var json = AbstractProject.objectMapper.writeValueAsString(errorResult);
+                    System.out.println(json);
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    // Fallback to minimal JSON if serialization fails
+                    System.out.println("{\"query\": \"error\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": "
+                            + elapsedTime
+                            + ", \"success\": false}");
+                }
+                return 2;
+            }
+
+            long elapsedTime = System.currentTimeMillis() - startTime;
+
+            // Extract results from conversation
+            var messages = searchResult.output().messages();
+            int turns = countTurns(messages);
+
+            // Output enhanced JSON result with metrics
+            var json = metrics.toJson(searchWorkspace, turns, elapsedTime, success);
+            System.out.println(json);
+
+            return success ? 0 : 1;
+        }
+
+        var workspaceTools = new WorkspaceTools(cm.liveContext());
 
         // --- Name Resolution and Context Building ---
 
@@ -497,7 +618,13 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new SearchAgent(
-                            requireNonNull(searchAnswerPrompt), cm, planModel, EnumSet.of(Terminal.ANSWER));
+                            requireNonNull(searchAnswerPrompt),
+                            cm,
+                            planModel,
+                            EnumSet.of(Terminal.ANSWER),
+                            SearchMetrics.noOp(),
+                            cm.liveContext());
+                    agent.scanInitialContext();
                     result = agent.execute();
                     scope.append(result);
                 } else if (build) {
@@ -542,8 +669,14 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --lutz requires --codemodel to be specified.");
                         return 1;
                     }
-                    var agent =
-                            new SearchAgent(requireNonNull(lutzPrompt), cm, planModel, EnumSet.of(Terminal.TASK_LIST));
+                    var agent = new SearchAgent(
+                            requireNonNull(lutzPrompt),
+                            cm,
+                            planModel,
+                            EnumSet.of(Terminal.TASK_LIST),
+                            SearchMetrics.noOp(),
+                            cm.liveContext());
+                    agent.scanInitialContext();
                     result = agent.execute();
                     scope.append(result);
 
@@ -736,4 +869,34 @@ public final class BrokkCli implements Callable<Integer> {
         }
         return sb.toString();
     }
+
+    private static int countTurns(List<ChatMessage> messages) {
+        // Count AI messages as turns
+        return (int) messages.stream()
+                .filter(msg -> msg.type() == ChatMessageType.AI)
+                .count();
+    }
+
+    private static String getModelsJson() {
+        var models = MainProject.loadFavoriteModels();
+        var modelInfos = models.stream()
+                .map(m -> new ModelInfo(m.alias(), m.config().name()))
+                .toList();
+        try {
+            return AbstractProject.objectMapper.writeValueAsString(modelInfos);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize models list", e);
+        }
+    }
+
+    /**
+     * Model information for JSON serialization.
+     */
+    private record ModelInfo(String alias, String model) {}
+
+    /**
+     * Error result for search-workspace mode failures.
+     */
+    private record SearchErrorResult(
+            String query, String found_file, int turns, long elapsed_ms, boolean success, String error) {}
 }
