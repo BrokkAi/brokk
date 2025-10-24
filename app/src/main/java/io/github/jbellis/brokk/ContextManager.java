@@ -361,8 +361,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
+
+        // Create watch service first
+        var watchService = new ProjectWatchService(
+                project.getRoot(),
+                project.hasGit() ? project.getRepo().getGitTopLevel() : null,
+                List.of() // Start with empty listeners
+                );
+
+        // Create AnalyzerWrapper with injected watch service
+        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
+
+        // Add ContextManager's file watch listener dynamically
         var fileWatchListener = createFileWatchListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, fileWatchListener);
+        watchService.addListener(fileWatchListener);
 
         // Load saved context history or create a new one
         var contextTask =
@@ -411,19 +423,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onRepoChange() {
-                // NOTE: In Phase 4, this callback is no longer used in GUI mode.
+                // NOTE: This callback is no longer used in GUI mode.
                 // ContextManager.fileWatchListener now handles git changes directly via handleGitMetadataChange().
-                // This method is kept for backward compatibility only (e.g., if createUiNotificationListener is used).
+                // This method is kept for backward compatibility only.
                 logger.debug("AnalyzerListener.onRepoChange fired (backward compatibility path)");
                 handleGitMetadataChange();
             }
 
             @Override
             public void onTrackedFileChange() {
-                // NOTE: In Phase 4, this callback is no longer used in GUI mode.
+                // NOTE: This callback is no longer used in GUI mode.
                 // ContextManager.fileWatchListener now handles tracked file changes directly via
                 // handleTrackedFileChange().
-                // This method is kept for backward compatibility only (e.g., if createUiNotificationListener is used).
+                // This method is kept for backward compatibility only.
                 logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
                 handleTrackedFileChange(Set.of()); // Empty set since we don't have specific files from this path
             }
@@ -2588,8 +2600,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // no AnalyzerListener, instead we will block for it to be ready
-        // Headless mode doesn't need file watching, so pass null for both listeners
-        this.analyzerWrapper = new AnalyzerWrapper(project, null, null);
+        // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
+        this.analyzerWrapper = new AnalyzerWrapper(project, null, (IWatchService) null);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

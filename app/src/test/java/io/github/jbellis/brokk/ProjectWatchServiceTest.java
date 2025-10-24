@@ -252,6 +252,138 @@ class ProjectWatchServiceTest {
     }
 
     /**
+     * Test that dynamically added listeners receive events.
+     */
+    @Test
+    void testDynamicallyAddedListener() throws Exception {
+        // Start with one listener
+        TestListener listener1 = new TestListener("Listener1");
+        testListeners.add(listener1);
+
+        watchService = new ProjectWatchService(tempDir, null, List.of(listener1));
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Give watcher time to initialize
+        Thread.sleep(500);
+
+        // Add a second listener dynamically
+        TestListener listener2 = new TestListener("Listener2");
+        testListeners.add(listener2);
+        watchService.addListener(listener2);
+
+        // Create a file to trigger an event
+        Path testFile = tempDir.resolve("test.txt");
+        Files.writeString(testFile, "test content");
+
+        // Both listeners should receive the event
+        assertTrue(listener1.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener1 should receive event");
+        assertTrue(
+                listener2.filesChangedLatch.await(5, TimeUnit.SECONDS),
+                "Listener2 (added dynamically) should receive event");
+
+        assertEquals(1, listener1.filesChangedCount.get(), "Listener1 should receive 1 file change");
+        assertEquals(1, listener2.filesChangedCount.get(), "Listener2 should receive 1 file change");
+    }
+
+    /**
+     * Test that removed listeners no longer receive events.
+     */
+    @Test
+    void testRemovedListener() throws Exception {
+        // Start with two listeners
+        TestListener listener1 = new TestListener("Listener1");
+        TestListener listener2 = new TestListener("Listener2");
+        testListeners.add(listener1);
+        testListeners.add(listener2);
+
+        List<Listener> listeners = new ArrayList<>(testListeners);
+        watchService = new ProjectWatchService(tempDir, null, listeners);
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Give watcher time to initialize
+        Thread.sleep(500);
+
+        // Remove listener2
+        watchService.removeListener(listener2);
+
+        // Create a file to trigger an event
+        Path testFile = tempDir.resolve("test.txt");
+        Files.writeString(testFile, "test content");
+
+        // Only listener1 should receive the event
+        assertTrue(listener1.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener1 should receive event");
+
+        // Wait a bit to ensure listener2 doesn't receive anything
+        Thread.sleep(500);
+
+        assertEquals(1, listener1.filesChangedCount.get(), "Listener1 should receive 1 file change");
+        assertEquals(0, listener2.filesChangedCount.get(), "Listener2 (removed) should not receive events");
+    }
+
+    /**
+     * Test that multiple listeners can be added and removed dynamically.
+     */
+    @Test
+    void testMultipleDynamicListenerOperations() throws Exception {
+        // Start with empty listener list
+        watchService = new ProjectWatchService(tempDir, null, List.of());
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Give watcher time to initialize
+        Thread.sleep(500);
+
+        // Add three listeners dynamically
+        TestListener listener1 = new TestListener("Listener1");
+        TestListener listener2 = new TestListener("Listener2");
+        TestListener listener3 = new TestListener("Listener3");
+        testListeners.add(listener1);
+        testListeners.add(listener2);
+        testListeners.add(listener3);
+
+        watchService.addListener(listener1);
+        watchService.addListener(listener2);
+        watchService.addListener(listener3);
+
+        // Create a file to trigger an event
+        Path testFile = tempDir.resolve("test.txt");
+        Files.writeString(testFile, "test content");
+
+        // All three should receive the event
+        assertTrue(listener1.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener1 should receive event");
+        assertTrue(listener2.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener2 should receive event");
+        assertTrue(listener3.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener3 should receive event");
+
+        assertEquals(1, listener1.filesChangedCount.get());
+        assertEquals(1, listener2.filesChangedCount.get());
+        assertEquals(1, listener3.filesChangedCount.get());
+
+        // Remove listener2
+        watchService.removeListener(listener2);
+
+        // Reset latches for next event
+        TestListener listener1_v2 = new TestListener("Listener1_v2");
+        TestListener listener3_v2 = new TestListener("Listener3_v2");
+        watchService.removeListener(listener1);
+        watchService.removeListener(listener3);
+        watchService.addListener(listener1_v2);
+        watchService.addListener(listener3_v2);
+
+        // Create another file
+        Path testFile2 = tempDir.resolve("test2.txt");
+        Files.writeString(testFile2, "test content 2");
+
+        // Only listener1_v2 and listener3_v2 should receive the event
+        assertTrue(listener1_v2.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener1_v2 should receive event");
+        assertTrue(listener3_v2.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener3_v2 should receive event");
+
+        // Wait to ensure removed listener doesn't get event
+        Thread.sleep(500);
+
+        assertEquals(1, listener1_v2.filesChangedCount.get());
+        assertEquals(1, listener3_v2.filesChangedCount.get());
+    }
+
+    /**
      * Test listener that tracks events.
      */
     private static class TestListener implements Listener {
