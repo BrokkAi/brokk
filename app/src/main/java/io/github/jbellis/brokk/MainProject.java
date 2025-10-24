@@ -338,6 +338,7 @@ public final class MainProject extends AbstractProject {
             saveProjectProperties();
         }
         setBuildDetails(details);
+        invalidateAllFiles();
     }
 
     public void setBuildDetails(BuildAgent.BuildDetails details) {

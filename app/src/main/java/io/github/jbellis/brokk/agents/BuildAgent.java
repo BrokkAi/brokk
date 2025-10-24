@@ -27,7 +27,6 @@ import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
@@ -43,7 +42,6 @@ import java.io.StringWriter;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -112,7 +110,8 @@ public class BuildAgent {
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
         // Determine build system and set initial excluded directories
-        var files = project.getAllFiles().stream()
+        // Use tracked files directly (not filtered) to ensure build files are visible
+        var files = project.getRepo().getTrackedFiles().stream()
                 .parallel()
                 .filter(f -> f.getParent().equals(Path.of("")))
                 .map(ProjectFile::toString)
@@ -124,35 +123,42 @@ public class BuildAgent {
                 detectedSystem,
                 this.currentExcludedDirectories);
 
-        // Add exclusions from .gitignore
-        var repo = project.getRepo();
-        if (repo instanceof GitRepo gitRepo) {
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            var addedFromGitignore = new ArrayList<String>();
-            for (var pattern : ignoredPatterns) {
-                Path path;
-                try {
-                    path = project.getRoot().resolve(pattern);
-                } catch (InvalidPathException e) {
-                    // for now we only support literal paths, not globs
-                    continue;
-                }
-                // include non-existing paths if they end with `/` in case they get created later
-                var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!pattern.startsWith("!") && isDirectory) {
-                    this.currentExcludedDirectories.add(pattern);
-                    addedFromGitignore.add(pattern);
-                }
-            }
-            if (!addedFromGitignore.isEmpty()) {
-                logger.debug(
-                        "Added the following directory patterns from .gitignore to excluded directories: {}",
-                        addedFromGitignore);
-            }
+        // Add directory exclusions based on gitignore filtering
+        // Instead of parsing .gitignore directly, we analyze which directories are missing
+        // from the filtered file list to infer ignored directories
+        var addedFromGitignore = new ArrayList<String>();
+        if (project.hasGit()) {
+            try {
+                // Get all potential directories vs. actually included directories
+                var allFiles = project.getAllFiles();
+                var includedDirectories = allFiles.stream()
+                        .map(pf -> pf.getRelPath().getParent())
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
 
-        } else {
+                // Look for directories that exist but are not in the filtered list
+                try (var dirStream = Files.walk(project.getRoot(), 1)) {
+                    dirStream
+                            .filter(Files::isDirectory)
+                            .filter(path -> !path.equals(project.getRoot())) // Skip root
+                            .map(path -> project.getRoot().relativize(path).toString())
+                            .filter(dirName -> !dirName.startsWith(".")) // Skip hidden dirs like .git
+                            .filter(dirName -> !includedDirectories.contains(Path.of(dirName)))
+                            .forEach(dirName -> {
+                                this.currentExcludedDirectories.add(dirName);
+                                addedFromGitignore.add(dirName);
+                            });
+                }
+
+            } catch (IOException e) {
+                logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
+            }
+        }
+
+        if (!addedFromGitignore.isEmpty()) {
             logger.debug(
-                    "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
+                    "Added the following directory patterns from gitignore analysis to excluded directories: {}",
+                    addedFromGitignore);
         }
 
         // 2. Iteration Loop
@@ -297,6 +303,8 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore.
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
+                IMPORTANT: Only provide literal directory paths. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
+                these are already handled by .gitignore processing.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
@@ -328,9 +336,11 @@ public class BuildAgent {
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
                     List<String> excludedDirectories) {
         // Combine baseline excluded directories with those suggested by the LLM
+        // Filter out glob patterns defensively even though the prompt instructs against them
         var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
+                .filter(s -> !containsGlobPattern(s))
                 .map(s -> Path.of(s).normalize())
                 .map(Path::toString)
                 .collect(Collectors.toSet());
@@ -349,6 +359,10 @@ public class BuildAgent {
         this.abortReason = explanation;
         logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
         return "Abort signal received and processed.";
+    }
+
+    private static boolean containsGlobPattern(String s) {
+        return s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
     }
 
     /** Holds semi-structured information about a project's build process */
