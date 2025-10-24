@@ -242,6 +242,7 @@ public class HistoryOutputPanel extends JPanel {
                     var ctx = contextManager.topContext();
                     contextManager
                             .createSessionFromContextAsync(ctx, ContextManager.DEFAULT_SESSION_NAME)
+                            .thenRun(() -> updateSessionComboBox())
                             .exceptionally(ex -> {
                                 chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                                 return null;
@@ -311,7 +312,13 @@ public class HistoryOutputPanel extends JPanel {
                     if (sel == null) return;
                     UUID current = contextManager.getCurrentSessionId();
                     if (!sel.id().equals(current)) {
-                        contextManager.switchSessionAsync(sel.id());
+                        contextManager
+                                .switchSessionAsync(sel.id())
+                                .thenRun(() -> updateSessionComboBox())
+                                .exceptionally(ex -> {
+                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                    return null;
+                                });
                     }
                     // Close enclosing popup if present
                     Component c = list;
@@ -333,7 +340,13 @@ public class HistoryOutputPanel extends JPanel {
                         if (sel == null) return;
                         UUID current = contextManager.getCurrentSessionId();
                         if (!sel.id().equals(current)) {
-                            contextManager.switchSessionAsync(sel.id());
+                            contextManager
+                                    .switchSessionAsync(sel.id())
+                                    .thenRun(() -> updateSessionComboBox())
+                                    .exceptionally(ex -> {
+                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                        return null;
+                                    });
                         }
                         Component c = list;
                         while (c != null && !(c instanceof JPopupMenu)) {
@@ -511,7 +524,13 @@ public class HistoryOutputPanel extends JPanel {
                 if (sel == null) return;
                 UUID current = contextManager.getCurrentSessionId();
                 if (!sel.id().equals(current)) {
-                    contextManager.switchSessionAsync(sel.id());
+                    contextManager
+                            .switchSessionAsync(sel.id())
+                            .thenRun(() -> updateSessionComboBox())
+                            .exceptionally(ex -> {
+                                chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                return null;
+                            });
                 }
                 // Try to close enclosing JPopupMenu if any
                 Component c = list;
@@ -527,11 +546,20 @@ public class HistoryOutputPanel extends JPanel {
         return list;
     }
 
-    /** Updates the session list (if present) and the displayed current session name.
+    // Integrator note: When sessions are created/deleted/renamed externally, call
+    // HistoryOutputPanel.updateSessionComboBox() to keep the compact session label
+    // and popup list synchronized.
+    /**
+     * Refresh the compact session label and (if present) the sessions popup list model.
      *
-     * NOTE: This method intentionally does not touch any JComboBox. It runs on the EDT,
-     * refreshes the session label, and if the sessionsList is present, swaps in a new
-     * DefaultListModel containing the sorted sessions and selects the active session.
+     * <p>This method runs on the EDT and updates the right-aligned compact session label,
+     * and, if the session popup list has already been created/opened, swaps in a new
+     * list model showing the current sessions and selects the active session.
+     *
+     * <p>Call this from outside when the active session or the session list has changed
+     * (for example, the SessionManager, SessionsDialog, or other UI components mutate sessions).
+     * It is safe to call from non-EDT threads because this method schedules work via
+     * {@link SwingUtilities#invokeLater(Runnable)}.
      */
     public void updateSessionComboBox() {
         SwingUtilities.invokeLater(() -> {
@@ -834,6 +862,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionFromWorkspaceItem.addActionListener(event -> {
             contextManager
                     .createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> updateSessionComboBox())
                     .exceptionally(ex -> {
                         chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                         return null;
