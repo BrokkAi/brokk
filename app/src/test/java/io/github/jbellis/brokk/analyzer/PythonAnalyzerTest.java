@@ -382,7 +382,7 @@ public final class PythonAnalyzerTest {
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
-        ProjectFile duplicateFieldsFile = new ProjectFile(project.getRoot(), "python_duplicate_fields_test.py");
+        ProjectFile duplicateFieldsFile = new ProjectFile(project.getRoot(), "duplictad_fields_test.py");
 
         // Get all declarations in the file
         Set<CodeUnit> declarations = analyzer.getDeclarations(duplicateFieldsFile);
@@ -395,8 +395,7 @@ public final class PythonAnalyzerTest {
         assertEquals(1, srcfilesFields.size(), "Should find 1 SRCFILES field after deduplication");
 
         // The field should have the expected module-level FQN
-        assertEquals(
-                "python_duplicate_fields_test.SRCFILES", srcfilesFields.get(0).fqName());
+        assertEquals("duplictad_fields_test.SRCFILES", srcfilesFields.get(0).fqName());
 
         // Should also find other variables
         var localVarFields = declarations.stream()
@@ -441,7 +440,49 @@ public final class PythonAnalyzerTest {
         var classCUs = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
         var functionCUs = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
 
+        System.out.println("Functions found in astropy test:");
+        functionCUs.forEach(cu -> System.out.println("  " + cu.fqName()));
+
         assertEquals(2, classCUs.size(), "Should find 2 classes");
         assertEquals(3, functionCUs.size(), "Should find 3 functions");
+    }
+
+    @Test
+    void testPythonPropertySetterDetection() {
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile testFile = new ProjectFile(project.getRoot(), "duplictad_fields_test.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(testFile);
+
+        // Should find property getters but NOT setters
+        var valueGetters = declarations.stream()
+                .filter(cu -> cu.isFunction() && cu.fqName().equals("PropertyTest.value"))
+                .collect(Collectors.toList());
+
+        var nameGetters = declarations.stream()
+                .filter(cu -> cu.isFunction() && cu.fqName().equals("PropertyTest.name"))
+                .collect(Collectors.toList());
+
+        // Should find 1 getter each (setters skipped)
+        assertEquals(1, valueGetters.size(), "Should find 1 value getter (setter skipped)");
+        assertEquals(1, nameGetters.size(), "Should find 1 name getter (setter skipped)");
+
+        // Should find regular functions that were incorrectly flagged before
+        var testUncertaintySetter = declarations.stream()
+                .filter(cu -> cu.isFunction() && cu.identifier().contains("test_uncertainty_setter"))
+                .collect(Collectors.toList());
+
+        var setTemperature = declarations.stream()
+                .filter(cu -> cu.isFunction() && cu.identifier().contains("set_temperature"))
+                .collect(Collectors.toList());
+
+        var processDataSetter = declarations.stream()
+                .filter(cu -> cu.isFunction() && cu.identifier().contains("process_data_setter"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, testUncertaintySetter.size(), "Should find test_uncertainty_setter function");
+        assertEquals(1, setTemperature.size(), "Should find set_temperature function");
+        assertEquals(1, processDataSetter.size(), "Should find process_data_setter function");
     }
 }
