@@ -750,13 +750,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Dev-only: Force tool emulation checkbox
         if (Boolean.getBoolean("brokk.devmode")) {
-            forceToolEmulationCheckbox =
-                    new JCheckBox(
-                            "[Dev Mode] Force tool emulation (also show empty workspace chips)",
-                            Service.GLOBAL_FORCE_TOOL_EMULATION);
+            forceToolEmulationCheckbox = new JCheckBox(
+                    "[Dev Mode] Force tool emulation (also show empty workspace chips)",
+                    Service.GLOBAL_FORCE_TOOL_EMULATION);
             forceToolEmulationCheckbox.setToolTipText(
                     "Development override: emulate tool calls. Also forces the UI to show visually-empty workspace chips for debugging and testing only.\n\n"
-                    + "Dev note: When enabled, the UI will also show empty/placeholder workspace chips to aid debugging.");
+                            + "Dev note: When enabled, the UI will also show empty/placeholder workspace chips to aid debugging.");
             gbc.gridx = 1;
             gbc.gridy = row++;
             gbc.weightx = 1.0;

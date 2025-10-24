@@ -195,16 +195,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Filter out visually-empty fragments unless dev-mode override is enabled.
         // The helper hasRenderableContent() encodes the conservative visibility rules.
-        var visibleFragments =
-                fragments.stream()
-                        .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
-                        .toList();
+        var visibleFragments = fragments.stream()
+                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
+                .toList();
 
         // Partition into summaries vs others (using only the visible set)
-        var summaries =
-                visibleFragments.stream().filter(f -> classify(f) == ChipKind.SUMMARY).toList();
-        var others =
-                visibleFragments.stream().filter(f -> classify(f) != ChipKind.SUMMARY).toList();
+        var summaries = visibleFragments.stream()
+                .filter(f -> classify(f) == ChipKind.SUMMARY)
+                .toList();
+        var others = visibleFragments.stream()
+                .filter(f -> classify(f) != ChipKind.SUMMARY)
+                .toList();
 
         // Add individual chips for non-summaries (createChip may return null if fragment lacks renderable content)
         for (var fragment : others) {
@@ -224,8 +225,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
 
         // Add synthetic summary chip if we have summaries that are renderable (or dev override)
-        boolean anyRenderableSummary = summaries.stream()
-                .anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
+        boolean anyRenderableSummary =
+                summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
         if (anyRenderableSummary) {
             Component synthetic = createSyntheticSummaryChip(summaries);
             if (synthetic != null) {
