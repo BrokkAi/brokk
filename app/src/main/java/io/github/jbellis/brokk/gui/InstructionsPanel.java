@@ -1532,29 +1532,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Returns a concise, user-friendly spinner message for the given action.
+     * Playful but not too long, clear about what's happening.
+     */
+    private static String spinnerTextFor(String action) {
+        return switch (action) {
+            case ACTION_ARCHITECT -> "Architect Mode — planning and applying code changes...";
+            case ACTION_CODE -> "Applying Code Mode — editing files in your Workspace...";
+            case ACTION_SEARCH -> "Running Lutz Mode — agentic search and plan generation...";
+            case ACTION_ASK -> "Answering from Workspace — composing response with your project context...";
+            default -> "Executing " + action + "...";
+        };
+    }
+
+    /**
      * Runs the given task, handling spinner and add-to-history of the TaskResult, including partial result on
      * interruption
      */
     public void submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
-        // Map some actions to a more user-friendly display string for the spinner.
-        // We keep the original `action` (used for LLM output / history) unchanged to avoid
-        // affecting other subsystems that detect action by name, but present a clearer label
-        // to the user while the operation runs.
-        String displayAction;
-        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
-            displayAction = "Code With Plan";
-        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Lutz Mode - Lutz is on the case: agentic search & planning (baked in Amsterdam)";
-        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Ask";
-        } else {
-            displayAction = action;
-        }
+        String spinnerText = spinnerTextFor(action);
 
         cm.submitLlmAction(() -> {
             try {
-                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                chrome.showOutputSpinner(spinnerText);
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
                     scope.append(result);
@@ -1574,24 +1575,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public CompletableFuture<Void> submitAction(
             String action, String input, Function<ContextManager.TaskScope, TaskResult> task) {
         var cm = chrome.getContextManager();
-        // Map some actions to a more user-friendly display string for the spinner.
-        // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
-        // affecting other subsystems that detect action by name, but present a clearer label
-        // to the user while the operation runs.
-        String displayAction;
-        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
-            displayAction = "Code With Plan";
-        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Lutz Mode - Lutz is on the case: agentic search & planning (baked in Amsterdam)";
-        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Ask";
-        } else {
-            displayAction = action;
-        }
+        String spinnerText = spinnerTextFor(action);
 
         return cm.submitLlmAction(() -> {
             try {
-                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                chrome.showOutputSpinner(spinnerText);
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.apply(scope);
                     scope.append(result);
