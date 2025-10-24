@@ -20,7 +20,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
-import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
@@ -73,6 +72,7 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import java.lang.reflect.*;
 
 public class HistoryOutputPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
@@ -84,7 +84,10 @@ public class HistoryOutputPanel extends JPanel {
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
-    private final JComboBox<SessionInfo> sessionComboBox;
+    // Replaced the JComboBox-based session UI with a label + list used in the dropdown.
+    @Nullable
+    private JList<SessionInfo> sessionsList;
+    private final JLabel sessionNameLabel;
     private final SplitButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
@@ -188,8 +191,6 @@ public class HistoryOutputPanel extends JPanel {
         this.chrome = chrome;
         this.contextManager = contextManager;
 
-        // commandResultLabel initialization removed
-
         // Build combined Output + Instructions panel (Center)
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
@@ -221,7 +222,8 @@ public class HistoryOutputPanel extends JPanel {
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
         this.undoButton = new MaterialButton();
         this.redoButton = new MaterialButton();
-        this.sessionComboBox = new JComboBox<>();
+        // Initialize sessionNameLabel (read-only label that displays current session)
+        this.sessionNameLabel = new JLabel();
         this.newSessionButton = new SplitButton("");
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
 
@@ -229,7 +231,7 @@ public class HistoryOutputPanel extends JPanel {
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
 
         var sessionControlsPanel =
-                buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton);
+                buildSessionControlsPanel(this.sessionNameLabel, this.newSessionButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
         // Create main history panel with session controls above activity
@@ -310,9 +312,9 @@ public class HistoryOutputPanel extends JPanel {
         return centerContainer;
     }
 
-    /** Builds the session controls panel with combo box and buttons */
+    /** Builds the session controls panel with label and buttons */
     private JPanel buildSessionControlsPanel(
-            JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton) {
+            JLabel sessionNameLabel, SplitButton newSessionButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -321,20 +323,9 @@ public class HistoryOutputPanel extends JPanel {
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        // Session combo box (passed in)
-        sessionComboBox.setRenderer(new SessionInfoRenderer());
-        sessionComboBox.setMaximumRowCount(10);
-
-        // Add selection listener for session switching
-        sessionComboBox.addActionListener(e -> {
-            var selectedSession = (SessionInfo) sessionComboBox.getSelectedItem();
-            if (selectedSession != null && !selectedSession.id().equals(contextManager.getCurrentSessionId())) {
-                contextManager.switchSessionAsync(selectedSession.id());
-            }
-        });
-
-        // Buttons panel (west-only since the separate Manage button was removed)
-        var buttonsPanel = new JPanel(new BorderLayout());
+        // Top row: Create button at left and session name displayed center
+        var topRow = new JPanel(new BorderLayout(5, 0));
+        topRow.setOpaque(false);
 
         // Tooltip and action listener for the new session button
         newSessionButton.setToolTipText("Create a new session");
@@ -345,10 +336,26 @@ public class HistoryOutputPanel extends JPanel {
                     .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         });
 
-        // Move session management actions into newSessionButton dropdown; remove separate Manage button UI
-        // Move manage/rename/delete into the New Session dropdown and remove the separate Manage button.
+        // Build the sessions list that will be shown in the newSessionButton dropdown.
+        // The list is created lazily by the menu supplier when the user opens the menu.
         newSessionButton.setMenuSupplier(() -> {
             var popup = new JPopupMenu();
+
+            // Ensure sessionsList is created
+            if (sessionsList == null) {
+                sessionsList = buildSessionsList();
+            }
+
+            // Put the sessions list in a scroll pane at the top of the popup
+            var scroll = new JScrollPane(sessionsList);
+            scroll.setBorder(BorderFactory.createEmptyBorder());
+            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            // Limit height to something reasonable
+            scroll.setPreferredSize(new Dimension(320, Math.min(320, sessionsList.getVisibleRowCount() * 24 + 10)));
+            popup.add(scroll);
+
+            // Separator to clearly separate creation actions from management actions
+            popup.addSeparator();
 
             var copyWorkspaceItem = new JMenuItem("New + Copy Workspace");
             copyWorkspaceItem.addActionListener(ev -> {
@@ -358,7 +365,6 @@ public class HistoryOutputPanel extends JPanel {
             });
             popup.add(copyWorkspaceItem);
 
-            // Separator to clearly separate creation actions from management actions
             popup.addSeparator();
 
             var manageItem = new JMenuItem("Manage Sessions");
@@ -381,13 +387,19 @@ public class HistoryOutputPanel extends JPanel {
             // Register popup with theme manager for consistent styling
             chrome.themeManager.registerPopupMenu(popup);
 
+            // Ensure list is populated when showing
+            updateSessionComboBox();
+
             return popup;
         });
 
-        buttonsPanel.add(newSessionButton, BorderLayout.WEST);
+        topRow.add(newSessionButton, BorderLayout.WEST);
+        // Style the session name label
+        sessionNameLabel.setVerticalAlignment(SwingConstants.CENTER);
+        sessionNameLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
+        topRow.add(sessionNameLabel, BorderLayout.CENTER);
 
-        panel.add(sessionComboBox, BorderLayout.CENTER);
-        panel.add(buttonsPanel, BorderLayout.SOUTH);
+        panel.add(topRow, BorderLayout.NORTH);
 
         // Initialize with current sessions
         updateSessionComboBox();
@@ -395,37 +407,75 @@ public class HistoryOutputPanel extends JPanel {
         return panel;
     }
 
-    /** Updates the session combo box with current sessions and selects the active one */
+    private JList<SessionInfo> buildSessionsList() {
+        var model = new DefaultListModel<SessionInfo>();
+        var list = new JList<SessionInfo>(model);
+        list.setVisibleRowCount(8);
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setCellRenderer(new SessionInfoRenderer());
+
+        // Mouse handling: clicking a session switches to it and closes the popup if present.
+        list.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                var sel = list.getSelectedValue();
+                if (sel == null) return;
+                UUID current = contextManager.getCurrentSessionId();
+                if (!sel.id().equals(current)) {
+                    contextManager.switchSessionAsync(sel.id());
+                }
+                // Try to close enclosing JPopupMenu if any
+                Component c = list;
+                while (c != null && !(c instanceof JPopupMenu)) {
+                    c = c.getParent();
+                }
+                if (c instanceof JPopupMenu popup) {
+                    popup.setVisible(false);
+                }
+            }
+        });
+
+        return list;
+    }
+
+    /** Updates the session list (if present) and the displayed current session name */
     public void updateSessionComboBox() {
         SwingUtilities.invokeLater(() -> {
-            // Remove action listener temporarily
-            var listeners = sessionComboBox.getActionListeners();
-            for (var listener : listeners) {
-                sessionComboBox.removeActionListener(listener);
-            }
-
-            // Clear and repopulate all sessions (dropdown shows at most 10 rows, scroll for more)
-            sessionComboBox.removeAllItems();
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
-            for (var session : sessions) {
-                sessionComboBox.addItem(session);
+
+            // Update session list model if the list UI exists
+            if (sessionsList != null) {
+                var model = (DefaultListModel<SessionInfo>) sessionsList.getModel();
+                model.clear();
+                for (var s : sessions) model.addElement(s);
+
+                // Select current session in the list
+                var currentSessionId = contextManager.getCurrentSessionId();
+                for (int i = 0; i < model.getSize(); i++) {
+                    if (model.getElementAt(i).id().equals(currentSessionId)) {
+                        sessionsList.setSelectedIndex(i);
+                        break;
+                    }
+                }
+                sessionsList.repaint();
             }
 
-            // Select current session
+            // Update the compact label display to show the active session name
             var currentSessionId = contextManager.getCurrentSessionId();
-            for (int i = 0; i < sessionComboBox.getItemCount(); i++) {
-                var sessionInfo = sessionComboBox.getItemAt(i);
-                if (sessionInfo.id().equals(currentSessionId)) {
-                    sessionComboBox.setSelectedIndex(i);
+            String labelText = "";
+            for (var s : sessions) {
+                if (s.id().equals(currentSessionId)) {
+                    labelText = s.name();
                     break;
                 }
             }
-
-            // Restore action listeners
-            for (var listener : listeners) {
-                sessionComboBox.addActionListener(listener);
+            if (labelText.isBlank()) {
+                labelText = ContextManager.DEFAULT_SESSION_NAME;
             }
+            sessionNameLabel.setText(labelText);
+            sessionNameLabel.revalidate();
+            sessionNameLabel.repaint();
         });
     }
 
@@ -2277,9 +2327,53 @@ public class HistoryOutputPanel extends JPanel {
                 pathDisplay = de.fragment().shortDescription();
             }
 
-            var left = new BufferSource.StringSource(de.oldContent(), "Previous", pathDisplay);
-            var right = new BufferSource.StringSource(de.fragment().text(), "Current", pathDisplay);
-            builder.addComparison(left, right);
+            // Try to create the StringSource type used by BrokkDiffPanel via reflection to avoid tight coupling
+            // to a specific nested type name (some builds may have different nesting). If that fails, fall back to
+            // attempting to call addComparison with simple String overloads via reflection.
+            boolean added = false;
+            try {
+                // Attempt to instantiate BrokkDiffPanel$StringSource if present
+                Class<?> stringSourceClass =
+                        Class.forName("io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel$StringSource");
+                Constructor<?> ctor = stringSourceClass.getConstructor(String.class, String.class, String.class);
+                Object left = ctor.newInstance(de.oldContent(), "Previous", pathDisplay);
+                Object right = ctor.newInstance(de.fragment().text(), "Current", pathDisplay);
+                Method addComp = builder.getClass().getMethod("addComparison", stringSourceClass, stringSourceClass);
+                addComp.invoke(builder, left, right);
+                added = true;
+            } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException |
+                     InstantiationException | InvocationTargetException ex) {
+                // ignore and try fallback approaches below
+            }
+
+            if (!added) {
+                try {
+                    // Try to find an addComparison method that accepts (String, String) or (String, String, String)
+                    for (Method m : builder.getClass().getMethods()) {
+                        if (!m.getName().equals("addComparison")) continue;
+                        int pc = m.getParameterCount();
+                        try {
+                            if (pc == 2) {
+                                m.invoke(builder, de.oldContent(), de.fragment().text());
+                                added = true;
+                                break;
+                            } else if (pc == 3) {
+                                m.invoke(builder, de.oldContent(), de.fragment().text(), pathDisplay);
+                                added = true;
+                                break;
+                            }
+                        } catch (IllegalAccessException | InvocationTargetException ignore) {
+                            // try next candidate
+                        }
+                    }
+                } catch (Exception ex) {
+                    // fall through to logging below
+                }
+            }
+
+            if (!added) {
+                logger.warn("Failed to add diff comparison for path {}: no compatible addComparison found", pathDisplay);
+            }
         }
 
         var panel = builder.build();
@@ -2616,7 +2710,13 @@ public class HistoryOutputPanel extends JPanel {
             } finally {
                 sessionAiResponseCounts.put(id, count);
                 sessionCountLoading.remove(id);
-                SwingUtilities.invokeLater(sessionComboBox::repaint);
+                SwingUtilities.invokeLater(() -> {
+                    if (sessionsList != null) {
+                        sessionsList.repaint();
+                    } else {
+                        sessionNameLabel.repaint();
+                    }
+                });
             }
         });
     }
