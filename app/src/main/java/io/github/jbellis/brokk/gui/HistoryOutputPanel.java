@@ -350,11 +350,14 @@ public class HistoryOutputPanel extends JPanel {
             var scroll = new JScrollPane(list);
             scroll.setBorder(BorderFactory.createEmptyBorder());
             scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-            // Limit preferred size so the popup doesn't grow excessively
+            // Limit preferred size so the popup doesn't grow excessively.
+            // Cap popup height to the available space below the newSessionButton so it doesn't extend off-screen.
             int prefWidth = 360;
             int rowHeight = list.getFont().getSize() + 6;
             int prefHeight = Math.min(list.getVisibleRowCount() * rowHeight, 8 * rowHeight);
-            scroll.setPreferredSize(new Dimension(prefWidth, prefHeight));
+            int available = getAvailableSpaceBelow(newSessionButton);
+            int cappedHeight = Math.min(prefHeight, available);
+            scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
 
             popup.add(scroll);
 
@@ -2761,6 +2764,26 @@ public class HistoryOutputPanel extends JPanel {
         suppressScrollOnNextUpdate = true;
 
         updateHistoryTable(null);
+    }
+
+    // Adapted from BranchSelectorButton#getAvailableSpaceBelow:
+    // Compute vertical space available below the given anchor within the current screen,
+    // accounting for taskbar/dock insets. If the component is not yet showing, fall back to 400.
+    private int getAvailableSpaceBelow(Component anchor) {
+        try {
+            Point screenLoc = anchor.getLocationOnScreen();
+            GraphicsConfiguration gc = anchor.getGraphicsConfiguration();
+            Rectangle screenBounds = (gc != null)
+                    ? gc.getBounds()
+                    : new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+            Insets insets = (gc != null) ? Toolkit.getDefaultToolkit().getScreenInsets(gc) : new Insets(0, 0, 0, 0);
+            int bottomEdge = screenBounds.y + screenBounds.height - insets.bottom;
+            int anchorBottom = screenLoc.y + anchor.getHeight();
+            return Math.max(0, bottomEdge - anchorBottom);
+        } catch (IllegalComponentStateException e) {
+            // If not yet showing, fall back to a reasonable default
+            return 400;
+        }
     }
 
     private static Point clampViewportPosition(JScrollPane sp, Point desired) {
