@@ -314,19 +314,20 @@ public class MenuBar {
 
         contextMenu.addSeparator();
 
-        var callersItem = new JMenuItem("Call graph to function");
-        callersItem.addActionListener(e -> {
-            chrome.getContextPanel().findMethodCallersAsync(); // Call via ContextPanel
-        });
-        callersItem.setEnabled(true);
-        contextMenu.add(callersItem);
-
-        var calleesItem = new JMenuItem("Call graph from function");
-        calleesItem.addActionListener(e -> {
-            chrome.getContextPanel().findMethodCalleesAsync(); // Call via ContextPanel
-        });
-        calleesItem.setEnabled(true);
-        contextMenu.add(calleesItem);
+        // fixme: No current analyzer implements CallGraphProvider, so this is not useful
+        //        var callersItem = new JMenuItem("Call graph to function");
+        //        callersItem.addActionListener(e -> {
+        //            chrome.getContextPanel().findMethodCallersAsync(); // Call via ContextPanel
+        //        });
+        //        callersItem.setEnabled(true);
+        //        contextMenu.add(callersItem);
+        //
+        //        var calleesItem = new JMenuItem("Call graph from function");
+        //        calleesItem.addActionListener(e -> {
+        //            chrome.getContextPanel().findMethodCalleesAsync(); // Call via ContextPanel
+        //        });
+        //        calleesItem.setEnabled(true);
+        //        contextMenu.add(calleesItem);
 
         contextMenu.addSeparator();
 
