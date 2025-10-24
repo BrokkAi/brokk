@@ -42,6 +42,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
 import java.io.IOException;
+import java.lang.reflect.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -72,7 +73,6 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import java.lang.reflect.*;
 
 public class HistoryOutputPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
@@ -87,6 +87,7 @@ public class HistoryOutputPanel extends JPanel {
     // Replaced the JComboBox-based session UI with a label + list used in the dropdown.
     @Nullable
     private JList<SessionInfo> sessionsList;
+
     private final JLabel sessionNameLabel;
     private final SplitButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
@@ -392,8 +393,7 @@ public class HistoryOutputPanel extends JPanel {
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
 
-        var sessionControlsPanel =
-                buildSessionControlsPanel(this.sessionNameLabel, this.newSessionButton);
+        var sessionControlsPanel = buildSessionControlsPanel(this.sessionNameLabel, this.newSessionButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
         // Create main history panel with session controls above activity
@@ -488,8 +488,7 @@ public class HistoryOutputPanel extends JPanel {
      *  The session name label is shown under the Output section title.
      *  This panel currently does not render the new session control to avoid duplication.
      */
-    private JPanel buildSessionControlsPanel(
-            JLabel sessionNameLabel, SplitButton newSessionButton) {
+    private JPanel buildSessionControlsPanel(JLabel sessionNameLabel, SplitButton newSessionButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -2484,8 +2483,11 @@ public class HistoryOutputPanel extends JPanel {
                 Method addComp = builder.getClass().getMethod("addComparison", stringSourceClass, stringSourceClass);
                 addComp.invoke(builder, left, right);
                 added = true;
-            } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException |
-                     InstantiationException | InvocationTargetException ex) {
+            } catch (ClassNotFoundException
+                    | NoSuchMethodException
+                    | IllegalAccessException
+                    | InstantiationException
+                    | InvocationTargetException ex) {
                 // ignore and try fallback approaches below
             }
 
@@ -2515,7 +2517,8 @@ public class HistoryOutputPanel extends JPanel {
             }
 
             if (!added) {
-                logger.warn("Failed to add diff comparison for path {}: no compatible addComparison found", pathDisplay);
+                logger.warn(
+                        "Failed to add diff comparison for path {}: no compatible addComparison found", pathDisplay);
             }
         }
 
