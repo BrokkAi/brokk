@@ -57,13 +57,10 @@ class ContextManagerFileWatchingTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (contextManager != null) {
-            try {
-                contextManager.close();
-            } catch (NullPointerException e) {
-                // Ignore - analyzerWrapper may be null in tests that don't create GUI
-            }
-        }
+        // Don't call contextManager.close() - these tests use minimal initialization
+        // without creating the full GUI/analyzer/file watcher infrastructure.
+        // Calling close() can leave file handles open on Windows, preventing @TempDir cleanup.
+        // The JVM will clean up any resources when the test completes.
     }
 
     /**
