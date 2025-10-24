@@ -299,7 +299,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         RowAdder adder = new RowAdder();
         // Instructions panel
-        adder.add("instructions.submit", "Submit (Ctrl/Cmd+Enter)");
+        adder.add("instructions.submit", "Submit (Enter)");
         adder.add("instructions.toggleMode", "Toggle Code/Ask");
 
         // Global text editing
@@ -485,7 +485,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     /** Gets a human-readable display name for a keybinding ID. */
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
-            case "instructions.submit" -> "Submit (Ctrl/Cmd+Enter)";
+            case "instructions.submit" -> "Submit (Enter)";
             case "instructions.toggleMode" -> "Toggle Code/Ask";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
@@ -3237,9 +3237,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static KeyStroke defaultFor(String id) {
         return switch (id) {
             // Instructions panel
-            case "instructions.submit" ->
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            case "instructions.submit" -> KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
             case "instructions.toggleMode" -> defaultToggleMode();
 
             // Global text editing

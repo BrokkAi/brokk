@@ -2013,11 +2013,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.dropdownIcon = null;
 
             // Build base tooltip with keybinding info
-            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
-                    "instructions.submit",
-                    KeyStroke.getKeyStroke(
-                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-            this.baseTooltip = "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")";
+            KeyStroke submitKs =
+                    GlobalUiSettings.getKeybinding("instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+            this.baseTooltip = "Run the selected action (Enter)";
 
             updateButtonText();
             updateTooltip();
