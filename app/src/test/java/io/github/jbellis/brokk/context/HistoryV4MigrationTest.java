@@ -36,11 +36,10 @@ class HistoryV4MigrationTest {
     Path tempDir;
 
     private IContextManager mockContextManager;
-    private Path projectRoot;
 
     @BeforeEach
     void setup() throws IOException {
-        projectRoot = tempDir.resolve("project");
+        Path projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
         mockContextManager = new TestContextManager(projectRoot, new NoOpConsoleIO());
     }
