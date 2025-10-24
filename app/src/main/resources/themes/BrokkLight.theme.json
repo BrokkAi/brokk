@@ -37,12 +37,18 @@
       "git_badge_background": "#DC3545",
       "git_badge_text": "#FFFFFF",
 
-      "mode_answer_bg": "##1F6FEB",
-      "mode_answer_fg": "#0A0A0A",
-      "mode_answer_accent": "##1F6FEB",
+      "action_button_bg_default": "#478ac9",
+      "action_button_bg_stop": "#DC3545",
+
+      "mode_answer_bg": "#1F6FEB",
+      "mode_answer_fg": "#FFFFFF",
+      "mode_answer_accent": "#1F6FEB",
       "mode_code_bg": "#2EA043",
-      "mode_code_fg": "#0A0A0A",
+      "mode_code_fg": "#FFFFFF",
       "mode_code_accent": "#2EA043",
+      "mode_lutz_bg": "#FFF9C4",
+      "mode_lutz_fg": "#F57F17",
+      "mode_lutz_accent": "#F4C430",
 
       "badge_border": "#428BCA",
       "badge_foreground": "#428BCA",
@@ -88,7 +94,23 @@
       "chip_history_border": "#66BB6A",
       "chip_other_bg": "#D4E9F8",
       "chip_other_fg": "#004A99",
-      "chip_other_border": "#0078D4"
+      "chip_other_border": "#0078D4",
+
+      "windowBorder": {
+        "enabled": false,
+        "color": "#808080",
+        "width": 1,
+        "cornerRadius": 0
+      },
+      "titleBar": {
+        "enabled": false,
+        "backgroundColor": null,
+        "foregroundColor": null,
+        "topPadding": 4,
+        "leftPadding": 80,
+        "bottomPadding": 4,
+        "rightPadding": 0
+      }
     }
   }
 }

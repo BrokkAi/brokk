@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.theme;
 
 /**
  * Components that know how to (re-)apply a syntax theme should implement this interface so that {@link GuiTheme} can

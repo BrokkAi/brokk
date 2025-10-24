@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
@@ -23,7 +24,6 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
@@ -62,9 +62,8 @@ public final class BlitzForge {
 
         default void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
 
-        default void onFileComplete(TaskResult result) {}
         /** Called exactly once when the entire run is complete (success, empty, or interrupted). */
-        default void onComplete() {}
+        default void onComplete(TaskResult result) {}
     }
 
     /** Configuration for a BlitzForge run. */
@@ -79,12 +78,12 @@ public final class BlitzForge {
     /** Result of processing a single file. */
     public record FileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
 
-    private final @Nullable IContextManager cm;
-    private final @Nullable Service service;
+    private final IContextManager cm;
+    private final Service service;
     private final RunConfig config;
     private final Listener listener;
 
-    public BlitzForge(@Nullable IContextManager cm, @Nullable Service service, RunConfig config, Listener listener) {
+    public BlitzForge(IContextManager cm, Service service, RunConfig config, Listener listener) {
         this.cm = cm;
         this.service = service;
         this.config = config;
@@ -99,15 +98,15 @@ public final class BlitzForge {
         listener.onStart(files.size());
 
         if (files.isEmpty()) {
-            var ctx = (cm != null) ? cm : new IContextManager() {};
+            // No files → produce an empty successful TaskResult whose resultingContext is the current top context
+            Context resultingCtx = cm.topContext();
             var emptyResult = new TaskResult(
-                    ctx,
+                    cm,
                     config.instructions(),
                     List.of(),
-                    Set.of(),
+                    resultingCtx,
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-            listener.onFileComplete(emptyResult);
-            listener.onComplete();
+            listener.onComplete(emptyResult);
             return emptyResult;
         }
 
@@ -120,7 +119,7 @@ public final class BlitzForge {
 
         // Prepare executor
         final ExecutorService executor;
-        if (service != null && config.model() != null) {
+        if (config.model() != null) {
             executor = AdaptiveExecutor.create(service, requireNonNull(config.model()), files.size());
         } else {
             // Fallback simple fixed pool
@@ -261,11 +260,13 @@ public final class BlitzForge {
                 ? new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
                 : new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
 
-        var ctx = (cm != null) ? cm : new IContextManager() {};
-        var finalResult = new TaskResult(ctx, config.instructions(), uiMessages, changedFiles, sd);
+        // Build a resulting Context that represents the current topContext with any changed files added as editable
+        var top = cm.topContext();
+        var resultingCtx = top.addPathFragments(cm.toPathFragments(changedFiles));
 
-        listener.onFileComplete(finalResult);
-        listener.onComplete();
+        var finalResult = new TaskResult(cm, config.instructions(), uiMessages, resultingCtx, sd);
+
+        listener.onComplete(finalResult);
         return finalResult;
     }
 
@@ -279,10 +280,8 @@ public final class BlitzForge {
 
     private TaskResult interruptedResult(int processed, Collection<ProjectFile> files) {
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
-        var ctx = (cm != null) ? cm : new IContextManager() {};
-        var tr = new TaskResult(ctx, config.instructions(), List.of(), Set.of(), sd);
-        listener.onFileComplete(tr);
-        listener.onComplete();
+        var tr = new TaskResult(cm, config.instructions(), List.of(), cm.topContext(), sd);
+        listener.onComplete(tr);
         logger.debug("Interrupted; processed {} of {}", processed, files.size());
         return tr;
     }

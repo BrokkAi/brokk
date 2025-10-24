@@ -53,7 +53,11 @@ tasks.named("pnpmInstall") {
 }
 
 repositories {
+    // Use local Maven cache first to minimize network calls
+    mavenLocal()
+
     mavenCentral()
+
     // Additional repositories for dependencies
     maven {
         url = uri("https://repo.gradle.org/gradle/libs-releases")
@@ -224,11 +228,8 @@ val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
     }
 }
 
-// Configure main source compilation with ErrorProne/NullAway
+// Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {
-    // Enable NullAway only during 'check' or 'analyze' tasks, or in CI
-    val runNullAway = project.hasProperty("runNullAway") || System.getenv("CI") == "true"
-
     options.isIncremental = true
     options.isFork = true
     options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
@@ -241,15 +242,47 @@ tasks.named<JavaCompile>("compileJava") {
         "-parameters",  // Preserve method parameter names
         "-g:source,lines,vars",  // Generate full debugging information
         "-Xmaxerrs", "500",  // Maximum error count
-        "-XDcompilePolicy=simple",  // Error Prone compilation policy
-        "--should-stop=ifError=FLOW",  // Stop compilation policy
         "-Werror",  // Treat warnings as errors
         "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
     ))
 
-    // Enhanced ErrorProne configuration with NullAway
+    // Disable ErrorProne for fast incremental compiles
+    options.errorprone.isEnabled = false
+}
+
+// Separate task for Error Prone analysis (runs only during check)
+tasks.register<JavaCompile>("compileJavaErrorProne") {
+    group = "verification"
+    description = "Compile with Error Prone and NullAway enabled"
+
+    // Ensure generated sources (e.g., BuildConfig) exist before compiling
+    dependsOn("generateBuildConfig")
+
+    // Use same sources as main compilation
+    source = sourceSets.main.get().java
+    classpath = sourceSets.main.get().compileClasspath
+    destinationDirectory.set(file("${layout.buildDirectory.get()}/classes/java/errorprone"))
+
+    options.isIncremental = false  // Disable incremental for Error Prone
+    options.isFork = true
+    options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
+        "-Xmx2g",  // Increase compiler heap size
+        "-XX:+UseG1GC"  // Use G1 GC for compiler
+    ))
+
+    options.compilerArgs.addAll(listOf(
+        "-parameters",
+        "-g:source,lines,vars",
+        "-Xmaxerrs", "500",
+        "-XDcompilePolicy=simple",
+        "--should-stop=ifError=FLOW",
+        "-Werror",
+        "-Xlint:deprecation,unchecked"
+    ))
+
+    // Enable ErrorProne and NullAway
     options.errorprone {
-        // Disable specific Error Prone checks that are handled in SBT config
+        // Disable specific Error Prone checks
         disable("FutureReturnValueIgnored")
         disable("MissingSummary")
         disable("EmptyBlockTag")
@@ -258,29 +291,23 @@ tasks.named<JavaCompile>("compileJava") {
         // Exclude dev/ directory from all ErrorProne checks
         excludedPaths = ".*/src/main/java/(dev/|eu/).*"
 
-        // Enable expensive NullAway analysis only for 'check' or 'analyze' tasks
-        if (runNullAway) {
-            error("NullAway")
-            enable("RedundantNullCheck")
+        // Always enable NullAway in this task
+        error("NullAway")
+        enable("RedundantNullCheck")
 
-            // Core NullAway options
-            option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
-            option("NullAway:ExcludedFieldAnnotations",
-                   "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
-            option("NullAway:ExcludedClassAnnotations",
-                   "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
-            option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
-            option("NullAway:CheckOptionalEmptiness", "true")
-            option("NullAway:KnownInitializers",
-                   "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
-            option("NullAway:HandleTestAssertionLibraries", "true")
-            option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
-            option("RedundantNullCheck:CheckRequireNonNull", "true")
-        } else {
-            // Explicitly disable NullAway when not running analysis
-            disable("NullAway")
-            disable("RedundantNullCheck")
-        }
+        // Core NullAway options
+        option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
+        option("NullAway:ExcludedFieldAnnotations",
+               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
+        option("NullAway:ExcludedClassAnnotations",
+               "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
+        option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
+        option("NullAway:CheckOptionalEmptiness", "true")
+        option("NullAway:KnownInitializers",
+               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
+        option("NullAway:HandleTestAssertionLibraries", "true")
+        option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+        option("RedundantNullCheck:CheckRequireNonNull", "true")
     }
 }
 
@@ -310,20 +337,22 @@ tasks.register("analyze") {
     group = "verification"
     description = "Run static analysis (NullAway + spotless) without tests"
 
-    // Enable NullAway for analyze task
-    project.extensions.extraProperties["runNullAway"] = true
-
-    dependsOn("compileJava", "spotlessCheck")
+    dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
-// Also enable NullAway for check task
+// Make check depend on Error Prone compilation
 tasks.named("check") {
-    project.extensions.extraProperties["runNullAway"] = true
+    dependsOn("compileJavaErrorProne")
 }
 
 
 tasks.withType<Test> {
     useJUnitPlatform()
+
+    // Exclude GitRepoTest on Windows when property is set
+    if (project.hasProperty("excludeGitRepoTest")) {
+        exclude("**/GitRepo*.class")
+    }
 
     // On Windows, use only 1 fork to avoid CI issues; on other platforms use half core count
     // (half b/c spinning up JVMs is also slow so right now this is a good balance; as we add tests we will want to revisit)

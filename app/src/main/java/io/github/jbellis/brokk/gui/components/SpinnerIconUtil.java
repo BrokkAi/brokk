@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import java.net.URL;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;

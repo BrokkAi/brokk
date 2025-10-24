@@ -15,12 +15,12 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.gui.GuiTheme;
-import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.VoiceInputButton;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
@@ -1070,8 +1070,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
                         messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
+                        // Build resulting Context by adding the saved file if it is not already editable
+                        var ctx = cm.topContext().addPathFragments(cm.toPathFragments(List.of(file)));
                         var saveResult = new TaskResult(
-                                cm, actionDescription, messagesForHistory, Set.of(file), TaskResult.StopReason.SUCCESS);
+                                cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTask("", false)) {
                             scope.append(saveResult);
                         }

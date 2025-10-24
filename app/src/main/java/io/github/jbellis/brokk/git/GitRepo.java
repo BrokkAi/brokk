@@ -886,13 +886,52 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         logger.debug("Creating new branch '{}' from '{}'", newBranchName, sourceBranchName);
-        git.branchCreate()
-                .setName(newBranchName)
-                .setStartPoint(sourceBranchName)
-                .call();
+        createBranchWithRetry(newBranchName, sourceBranchName);
         logger.debug("Successfully created branch '{}'", newBranchName);
 
         invalidateCaches();
+    }
+
+    /**
+     * Attempts to create a branch with retry logic for transient lock failures.
+     * JGit may encounter LOCK_FAILURE exceptions due to concurrent access or stale locks.
+     * This method retries with exponential backoff.
+     */
+    private void createBranchWithRetry(String branchName, String sourceBranchName) throws GitAPIException {
+        final int maxAttempts = 3;
+        final long initialDelayMs = 100;
+
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                git.branchCreate()
+                        .setName(branchName)
+                        .setStartPoint(sourceBranchName)
+                        .call();
+                return; // Success
+            } catch (GitAPIException e) {
+                // Check if this is a lock failure
+                if (e.getMessage() != null && e.getMessage().contains("LOCK_FAILURE")) {
+                    if (attempt < maxAttempts - 1) {
+                        long delayMs = initialDelayMs * (long) Math.pow(2, attempt);
+                        logger.warn(
+                                "Lock failure creating branch '{}', retrying in {}ms (attempt {}/{})",
+                                branchName,
+                                delayMs,
+                                attempt + 1,
+                                maxAttempts);
+                        try {
+                            Thread.sleep(delayMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Interrupted while waiting to retry branch creation", ie);
+                        }
+                        continue;
+                    }
+                }
+                // Not a lock failure or final attempt failed
+                throw e;
+            }
+        }
     }
 
     /**

@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -32,6 +33,9 @@ import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
 import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
+import io.github.jbellis.brokk.gui.theme.ThemeTitleBarManager;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -541,11 +545,25 @@ public class Chrome
             if (selected == instructionsPanel) {
                 // Move shared Context area back to Instructions
                 taskListPanel.restoreControls();
-                instructionsPanel.getCenterPanel().add(contextAreaContainer, 2);
-                instructionsPanel.revalidate();
-                instructionsPanel.repaint();
+                try {
+                    // Remove from any existing parent first
+                    var currentParent = contextAreaContainer.getParent();
+                    if (currentParent != null) {
+                        currentParent.remove(contextAreaContainer);
+                        currentParent.revalidate();
+                        currentParent.repaint();
+                    }
+                    // Insert just below the command input (index 1 is safe for current layout)
+                    var center = instructionsPanel.getCenterPanel();
+                    int targetIndex = Math.min(1, Math.max(0, center.getComponentCount()));
+                    center.add(contextAreaContainer, targetIndex);
+                    center.revalidate();
+                    center.repaint();
+                } catch (Exception ex) {
+                    logger.debug("Unable to move Context area back to Instructions", ex);
+                }
 
-                // Move shared ModelSelector back to Instructions bottom bar
+                // Move shared ModelSelector back to Instructions bottom bar (always try this)
                 instructionsPanel.restoreModelSelectorToBottom();
             } else if (selected == taskListPanel) {
                 // Move shared Context area to Tasks
@@ -729,7 +747,7 @@ public class Chrome
     }
 
     public AbstractProject getProject() {
-        return contextManager.getProject();
+        return (AbstractProject) contextManager.getProject();
     }
 
     /** Sets up .gitignore entries and adds .brokk project files to git */
@@ -824,6 +842,34 @@ public class Chrome
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
+
+                // Open commit dialog with prebaked message for project files
+                SwingUtilities.invokeLater(() -> {
+                    // Get the files that were just staged (including .gitignore if it was added)
+                    var filesToCommit = new ArrayList<ProjectFile>();
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+                    // Open commit dialog with prebaked message
+                    var dialog = new CommitDialog(
+                            frame,
+                            this,
+                            contextManager,
+                            new GitWorkflow(contextManager),
+                            filesToCommit,
+                            "Add Brokk project files", // Pre-filled message
+                            commitResult -> {
+                                showNotification(
+                                        NotificationRole.INFO,
+                                        "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                                                + commitResult.firstLine());
+                                updateCommitPanel();
+                                updateLogTab();
+                            });
+                    dialog.setVisible(true);
+                });
             } catch (Exception e) {
                 logger.error(e);
                 toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
@@ -869,6 +915,10 @@ public class Chrome
             isEditable = latestContext.equals(ctx);
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
+            // Toggle read-only state for InstructionsPanel UI (chips + token bar)
+            instructionsPanel.setContextReadOnly(!isEditable);
+            // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
+            instructionsPanel.contextChanged(ctx);
             if (updateOutput) {
                 var taskHistory = ctx.getTaskHistory();
                 if (taskHistory.isEmpty()) {
@@ -2937,34 +2987,20 @@ public class Chrome
 
     /**
      * If using full window content, creates a themed title bar.
+     * Uses ThemeTitleBarManager for unified theme-driven configuration.
      *
      * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
      */
     public static void applyTitleBar(JFrame frame, String title) {
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            var titleBar = new JPanel(new BorderLayout());
-            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
-            var label = new JLabel(title, SwingConstants.CENTER);
-            titleBar.add(label, BorderLayout.CENTER);
-            frame.add(titleBar, BorderLayout.NORTH);
-            // Revalidate layout after dynamically adding title bar
-            frame.revalidate();
-            frame.repaint();
-            titleBar.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2) { // Double click
-                        if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                            // un-maximize the window
-                            frame.setExtendedState(JFrame.NORMAL);
-                        } else {
-                            // maximize the window
-                            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-                        }
-                    }
-                }
-            });
-        }
+        ThemeTitleBarManager.applyTitleBar(frame, title);
+    }
+
+    /**
+     * Updates the title bar styling for existing frames when theme changes.
+     * Uses ThemeTitleBarManager for unified theme-driven configuration.
+     */
+    public static void updateTitleBarStyling(JFrame frame) {
+        ThemeTitleBarManager.updateTitleBarStyling(frame);
     }
 
     /**

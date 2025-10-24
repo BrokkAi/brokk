@@ -10,13 +10,14 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeBorderManager;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -383,6 +384,9 @@ public class Brokk {
 
         String themeName = MainProject.getTheme();
         initializeLookAndFeelAndSplashScreen(themeName);
+
+        // Initialize theme border manager with current theme state
+        ThemeBorderManager.getInstance().init();
 
         // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {

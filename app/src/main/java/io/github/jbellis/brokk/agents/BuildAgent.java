@@ -67,7 +67,7 @@ public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
 
     private final Llm llm;
-    private final ToolRegistry toolRegistry;
+    private final ToolRegistry globalRegistry;
 
     // Use standard ChatMessage history
     private final List<ChatMessage> chatHistory = new ArrayList<>();
@@ -79,10 +79,10 @@ public class BuildAgent {
     // Field to store directories to exclude from code intelligence
     private List<String> currentExcludedDirectories = new ArrayList<>();
 
-    public BuildAgent(IProject project, Llm llm, ToolRegistry toolRegistry) {
+    public BuildAgent(IProject project, Llm llm, ToolRegistry globalRegistry) {
         this.project = project;
         this.llm = llm;
-        this.toolRegistry = toolRegistry;
+        this.globalRegistry = globalRegistry;
     }
 
     /**
@@ -91,12 +91,14 @@ public class BuildAgent {
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
+        var tr = globalRegistry.builder().register(this).build();
+
         // build message containing root directory contents
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()
                 .name("listFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
-        ToolExecutionResult initialResult = toolRegistry.executeTool(this, initialRequest);
+        ToolExecutionResult initialResult = tr.executeTool(initialRequest);
         chatHistory.add(new UserMessage(
                 """
         Here are the contents of the project root directory:
@@ -165,18 +167,18 @@ public class BuildAgent {
             List<ChatMessage> messages = buildPrompt();
 
             // 4. Add tools
-            // Get specifications for ALL tools the agent might use in this turn.
-            var tools = new ArrayList<>(toolRegistry.getRegisteredTools(
-                    List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
+            // Get specifications for ALL tools the agent might use in this turn, from the local registry.
+            var tools = new ArrayList<>(
+                    tr.getTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
-                tools.addAll(toolRegistry.getTools(this, List.of("reportBuildDetails", "abortBuildDetails")));
+                tools.addAll(tr.getTools(List.of("reportBuildDetails", "abortBuildDetails")));
             }
 
             // Make the LLM request
             Llm.StreamingResult result;
             try {
-                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, this));
+                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, tr));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");
@@ -213,9 +215,9 @@ public class BuildAgent {
                 }
             }
 
-            // 6. Execute Terminal Actions via ToolRegistry (if any)
+            // 6. Execute Terminal Actions via local ToolRegistry (if any)
             if (reportRequest != null) {
-                var terminalResult = toolRegistry.executeTool(this, reportRequest);
+                var terminalResult = tr.executeTool(reportRequest);
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     // The assertion was here, but requireNonNull is more explicit for NullAway
                     return requireNonNull(
@@ -228,7 +230,7 @@ public class BuildAgent {
                     continue;
                 }
             } else if (abortRequest != null) {
-                var terminalResult = toolRegistry.executeTool(this, abortRequest);
+                var terminalResult = tr.executeTool(abortRequest);
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     assert abortReason != null;
                     return BuildDetails.EMPTY;
@@ -245,7 +247,7 @@ public class BuildAgent {
             for (var request : otherRequests) {
                 String toolName = request.name();
                 logger.trace("Agent action: {} ({})", toolName, request.arguments());
-                ToolExecutionResult execResult = toolRegistry.executeTool(this, request);
+                ToolExecutionResult execResult = tr.executeTool(request);
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
                 // Record individual tool result history

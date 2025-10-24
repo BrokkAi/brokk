@@ -7,9 +7,6 @@ on:
   push:
     branches: [ 'master', 'jdeploy-test' ]
 
-permissions:
-  contents: read
-
 jobs:
   build:
     permissions:

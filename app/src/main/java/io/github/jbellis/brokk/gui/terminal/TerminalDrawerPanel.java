@@ -1,9 +1,9 @@
 package io.github.jbellis.brokk.gui.terminal;
 
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
-import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;

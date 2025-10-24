@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -712,8 +711,9 @@ public class SearchTools {
             - Size target: ~2 hours for an experienced contributor across < 10 files.
             - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior; if automation is not a good fit, you may omit tests rather than prescribe manual steps.
             - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
-            - Output: starts with a strong verb and names concrete artifact(s) (class/method/file, config, test).
+            - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
+
 
             Rubric for slicing:
             - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
@@ -737,45 +737,5 @@ public class SearchTools {
         var formattedTaskList = "# Task List\n" + lines + "\n";
         io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
         return formattedTaskList;
-    }
-
-    @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to record findings, hypotheses, checklists, links, and decisions in Markdown.")
-    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
-        if (markdown.isBlank()) {
-            throw new IllegalArgumentException("Note content cannot be empty");
-        }
-
-        final var description = ContextFragment.SEARCH_NOTES.description();
-        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
-        final var appendedFlag = new AtomicBoolean(false);
-
-        contextManager.pushContext(ctx -> {
-            var existing = ctx.virtualFragments()
-                    .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                    .filter(vf -> description.equals(vf.description()))
-                    .findFirst();
-
-            if (existing.isPresent()) {
-                appendedFlag.set(true);
-                var prev = existing.get();
-                String prevText = prev.text();
-                String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
-
-                var next = ctx.removeFragmentsByIds(List.of(prev.id()));
-                var newFrag = new ContextFragment.StringFragment(contextManager, combined, description, syntax);
-                logger.debug(
-                        "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
-                        prev.id(),
-                        combined.length());
-                return next.addVirtualFragment(newFrag);
-            } else {
-                var newFrag = new ContextFragment.StringFragment(contextManager, markdown, description, syntax);
-                logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
-                return ctx.addVirtualFragment(newFrag);
-            }
-        });
-
-        return appendedFlag.get() ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 }

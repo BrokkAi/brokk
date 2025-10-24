@@ -50,7 +50,7 @@ public abstract class CodePrompts {
             before immediately jumping into taking further action.
             """;
 
-    public static final String GPT5_MARKDOWN_REMINDER =
+    public static final String MARKDOWN_REMINDER =
             """
             <persistence>
             ## Markdown Formatting
@@ -67,16 +67,19 @@ public abstract class CodePrompts {
             """;
 
     /** Formats the most recent build error for the LLM retry prompt. */
-    public static String buildFeedbackPrompt() {
+    public static String buildFeedbackPrompt(Context context) {
+        var cf = context.getBuildFragment().orElseThrow();
         return """
-                The build failed with the error visible in the Workspace.
+                The build failed with the error visible in the Workspace. Please refer to
+                fragment id %s, "%s".
 
                 Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
 
                 IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
                 do your best to explain the problem but DO NOT provide any edits.
                 Otherwise, provide the edits as usual.
-                """;
+                """
+                .formatted(cf.id(), cf.description());
     }
 
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
@@ -123,31 +126,15 @@ public abstract class CodePrompts {
 
     public String codeReminder(Service service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+        return baseReminder + "\n" + MARKDOWN_REMINDER;
     }
 
-    public String architectReminder(Service service, StreamingChatModel model) {
-        var baseReminder = ARCHITECT_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+    public String architectReminder() {
+        return ARCHITECT_REMINDER + "\n" + MARKDOWN_REMINDER;
     }
 
-    public String askReminder(IContextManager cm, StreamingChatModel model) {
-        var service = cm.getService();
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return GPT5_MARKDOWN_REMINDER;
-        }
-        return "";
+    public String askReminder() {
+        return MARKDOWN_REMINDER;
     }
 
     /**
@@ -260,7 +247,7 @@ public abstract class CodePrompts {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(systemMessage(cm, askReminder(cm, model)));
+        messages.add(systemMessage(cm, askReminder()));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
         messages.addAll(getHistoryMessages(cm.topContext()));
         messages.add(askRequest(input));

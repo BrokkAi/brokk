@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.util.Messages;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -195,8 +196,16 @@ public final class GitWorkflow {
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
         }
 
-        var toolSpecs = cm.getToolRegistry().getTools(this, List.of("suggestPrDetails"));
-        var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
+        // Register tool providers
+        var tr = cm.getToolRegistry()
+                .builder()
+                .register(this)
+                .register(new io.github.jbellis.brokk.tools.WorkspaceTools((io.github.jbellis.brokk.ContextManager) cm))
+                .build();
+
+        var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
+        toolSpecs.addAll(tr.getTools(List.of("suggestPrDetails")));
+        var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 
         var llm = cm.getLlm(new Llm.Options(modelToUse, "PR-description")
                 .withPartialResponses()
@@ -212,7 +221,7 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM did not call the suggestPrDetails tool");
         }
 
-        cm.getToolRegistry().executeTool(this, result.toolRequests().getFirst());
+        tr.executeTool(result.toolRequests().getFirst());
 
         String title = prTitle;
         String description = prDescription;

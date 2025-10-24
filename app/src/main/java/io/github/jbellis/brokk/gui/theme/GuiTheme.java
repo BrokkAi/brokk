@@ -1,10 +1,12 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.theme;
 
 import com.formdev.flatlaf.FlatDarculaLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import java.io.IOException;
@@ -129,14 +131,33 @@ public class GuiTheme {
 
             Brokk.getOpenProjectWindows().values().forEach(chrome -> chrome.getTheme()
                     .applyThemeToChromeComponents());
+
+            // Notify ThemeBorderManager about theme changes so it can install or remove overlays.
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    ThemeBorderManager.getInstance().onThemeChanged();
+                    // Always refresh existing windows to ensure borders are properly added or removed
+                    ThemeBorderManager.getInstance().applyToExistingWindows();
+
+                    // Update title bar styling for all frames using ThemeTitleBarManager
+                    ThemeTitleBarManager.updateAllTitleBars();
+                } catch (Throwable t) {
+                    logger.warn("Failed to notify HighContrastBorderManager: {}", t.getMessage(), t);
+                }
+            });
         } catch (Exception e) {
             chrome.toolError("Failed to switch theme: " + e.getMessage());
         }
     }
 
-    private void applyThemeToChromeComponents() {
+    public void applyThemeToChromeComponents() {
         // Update the UI
         SwingUtilities.updateComponentTreeUI(frame);
+
+        // Update title bar styling for macOS frames
+        SwingUtilities.invokeLater(() -> {
+            Chrome.updateTitleBarStyling(frame);
+        });
 
         // Update registered popup menus
         for (JPopupMenu menu : popupMenus) {
@@ -293,7 +314,40 @@ public class GuiTheme {
     }
 
     /**
-     * Checks if dark theme is currently active
+     * Get the current theme identifier (normalized to lowercase).
+     *
+     * @return "light", "dark", or "high-contrast"
+     */
+    public String getCurrentTheme() {
+        return MainProject.getTheme().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Get the human-readable display name for the current theme.
+     *
+     * @return "Brokk Light", "Brokk Dark", or "High Contrast"
+     */
+    public String getCurrentThemeName() {
+        return switch (getCurrentTheme()) {
+            case THEME_LIGHT -> "Brokk Light";
+            case THEME_DARK -> "Brokk Dark";
+            case THEME_HIGH_CONTRAST -> "High Contrast";
+            default -> "Unknown Theme";
+        };
+    }
+
+    /**
+     * Check if the current theme is specifically the high-contrast theme.
+     *
+     * @return true if high-contrast theme is active
+     */
+    public boolean isHighContrastTheme() {
+        return THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+    }
+
+    /**
+     * Checks if dark color scheme is currently active. This includes both the dark theme and high-contrast theme, as
+     * both use dark backgrounds. Use this when you need to select dark vs light color palettes.
      *
      * @return true if dark theme or high contrast theme is active
      */

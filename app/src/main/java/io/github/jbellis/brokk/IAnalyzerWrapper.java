@@ -39,6 +39,10 @@ public interface IAnalyzerWrapper extends AutoCloseable {
 
     default void resume() {}
 
+    default boolean isPause() {
+        return false;
+    }
+
     @Override
     default void close() {}
 }

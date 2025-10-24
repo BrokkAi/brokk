@@ -8,7 +8,6 @@ import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Ascii;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -130,12 +129,12 @@ public class Llm {
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
-    private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
+    private final int MAX_ATTEMPTS = 8;
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
-    private final boolean echo; // New class field
+    private final boolean echo;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -467,9 +466,15 @@ public class Llm {
         }
     }
 
-    public static class EmptyResponseError extends LangChain4jException {
-        public EmptyResponseError() {
+    public static class EmptyResponseException extends LangChain4jException {
+        public EmptyResponseException() {
             super("Empty response from LLM");
+        }
+    }
+
+    public static class MissingToolCallsException extends LangChain4jException {
+        public MissingToolCallsException(int attemptsMade) {
+            super("ToolChoice.REQUIRED could not be satisfied after " + attemptsMade + " attempt(s)");
         }
     }
 
@@ -511,18 +516,30 @@ public class Llm {
         // Also needed for our emulation if it returns a response without a tool call
         var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
+        int totalAttemptsMade = result.retries() + 1;
         while (result.error == null
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
-                && toolChoice == ToolChoice.REQUIRED) {
+                && toolChoice == ToolChoice.REQUIRED
+                && totalAttemptsMade < MAX_ATTEMPTS) {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Enforcing tool selection");
 
             var extraMessages = new ArrayList<>(messages);
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
             extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
 
-            result = sendMessageWithRetry(extraMessages, toolContext, MAX_ATTEMPTS);
+            result = sendMessageWithRetry(extraMessages, toolContext, MAX_ATTEMPTS - totalAttemptsMade);
+            totalAttemptsMade += (result.retries() + 1);
             cr = result.chatResponse();
+        }
+
+        // If we exhausted attempts and still don't have tool calls when REQUIRED, fail
+        if (totalAttemptsMade >= MAX_ATTEMPTS
+                && result.error == null
+                && !tools.isEmpty()
+                && (cr != null && cr.toolRequests.isEmpty())
+                && toolChoice == ToolChoice.REQUIRED) {
+            return new StreamingResult(cr, new MissingToolCallsException(totalAttemptsMade), result.retries());
         }
 
         return result;
@@ -612,7 +629,7 @@ public class Llm {
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            return new StreamingResult(null, new EmptyResponseError(), attempt - 1);
+            return new StreamingResult(null, new EmptyResponseException(), attempt - 1);
         }
         return new StreamingResult(null, lastError, attempt - 1);
     }
@@ -666,18 +683,19 @@ public class Llm {
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
         // there's no reason to add a second print of it)
         if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
+            prettyPrintToolCalls(toolContext, sr.toolRequests());
         }
         return sr;
     }
 
-    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
+    private void prettyPrintToolCalls(ToolContext toolContext, List<ToolExecutionRequest> requests) {
         if (requests.isEmpty()) {
             return;
         }
-        var registry = contextManager.getToolRegistry();
+        var tr = toolContext.toolRegistry();
+
         var rendered = requests.stream()
-                .map(tr -> registry.getExplanationForToolRequest(toolOwner, tr))
+                .map(tr::getExplanationForToolRequest)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
@@ -769,13 +787,11 @@ public class Llm {
                 }
 
                 // Validate tool call arguments using ToolRegistry; on failure, retry with error feedback
-                var registry = contextManager.getToolRegistry();
+                var tr = toolContext.toolRegistry();
                 var validationErrors = new ArrayList<String>();
-                Object toolOwner = requireNonNull(
-                        toolContext.toolOwner(), "ToolContext.toolOwner() must be provided for tool validation");
                 for (var ter : parseResult.toolRequests()) {
                     try {
-                        registry.validateTool(toolOwner, ter);
+                        tr.validateTool(ter);
                     } catch (ToolRegistry.ToolValidationException e) {
                         validationErrors.add(ter.name() + ": " + e.getMessage());
                     }
@@ -1104,7 +1120,8 @@ public class Llm {
      * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests. Expects the top-level to
      * have a "tool_calls" array (or the root might be that array).
      */
-    private NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
+    @VisibleForTesting
+    NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
         // In the primary call path (emulateToolsCommon), if result.error() is null,
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
@@ -1112,33 +1129,30 @@ public class Llm {
         String rawText = requireNonNull(cResponse.text());
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
+        // First try to parse the entire response as JSON
         JsonNode root;
         try {
             root = mapper.readTree(rawText);
-        } catch (JsonProcessingException e) {
-            // Sometimes the model wraps the JSON in markdown fences ```json ... ```
-            int firstFence = rawText.indexOf("```");
-            // Find the closing fence after the opening one
-            int lastFence = rawText.lastIndexOf("```");
-            if (lastFence <= firstFence) {
-                logger.debug("Invalid JSON", e);
-                throw new IllegalArgumentException("Invalid JSON response: " + e.getMessage());
+        } catch (JsonProcessingException initialParseError) {
+            // If direct parsing fails, extract JSON from text by finding the first '{' and last '}'
+            int firstBrace = rawText.indexOf('{');
+            int lastBrace = rawText.lastIndexOf('}');
+
+            if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
+                logger.debug("Invalid JSON: no braces found in response", initialParseError);
+                throw new IllegalArgumentException("Invalid JSON response: " + initialParseError.getMessage());
             }
 
-            // Extract text between fences, removing potential language identifier and trimming whitespace
-            String fencedText = rawText.substring(firstFence + 3, lastFence).strip();
-            // Handle optional language identifier like "json"
-            if (Ascii.toLowerCase(fencedText).startsWith("json")) {
-                fencedText = fencedText.substring(4).stripLeading();
-            }
+            // Extract text between braces, inclusive
+            String extractedJson = rawText.substring(firstBrace, lastBrace + 1);
 
-            // Try parsing the fenced content
+            // Try parsing the extracted content
             try {
-                root = mapper.readTree(fencedText);
-            } catch (JsonProcessingException e2) {
-                // Fenced content is also invalid JSON
-                logger.debug("Invalid JSON inside fences", e2);
-                throw new IllegalArgumentException("Invalid JSON inside ``` fences: " + e2.getMessage());
+                root = mapper.readTree(extractedJson);
+            } catch (JsonProcessingException extractionParseError) {
+                // Extracted content is also invalid JSON
+                logger.debug("Invalid JSON extracted from response", extractionParseError);
+                throw new IllegalArgumentException("Invalid JSON in response: " + extractionParseError.getMessage());
             }
         }
 
@@ -1179,6 +1193,8 @@ public class Llm {
                             "Found 'think' tool call without a textual 'reasoning' argument at index " + i);
                 }
                 thinkReasoning.add(arguments.get("reasoning").asText());
+                // Don't add "think" to actual tool execution requests
+                continue;
             }
             var toolExecutionRequest = ToolExecutionRequest.builder()
                     .id(String.valueOf(toolRequestIdSeq.getAndIncrement()))
@@ -1189,16 +1205,15 @@ public class Llm {
         }
         logger.trace("Generated tool execution requests: {}", toolExecutionRequests);
 
-        String aiMessageText;
+        String mergedReasoning;
         if (thinkReasoning.isEmpty()) {
-            aiMessageText = "";
+            mergedReasoning = null;
         } else {
-            aiMessageText = String.join("\n\n", thinkReasoning); // Merged reasoning becomes the message text
+            mergedReasoning = String.join("\n\n", thinkReasoning); // Merged reasoning from think tool
         }
 
         // Pass the original raw response alongside the parsed one
-        return new NullSafeResponse(
-                aiMessageText, cResponse.reasoningContent(), toolExecutionRequests, result.originalResponse());
+        return new NullSafeResponse("", mergedReasoning, toolExecutionRequests, result.originalResponse());
     }
 
     private static String getInstructions(
@@ -1318,7 +1333,7 @@ public class Llm {
                     "Adding 'think' tool for non-reasoning model {}",
                     contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
-            enhancedTools.addAll(contextManager.getToolRegistry().getRegisteredTools(List.of("think")));
+            enhancedTools.addAll(contextManager.getToolRegistry().getTools(List.of("think")));
             return enhancedTools;
         }
         logger.debug(

@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui.util;
 
-import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import java.awt.*;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;

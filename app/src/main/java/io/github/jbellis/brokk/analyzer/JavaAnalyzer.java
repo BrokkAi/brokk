@@ -5,6 +5,7 @@ import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -81,7 +82,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final String fqName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
         var type =
@@ -97,12 +98,22 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     }
                 };
 
-        return new CodeUnit(file, type, packageName, fqName);
+        return new CodeUnit(file, type, packageName, shortName);
     }
 
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        // Java packages are either present or not, and will be the immediate child of the `program`
+        return determineJvmPackageName(
+                rootNode, src, PACKAGE_DECLARATION, JAVA_SYNTAX_PROFILE.classLikeNodeTypes(), this::textSlice);
+    }
+
+    protected static String determineJvmPackageName(
+            TSNode rootNode,
+            String src,
+            String packageDef,
+            Set<String> classLikeNodeType,
+            BiFunction<TSNode, String, String> textSlice) {
+        // Packages are either present or not, and will be the immediate child of the `program`
         // if they are present at all
         final List<String> namespaceParts = new ArrayList<>();
 
@@ -111,19 +122,19 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         TSNode maybeDeclaration = null;
         for (int i = 0; i < rootNode.getChildCount(); i++) {
             final var child = rootNode.getChild(i);
-            if (PACKAGE_DECLARATION.equals(child.getType())) {
+            if (packageDef.equals(child.getType())) {
                 maybeDeclaration = child;
                 break;
-            } else if (JAVA_SYNTAX_PROFILE.classLikeNodeTypes().contains(child.getType())) {
+            } else if (classLikeNodeType.contains(child.getType())) {
                 break;
             }
         }
 
-        if (maybeDeclaration != null && PACKAGE_DECLARATION.equals(maybeDeclaration.getType())) {
+        if (maybeDeclaration != null && packageDef.equals(maybeDeclaration.getType())) {
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
-                    String nsPart = textSlice(nameNode, src);
+                    String nsPart = textSlice.apply(nameNode, src);
                     namespaceParts.add(nsPart);
                 }
             }

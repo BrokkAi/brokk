@@ -61,7 +61,6 @@ public final class MergeOneFile {
     private final IConsoleIO io;
 
     private transient @Nullable List<ChatMessage> currentSessionMessages = null;
-    private final ToolRegistry tr;
 
     // Per-merge state
     private boolean abortRequested = false;
@@ -87,7 +86,6 @@ public final class MergeOneFile {
         this.otherCommitId = otherCommitId;
         this.conflict = conflict;
         this.io = io;
-        this.tr = cm.getToolRegistry();
     }
 
     /** Merge-loop for a single file. Returns an Outcome describing the result. */
@@ -153,10 +151,16 @@ public final class MergeOneFile {
             allowed.addAll(List.of("getFileContents", "getFileSummaries"));
         }
 
+        // Register tools
+        var tr = cm.getToolRegistry()
+                .builder()
+                .register(new io.github.jbellis.brokk.tools.WorkspaceTools((ContextManager) cm))
+                .register(this)
+                .build();
+
         var toolSpecs = new ArrayList<ToolSpecification>();
-        toolSpecs.addAll(tr.getRegisteredTools(allowed));
-        toolSpecs.addAll(
-                tr.getTools(this, List.of("explainCommit", "callCodeAgent", "getContentsAtRevision", "abortMerge")));
+        toolSpecs.addAll(tr.getTools(allowed));
+        toolSpecs.addAll(tr.getTools(List.of("explainCommit", "callCodeAgent", "getContentsAtRevision", "abortMerge")));
 
         // Bounded loop; stop once conflicts are gone or we hit max steps
         final int MAX_STEPS = 10;
@@ -169,7 +173,7 @@ public final class MergeOneFile {
             Llm.StreamingResult result;
             try {
                 result = llm.sendRequest(
-                        List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
+                        List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 continue;
@@ -198,14 +202,14 @@ public final class MergeOneFile {
                     return new Outcome(Status.INTERRUPTED, null);
                 }
 
-                var explanation = cm.getToolRegistry().getExplanationForToolRequest(this, req);
+                var explanation = tr.getExplanationForToolRequest(req);
                 if (!explanation.isBlank()) {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }
 
                 ToolExecutionResult exec;
                 try {
-                    exec = tr.executeTool(this, req);
+                    exec = tr.executeTool(req);
                 } catch (Exception e) {
                     logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
                     exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());

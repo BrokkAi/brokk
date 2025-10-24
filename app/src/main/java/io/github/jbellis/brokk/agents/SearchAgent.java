@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
@@ -29,6 +30,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -67,11 +69,13 @@ public class SearchAgent {
     private final StreamingChatModel model;
     private final Llm llm;
     private final Llm summarizer;
-    private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
     private final String goal;
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
+
+    // Local working context snapshot for this agent
+    private Context context;
 
     // Session-local conversation for this agent
     private final List<ChatMessage> sessionMessages = new ArrayList<>();
@@ -81,10 +85,18 @@ public class SearchAgent {
 
     public SearchAgent(
             String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
+        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext());
+    }
+
+    public SearchAgent(
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            Context initialContext) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
-        this.toolRegistry = contextManager.getToolRegistry();
 
         this.io = contextManager.getIo();
         this.llm = contextManager.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
@@ -104,6 +116,7 @@ public class SearchAgent {
             }
         }
         this.mcpTools = List.copyOf(tools);
+        this.context = initialContext;
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -117,15 +130,23 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
+        // Create a per-turn WorkspaceTools instance bound to the agent-local Context
+        var wst = new WorkspaceTools(context);
+        var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+
+        // Single pruning turn if workspace is not empty
+        performInitialPruningTurn(tr);
+
+        // Expand Workspace with ContextAgent scan
         addInitialContextToWorkspace();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
+            wst.setContext(context);
+
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages =
-                    new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -137,7 +158,6 @@ public class SearchAgent {
             // Build prompt and allowed tools
             var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages);
             var allowedToolNames = calculateAllowedToolNames();
-            var toolSpecs = new ArrayList<>(toolRegistry.getRegisteredTools(allowedToolNames));
 
             // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
@@ -149,16 +169,24 @@ public class SearchAgent {
             }
             // Always allow abort
             agentTerminalTools.add("abortSearch");
-            toolSpecs.addAll(toolRegistry.getTools(this, agentTerminalTools));
 
             // Global terminal tool(s) implemented outside SearchAgent (e.g., in SearchTools)
+            var globalTerminals = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.TASK_LIST)) {
-                toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("createTaskList")));
+                globalTerminals.add("createTaskList");
             }
+
+            // Merge allowed names with agent terminals and global terminals
+            var allAllowed =
+                    new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size() + globalTerminals.size());
+            allAllowed.addAll(allowedToolNames);
+            allAllowed.addAll(agentTerminalTools);
+            allAllowed.addAll(globalTerminals);
+            var toolSpecs = tr.getTools(allAllowed);
 
             // Decide next action(s)
             io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
             if (result.error() != null || result.isEmpty()) {
                 var details =
                         result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
@@ -176,7 +204,7 @@ public class SearchAgent {
                 return errorResult(new TaskResult.StopDetails(
                         TaskResult.StopReason.LLM_ERROR, "No tool requests found in LLM response."));
             }
-            var next = parseResponseToRequests(ai);
+            var next = parseResponseToRequests(ai, tr);
             if (next.isEmpty()) {
                 // If everything got filtered (e.g., only terminal tool kept), force beast mode next turn if needed
                 beastMode = true;
@@ -190,12 +218,16 @@ public class SearchAgent {
             var sortedCalls = next.stream()
                     .sorted(Comparator.comparingInt(req -> priority(req.name())))
                     .toList();
+            var contextAtTurnStart = context;
+            boolean executedWorkspaceResearch = false;
+            boolean executedNonWorkspaceResearch = false;
             String executedFinalTool = null;
             String executedFinalText = "";
             for (var req : sortedCalls) {
                 ToolExecutionResult exec;
                 try {
-                    exec = toolRegistry.executeTool(this, req);
+                    exec = tr.executeTool(req);
+                    context = wst.getContext();
                 } catch (Exception e) {
                     logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
                     exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
@@ -215,6 +247,16 @@ public class SearchAgent {
                 // Write to visible transcript and to Context history
                 sessionMessages.add(ToolExecutionResultMessage.from(req, display));
 
+                // Track research categories to decide later if finalization is permitted
+                var category = categorizeTool(req.name());
+                if (category == ToolCategory.RESEARCH) {
+                    if (isWorkspaceTool(req, tr)) {
+                        executedWorkspaceResearch = true;
+                    } else {
+                        executedNonWorkspaceResearch = true;
+                    }
+                }
+
                 // Track if we executed a final tool; finalize after the loop
                 if (req.name().equals("answer")
                         || req.name().equals("createTaskList")
@@ -231,7 +273,14 @@ public class SearchAgent {
                     var explain = executedFinalText.isBlank() ? "No explanation provided by agent." : executedFinalText;
                     return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explain));
                 } else {
-                    return createResult();
+                    boolean contextChanged = !context.equals(contextAtTurnStart);
+                    if (executedNonWorkspaceResearch) {
+                        logger.info("Deferring finalization; non-workspace research tools were executed this turn.");
+                    } else if (executedWorkspaceResearch && contextChanged) {
+                        logger.info("Deferring finalization; workspace changed during this turn.");
+                    } else {
+                        return createResult();
+                    }
                 }
             }
         }
@@ -246,35 +295,41 @@ public class SearchAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        // System role: similar to Architect, with stronger emphasis on pruning
+        var reminder = CodePrompts.instance.askReminder();
+        var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
+                .map(Language::name)
+                .collect(Collectors.joining(", "));
+
         var sys = new SystemMessage(
                 """
-                        You are the Search Agent.
-                        Your job:
-                          - find and organize code relevant to the user's question or task,
-                          - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
-                          - never write code yourself.
+                <instructions>
+                You are the Search Agent.
+                Your job:
+                  - find and organize code relevant to the user's question or task,
+                  - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
+                  - never write code yourself.
 
-                        Critical rules:
-                          1) PRUNE FIRST at every turn.
-                             - Remove fragments that are not directly useful for the goal.
-                             - Prefer concise, goal-focused summaries over full files.
-                             - When you pull information from a long fragment, first add your extraction, then drop the original.
-                             - Keep the Workspace focused on answering/solving the goal.
-                          2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                          3) The symbol-based tools only have visibility into the following file types: %s
-                             Use text-based tools if you need to search other file types.
-                          4) Group related lookups into a single call when possible.
-                          5) Make multiple tool calls at once when searching for different types of code.
+                Critical rules:
+                  1) PRUNE FIRST at every turn.
+                     - Remove fragments that are not directly useful for the goal.
+                     - Prefer concise, goal-focused summaries over full files.
+                     - When you pull information from a long fragment, first add your extraction, then drop the original.
+                     - Keep the Workspace focused on answering/solving the goal.
+                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                  3) The symbol-based tools only have visibility into the following file types: %s
+                     Use text-based tools if you need to search other file types.
+                  4) Group related lookups into a single call when possible.
+                  5) Make multiple tool calls at once when searching for different types of code.
 
-                        Output discipline:
-                          - Start each turn by pruning and summarizing before any new exploration.
-                          - Think before calling tools.
-                          - If you already know what to add, use Workspace tools directly; do not search redundantly.
-                        """
-                        .formatted(cm.getProject().getAnalyzerLanguages().stream()
-                                .map(Language::name)
-                                .collect(Collectors.joining(", "))));
+                Output discipline:
+                  - Start each turn by pruning and summarizing before any new exploration.
+                  - Think before calling tools.
+                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                %s
+                </instructions>
+                """
+                        .formatted(supportedTypes, reminder));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -287,7 +342,7 @@ public class SearchAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related classes (auto-context) like Architect
-        var acList = cm.liveContext().buildAutoContext(10);
+        var acList = context.buildAutoContext(10);
         var ac = ContextFragment.SummaryFragment.combinedText(acList);
         if (!ac.isBlank()) {
             messages.add(new UserMessage(
@@ -332,7 +387,7 @@ public class SearchAgent {
         var finals = new ArrayList<String>();
         if (allowedTerminals.contains(Terminal.ANSWER)) {
             finals.add(
-                    "- Use answer(String) when the request is purely informational and you have enough information to answer.");
+                    "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
@@ -343,6 +398,7 @@ public class SearchAgent {
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
                         - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
+                        - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
                     """);
         }
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
@@ -534,7 +590,17 @@ public class SearchAgent {
         };
     }
 
-    private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response) {
+    private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
+        try {
+            var vi = tr.validateTool(request);
+            return vi.instance() instanceof WorkspaceTools;
+        } catch (Exception e) {
+            // If validation fails, fall back to conservative assumption (not a workspace tool)
+            return false;
+        }
+    }
+
+    private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response, ToolRegistry tr) {
         if (!response.hasToolExecutionRequests()) {
             return List.of();
         }
@@ -554,6 +620,16 @@ public class SearchAgent {
         // Rule: Terminal actions can coexist with workspace hygiene, but not with research/blocking tools.
         // This ensures research results are evaluated before finalization.
         if (!researchOrBlocking.isEmpty()) {
+            boolean allWorkspace = researchOrBlocking.stream().allMatch(r -> isWorkspaceTool(r, tr));
+            if (allWorkspace && !terminals.isEmpty()) {
+                // Allow terminal to coexist with workspace tools; finalization will occur only if no net changes are
+                // made.
+                var result = new ArrayList<>(researchOrBlocking);
+                result.addAll(hygiene);
+                result.add(terminals.getFirst());
+                return result;
+            }
+
             if (!terminals.isEmpty()) {
                 logger.info(
                         "Final tool requested alongside research/blocking tools; deferring final to a later turn. Finals present: {}",
@@ -591,15 +667,75 @@ public class SearchAgent {
         };
     }
 
-    // =======================
-    // Initial context seeding
-    // =======================
+    private void performInitialPruningTurn(ToolRegistry tr) throws InterruptedException {
+        // Skip if workspace is empty
+        if (cm.liveContext().isEmpty()) {
+            return;
+        }
+
+        var messages = buildInitialPruningPrompt();
+        var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
+
+        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
+        var jLlm = cm.getLlm(new Llm.Options(cm.getService().getScanModel(), "Janitor: " + goal).withEcho());
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
+        if (result.error() != null || result.isEmpty()) {
+            return;
+        }
+
+        // Record the turn
+        sessionMessages.add(new UserMessage("Review the current workspace. If relevant, prune irrelevant fragments."));
+        sessionMessages.add(result.aiMessage());
+
+        // Execute tool requests
+        var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+        for (var req : ai.toolExecutionRequests()) {
+            try {
+                tr.executeTool(req);
+            } catch (Exception e) {
+                logger.warn("Tool execution failed during initial pruning for {}: {}", req.name(), e.getMessage());
+            }
+        }
+    }
+
+    private List<ChatMessage> buildInitialPruningPrompt() {
+        var messages = new ArrayList<ChatMessage>();
+
+        var sys = new SystemMessage(
+                """
+                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
+                fragments before proceeding; they are highly distracting to the other Agents.
+
+                Your task:
+                  - Evaluate the current workspace contents.
+                  - Call dropWorkspaceFragments to remove irrelevant fragments.
+                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
+                """);
+        messages.add(sys);
+
+        // Current Workspace contents
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+
+        // Goal and project context
+        messages.add(new UserMessage(
+                """
+                <goal>
+                %s
+                </goal>
+
+                Review the Workspace above. Remove ALL fragments that are not directly useful for accomplishing the goal.
+                If the workspace is already well-curated, you're done!
+                """
+                        .formatted(goal)));
+
+        return messages;
+    }
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
-        var recommendation = contextAgent.getRecommendations(true);
+        var recommendation = contextAgent.getRecommendations(context);
         if (!recommendation.reasoning().isEmpty()) {
             io.llmOutput(
                     "\n\nReasoning for contextual insights: \n" + recommendation.reasoning(), ChatMessageType.CUSTOM);
@@ -644,7 +780,7 @@ public class SearchAgent {
             logger.debug(
                     "Adding selected ProjectPathFragments: {}",
                     pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
-            cm.addPathFragments(pathFragments);
+            context = context.addPathFragments(pathFragments);
         }
 
         // Process SkeletonFragments
@@ -652,13 +788,19 @@ public class SearchAgent {
                 .map(ContextFragment.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
-            cm.addVirtualFragments(skeletonFragments);
+            context = context.addVirtualFragments(skeletonFragments);
         }
     }
 
     // =======================
     // Answer/abort tools
     // =======================
+
+    @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
+    public String performedInitialReview() {
+        logger.debug("performedInitialReview: workspace is already well-curated");
+        return "Initial review complete; workspace is well-curated.";
+    }
 
     @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
     public String answer(
@@ -735,7 +877,7 @@ public class SearchAgent {
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
 
-        return new TaskResult(action, fragment, Set.of(), stopDetails);
+        return new TaskResult(action, fragment, context, stopDetails);
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
@@ -748,7 +890,7 @@ public class SearchAgent {
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
 
-        return new TaskResult(action, fragment, Set.of(), details);
+        return new TaskResult(action, fragment, context, details);
     }
 
     // =======================

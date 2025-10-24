@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
@@ -9,6 +10,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.GitHubAppInstallLabel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
@@ -22,6 +24,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
 import javax.swing.*;
@@ -49,6 +52,7 @@ public class CreatePullRequestDialog extends JDialog {
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
+    private GitHubAppInstallLabel gitHubRepoInstallWarningLabel;
     private MaterialLoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
@@ -147,6 +151,8 @@ public class CreatePullRequestDialog extends JDialog {
         setupInputListeners(); // Setup listeners for title and description
         updateCreatePrButtonState(); // Initial state for PR button based on (empty) title/desc
         setupFileStatusTableInteractions(); // Wire up diff viewer interactions
+        // Non-blocking preflight to warn if the app is not installed for this repo
+        scheduleRepoInstallPrecheck();
     }
 
     private void setupFileStatusTableInteractions() {
@@ -244,6 +250,19 @@ public class CreatePullRequestDialog extends JDialog {
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
 
         this.branchFlowLabel = createBranchFlowIndicator(branchPanel, row); // Assign to field
+        row++;
+
+        // Repo-install preflight warning (hidden by default). Click opens app installation page.
+        gitHubRepoInstallWarningLabel = new GitHubAppInstallLabel(
+                this,
+                "<html><b>Warning:</b> Brokk GitHub App is not installed for this repository. "
+                        + "<a href=\"\">Install the app</a>.</html>",
+                new Color(184, 134, 11));
+        gitHubRepoInstallWarningLabel.setVisible(false);
+        var warnGbc = createGbc(0, row);
+        warnGbc.gridwidth = 2;
+        warnGbc.fill = GridBagConstraints.HORIZONTAL;
+        branchPanel.add(gitHubRepoInstallWarningLabel, warnGbc);
 
         // setupBranchListeners is now called in loadBranches after defaults are set
         // loadBranches is called after the main layout is built
@@ -273,6 +292,30 @@ public class CreatePullRequestDialog extends JDialog {
         parent.add(branchFlowLabel, gbc);
 
         return branchFlowLabel;
+    }
+
+    private void scheduleRepoInstallPrecheck() {
+        if (!GitHubAuth.tokenPresent()) {
+            SwingUtil.runOnEdt(() -> gitHubRepoInstallWarningLabel.setVisible(false));
+            return;
+        }
+
+        CompletableFuture.runAsync(() -> {
+            boolean needsInstall = false;
+            try {
+                var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+                needsInstall = !GitHubAuth.isBrokkAppInstalledForRepo(auth.getOwner(), auth.getRepoName());
+            } catch (Exception e) {
+                logger.debug("Could not preflight-check app installation for repo", e);
+                needsInstall = false; // don't show warning on unknown
+            }
+            final boolean show = needsInstall;
+            SwingUtil.runOnEdt(() -> {
+                if (gitHubRepoInstallWarningLabel.isDisplayable()) {
+                    gitHubRepoInstallWarningLabel.setVisible(show);
+                }
+            });
+        });
     }
 
     /** Simple immutable holder for commits and changed files between two branches. */
@@ -828,6 +871,25 @@ public class CreatePullRequestDialog extends JDialog {
             return;
         }
 
+        // Pre-flight: ensure GitHub account is connected
+        if (!GitHubAuth.tokenPresent()) {
+            int choice = chrome.showConfirmDialog(
+                    """
+                    You are not connected to GitHub.
+
+                    To create a Pull Request, connect your GitHub account.
+
+                    Would you like to open Settings now?
+                    """,
+                    "Connect GitHub Account",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION) {
+                SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
+            }
+            return;
+        }
+
         createPrButton.setLoading(true, "Creating PR…");
 
         contextManager.submitExclusiveAction(() -> {
@@ -870,10 +932,15 @@ public class CreatePullRequestDialog extends JDialog {
 
                                 2. You don't have write access to this repository
                                    → Verify you own or are a collaborator on this repository
+
+                                3. Brokk GitHub App is not installed for this repository
+                                   → Go to Settings → Global → GitHub to install the app
                                 """;
                     } else {
                         errorMessage = "Push failed: " + ex.getMessage();
                     }
+
+                    // Show error message
                     chrome.toolError(errorMessage, "Push Permission Denied");
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
