@@ -60,8 +60,8 @@ class FileListenersIntegrationTest {
         watchService = new ProjectWatchService(projectRoot, null, List.of());
 
         // Step 2: Create AnalyzerWrapper with injected watch service (like ContextManager does)
-        var analyzerListener = new TestAnalyzerListener();
-        analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
+        // Note: Pass null for analyzerListener to avoid git repo access in tests
+        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Step 3: Add external listener (like ContextManager does)
         var externalListener = new TestExternalListener();
@@ -102,8 +102,8 @@ class FileListenersIntegrationTest {
 
         // Create watch service and AnalyzerWrapper
         watchService = new ProjectWatchService(projectRoot, null, List.of());
-        var analyzerListener = new TestAnalyzerListener();
-        analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
+        // Pass null for analyzerListener to avoid git repo access in tests
+        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Add two external listeners
         var listener1 = new TestExternalListener();
@@ -139,8 +139,8 @@ class FileListenersIntegrationTest {
 
         // Create watch service and AnalyzerWrapper
         watchService = new ProjectWatchService(projectRoot, null, List.of());
-        var analyzerListener = new TestAnalyzerListener();
-        analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
+        // Pass null for analyzerListener to avoid git repo access in tests
+        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Add and then remove an external listener
         var externalListener = new TestExternalListener();
@@ -178,8 +178,8 @@ class FileListenersIntegrationTest {
 
         // Create watch service and AnalyzerWrapper
         watchService = new ProjectWatchService(projectRoot, null, List.of());
-        var analyzerListener = new TestAnalyzerListener();
-        analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
+        // Pass null for analyzerListener to avoid git repo access in tests
+        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Add external listener
         var externalListener = new TestExternalListener();
