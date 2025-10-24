@@ -32,6 +32,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -374,83 +375,124 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     }
                     try {
                         int lineNum = getLineOfOffset(offset);
-                        int lineStartOffset = getLineStartOffset(lineNum);
-                        int lineEndOffset = getLineEndOffset(lineNum);
-                        // Determine the identifier (token) that the mouse is currently over
-                        var token = getTokenListForLine(lineNum);
-                        String clickedIdentifier = null;
-                        while (token != null && token.getType() != TokenTypes.NULL) {
-                            int tokenStart = token.getOffset();
-                            int tokenEnd = tokenStart + token.length();
-                            if (offset >= tokenStart && offset < tokenEnd) {
-                                clickedIdentifier = token.getLexeme();
-                                break;
+                        var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
+                        if (analyzer == null) {
+                            var item = new JMenuItem("Waiting for Code Intelligence...");
+                            item.setEnabled(false);
+                            dynamicMenuItems.add(item);
+                            return;
+                        }
+                        var content = getText();
+                        var byteOffset = content.substring(0, offset).getBytes(StandardCharsets.UTF_8).length;
+                        var range = new IAnalyzer.Range(byteOffset, byteOffset, lineNum, lineNum, byteOffset);
+                        var maybeEnclosingUnit = analyzer.enclosingCodeUnit(file, range);
+
+                        var unitsToProcess = new HashMap<String, CodeUnit>();
+
+                        if (maybeEnclosingUnit.isPresent()) {
+                            var unit = maybeEnclosingUnit.get();
+                            // We have a unit by position. We still need an identifier from text for display.
+                            var token = getTokenListForLine(lineNum);
+                            String clickedIdentifier = null;
+                            while (token != null && token.getType() != TokenTypes.NULL) {
+                                int tokenStart = token.getOffset();
+                                int tokenEnd = tokenStart + token.length();
+                                if (offset >= tokenStart && offset < tokenEnd) {
+                                    clickedIdentifier = token.getLexeme();
+                                    break;
+                                }
+                                token = token.getNextToken();
                             }
-                            token = token.getNextToken();
-                        }
 
-                        // Fallback: use the entire line text when we cannot determine a single token
-                        if (clickedIdentifier == null) {
-                            clickedIdentifier = getText(lineStartOffset, lineEndOffset - lineStartOffset)
-                                    .trim();
-                        }
+                            if (clickedIdentifier == null) {
+                                // Fallback to unit's short name if we can't get a token
+                                clickedIdentifier = unit.shortName();
+                                if (clickedIdentifier.endsWith("$")) { // for display purposes
+                                    clickedIdentifier = clickedIdentifier.substring(0, clickedIdentifier.length() - 1);
+                                }
+                            }
+                            unitsToProcess.put(clickedIdentifier, unit);
+                        } else {
+                            // Fallback to string matching logic
+                            int lineStartOffset = getLineStartOffset(lineNum);
+                            int lineEndOffset = getLineEndOffset(lineNum);
+                            // Determine the identifier (token) that the mouse is currently over
+                            var token = getTokenListForLine(lineNum);
+                            String clickedIdentifier = null;
+                            while (token != null && token.getType() != TokenTypes.NULL) {
+                                int tokenStart = token.getOffset();
+                                int tokenEnd = tokenStart + token.length();
+                                if (offset >= tokenStart && offset < tokenEnd) {
+                                    clickedIdentifier = token.getLexeme();
+                                    break;
+                                }
+                                token = token.getNextToken();
+                            }
 
-                        if (!clickedIdentifier.isEmpty()) {
-                            var addedShortNames = new HashMap<String, CodeUnit>();
-                            for (CodeUnit unit : codeUnits) {
-                                var identifier = unit.identifier();
-                                // in the case of nested classes, etc.
-                                var simpleIdentifier = Arrays.stream(identifier.split("[$.]"))
-                                        .toList()
-                                        .getLast();
+                            // Fallback: use the entire line text when we cannot determine a single token
+                            if (clickedIdentifier == null) {
+                                clickedIdentifier = getText(lineStartOffset, lineEndOffset - lineStartOffset)
+                                        .trim();
+                            }
 
-                                // Always prefer the class over constructor here
-                                if (identifier.equals(clickedIdentifier)
-                                        || simpleIdentifier.equals(clickedIdentifier)) {
-                                    // Exact match with the clicked token
-                                    addedShortNames.compute(
-                                            clickedIdentifier,
-                                            (key, value) -> value == null ? unit : value.isClass() ? value : unit);
-                                } else {
-                                    // Fallback: does the clicked text contain this identifier as a whole word?
-                                    var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
-                                    if (p.matcher(clickedIdentifier).find()) {
-                                        addedShortNames.compute(
+                            if (!clickedIdentifier.isEmpty()) {
+                                for (CodeUnit unit : codeUnits) {
+                                    var identifier = unit.identifier();
+                                    // in the case of nested classes, etc.
+                                    var simpleIdentifier = Arrays.stream(identifier.split("[$.]"))
+                                            .toList()
+                                            .getLast();
+
+                                    // Always prefer the class over constructor here
+                                    if (identifier.equals(clickedIdentifier)
+                                            || simpleIdentifier.equals(clickedIdentifier)) {
+                                        // Exact match with the clicked token
+                                        unitsToProcess.compute(
                                                 clickedIdentifier,
                                                 (key, value) -> value == null ? unit : value.isClass() ? value : unit);
+                                    } else {
+                                        // Fallback: does the clicked text contain this identifier as a whole word?
+                                        var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
+                                        if (p.matcher(clickedIdentifier).find()) {
+                                            unitsToProcess.compute(
+                                                    clickedIdentifier,
+                                                    (key, value) ->
+                                                            value == null ? unit : value.isClass() ? value : unit);
+                                        }
                                     }
                                 }
                             }
+                        }
 
-                            for (String identifier : addedShortNames.keySet()) {
-                                // Specific to some languages, the constructor is the name of the type and may come
-                                // up when clicking on the type. These both refer to the same usages, thus will be
-                                // duplicates.
-                                final var codeUnit = addedShortNames.get(identifier);
-                                final String extension;
-                                if (file.getFileName().contains(".")) {
-                                    extension = Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
-                                } else {
-                                    extension = null;
-                                }
-
-                                capabilitiesMap.entrySet().stream()
-                                        .filter(entry ->
-                                                entry.getKey().getExtensions().contains(extension))
-                                        .findFirst()
-                                        .ifPresent(entry -> {
-                                            final var capabilities = entry.getValue();
-                                            var usagesAvailable = capabilities.hasUsages();
-                                            createUsagesMenuItems(identifier, usagesAvailable, codeUnit);
-
-                                            var analyzer =
-                                                    cm.getAnalyzerWrapper().getNonBlocking();
-                                            boolean sourceCodeAvailable = analyzer != null
-                                                    && SourceCaptureUtil.isSourceCaptureAvailable(
-                                                            codeUnit, capabilities.hasSource(), analyzer);
-                                            createSourceMenuItems(identifier, sourceCodeAvailable, codeUnit, analyzer);
-                                        });
+                        for (String identifier : unitsToProcess.keySet()) {
+                            // Specific to some languages, the constructor is the name of the type and may come
+                            // up when clicking on the type. These both refer to the same usages, thus will be
+                            // duplicates.
+                            final var codeUnit = unitsToProcess.get(identifier);
+                            final String extension;
+                            if (file.getFileName().contains(".")) {
+                                extension = Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
+                            } else {
+                                extension = null;
                             }
+
+                            capabilitiesMap.entrySet().stream()
+                                    .filter(entry ->
+                                            entry.getKey().getExtensions().contains(extension))
+                                    .findFirst()
+                                    .ifPresent(entry -> {
+                                        final var capabilities = entry.getValue();
+                                        var usagesAvailable = capabilities.hasUsages();
+                                        createUsagesMenuItems(identifier, usagesAvailable, codeUnit);
+
+                                        var currentAnalyzer =
+                                                cm.getAnalyzerWrapper().getNonBlocking();
+                                        boolean sourceCodeAvailable = currentAnalyzer != null
+                                                && SourceCaptureUtil.isSourceCaptureAvailable(
+                                                        codeUnit, capabilities.hasSource(), currentAnalyzer);
+                                        createSourceMenuItems(
+                                                identifier, sourceCodeAvailable, codeUnit, currentAnalyzer);
+                                    });
                         }
                     } catch (BadLocationException ex) {
                         logger.warn(
