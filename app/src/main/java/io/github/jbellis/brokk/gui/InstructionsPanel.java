@@ -116,6 +116,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private SplitButton historyDropdown;
+    private final ModeBadge modeBadge;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private final JPanel centerPanel;
@@ -320,6 +321,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Synchronize button's selected mode with loaded preference
         actionButton.setSelectedMode(storedAction);
+
+        // Initialize mode badge before mode indicator refresh
+        this.modeBadge = new ModeBadge();
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
+        modeBadge.setFocusable(false);
+        modeBadge.setToolTipText("Current mode");
+
         // Initialize mode indicator
         refreshModeIndicator();
         // Initialize tooltip to reflect the selected mode
@@ -625,13 +633,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildTopBarPanel() {
-        // Replaced history dropdown with compact branch split button in top bar
         var topBarPanel = new JPanel();
         topBarPanel.setLayout(new BoxLayout(topBarPanel, BoxLayout.X_AXIS));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
         // Left-side icon group: microphone, wand (enhance), history
-        // Ensure vertical centering for each icon component
         micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -640,15 +646,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         micButton.setFocusable(true);
         wandButton.setFocusable(true);
 
-        // Add icons left-to-right, with a small gap between them
-        topBarPanel.add(micButton);
-        topBarPanel.add(Box.createHorizontalStrut(H_GAP));
-        topBarPanel.add(wandButton);
-        topBarPanel.add(Box.createHorizontalStrut(H_GAP));
-        topBarPanel.add(historyDropdown);
+        // Build a left cluster to measure width for proper center alignment of the badge
+        var leftCluster = new JPanel();
+        leftCluster.setOpaque(false);
+        leftCluster.setLayout(new BoxLayout(leftCluster, BoxLayout.X_AXIS));
+        leftCluster.add(micButton);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP));
+        leftCluster.add(wandButton);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP));
+        leftCluster.add(historyDropdown);
 
-        // Push remaining components to the right
+        // Add left cluster
+        topBarPanel.add(leftCluster);
+
+        // Centered mode badge with symmetric spacing:
+        // glue (flex) + modeBadge + glue (flex) + right filler matching left cluster width
         topBarPanel.add(Box.createHorizontalGlue());
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
+        topBarPanel.add(modeBadge);
+        topBarPanel.add(Box.createHorizontalGlue());
+
+        // Right filler to balance left cluster width for true centering
+        int leftWidth = leftCluster.getPreferredSize().width;
+        topBarPanel.add(Box.createRigidArea(new Dimension(leftWidth, 0)));
 
         return topBarPanel;
     }
@@ -1889,20 +1909,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private void refreshModeIndicator() {
         String mode = actionButton.getSelectedMode();
-        boolean isDark = UIManager.getBoolean("laf.dark");
 
-        Color accent;
-        try {
-            accent = switch (mode) {
-                case ACTION_CODE -> ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
-                case ACTION_ASK -> ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
-                case ACTION_SEARCH -> ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
-                default -> new Color(0xF4C430);
-            };
-        } catch (Exception ex) {
-            logger.debug("Theme color lookup failed; using fallback accent color", ex);
-            accent = new Color(0xF4C430);
-        }
+        // Let the badge compute its own theme-aware colors based on the active mode
+        modeBadge.setActiveMode(mode);
+
+        // Use the badge's accent for the input pane stripe
+        Color accent = modeBadge.getAccent();
 
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
@@ -2484,6 +2496,133 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static class ModelUnavailableException extends RuntimeException {
         public ModelUnavailableException() {
             super("Model is unavailable. Usually this indicates a networking problem.");
+        }
+    }
+
+    /**
+     * Small square badge that displays the current mode.
+     * Uses ThemeColors for background/foreground and accent for the border.
+     * Non-focusable, compact, centered text.
+     */
+    private static class ModeBadge extends JComponent implements ThemeAware {
+        private String text = "";
+        private String modeKind = ACTION_SEARCH; // default
+        private Color accent = new Color(0xF4C430);
+        private Color fg = Color.WHITE;
+        private Color bg = Color.GRAY;
+        private static final int HPAD = 6;
+        private static final int VPAD = 2;
+        private static final float FONT_SIZE = 11f;
+
+        ModeBadge() {
+            setFocusable(false);
+            setOpaque(false);
+            setAlignmentY(Component.CENTER_ALIGNMENT);
+        }
+
+        public void setActiveMode(String modeKind) {
+            this.modeKind = Objects.requireNonNullElse(modeKind, ACTION_SEARCH);
+            updateFromTheme();
+        }
+
+        public Color getAccent() {
+            return accent;
+        }
+
+        private void updateFromTheme() {
+            boolean isDark = UIManager.getBoolean("laf.dark");
+            switch (modeKind) {
+                case ACTION_CODE -> {
+                    this.text = "CODE MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
+                }
+                case ACTION_ASK -> {
+                    this.text = "ASK MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
+                }
+                case ACTION_SEARCH -> {
+                    this.text = "LUTZ MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
+                }
+                default -> {
+                    this.text = "LUTZ MODE";
+                    this.bg = new Color(0xF4C430);
+                    this.fg = isDark ? Color.WHITE : new Color(0x1E1E1E);
+                    this.accent = new Color(0xF4C430);
+                }
+            }
+            revalidate();
+            repaint();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            updateFromTheme();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            updateFromTheme();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            var f = getFont() != null ? getFont() : UIManager.getFont("Label.font");
+            if (f == null) f = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+            var font = f.deriveFont(Font.BOLD, FONT_SIZE);
+            FontMetrics fm = getFontMetrics(font);
+            int w = fm.stringWidth(text);
+            int h = fm.getHeight();
+            return new Dimension(w + 2 * HPAD, h + 2 * VPAD);
+        }
+
+        @Override
+        public Dimension getMinimumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                var f = getFont() != null ? getFont() : UIManager.getFont("Label.font");
+                if (f == null) f = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+                var font = f.deriveFont(Font.BOLD, FONT_SIZE);
+                g2.setFont(font);
+
+                int w = getWidth();
+                int h = getHeight();
+
+                // Solid background (square)
+                g2.setColor(bg);
+                g2.fillRect(0, 0, w, h);
+
+                // Accent border
+                g2.setColor(accent);
+                g2.drawRect(0, 0, w - 1, h - 1);
+
+                // Text centered
+                FontMetrics fm = g2.getFontMetrics();
+                int tw = fm.stringWidth(text);
+                int tx = Math.max(0, (w - tw) / 2);
+                int ty = Math.max(0, (h - fm.getHeight()) / 2 + fm.getAscent());
+                g2.setColor(fg);
+                g2.drawString(text, tx, ty);
+            } finally {
+                g2.dispose();
+            }
         }
     }
 
