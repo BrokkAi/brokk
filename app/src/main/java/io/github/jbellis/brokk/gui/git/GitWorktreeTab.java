@@ -526,13 +526,6 @@ public class GitWorktreeTab extends JPanel {
                 availableBranches = localBranches.stream()
                         .filter(branch -> !branchesInWorktrees.contains(branch))
                         .toList();
-
-                if (availableBranches.isEmpty()) {
-                    chrome.toolError(
-                            "No available branches to create a worktree from. All local branches are already in use by worktrees.",
-                            "No Available Branches");
-                    return;
-                }
             } catch (GitAPIException e) {
                 logger.error("Error fetching initial branch information for add worktree", e);
                 SwingUtilities.invokeLater(() -> chrome.toolError(
@@ -563,10 +556,27 @@ public class GitWorktreeTab extends JPanel {
                 JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:");
                 JComboBox<String> branchComboBox = new JComboBox<>(finalAvailableBranches.toArray(new String[0]));
                 branchComboBox.setEnabled(false);
+                // Determine whether any existing branches are available to reuse
+                boolean hasAvailableBranches = !finalAvailableBranches.isEmpty();
 
                 ButtonGroup group = new ButtonGroup();
                 group.add(createNewBranchRadio);
                 group.add(useExistingBranchRadio);
+
+                // If there are no available existing branches, disable that option and force create-new
+                if (!hasAvailableBranches) {
+                    useExistingBranchRadio.setEnabled(false);
+                    branchComboBox.setEnabled(false);
+                    createNewBranchRadio.setSelected(true);
+                    // Explain why the option is disabled so users understand why the choice is unavailable.
+                    useExistingBranchRadio.setToolTipText("No existing branches available — create a new branch.");
+                    branchComboBox.setToolTipText("No existing branches available to choose from.");
+                    // Informational, non-blocking notification so the user understands what will happen if they create
+                    // a new branch.
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "No existing branches are available — creating a new branch will use the selected 'From' branch.");
+                }
 
                 createNewBranchRadio.addActionListener(eL -> {
                     newBranchNameField.setEnabled(true);
@@ -640,6 +650,20 @@ public class GitWorktreeTab extends JPanel {
                 gbc.insets = new Insets(10, 5, 5, 5);
                 panel.add(copyWorkspaceCheckbox, gbc);
 
+                // Inform the user in-dialog when no existing branches are available to reuse
+                if (!hasAvailableBranches) {
+                    gbc.gridx = 0;
+                    gbc.gridy = 6;
+                    gbc.gridwidth = 2;
+                    gbc.anchor = GridBagConstraints.WEST;
+                    gbc.fill = GridBagConstraints.HORIZONTAL;
+                    gbc.insets = new Insets(5, 5, 5, 5);
+                    panel.add(
+                            new JLabel(
+                                    "<html><i>No existing branches are available to reuse — please create a new branch.</i></html>"),
+                            gbc);
+                }
+
                 JOptionPane optionPane =
                         new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
                 JDialog dialog = optionPane.createDialog(GitWorktreeTab.this, "Add Worktree");
@@ -692,6 +716,25 @@ public class GitWorktreeTab extends JPanel {
                 String sourceBranchForNew = dialogResult.sourceBranchForNew();
                 boolean isCreatingNewBranch = dialogResult.isCreatingNewBranch();
                 boolean copyWorkspace = dialogResult.copyWorkspace();
+
+                // Defensive validation to guard against unexpected dialog results:
+                if (isCreatingNewBranch) {
+                    // Require a non-null, non-empty branch name (trim whitespace)
+                    if (branchForWorktree == null || branchForWorktree.trim().isEmpty()) {
+                        chrome.toolError(
+                                "New branch name cannot be empty. Please provide a valid branch name.",
+                                "Invalid Branch Name");
+                        return;
+                    }
+                } else {
+                    // Using existing branch: ensure the selected branch is actually available
+                    if (branchForWorktree == null || !finalAvailableBranches.contains(branchForWorktree)) {
+                        chrome.toolError(
+                                "Selected branch is not available. Please choose an existing branch or create a new one.",
+                                "Invalid Branch Selection");
+                        return;
+                    }
+                }
 
                 if (isCreatingNewBranch) {
                     if (branchForWorktree.isEmpty()) {

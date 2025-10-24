@@ -261,6 +261,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private InstructionsCompletionProvider instructionCompletionProvider;
     private JPopupMenu tokenUsageBarPopupMenu;
 
+    private static final int INDENT_WIDTH = 4;
+    private static final String INDENT_STRING = "    "; // 4 spaces
+
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -409,6 +412,123 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return instructionsArea;
     }
 
+    /**
+     * Applies or removes indentation from the current line or selected lines.
+     * If a region is selected, operates on all lines that overlap the selection.
+     * If nothing is selected, operates on the current line.
+     *
+     * @param area    The JTextArea to modify.
+     * @param indent  true to indent, false to unindent.
+     */
+    private static void applyIndentation(JTextArea area, boolean indent) {
+        Document doc = area.getDocument();
+        int caretPos = area.getCaretPosition();
+        int selectionStart = area.getSelectionStart();
+        int selectionEnd = area.getSelectionEnd();
+
+        boolean hasSelection = selectionStart != selectionEnd;
+        int startLine;
+        int endLine;
+
+        try {
+            Element root = doc.getDefaultRootElement();
+            if (hasSelection) {
+                // Multiple lines selected; process all lines that overlap the selection
+                startLine = root.getElementIndex(selectionStart);
+                endLine = root.getElementIndex(selectionEnd);
+                // If selection ends at the start of a line, don't include that line
+                if (selectionEnd > 0) {
+                    Element lastLineElem = root.getElement(endLine);
+                    if (lastLineElem.getStartOffset() == selectionEnd) {
+                        endLine = Math.max(startLine, endLine - 1);
+                    }
+                }
+            } else {
+                // No selection; indent/unindent current line only
+                startLine = root.getElementIndex(caretPos);
+                endLine = startLine;
+            }
+
+            // Collect the indentation changes
+            StringBuilder editText = new StringBuilder();
+            int totalInserted = 0;
+
+            for (int lineIdx = startLine; lineIdx <= endLine; lineIdx++) {
+                Element lineElem = root.getElement(lineIdx);
+                int lineStart = lineElem.getStartOffset();
+                int lineEnd = lineElem.getEndOffset();
+
+                String lineText = doc.getText(lineStart, lineEnd - lineStart);
+
+                String newLineText;
+                if (indent) {
+                    // Insert indentation at the start of the line
+                    newLineText = INDENT_STRING + lineText;
+                    totalInserted += INDENT_STRING.length();
+                } else {
+                    // Remove indentation if present
+                    newLineText = unindentLine(lineText);
+                    totalInserted -= (lineText.length() - newLineText.length());
+                }
+
+                editText.append(newLineText);
+            }
+
+            // Replace the entire range with the edited text
+            int rangeStart = doc.getDefaultRootElement().getElement(startLine).getStartOffset();
+            int rangeEnd =
+                    doc.getDefaultRootElement().getElement(endLine).getEndOffset() - 1; // -1 to exclude final newline
+            doc.remove(rangeStart, rangeEnd - rangeStart);
+            doc.insertString(rangeStart, editText.toString(), null);
+
+            // Restore selection or caret position
+            if (hasSelection) {
+                int newSelectionStart = selectionStart + (indent ? INDENT_STRING.length() : 0);
+                int newSelectionEnd = selectionEnd + totalInserted;
+                area.setSelectionStart(newSelectionStart);
+                area.setSelectionEnd(newSelectionEnd);
+            } else {
+                int newCaretPos = caretPos + (indent ? INDENT_STRING.length() : 0);
+                area.setCaretPosition(Math.max(0, Math.min(newCaretPos, doc.getLength())));
+            }
+        } catch (BadLocationException ex) {
+            logger.debug("BadLocationException during indentation", ex);
+        }
+    }
+
+    /**
+     * Removes leading indentation from a line. Removes up to 4 spaces or a single leading tab.
+     *
+     * @param lineText The line text (may include trailing newline).
+     * @return The line text with leading indentation removed if present.
+     */
+    private static String unindentLine(String lineText) {
+        if (lineText.isEmpty()) {
+            return lineText;
+        }
+
+        // Check for leading tab
+        if (lineText.charAt(0) == '\t') {
+            return lineText.substring(1);
+        }
+
+        // Check for leading spaces (up to INDENT_WIDTH)
+        int spacesToRemove = 0;
+        for (int i = 0; i < Math.min(INDENT_WIDTH, lineText.length()); i++) {
+            if (lineText.charAt(i) == ' ') {
+                spacesToRemove++;
+            } else {
+                break;
+            }
+        }
+
+        if (spacesToRemove > 0) {
+            return lineText.substring(spacesToRemove);
+        }
+
+        return lineText;
+    }
+
     private JTextArea buildCommandInputField() {
         var area = new JTextArea(3, 40);
         // The BorderUtils will now handle the border, including focus behavior and padding.
@@ -474,23 +594,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Override Tab key to shift focus instead of inserting tab character
+        // Smart Tab handling: check preference at runtime
         var tabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
-        area.getInputMap().put(tabKeyStroke, "transferFocus");
-        area.getActionMap().put("transferFocus", new AbstractAction() {
+        area.getInputMap().put(tabKeyStroke, "smartTab");
+        area.getActionMap().put("smartTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                area.transferFocus();
+                if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    applyIndentation(area, true);
+                } else {
+                    area.transferFocus();
+                }
             }
         });
 
-        // Override Shift+Tab key to shift focus backward
+        // Smart Shift+Tab handling: check preference at runtime
         var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK);
-        area.getInputMap().put(shiftTabKeyStroke, "transferFocusBackward");
-        area.getActionMap().put("transferFocusBackward", new AbstractAction() {
+        area.getInputMap().put(shiftTabKeyStroke, "smartShiftTab");
+        area.getActionMap().put("smartShiftTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                area.transferFocusBackward();
+                if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    applyIndentation(area, false);
+                } else {
+                    area.transferFocusBackward();
+                }
             }
         });
 
@@ -1468,7 +1596,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
             var result = agent.runTask(input, Set.of());
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
     }
@@ -1496,7 +1623,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var result = executeAskCommand(contextManager, modelToUse, input);
 
             // Persist to history regardless of success/failure
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
     }
@@ -1519,16 +1645,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
 
-        submitAction(ACTION_SEARCH, query, () -> {
+        submitAction(ACTION_SEARCH, query, scope -> {
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
             SearchAgent agent = new SearchAgent(
-                    query, cm, modelToUse, EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
-            var result = agent.execute();
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            return result;
+                    query,
+                    cm,
+                    modelToUse,
+                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
+                    cm.liveContext(),
+                    scope);
+            return agent.execute();
         });
+    }
+
+    /**
+     * Returns a concise, user-friendly spinner message for the given action.
+     * Playful but not too long, clear about what's happening.
+     */
+    private static String spinnerTextFor(String action) {
+        return switch (action) {
+            case ACTION_ARCHITECT -> "Architect Mode — planning and applying code changes...";
+            case ACTION_CODE -> "Applying Code Mode — editing files in your Workspace...";
+            case ACTION_SEARCH -> "Running Lutz Mode — agentic search and plan generation...";
+            case ACTION_ASK -> "Answering from Workspace — composing response with your project context...";
+            default -> "Executing " + action + "...";
+        };
     }
 
     /**
@@ -1537,24 +1680,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public void submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
-        // Map some actions to a more user-friendly display string for the spinner.
-        // We keep the original `action` (used for LLM output / history) unchanged to avoid
-        // affecting other subsystems that detect action by name, but present a clearer label
-        // to the user while the operation runs.
-        String displayAction;
-        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
-            displayAction = "Code With Plan";
-        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Ask with Search";
-        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Ask";
-        } else {
-            displayAction = action;
-        }
+        String spinnerText = spinnerTextFor(action);
 
         cm.submitLlmAction(() -> {
             try {
-                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                chrome.showOutputSpinner(spinnerText);
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
                     scope.append(result);
@@ -1574,24 +1704,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public CompletableFuture<Void> submitAction(
             String action, String input, Function<ContextManager.TaskScope, TaskResult> task) {
         var cm = chrome.getContextManager();
-        // Map some actions to a more user-friendly display string for the spinner.
-        // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
-        // affecting other subsystems that detect action by name, but present a clearer label
-        // to the user while the operation runs.
-        String displayAction;
-        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
-            displayAction = "Code With Plan";
-        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Ask with Search";
-        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Ask";
-        } else {
-            displayAction = action;
-        }
+        String spinnerText = spinnerTextFor(action);
 
         return cm.submitLlmAction(() -> {
             try {
-                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                chrome.showOutputSpinner(spinnerText);
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.apply(scope);
                     scope.append(result);

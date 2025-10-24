@@ -154,10 +154,9 @@ public class ArchitectAgent {
         var result = agent.runTaskInternal(context, List.of(), instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        scope.append(result);
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
-        context = result.context();
+        context = scope.append(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
             var resultString = "CodeAgent finished! Details are in the Workspace messages.";
@@ -195,8 +194,7 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-
-        scope.append(resultWithMessages(StopReason.SUCCESS));
+        context = scope.append(resultWithMessages(StopReason.SUCCESS));
     }
 
     @Tool(
@@ -237,10 +235,9 @@ public class ArchitectAgent {
         io.llmOutput("Search Agent engaged: " + query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
         var result = searchAgent.execute();
-        scope.append(result);
-        LAST_SEARCH_RESULT.set(result);
         // Update local context from SearchAgent result
-        context = result.context();
+        context = scope.append(result);
+        LAST_SEARCH_RESULT.set(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
@@ -280,23 +277,23 @@ public class ArchitectAgent {
      *
      * <p>Returns the search result if it fails, otherwise returns the Architect result.
      */
-    public TaskResult executeWithSearch(ContextManager.TaskScope scope) {
+    public TaskResult executeWithSearch() {
         // Run Search first using the scan model (fast, token-friendly)
         var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
+        var searchAgent =
+                new SearchAgent(goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), context, scope);
         io.llmOutput("Search Agent engaged: " + goal, ChatMessageType.CUSTOM);
         var searchResult = searchAgent.execute();
-        scope.append(searchResult);
+        // Synchronize local context with search results before continuing
+        context = scope.append(searchResult);
+
         if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             return searchResult;
         }
 
-        // Synchronize local context with search results before continuing
-        context = searchResult.context();
-
         // Run Architect proper and append its result to scope
         var archResult = this.execute();
-        scope.append(archResult);
+        context = scope.append(archResult);
         return archResult;
     }
 
@@ -320,7 +317,7 @@ public class ArchitectAgent {
         var modelsService = cm.getService();
 
         while (true) {
-            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatModel>();

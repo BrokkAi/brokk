@@ -406,7 +406,7 @@ public class MergeAgent {
 
         var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
         logger.debug("ArchitectAgent created. Executing with search.");
-        var result = agent.executeWithSearch(scope);
+        var result = agent.executeWithSearch();
         logger.debug(
                 "ArchitectAgent execution completed. Returning result with stop reason: {}",
                 result.stopDetails().reason());

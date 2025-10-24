@@ -83,7 +83,7 @@ public interface IConsoleIO {
         throw new UnsupportedOperationException();
     }
 
-    default void blockLlmOutput(boolean blocked) {
+    default void setTaskInProgress(boolean progress) {
         // pass
     }
 

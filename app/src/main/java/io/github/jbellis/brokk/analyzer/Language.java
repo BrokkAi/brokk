@@ -42,15 +42,6 @@ public interface Language {
                 .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
     }
 
-    /** Whether this language's analyzer provides compact symbol summaries. */
-    boolean providesSummaries();
-
-    /** Whether this language's analyzer can fetch or reconstruct source code for code units. */
-    boolean providesSourceCode();
-
-    /** Whether this language's analyzer supports interprocedural analysis such as call graphs across files. */
-    boolean providesInterproceduralAnalysis();
-
     default List<Path> getDependencyCandidates(IProject project) {
         return List.of();
     }
@@ -196,21 +187,6 @@ public interface Language {
                 }
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
-        }
-
-        @Override
-        public boolean providesSummaries() {
-            return languages.stream().anyMatch(Language::providesSummaries);
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return languages.stream().anyMatch(Language::providesSourceCode);
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return languages.stream().anyMatch(Language::providesInterproceduralAnalysis);
         }
 
         @Override

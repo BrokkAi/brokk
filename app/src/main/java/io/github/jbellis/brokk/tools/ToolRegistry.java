@@ -76,8 +76,6 @@ public class ToolRegistry {
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
             Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
             Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
-            Map.entry("addCallGraphInToWorkspace", "Adding callers to workspace"),
-            Map.entry("addCallGraphOutToWorkspace", "Adding callees to workspace"),
             Map.entry("dropWorkspaceFragments", "Removing from workspace"),
             Map.entry("recommendContext", "Recommending context"),
             Map.entry("createTaskList", "Creating task list"));

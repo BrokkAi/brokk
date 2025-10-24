@@ -49,21 +49,6 @@ public class Languages {
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
-
-        @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
-        }
     };
     public static final Language JAVA = new JavaLanguage();
     public static final Language JAVASCRIPT = new Language() {
@@ -97,21 +82,6 @@ public class Languages {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
         }
 
         @Override
@@ -177,21 +147,6 @@ public class Languages {
         }
 
         @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
-        }
-
-        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
@@ -227,21 +182,6 @@ public class Languages {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
         }
 
         // TODO
@@ -284,21 +224,6 @@ public class Languages {
         }
 
         @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
-        }
-
-        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
@@ -336,21 +261,6 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
-        }
     };
     public static final Language PHP = new Language() {
         private final List<String> extensions = List.of("php", "phtml", "php3", "php4", "php5", "phps");
@@ -383,21 +293,6 @@ public class Languages {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
         }
 
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
@@ -459,21 +354,6 @@ public class Languages {
         }
 
         @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
-        }
-
-        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
@@ -505,21 +385,6 @@ public class Languages {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public boolean providesSummaries() {
-            return true;
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return true;
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return false;
         }
 
         @Override

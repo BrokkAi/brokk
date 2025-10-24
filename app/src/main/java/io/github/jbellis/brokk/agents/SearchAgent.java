@@ -73,6 +73,7 @@ public class SearchAgent {
     private final String goal;
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
+    private final @Nullable ContextManager.TaskScope scope;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -85,7 +86,7 @@ public class SearchAgent {
 
     public SearchAgent(
             String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
-        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext());
+        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext(), null);
     }
 
     public SearchAgent(
@@ -94,6 +95,16 @@ public class SearchAgent {
             StreamingChatModel model,
             Set<Terminal> allowedTerminals,
             Context initialContext) {
+        this(goal, contextManager, model, allowedTerminals, initialContext, null);
+    }
+
+    public SearchAgent(
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            Context initialContext,
+            @Nullable ContextManager.TaskScope scope) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
@@ -105,6 +116,7 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
+        this.scope = scope;
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();
@@ -139,6 +151,12 @@ public class SearchAgent {
 
         // Expand Workspace with ContextAgent scan
         addInitialContextToWorkspace();
+
+        // Record initial context gathering as a history entry if scope is available
+        if (scope != null) {
+            var contextAgentResult = createResult("Brokk Context Engine", "Brokk Context Engine");
+            context = scope.append(contextAgentResult);
+        }
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -185,7 +203,7 @@ public class SearchAgent {
             var toolSpecs = tr.getTools(allAllowed);
 
             // Decide next action(s)
-            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
             if (result.error() != null || result.isEmpty()) {
                 var details =
@@ -279,7 +297,7 @@ public class SearchAgent {
                     } else if (executedWorkspaceResearch && contextChanged) {
                         logger.info("Deferring finalization; workspace changed during this turn.");
                     } else {
-                        return createResult();
+                        return createResult("Search: " + goal, goal);
                     }
                 }
             }
@@ -412,10 +430,8 @@ public class SearchAgent {
 
         String testsGuidance = "";
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
-            var analyzerWrapper = cm.getAnalyzerWrapper();
-            var toolHint = analyzerWrapper.providesInterproceduralAnalysis()
-                    ? "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods."
-                    : "- To locate tests, use searchSubstrings to find test classes, @Test methods, and references to key symbols.";
+            var toolHint =
+                    "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods.";
             testsGuidance =
                     """
                     Tests:
@@ -499,19 +515,10 @@ public class SearchAgent {
         }
 
         // Fine-grained Analyzer capabilities
-        var analyzerWrapper = cm.getAnalyzerWrapper();
-        if (analyzerWrapper.providesSummaries()) {
-            names.add("getClassSkeletons");
-        }
-        if (analyzerWrapper.providesSourceCode()) {
-            names.add("getClassSources");
-            names.add("getMethodSources");
-        }
-        if (analyzerWrapper.providesInterproceduralAnalysis()) {
-            names.add("getUsages");
-            names.add("getCallGraphTo");
-            names.add("getCallGraphFrom");
-        }
+        names.add("getClassSkeletons");
+        names.add("getClassSources");
+        names.add("getMethodSources");
+        names.add("getUsages");
 
         // Text-based search
         names.add("searchSubstrings");
@@ -527,8 +534,6 @@ public class SearchAgent {
         names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
         names.add("addSymbolUsagesToWorkspace");
-        names.add("addCallGraphInToWorkspace");
-        names.add("addCallGraphOutToWorkspace");
         names.add("appendNote");
         names.add("dropWorkspaceFragments");
 
@@ -733,15 +738,11 @@ public class SearchAgent {
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
-        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
+        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
-        if (!recommendation.reasoning().isEmpty()) {
-            io.llmOutput(
-                    "\n\nReasoning for contextual insights: \n" + recommendation.reasoning(), ChatMessageType.CUSTOM);
-        }
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.CUSTOM);
             return;
         }
 
@@ -749,19 +750,19 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            cm.addVirtualFragment(new ContextFragment.StringFragment(
+            context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
                     cm,
                     summaries,
                     "Summary of Scan Results",
                     recommendation.fragments().stream()
                             .findFirst()
                             .orElseThrow()
-                            .syntaxStyle()));
+                            .syntaxStyle())));
         } else {
             logger.debug("Recommended context fits within final budget.");
             addToWorkspace(recommendation);
             io.llmOutput(
-                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.",
+                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
                     ChatMessageType.CUSTOM);
         }
     }
@@ -865,14 +866,12 @@ public class SearchAgent {
     // Finalization and errors
     // =======================
 
-    private TaskResult createResult() {
+    private TaskResult createResult(String action, String goal) {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
             finalMessages = new ArrayList<>(sessionMessages);
         }
-
-        String action = "Search: " + goal;
 
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);

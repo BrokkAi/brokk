@@ -306,16 +306,6 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Name Resolution and Context Building ---
-        boolean callsAndUsagesRequired = !addCallers.isEmpty() || !addCallees.isEmpty();
-
-        if (callsAndUsagesRequired) {
-            var analyzer = cm.getAnalyzer();
-            if (!(analyzer instanceof CallGraphProvider)) {
-                System.err.println(
-                        "One or more of the requested options requires Code Intelligence, which is not available.");
-                return 1;
-            }
-        }
 
         // Resolve files and classes
         var resolvedEditFiles = resolveFiles(editFiles, "editable file");
@@ -456,7 +446,7 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
                     result = agent.execute();
-                    scope.append(result);
+                    context = scope.append(result);
                 } else if (codePrompt != null) {
                     // CodeAgent must use codemodel only
                     if (codeModel == null) {
@@ -465,14 +455,14 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     var agent = new CodeAgent(cm, codeModel);
                     result = agent.runTask(codePrompt, Set.of());
-                    scope.append(result);
+                    context = scope.append(result);
                 } else if (askPrompt != null) {
                     if (codeModel == null) {
                         System.err.println("Error: --ask requires --codemodel to be specified.");
                         return 1;
                     }
                     result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
-                    scope.append(result);
+                    context = scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
                         System.err.println("Error: --merge requires --planmodel to be specified.");
@@ -495,7 +485,7 @@ public final class BrokkCli implements Callable<Integer> {
                             cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
                     try {
                         result = mergeAgent.execute();
-                        scope.append(result);
+                        context = scope.append(result);
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
                         return 1;
@@ -509,7 +499,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var agent = new SearchAgent(
                             requireNonNull(searchAnswerPrompt), cm, planModel, EnumSet.of(Terminal.ANSWER));
                     result = agent.execute();
-                    scope.append(result);
+                    context = scope.append(result);
                 } else if (build) {
                     String buildError = BuildAgent.runVerification(cm);
                     io.showNotification(
@@ -541,7 +531,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
                     var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
-                    scope.append(taskResult);
+                    context = scope.append(taskResult);
                     result = taskResult;
                 } else { // lutzPrompt != null
                     if (planModel == null) {
@@ -555,7 +545,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var agent =
                             new SearchAgent(requireNonNull(lutzPrompt), cm, planModel, EnumSet.of(Terminal.TASK_LIST));
                     result = agent.execute();
-                    scope.append(result);
+                    context = scope.append(result);
 
                     // Execute pending tasks sequentially
                     var tasksData = cm.getTaskList();
@@ -572,7 +562,7 @@ public final class BrokkCli implements Callable<Integer> {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
                             var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
-                            scope.append(taskResult);
+                            context = scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 
                             if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {

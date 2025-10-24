@@ -193,20 +193,45 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         removeAll();
         chipById.clear();
 
-        // Partition into summaries vs others
-        var summaries =
-                fragments.stream().filter(f -> classify(f) == ChipKind.SUMMARY).toList();
-        var others =
-                fragments.stream().filter(f -> classify(f) != ChipKind.SUMMARY).toList();
+        // Filter out visually-empty fragments unless dev-mode override is enabled.
+        // The helper hasRenderableContent() encodes the conservative visibility rules.
+        var visibleFragments = fragments.stream()
+                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
+                .toList();
 
-        // Add individual chips for non-summaries
+        // Partition into summaries vs others (using only the visible set)
+        var summaries = visibleFragments.stream()
+                .filter(f -> classify(f) == ChipKind.SUMMARY)
+                .toList();
+        var others = visibleFragments.stream()
+                .filter(f -> classify(f) != ChipKind.SUMMARY)
+                .toList();
+
+        // Add individual chips for non-summaries (createChip may return null if fragment lacks renderable content)
         for (var fragment : others) {
-            add(createChip(fragment));
+            // Final cheap guard before invoking potentially heavier createChip(...). This avoids creating
+            // UI for fragments that became visually-empty between the earlier filter and creation.
+            if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
+                logger.debug(
+                        "Skipping creation of chip for fragment (filtered by final hasRenderableContent): {}",
+                        fragment);
+                continue;
+            }
+
+            Component c = createChip(fragment);
+            if (c != null) {
+                add(c);
+            }
         }
 
-        // Add synthetic summary chip if we have summaries
-        if (!summaries.isEmpty()) {
-            add(createSyntheticSummaryChip(summaries));
+        // Add synthetic summary chip if we have summaries that are renderable (or dev override)
+        boolean anyRenderableSummary =
+                summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
+        if (anyRenderableSummary) {
+            Component synthetic = createSyntheticSummaryChip(summaries);
+            if (synthetic != null) {
+                add(synthetic);
+            }
         }
 
         // Re-layout this panel
@@ -324,6 +349,38 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         // OTHER: everything else
         return ChipKind.OTHER;
+    }
+
+    /**
+     * Conservative predicate deciding whether a fragment has visible/renderable content.
+     *
+     * Rules:
+     * - Always keep output fragments (history / outputs).
+     * - For text fragments: require non-null and non-blank text.
+     * - For non-text fragments: require at least an image, at least one file, or a non-empty description.
+     *
+     * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
+     */
+    private boolean hasRenderableContent(ContextFragment f) {
+        try {
+            if (f.getType().isOutput()) {
+                return true;
+            }
+            if (f.isText()) {
+                String txt = f.text();
+                return txt != null && !txt.trim().isEmpty();
+            } else {
+                boolean hasImage = f.image() != null;
+                boolean hasFiles = !f.files().isEmpty();
+                String desc = f.description();
+                boolean hasDesc = desc != null && !desc.trim().isEmpty();
+                return hasImage || hasFiles || hasDesc;
+            }
+        } catch (Exception ex) {
+            // Be conservative: if we cannot decide, render the fragment to avoid hiding useful info.
+            logger.debug("hasRenderableContent threw for fragment {}", f, ex);
+            return true;
+        }
     }
 
     // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
@@ -808,6 +865,51 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private Component createChip(ContextFragment fragment) {
+        // Defensive pre-checks: guard against nulls and visually-empty fragments.
+        if (fragment == null) return null;
+        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
+            logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
+            return null;
+        }
+
+        // Safely read commonly-used fragment properties with fallbacks.
+        String safeShortDescription;
+        try {
+            safeShortDescription = fragment.shortDescription();
+            if (safeShortDescription == null || safeShortDescription.isBlank()) {
+                safeShortDescription = "(no description)";
+            }
+        } catch (Exception e) {
+            logger.debug("shortDescription() threw for fragment {}", fragment, e);
+            safeShortDescription = "(no description)";
+        }
+
+        String safeDescription;
+        try {
+            safeDescription = fragment.description();
+            if (safeDescription == null) safeDescription = "";
+        } catch (Exception e) {
+            logger.debug("description() threw for fragment {}", fragment, e);
+            safeDescription = "";
+        }
+
+        String safeText = "";
+        try {
+            if (fragment.isText()) {
+                var t = fragment.text();
+                safeText = t == null ? "" : t;
+            }
+        } catch (Exception e) {
+            logger.debug("text() threw for fragment {}", fragment, e);
+            safeText = "";
+        }
+
+        // Last-line safety: re-check that the fragment still has renderable content before building UI.
+        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
+            logger.debug("Avoiding chip creation after re-check for fragment {}", fragment);
+            return null;
+        }
+
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
@@ -818,9 +920,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (kindForLabel == ChipKind.SUMMARY) {
             labelText = buildSummaryLabel(fragment);
         } else if (kindForLabel == ChipKind.OTHER) {
-            labelText = capitalizeFirst(fragment.shortDescription());
+            labelText = capitalizeFirst(safeShortDescription);
         } else {
-            labelText = fragment.shortDescription();
+            labelText = safeShortDescription;
         }
         var label = new JLabel(labelText);
 
@@ -829,10 +931,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             if (kindForLabel == ChipKind.SUMMARY) {
                 label.setToolTipText(buildSummaryTooltip(fragment));
                 // Accessible description: use the full (non-HTML) description
-                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+                label.getAccessibleContext().setAccessibleDescription(safeDescription);
             } else {
                 label.setToolTipText(buildDefaultTooltip(fragment));
-                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+                label.getAccessibleContext().setAccessibleDescription(safeDescription);
             }
         } catch (Exception ex) {
             // Defensive logging instead of ignoring to satisfy static analysis rules.
@@ -893,7 +995,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         close.setPreferredSize(new Dimension(14, 14));
         close.setToolTipText("Remove from Workspace");
         try {
-            close.getAccessibleContext().setAccessibleName("Remove " + fragment.shortDescription());
+            close.getAccessibleContext().setAccessibleName("Remove " + safeShortDescription);
         } catch (Exception ignored) {
             // best-effort accessibility improvements
         }
@@ -1057,12 +1159,25 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
+        if (summaries == null || summaries.isEmpty()) return null;
+
+        // Filter summaries to only those that are renderable unless developer override is enabled.
+        var renderableSummaries = summaries.stream()
+                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
+                .toList();
+
+        if (renderableSummaries.isEmpty()) {
+            // Nothing to show (defensive): avoid creating an empty synthetic chip.
+            logger.debug("No renderable summaries for synthetic chip; skipping creation.");
+            return null;
+        }
+
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Label: aggregate count
-        int totalFiles = (int) summaries.stream()
+        // Label: aggregate count across only renderable summaries
+        int totalFiles = (int) renderableSummaries.stream()
                 .flatMap(f -> f.files().stream())
                 .map(ProjectFile::toString)
                 .distinct()
@@ -1072,7 +1187,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Aggregated tooltip
         try {
-            label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+            label.setToolTipText(buildAggregateSummaryTooltip(renderableSummaries));
             label.getAccessibleContext().setAccessibleDescription("All summaries combined");
         } catch (Exception ex) {
             logger.debug("Failed to set synthetic chip tooltip", ex);
@@ -1089,7 +1204,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         e.consume();
                         return;
                     }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1104,7 +1219,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         e.consume();
                         return;
                     }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
                     menu.show(label, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1113,7 +1228,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    int totalFiles = (int) summaries.stream()
+                    int totalFiles = (int) renderableSummaries.stream()
                             .flatMap(f -> f.files().stream())
                             .map(ProjectFile::toString)
                             .distinct()
@@ -1122,8 +1237,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
                     // Concatenate all summary text like the copy operation does
                     StringBuilder combinedText = new StringBuilder();
-                    for (var summary : summaries) {
-                        combinedText.append(summary.text()).append("\n\n");
+                    for (var summary : renderableSummaries) {
+                        try {
+                            combinedText.append(summary.text()).append("\n\n");
+                        } catch (Exception ex) {
+                            logger.debug("Error reading summary text for preview", ex);
+                        }
                     }
 
                     // Display in a regular PreviewTextPanel like other text content
@@ -1165,7 +1284,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         e.consume();
                         return;
                     }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1180,7 +1299,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         e.consume();
                         return;
                     }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
                     menu.show(close, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1201,7 +1320,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 }
 
                 contextManager.submitContextTask(() -> {
-                    contextManager.dropWithHistorySemantics(summaries);
+                    contextManager.dropWithHistorySemantics(renderableSummaries);
                 });
             }
         });
@@ -1219,7 +1338,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.add(close);
 
-        chip.putClientProperty("brokk.fragments", Set.copyOf(summaries));
+        chip.putClientProperty("brokk.fragments", Set.copyOf(renderableSummaries));
         chip.putClientProperty("brokk.chip.closeButton", close);
         chip.putClientProperty("brokk.chip.label", label);
         chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
@@ -1231,7 +1350,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseEntered(MouseEvent e) {
                 if (hoverCounter[0]++ == 0 && onHover != null) {
-                    for (var summary : summaries) {
+                    for (var summary : renderableSummaries) {
                         try {
                             onHover.accept(summary, true);
                         } catch (Exception ex) {
@@ -1244,7 +1363,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseExited(MouseEvent e) {
                 if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
-                    for (var summary : summaries) {
+                    for (var summary : renderableSummaries) {
                         try {
                             onHover.accept(summary, false);
                         } catch (Exception ex) {
@@ -1269,7 +1388,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         e.consume();
                         return;
                     }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1284,7 +1403,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         e.consume();
                         return;
                     }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(summaries);
+                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
                     menu.show(chip, e.getX(), e.getY());
                     e.consume();
                 }
@@ -1309,11 +1428,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     }
 
                     contextManager.submitContextTask(() -> {
-                        contextManager.dropWithHistorySemantics(summaries);
+                        contextManager.dropWithHistorySemantics(renderableSummaries);
                     });
                 } else {
                     if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                        int totalFiles = (int) summaries.stream()
+                        int totalFiles = (int) renderableSummaries.stream()
                                 .flatMap(f -> f.files().stream())
                                 .map(ProjectFile::toString)
                                 .distinct()
@@ -1322,8 +1441,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
                         // Concatenate all summary text like the copy operation does
                         StringBuilder combinedText = new StringBuilder();
-                        for (var summary : summaries) {
-                            combinedText.append(summary.text()).append("\n\n");
+                        for (var summary : renderableSummaries) {
+                            try {
+                                combinedText.append(summary.text()).append("\n\n");
+                            } catch (Exception ex) {
+                                logger.debug("Error reading summary text for preview", ex);
+                            }
                         }
 
                         // Display in a regular PreviewTextPanel like other text content
