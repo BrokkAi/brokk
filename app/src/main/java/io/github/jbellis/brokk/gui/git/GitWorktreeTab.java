@@ -556,16 +556,22 @@ public class GitWorktreeTab extends JPanel {
                 JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:");
                 JComboBox<String> branchComboBox = new JComboBox<>(finalAvailableBranches.toArray(new String[0]));
                 branchComboBox.setEnabled(false);
+                // Determine whether any existing branches are available to reuse
+                boolean hasAvailableBranches = !finalAvailableBranches.isEmpty();
 
                 ButtonGroup group = new ButtonGroup();
                 group.add(createNewBranchRadio);
                 group.add(useExistingBranchRadio);
 
                 // If there are no available existing branches, disable that option and force create-new
-                if (finalAvailableBranches.isEmpty()) {
+                if (!hasAvailableBranches) {
                     useExistingBranchRadio.setEnabled(false);
                     branchComboBox.setEnabled(false);
                     createNewBranchRadio.setSelected(true);
+                    // Explain why the option is disabled and ensure focus is ready for creating a new branch
+                    useExistingBranchRadio.setToolTipText("No existing branches available — create a new branch.");
+                    branchComboBox.setToolTipText("No existing branches available to choose from.");
+                    newBranchNameField.requestFocusInWindow();
                 }
 
                 createNewBranchRadio.addActionListener(eL -> {
@@ -641,7 +647,7 @@ public class GitWorktreeTab extends JPanel {
                 panel.add(copyWorkspaceCheckbox, gbc);
 
                 // Inform the user in-dialog when no existing branches are available to reuse
-                if (finalAvailableBranches.isEmpty()) {
+                if (!hasAvailableBranches) {
                     gbc.gridx = 0;
                     gbc.gridy = 6;
                     gbc.gridwidth = 2;
