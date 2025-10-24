@@ -2099,14 +2099,6 @@ public class HistoryOutputPanel extends JPanel {
      */
     public void setAdvancedMode(boolean advanced) {
         Runnable r = () -> {
-            // Manage Sessions button (Sessions panel)
-            manageSessionsButton.setVisible(advanced);
-            var parent = manageSessionsButton.getParent();
-            if (parent != null) {
-                parent.revalidate();
-                parent.repaint();
-            }
-
             // Open in new window button (Output panel)
             openWindowButton.setVisible(advanced);
             var btnParent = openWindowButton.getParent();
