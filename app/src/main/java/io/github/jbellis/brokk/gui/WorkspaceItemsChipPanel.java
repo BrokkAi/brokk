@@ -193,11 +193,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         removeAll();
         chipById.clear();
 
-        // Partition into summaries vs others
+        // Filter out visually-empty fragments unless dev-mode override is enabled.
+        // The helper hasRenderableContent() encodes the conservative visibility rules.
+        var visibleFragments =
+                fragments.stream()
+                        .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
+                        .toList();
+
+        // Partition into summaries vs others (using only the visible set)
         var summaries =
-                fragments.stream().filter(f -> classify(f) == ChipKind.SUMMARY).toList();
+                visibleFragments.stream().filter(f -> classify(f) == ChipKind.SUMMARY).toList();
         var others =
-                fragments.stream().filter(f -> classify(f) != ChipKind.SUMMARY).toList();
+                visibleFragments.stream().filter(f -> classify(f) != ChipKind.SUMMARY).toList();
 
         // Add individual chips for non-summaries
         for (var fragment : others) {
@@ -324,6 +331,38 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         // OTHER: everything else
         return ChipKind.OTHER;
+    }
+
+    /**
+     * Conservative predicate deciding whether a fragment has visible/renderable content.
+     *
+     * Rules:
+     * - Always keep output fragments (history / outputs).
+     * - For text fragments: require non-null and non-blank text.
+     * - For non-text fragments: require at least an image, at least one file, or a non-empty description.
+     *
+     * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
+     */
+    private boolean hasRenderableContent(ContextFragment f) {
+        try {
+            if (f.getType().isOutput()) {
+                return true;
+            }
+            if (f.isText()) {
+                String txt = f.text();
+                return txt != null && !txt.trim().isEmpty();
+            } else {
+                boolean hasImage = f.image() != null;
+                boolean hasFiles = !f.files().isEmpty();
+                String desc = f.description();
+                boolean hasDesc = desc != null && !desc.trim().isEmpty();
+                return hasImage || hasFiles || hasDesc;
+            }
+        } catch (Exception ex) {
+            // Be conservative: if we cannot decide, render the fragment to avoid hiding useful info.
+            logger.debug("hasRenderableContent threw for fragment {}", f, ex);
+            return true;
+        }
     }
 
     // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
