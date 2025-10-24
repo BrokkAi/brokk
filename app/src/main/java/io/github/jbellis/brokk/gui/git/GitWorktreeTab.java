@@ -568,10 +568,9 @@ public class GitWorktreeTab extends JPanel {
                     useExistingBranchRadio.setEnabled(false);
                     branchComboBox.setEnabled(false);
                     createNewBranchRadio.setSelected(true);
-                    // Explain why the option is disabled and ensure focus is ready for creating a new branch
+                    // Explain why the option is disabled so users understand why the choice is unavailable.
                     useExistingBranchRadio.setToolTipText("No existing branches available — create a new branch.");
                     branchComboBox.setToolTipText("No existing branches available to choose from.");
-                    newBranchNameField.requestFocusInWindow();
                     // Informational, non-blocking notification so the user understands what will happen if they create a new branch.
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
