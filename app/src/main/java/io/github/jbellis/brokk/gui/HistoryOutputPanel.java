@@ -527,22 +527,27 @@ public class HistoryOutputPanel extends JPanel {
         return list;
     }
 
-    /** Updates the session list (if present) and the displayed current session name */
+    /** Updates the session list (if present) and the displayed current session name.
+     *
+     * NOTE: This method intentionally does not touch any JComboBox. It runs on the EDT,
+     * refreshes the session label, and if the sessionsList is present, swaps in a new
+     * DefaultListModel containing the sorted sessions and selects the active session.
+     */
     public void updateSessionComboBox() {
         SwingUtilities.invokeLater(() -> {
             var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
+            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
 
-            // Update session list model if the list UI exists
+            // If the sessions list UI exists (i.e. the menu was opened), replace its model atomically.
             if (sessionsList != null) {
-                var model = (DefaultListModel<SessionInfo>) sessionsList.getModel();
-                model.clear();
-                for (var s : sessions) model.addElement(s);
+                var newModel = new DefaultListModel<SessionInfo>();
+                for (var s : sessions) newModel.addElement(s);
+                sessionsList.setModel(newModel);
 
                 // Select current session in the list
                 var currentSessionId = contextManager.getCurrentSessionId();
-                for (int i = 0; i < model.getSize(); i++) {
-                    if (model.getElementAt(i).id().equals(currentSessionId)) {
+                for (int i = 0; i < newModel.getSize(); i++) {
+                    if (newModel.getElementAt(i).id().equals(currentSessionId)) {
                         sessionsList.setSelectedIndex(i);
                         break;
                     }
@@ -550,7 +555,7 @@ public class HistoryOutputPanel extends JPanel {
                 sessionsList.repaint();
             }
 
-            // Update the compact label display to show the active session name (ellipsized if needed)
+            // Update compact label to show the active session name (with ellipsize and tooltip)
             var currentSessionId = contextManager.getCurrentSessionId();
             String labelText = "";
             for (var s : sessions) {
@@ -563,8 +568,6 @@ public class HistoryOutputPanel extends JPanel {
                 labelText = ContextManager.DEFAULT_SESSION_NAME;
             }
 
-            // Display a truncated version in the toolbar label to keep the layout compact,
-            // but expose the full name in a tooltip.
             final String fullName = labelText;
             final int maxChars = 30;
             String display = fullName;
