@@ -2094,19 +2094,10 @@ public class HistoryOutputPanel extends JPanel {
     /**
      * Applies Advanced Mode visibility to session management UI.
      * When advanced is false (easy mode), hides:
-     * - the "Manage sessions" button
      * - the "Open the output in a new window" button
      */
     public void setAdvancedMode(boolean advanced) {
         Runnable r = () -> {
-            // Manage Sessions button (Sessions panel)
-            manageSessionsButton.setVisible(advanced);
-            var parent = manageSessionsButton.getParent();
-            if (parent != null) {
-                parent.revalidate();
-                parent.repaint();
-            }
-
             // Open in new window button (Output panel)
             openWindowButton.setVisible(advanced);
             var btnParent = openWindowButton.getParent();
