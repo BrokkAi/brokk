@@ -526,13 +526,6 @@ public class GitWorktreeTab extends JPanel {
                 availableBranches = localBranches.stream()
                         .filter(branch -> !branchesInWorktrees.contains(branch))
                         .toList();
-
-                if (availableBranches.isEmpty()) {
-                    chrome.toolError(
-                            "No available branches to create a worktree from. All local branches are already in use by worktrees.",
-                            "No Available Branches");
-                    return;
-                }
             } catch (GitAPIException e) {
                 logger.error("Error fetching initial branch information for add worktree", e);
                 SwingUtilities.invokeLater(() -> chrome.toolError(
@@ -567,6 +560,13 @@ public class GitWorktreeTab extends JPanel {
                 ButtonGroup group = new ButtonGroup();
                 group.add(createNewBranchRadio);
                 group.add(useExistingBranchRadio);
+
+                // If there are no available existing branches, disable that option and force create-new
+                if (finalAvailableBranches.isEmpty()) {
+                    useExistingBranchRadio.setEnabled(false);
+                    branchComboBox.setEnabled(false);
+                    createNewBranchRadio.setSelected(true);
+                }
 
                 createNewBranchRadio.addActionListener(eL -> {
                     newBranchNameField.setEnabled(true);
@@ -639,6 +639,20 @@ public class GitWorktreeTab extends JPanel {
                 gbc.fill = GridBagConstraints.HORIZONTAL;
                 gbc.insets = new Insets(10, 5, 5, 5);
                 panel.add(copyWorkspaceCheckbox, gbc);
+
+                // Inform the user in-dialog when no existing branches are available to reuse
+                if (finalAvailableBranches.isEmpty()) {
+                    gbc.gridx = 0;
+                    gbc.gridy = 6;
+                    gbc.gridwidth = 2;
+                    gbc.anchor = GridBagConstraints.WEST;
+                    gbc.fill = GridBagConstraints.HORIZONTAL;
+                    gbc.insets = new Insets(5, 5, 5, 5);
+                    panel.add(
+                            new JLabel(
+                                    "<html><i>No existing branches are available to reuse — please create a new branch.</i></html>"),
+                            gbc);
+                }
 
                 JOptionPane optionPane =
                         new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
