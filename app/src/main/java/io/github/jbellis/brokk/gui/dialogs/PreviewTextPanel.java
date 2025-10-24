@@ -2,8 +2,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import com.google.common.base.Splitter;
-import com.google.common.collect.Iterables;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -32,6 +30,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -331,13 +330,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
                 private void populateDynamicMenuItems() {
                     // Add "Capture usages" items if it's a project file and declarations are available
-                    if (file == null) {
-                        return;
-                    }
-                    if (fileDeclarations == null
-                            || analyzerCapabilities == null) { // Guard against null fileDeclarations
-                        logger.warn(
-                                "fileDeclarations or analyzerCapabilities is null when populating dynamic menu items. This should not happen if file is not null.");
+                    if (file == null || fileDeclarations == null || analyzerCapabilities == null) {
+                        logger.warn("Cannot populate dynamic menu items: file or futures are null.");
                         return;
                     }
 
@@ -348,126 +342,174 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         return;
                     }
 
-                    int offset = -1;
-                    var mousePos = getMousePosition(); // Position relative to this text area
-
-                    if (mousePos != null) {
-                        offset = viewToModel2D(mousePos); // Get document offset from mouse coordinates
-                    } else {
-                        // Fallback to caret position if mouse position is not available (e.g., keyboard invocation)
-                        offset = getCaretPosition();
-                    }
-
+                    int offset = (getMousePosition() != null) ? viewToModel2D(getMousePosition()) : getCaretPosition();
                     if (offset < 0) {
-                        logger.warn(
-                                "Could not determine valid document offset from mouse position {} or caret", mousePos);
+                        logger.warn("Could not determine valid document offset from mouse position or caret");
                         return;
                     }
 
-                    Set<CodeUnit> codeUnits;
-                    Map<Language, AnalyzerCapabilities> capabilitiesMap;
                     try {
-                        codeUnits = fileDeclarations.get();
-                        capabilitiesMap = analyzerCapabilities.get();
+                        var codeUnits = fileDeclarations.get();
+                        var capabilitiesMap = analyzerCapabilities.get();
+                        var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
+
+                        if (analyzer == null) {
+                            var item = new JMenuItem("Waiting for Code Intelligence...");
+                            item.setEnabled(false);
+                            dynamicMenuItems.add(item);
+                            return;
+                        }
+
+                        int lineNum = getLineOfOffset(offset);
+                        var content = getText();
+                        var byteOffset = content.substring(0, offset).getBytes(StandardCharsets.UTF_8).length;
+                        var range = new IAnalyzer.Range(byteOffset, byteOffset, lineNum, lineNum, byteOffset);
+                        var maybeEnclosingUnit = analyzer.enclosingCodeUnit(file, range);
+
+                        List<JMenuItem> items;
+                        if (maybeEnclosingUnit.isPresent()) {
+                            items = createPositionalMenuItems(
+                                    maybeEnclosingUnit.get(), lineNum, offset, capabilitiesMap, analyzer);
+                        } else {
+                            items = createStringMatchingMenuItems(
+                                    codeUnits, lineNum, offset, capabilitiesMap, analyzer);
+                        }
+                        dynamicMenuItems.addAll(items);
+
                     } catch (InterruptedException | ExecutionException ex) {
                         throw new RuntimeException(ex);
-                    }
-                    try {
-                        int lineNum = getLineOfOffset(offset);
-                        int lineStartOffset = getLineStartOffset(lineNum);
-                        int lineEndOffset = getLineEndOffset(lineNum);
-                        // Determine the identifier (token) that the mouse is currently over
-                        var token = getTokenListForLine(lineNum);
-                        String clickedIdentifier = null;
-                        while (token != null && token.getType() != TokenTypes.NULL) {
-                            int tokenStart = token.getOffset();
-                            int tokenEnd = tokenStart + token.length();
-                            if (offset >= tokenStart && offset < tokenEnd) {
-                                clickedIdentifier = token.getLexeme();
-                                break;
-                            }
-                            token = token.getNextToken();
-                        }
-
-                        // Fallback: use the entire line text when we cannot determine a single token
-                        if (clickedIdentifier == null) {
-                            clickedIdentifier = getText(lineStartOffset, lineEndOffset - lineStartOffset)
-                                    .trim();
-                        }
-
-                        if (!clickedIdentifier.isEmpty()) {
-                            var addedShortNames = new HashMap<String, CodeUnit>();
-                            for (CodeUnit unit : codeUnits) {
-                                var identifier = unit.identifier();
-                                // in the case of nested classes, etc.
-                                var simpleIdentifier = Arrays.stream(identifier.split("[$.]"))
-                                        .toList()
-                                        .getLast();
-
-                                // Always prefer the class over constructor here
-                                if (identifier.equals(clickedIdentifier)
-                                        || simpleIdentifier.equals(clickedIdentifier)) {
-                                    // Exact match with the clicked token
-                                    addedShortNames.compute(
-                                            clickedIdentifier,
-                                            (key, value) -> value == null ? unit : value.isClass() ? value : unit);
-                                } else {
-                                    // Fallback: does the clicked text contain this identifier as a whole word?
-                                    var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
-                                    if (p.matcher(clickedIdentifier).find()) {
-                                        addedShortNames.compute(
-                                                clickedIdentifier,
-                                                (key, value) -> value == null ? unit : value.isClass() ? value : unit);
-                                    }
-                                }
-                            }
-
-                            for (String identifier : addedShortNames.keySet()) {
-                                // Specific to some languages, the constructor is the name of the type and may come
-                                // up when clicking on the type. These both refer to the same usages, thus will be
-                                // duplicates.
-                                final var codeUnit = addedShortNames.get(identifier);
-                                final String extension;
-                                if (file.getFileName().contains(".")) {
-                                    extension = Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
-                                } else {
-                                    extension = null;
-                                }
-
-                                capabilitiesMap.entrySet().stream()
-                                        .filter(entry ->
-                                                entry.getKey().getExtensions().contains(extension))
-                                        .findFirst()
-                                        .ifPresent(entry -> {
-                                            final var capabilities = entry.getValue();
-                                            var usagesAvailable = capabilities.hasUsages();
-                                            createUsagesMenuItems(identifier, usagesAvailable, codeUnit);
-
-                                            var analyzer =
-                                                    cm.getAnalyzerWrapper().getNonBlocking();
-                                            boolean sourceCodeAvailable = analyzer != null
-                                                    && SourceCaptureUtil.isSourceCaptureAvailable(
-                                                            codeUnit, capabilities.hasSource(), analyzer);
-                                            createSourceMenuItems(identifier, sourceCodeAvailable, codeUnit, analyzer);
-                                        });
-                            }
-                        }
-                    } catch (BadLocationException ex) {
-                        logger.warn(
-                                "Error getting line text for usage capture menu items based on offset {}", offset, ex);
+                    } catch (BadLocationException e) {
+                        logger.warn("Could not create context menu items for offset {}.", offset, e);
                     }
                 }
 
-                private void createSourceMenuItems(
+                private List<JMenuItem> createPositionalMenuItems(
+                        CodeUnit unit,
+                        int lineNum,
+                        int offset,
+                        Map<Language, AnalyzerCapabilities> capabilitiesMap,
+                        IAnalyzer analyzer)
+                        throws BadLocationException {
+                    // We have a unit by position. We still need an identifier from text for display.
+                    var token = getTokenListForLine(lineNum);
+                    String clickedIdentifier = null;
+                    while (token != null && token.getType() != TokenTypes.NULL) {
+                        int tokenStart = token.getOffset();
+                        int tokenEnd = tokenStart + token.length();
+                        if (offset >= tokenStart && offset < tokenEnd) {
+                            clickedIdentifier = token.getLexeme();
+                            break;
+                        }
+                        token = token.getNextToken();
+                    }
+
+                    if (clickedIdentifier == null) {
+                        // Fallback to unit's short name if we can't get a token
+                        clickedIdentifier = unit.shortName();
+                        if (clickedIdentifier.endsWith("$")) { // for display purposes
+                            clickedIdentifier = clickedIdentifier.substring(0, clickedIdentifier.length() - 1);
+                        }
+                    }
+
+                    var items = new ArrayList<JMenuItem>();
+                    addMenuItemsForCodeUnit(items, clickedIdentifier, unit, capabilitiesMap, analyzer);
+                    return items;
+                }
+
+                private List<JMenuItem> createStringMatchingMenuItems(
+                        Set<CodeUnit> codeUnits,
+                        int lineNum,
+                        int offset,
+                        Map<Language, AnalyzerCapabilities> capabilitiesMap,
+                        IAnalyzer analyzer)
+                        throws BadLocationException {
+                    // Determine the identifier (token) that the mouse is currently over
+                    var token = getTokenListForLine(lineNum);
+                    String clickedIdentifier = null;
+                    while (token != null && token.getType() != TokenTypes.NULL) {
+                        int tokenStart = token.getOffset();
+                        int tokenEnd = tokenStart + token.length();
+                        if (offset >= tokenStart && offset < tokenEnd) {
+                            clickedIdentifier = token.getLexeme();
+                            break;
+                        }
+                        token = token.getNextToken();
+                    }
+
+                    // Fallback: use the entire line text when we cannot determine a single token
+                    if (clickedIdentifier == null) {
+                        int lineStartOffset = getLineStartOffset(lineNum);
+                        int lineEndOffset = getLineEndOffset(lineNum);
+                        clickedIdentifier = getText(lineStartOffset, lineEndOffset - lineStartOffset)
+                                .trim();
+                    }
+
+                    var unitsToProcess = new HashMap<String, CodeUnit>();
+                    if (!clickedIdentifier.isEmpty()) {
+                        for (CodeUnit unit : codeUnits) {
+                            var identifier = unit.identifier();
+                            var simpleIdentifier = Arrays.stream(identifier.split("[$.]"))
+                                    .toList()
+                                    .getLast();
+
+                            if (identifier.equals(clickedIdentifier) || simpleIdentifier.equals(clickedIdentifier)) {
+                                unitsToProcess.compute(
+                                        clickedIdentifier,
+                                        (key, value) -> value == null ? unit : value.isClass() ? value : unit);
+                            } else {
+                                var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
+                                if (p.matcher(clickedIdentifier).find()) {
+                                    unitsToProcess.compute(
+                                            clickedIdentifier,
+                                            (key, value) -> value == null ? unit : value.isClass() ? value : unit);
+                                }
+                            }
+                        }
+                    }
+
+                    var items = new ArrayList<JMenuItem>();
+                    for (Map.Entry<String, CodeUnit> entry : unitsToProcess.entrySet()) {
+                        addMenuItemsForCodeUnit(items, entry.getKey(), entry.getValue(), capabilitiesMap, analyzer);
+                    }
+                    return items;
+                }
+
+                private void addMenuItemsForCodeUnit(
+                        List<JMenuItem> menuItems,
+                        String identifier,
+                        CodeUnit codeUnit,
+                        Map<Language, AnalyzerCapabilities> capabilitiesMap,
+                        @Nullable IAnalyzer analyzer) {
+                    if (file == null) {
+                        return;
+                    }
+                    final String extension = file.extension();
+                    capabilitiesMap.entrySet().stream()
+                            .filter(entry -> entry.getKey().getExtensions().contains(extension))
+                            .findFirst()
+                            .ifPresent(entry -> {
+                                final var capabilities = entry.getValue();
+                                menuItems.addAll(createUsagesMenuItems(identifier, capabilities.hasUsages(), codeUnit));
+                                boolean sourceCodeAvailable = analyzer != null
+                                        && SourceCaptureUtil.isSourceCaptureAvailable(
+                                                codeUnit, capabilities.hasSource(), analyzer);
+                                menuItems.addAll(
+                                        createSourceMenuItems(identifier, sourceCodeAvailable, codeUnit, analyzer));
+                            });
+                }
+
+                private List<JMenuItem> createSourceMenuItems(
                         String identifier,
                         boolean sourceCodeAvailable,
                         CodeUnit codeUnit,
                         @Nullable IAnalyzer analyzer) {
+                    var items = new ArrayList<JMenuItem>();
                     JMenuItem sourceItem =
                             new JMenuItem("<html>Capture source of <code>" + identifier + "</code></html>");
-                    dynamicMenuItems.add(sourceItem);
+                    items.add(sourceItem);
+                    sourceItem.setEnabled(sourceCodeAvailable);
+
                     JMenuItem constructorSourceItem = null;
-                    // In case this item is a constructor, speculatively create the variable
                     var constructorCu = new CodeUnit(
                             codeUnit.source(),
                             CodeUnitType.FUNCTION,
@@ -480,60 +522,62 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     if (hasConstructorSourceCode) {
                         constructorSourceItem = new JMenuItem(
                                 "<html>Capture source of <code>" + identifier + "</code> (constructor)</html>");
-                        dynamicMenuItems.add(constructorSourceItem);
+                        items.add(constructorSourceItem);
                         constructorSourceItem.setEnabled(sourceCodeAvailable);
                     }
 
-                    sourceItem.setEnabled(sourceCodeAvailable);
                     if (sourceCodeAvailable) {
-                        // Use shared utility for consistent behavior
-                        sourceItem.addActionListener(action -> {
-                            SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm);
-                        });
+                        sourceItem.addActionListener(
+                                action -> SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm));
                         if (constructorSourceItem != null) {
-                            constructorSourceItem.addActionListener(action -> {
-                                cm.submitBackgroundTask(
-                                        "Capture Usages",
-                                        () -> SourceCaptureUtil.captureSourceForCodeUnit(constructorCu, cm));
-                            });
+                            constructorSourceItem.addActionListener(action -> cm.submitBackgroundTask(
+                                    "Capture Source",
+                                    () -> SourceCaptureUtil.captureSourceForCodeUnit(constructorCu, cm)));
                         }
                     } else {
                         var tooltip = analyzer == null
                                 ? "Code intelligence is still initializing."
                                 : "Source capture not available for this language/symbol.";
                         sourceItem.setToolTipText(tooltip);
+                        if (constructorSourceItem != null) {
+                            constructorSourceItem.setToolTipText(tooltip);
+                        }
                     }
+                    return items;
                 }
 
-                private void createUsagesMenuItems(String identifier, boolean usagesAvailable, CodeUnit codeUnit) {
+                private List<JMenuItem> createUsagesMenuItems(
+                        String identifier, boolean usagesAvailable, CodeUnit codeUnit) {
+                    var items = new ArrayList<JMenuItem>();
                     JMenuItem usageItem =
                             new JMenuItem("<html>Capture usages of <code>" + identifier + "</code></html>");
-                    JMenuItem constructorUsageItem = null;
+                    items.add(usageItem);
                     usageItem.setEnabled(usagesAvailable);
-                    dynamicMenuItems.add(usageItem); // Track for removal
+
+                    JMenuItem constructorUsageItem = null;
                     if (codeUnit.isClass()) {
                         constructorUsageItem = new JMenuItem(
                                 "<html>Capture usages of <code>" + identifier + "</code> (constructor)</html>");
-                        dynamicMenuItems.add(constructorUsageItem);
+                        items.add(constructorUsageItem);
                         constructorUsageItem.setEnabled(usagesAvailable);
                     }
+
                     if (usagesAvailable) {
-                        // Use a local variable for the action listener lambda
-                        usageItem.addActionListener(action -> {
-                            cm.submitBackgroundTask(
-                                    "Capture Usages", () -> cm.usageForIdentifier(codeUnit.fqName(), true));
-                        });
+                        usageItem.addActionListener(action -> cm.submitBackgroundTask(
+                                "Capture Usages", () -> cm.usageForIdentifier(codeUnit.fqName(), true)));
                         if (constructorUsageItem != null) {
-                            usageItem.addActionListener(action -> {
-                                cm.submitBackgroundTask(
-                                        "Capture Usages",
-                                        () -> cm.usageForIdentifier(codeUnit.fqName() + "." + identifier, true));
-                            });
+                            constructorUsageItem.addActionListener(action -> cm.submitBackgroundTask(
+                                    "Capture Usages",
+                                    () -> cm.usageForIdentifier(codeUnit.fqName() + "." + identifier, true)));
                         }
                     } else {
-                        usageItem.setToolTipText(
-                                "Code intelligence does not support usage capturing for this language.");
+                        var tooltip = "Code intelligence does not support usage capturing for this language.";
+                        usageItem.setToolTipText(tooltip);
+                        if (constructorUsageItem != null) {
+                            constructorUsageItem.setToolTipText(tooltip);
+                        }
                     }
+                    return items;
                 }
 
                 @Override
