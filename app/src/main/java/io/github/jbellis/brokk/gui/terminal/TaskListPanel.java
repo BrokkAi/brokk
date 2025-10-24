@@ -1332,6 +1332,30 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
+     * Public entry point that triggers a "play all" run of the task list.
+     *
+     * Safe to call from any thread. Execution is dispatched to the EDT, and the method
+     * guards against starting when tasks are currently loading or when a queue is already active.
+     *
+     * This delegates to the existing internal runArchitectOnAll() flow which manages queue state and UI updates.
+     */
+    public void playAllTasks() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Do not start if tasks are still loading or a queue is already active
+                if (isLoadingTasks) return;
+                if (queueActive) return;
+
+                // Start the same flow as the existing "Play all" UI action
+                runArchitectOnAll();
+            } catch (Exception ex) {
+                // Non-fatal; log for diagnostics
+                logger.debug("playAllTasks: error starting runAll", ex);
+            }
+        });
+    }
+
+    /**
      * TransferHandler for in-place reordering via drag-and-drop. Keeps data locally and performs MOVE operations within
      * the same list.
      */
