@@ -501,9 +501,6 @@ public class SearchAgent {
         names.add("getClassSources");
         names.add("getMethodSources");
         names.add("getUsages");
-        // fixme: Analyzers do not currently support call graphs
-        //        names.add("getCallGraphTo");
-        //        names.add("getCallGraphFrom");
 
         // Text-based search
         names.add("searchSubstrings");
@@ -519,8 +516,6 @@ public class SearchAgent {
         names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
         names.add("addSymbolUsagesToWorkspace");
-        names.add("addCallGraphInToWorkspace");
-        names.add("addCallGraphOutToWorkspace");
         names.add("appendNote");
         names.add("dropWorkspaceFragments");
 

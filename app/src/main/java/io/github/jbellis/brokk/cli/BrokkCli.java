@@ -306,16 +306,6 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Name Resolution and Context Building ---
-        boolean callsAndUsagesRequired = !addCallers.isEmpty() || !addCallees.isEmpty();
-
-        if (callsAndUsagesRequired) {
-            var analyzer = cm.getAnalyzer();
-            if (!(analyzer instanceof CallGraphProvider)) {
-                System.err.println(
-                        "One or more of the requested options requires Code Intelligence, which is not available.");
-                return 1;
-            }
-        }
 
         // Resolve files and classes
         var resolvedEditFiles = resolveFiles(editFiles, "editable file");

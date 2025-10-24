@@ -439,56 +439,6 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            """
-                  Generates a call graph showing methods that call the specified target method (callers) up to a certain depth, and adds it to the Workspace.
-                  The single line of the call sites (but not full method sources) are included
-                  """)
-    public String addCallGraphInToWorkspace(
-            @P("Fully qualified target method name (e.g., 'com.example.MyClass.targetMethod') to find callers for.")
-                    String methodName,
-            @P("Maximum depth of the call graph to retrieve (e.g., 3 or 5). Higher depths can be large.")
-                    int depth // Added depth parameter
-            ) {
-        assert (getAnalyzer() instanceof CallGraphProvider) : "Cannot add call graph: CPG analyzer is not available.";
-        if (methodName.isBlank()) {
-            return "Cannot add call graph: method name is empty";
-        }
-        if (depth <= 0) {
-            return "Cannot add call graph: depth must be positive";
-        }
-
-        var fragment = new ContextFragment.CallGraphFragment(context.getContextManager(), methodName, depth, false);
-        context = context.addVirtualFragments(List.of(fragment));
-
-        return "Added call graph (callers) for '%s' (depth %d).".formatted(methodName, depth);
-    }
-
-    @Tool(
-            """
-                  Generates a call graph showing methods called by the specified source method (callees) up to a certain depth, and adds it to the workspace
-                  The single line of the call sites (but not full method sources) are included
-                  """)
-    public String addCallGraphOutToWorkspace(
-            @P("Fully qualified source method name (e.g., 'com.example.MyClass.sourceMethod') to find callees for.")
-                    String methodName,
-            @P("Maximum depth of the call graph to retrieve (e.g., 3 or 5). Higher depths can be large.")
-                    int depth // Added depth parameter
-            ) {
-        assert (getAnalyzer() instanceof CallGraphProvider) : "Cannot add call graph: CPG analyzer is not available.";
-        if (methodName.isBlank()) {
-            return "Cannot add call graph: method name is empty";
-        }
-        if (depth <= 0) {
-            return "Cannot add call graph: depth must be positive";
-        }
-
-        var fragment = new ContextFragment.CallGraphFragment(context.getContextManager(), methodName, depth, true);
-        context = context.addVirtualFragments(List.of(fragment));
-
-        return "Added call graph (callees) for '%s' (depth %d).".formatted(methodName, depth);
-    }
-
-    @Tool(
             "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
     public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
         if (markdown.isBlank()) {
