@@ -86,7 +86,6 @@ public class HistoryOutputPanel extends JPanel {
     private final MaterialButton compressButton;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
-    private final SplitButton manageSessionsButton;
     private ResetArrowLayerUI arrowLayerUI;
 
     @Nullable
@@ -225,14 +224,12 @@ public class HistoryOutputPanel extends JPanel {
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("");
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
-        this.manageSessionsButton = new SplitButton("");
-        SwingUtilities.invokeLater(() -> this.manageSessionsButton.setIcon(Icons.SETTINGS));
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
 
         var sessionControlsPanel =
-                buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton, this.manageSessionsButton);
+                buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
         // Create main history panel with session controls above activity
@@ -315,7 +312,7 @@ public class HistoryOutputPanel extends JPanel {
 
     /** Builds the session controls panel with combo box and buttons */
     private JPanel buildSessionControlsPanel(
-            JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton, SplitButton manageSessionsButton) {
+            JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -336,8 +333,7 @@ public class HistoryOutputPanel extends JPanel {
             }
         });
 
-        // Buttons panel
-        // Use BorderLayout to place buttons on opposite ends
+        // Buttons panel (west-only since the separate Manage button was removed)
         var buttonsPanel = new JPanel(new BorderLayout());
 
         // Tooltip and action listener for the new session button
@@ -348,24 +344,21 @@ public class HistoryOutputPanel extends JPanel {
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
                     .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         });
-        // Split-arrow menu → session with copied workspace
+
+        // Split-arrow menu → keep "New + Copy Workspace", then add session management actions
         newSessionButton.setMenuSupplier(() -> {
             var popup = new JPopupMenu();
+
             var copyWorkspaceItem = new JMenuItem("New + Copy Workspace");
             copyWorkspaceItem.addActionListener(ev -> {
                 contextManager
                         .createSessionFromContextAsync(contextManager.topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                        .thenRun(() ->
-                                contextManager.getProject().getMainProject().sessionsListChanged());
+                        .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
             });
             popup.add(copyWorkspaceItem);
-            return popup;
-        });
 
-        // Tooltip and action listener for the manage sessions button
-        manageSessionsButton.setToolTipText("Manage sessions (rename, delete, copy)");
-        manageSessionsButton.setMenuSupplier(() -> {
-            var popup = new JPopupMenu();
+            // Separator to clearly separate creation actions from management actions
+            popup.addSeparator();
 
             var renameItem = new JMenuItem("Rename Current Session");
             renameItem.addActionListener(
@@ -379,13 +372,8 @@ public class HistoryOutputPanel extends JPanel {
 
             return popup;
         });
-        manageSessionsButton.addActionListener(e -> {
-            var dialog = new SessionsDialog(chrome, contextManager);
-            dialog.setVisible(true);
-        });
 
         buttonsPanel.add(newSessionButton, BorderLayout.WEST);
-        buttonsPanel.add(manageSessionsButton, BorderLayout.EAST);
 
         panel.add(sessionComboBox, BorderLayout.CENTER);
         panel.add(buttonsPanel, BorderLayout.SOUTH);
