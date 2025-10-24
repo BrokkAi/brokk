@@ -259,6 +259,9 @@ public class Chrome
     // Container that wraps the right tabbed pane plus the header (branch button + title).
     // Declared as a field because various methods (collapse/expand etc.) reference it.
     private @Nullable JPanel rightTabbedContainer = null;
+    // Reference to the small header panel placed above the right tab stack (holds branch selector).
+    // Stored so we can toggle its visibility later (e.g. in applyAdvancedModeVisibility()).
+    private @Nullable JPanel rightTabbedHeader = null;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -517,6 +520,8 @@ public class Chrome
         var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Branch");
         var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
         headerPanel.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
+        // Keep a reference to this header so it can be shown/hidden by mode toggles later.
+        this.rightTabbedHeader = headerPanel;
 
         // Branch selector button on the left
         branchSelectorButton = new BranchSelectorButton(this);
