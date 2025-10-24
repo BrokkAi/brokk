@@ -51,6 +51,7 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
+    private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -351,6 +352,14 @@ public final class GlobalUiSettings {
         setBoolean(KEY_UI_ADVANCED_MODE, advanced);
     }
 
+    // Instructions panel preferences
+    public static boolean isInstructionsTabInsertIndentation() {
+        return getBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, false);
+    }
+
+    public static void saveInstructionsTabInsertIndentation(boolean enabled) {
+        setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
+    }
     private static int getInt(String key) {
         var props = loadProps();
         try {
