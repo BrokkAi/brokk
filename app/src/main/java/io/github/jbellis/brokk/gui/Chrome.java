@@ -2921,6 +2921,19 @@ public class Chrome
 
             rightTabbedPanel.revalidate();
             rightTabbedPanel.repaint();
+
+            // Show/hide the small header above the right tab stack (e.g. branch selector)
+            try {
+                if (rightTabbedHeader != null) {
+                    rightTabbedHeader.setVisible(advanced);
+                    if (rightTabbedContainer != null) {
+                        rightTabbedContainer.revalidate();
+                        rightTabbedContainer.repaint();
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("Failed to update rightTabbedHeader visibility", ex);
+            }
         };
 
         if (SwingUtilities.isEventDispatchThread()) {
