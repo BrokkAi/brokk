@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.util.migrationv4.V3_FragmentDtos.*;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -148,9 +149,8 @@ public class V3_DtoMapper {
                         reader.readContent(gfd.contentId()),
                         gfd.id());
             case V3_FragmentDtos.FrozenFragmentDto ffd -> {
-                V3_FrozenFragment frozenFragment;
                 // TODO: [Migration4] Frozen fragments are to be replaced and mapped to "Fragments"
-                frozenFragment = V3_FrozenFragment.fromDto(
+                yield FrozenFragment.fromDto(
                         ffd.id(),
                         mgr,
                         ContextFragment.FragmentType.valueOf(ffd.originalType()),
@@ -166,7 +166,6 @@ public class V3_DtoMapper {
                         ffd.originalClassName(),
                         ffd.meta(),
                         ffd.repr());
-                yield frozenFragment;
             }
         };
     }
@@ -196,7 +195,7 @@ public class V3_DtoMapper {
                     logger.info("Skipping deprecated BuildFragment during deserialization: {}", ffd.id());
                     yield null;
                 }
-                yield (V3_FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+                yield (ContextFragment.VirtualFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
             }
             case V3_FragmentDtos.SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
@@ -249,7 +248,7 @@ public class V3_DtoMapper {
                         logger.error("Image bytes not found for fragment: {}", pasteImageDto.id());
                         yield null;
                     }
-                    var image = V3_FrozenFragment.bytesToImage(imageBytes);
+                    var image = FrozenFragment.bytesToImage(imageBytes);
                     yield new ContextFragment.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,

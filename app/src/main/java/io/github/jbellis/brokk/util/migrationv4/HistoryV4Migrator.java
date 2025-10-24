@@ -23,7 +23,7 @@ public class HistoryV4Migrator {
     private static final Logger logger = LogManager.getLogger(HistoryV4Migrator.class);
 
     public static void migrate(Path zip, IContextManager mgr) throws IOException {
-        logger.info("Migrating history file to V3 format: {}", zip);
+        logger.info("Migrating history file to V4 format: {}", zip);
 
         var manifestBytes = readManifest(zip);
 
