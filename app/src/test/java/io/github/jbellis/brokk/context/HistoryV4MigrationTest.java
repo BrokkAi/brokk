@@ -16,6 +16,18 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
+/**
+ * Test suite for verifying the migration of V3 history zip files to the V4 format.
+ *
+ * <p>This test class focuses on the integrity of the migration process itself, ensuring that {@link
+ * io.github.jbellis.brokk.util.migrationv4.HistoryV4Migrator} can process various V3 archives
+ * without throwing exceptions. It uses a parameterized test to run the migration on a collection of
+ * V3 zip files, each containing different fragment types and history states.
+ *
+ * <p>This differs from {@link HistoryIoV3CompatibilityTest}, which is responsible for verifying the
+ * correctness of reading and deserializing a V3-formatted zip file into modern V4 in-memory
+ * objects, but does not test the file-to-file migration process.
+ */
 class HistoryV4MigrationTest {
     @TempDir
     Path tempDir;
@@ -43,20 +55,26 @@ class HistoryV4MigrationTest {
             try (FileSystem fileSystem = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
                 resourcePath = fileSystem.getPath(resourceFolder);
                 // Need to collect to a list as the filesystem is closed
-                return Files.walk(resourcePath, 1)
+                try (var paths = Files.walk(resourcePath, 1)) {
+                    return paths
+                            .filter(path -> path.toString().endsWith(".zip"))
+                            .map(path -> path.getFileName().toString())
+                            .sorted()
+                            .toList()
+                            .stream();
+                }
+            }
+        } else {
+            resourcePath = Paths.get(uri);
+            try (var paths = Files.walk(resourcePath, 1)) {
+                return paths
+                        .filter(Files::isRegularFile)
                         .filter(path -> path.toString().endsWith(".zip"))
                         .map(path -> path.getFileName().toString())
                         .sorted()
                         .toList()
                         .stream();
             }
-        } else {
-            resourcePath = Paths.get(uri);
-            return Files.walk(resourcePath, 1)
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".zip"))
-                    .map(path -> path.getFileName().toString())
-                    .sorted();
         }
     }
 
