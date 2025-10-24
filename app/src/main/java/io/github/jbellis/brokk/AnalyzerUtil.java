@@ -7,9 +7,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * String-based convenience methods for analyzer capabilities. All methods convert
- * String FQNs to {@link io.github.jbellis.brokk.analyzer.CodeUnit} via
- * {@code getDefinition()}, then delegate to CodeUnit-native provider methods.
+ * String-based convenience methods for analyzer capabilities.
  * If you already have a CodeUnit, call the provider directly.
  */
 public class AnalyzerUtil {

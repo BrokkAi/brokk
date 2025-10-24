@@ -1170,7 +1170,6 @@ public interface ContextFragment {
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
-        private transient FuzzyResult.EitherUsagesOrError cachedUsageResult; // Lazy cache for fuzzy finder result
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, true);
@@ -1181,7 +1180,6 @@ public interface ContextFragment {
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
-            this.cachedUsageResult = null; // Will be lazily initialized
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
@@ -1195,17 +1193,6 @@ public interface ContextFragment {
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
-            this.cachedUsageResult = null; // Will be lazily initialized
-        }
-
-        /** Lazily finds and caches the usage result */
-        private FuzzyResult.EitherUsagesOrError getUsageResult() {
-            if (cachedUsageResult == null) {
-                FuzzyResult usageResult =
-                        FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
-                cachedUsageResult = usageResult.toEither();
-            }
-            return cachedUsageResult;
         }
 
         @Override
@@ -1219,8 +1206,9 @@ public interface ContextFragment {
             if (analyzer.isEmpty()) {
                 return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
             }
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
-            var either = getUsageResult();
+            var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
                 return either.getErrorMessage();
             }
@@ -1254,8 +1242,9 @@ public interface ContextFragment {
             if (analyzer.isEmpty()) {
                 return Collections.emptySet();
             }
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
-            var either = getUsageResult();
+            var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
                 return Collections.emptySet();
             }
@@ -1404,7 +1393,6 @@ public interface ContextFragment {
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
-        private transient Optional<CodeUnit> cachedMethodCodeUnit; // Lazy cache for methodName lookup
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(contextManager); // Assigns dynamic numeric String ID
@@ -1413,7 +1401,6 @@ public interface ContextFragment {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
-            this.cachedMethodCodeUnit = null; // Will be lazily initialized
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
@@ -1429,16 +1416,6 @@ public interface ContextFragment {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
-            this.cachedMethodCodeUnit = null; // Will be lazily initialized
-        }
-
-        /** Lazily looks up and caches the CodeUnit for methodName */
-        private Optional<CodeUnit> getMethodCodeUnit() {
-            if (cachedMethodCodeUnit == null) {
-                IAnalyzer analyzer = getAnalyzer();
-                cachedMethodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
-            }
-            return cachedMethodCodeUnit;
         }
 
         @Override
@@ -1449,7 +1426,7 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            var methodCodeUnit = getMethodCodeUnit();
+            var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
 
             if (methodCodeUnit.isEmpty()) {
                 return "Method not found: " + methodName;
@@ -1482,7 +1459,8 @@ public interface ContextFragment {
 
         @Override
         public Set<CodeUnit> sources() {
-            return getMethodCodeUnit()
+            IAnalyzer analyzer = getAnalyzer();
+            return analyzer.getDefinition(methodName)
                     .flatMap(CodeUnit::classUnit) // Get the containing class CodeUnit
                     .map(Set::of)
                     .orElse(Set.of());
