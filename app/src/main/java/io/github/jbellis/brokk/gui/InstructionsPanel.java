@@ -636,6 +636,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
 
+        // Ensure focusable for keyboard accessibility
+        micButton.setFocusable(true);
+        wandButton.setFocusable(true);
+
         // Add icons left-to-right, with a small gap between them
         topBarPanel.add(micButton);
         topBarPanel.add(Box.createHorizontalStrut(H_GAP));
