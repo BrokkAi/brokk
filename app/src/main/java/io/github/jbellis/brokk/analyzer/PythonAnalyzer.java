@@ -124,13 +124,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     String previousAssignment = fieldAssignments.put(fileKey + "." + simpleName, finalShortName);
 
                     if (previousAssignment != null) {
-                        // This is a duplicate assignment, log at TRACE level and skip creating CodeUnit
+                        // This is a duplicate assignment - log at TRACE level but create CodeUnit anyway
+                        // TreeSitterAnalyzer will replace the previous CodeUnit due to same FQName
                         log.trace(
-                                "Python duplicate field assignment in file {}: {} (previous: {})",
+                                "Python duplicate field assignment in file {}: {} (previous: {}), creating new CodeUnit to replace previous",
                                 file.getFileName(),
                                 simpleName,
                                 previousAssignment);
-                        yield null;
                     }
                 }
 

@@ -1384,7 +1384,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
-                log.debug("createCodeUnit returned null for node {} ({}) in file {}", simpleName, primaryCaptureName, file.getFileName());
+                log.debug(
+                        "createCodeUnit returned null for node {} ({}) in file {}",
+                        simpleName,
+                        primaryCaptureName,
+                        file.getFileName());
                 continue;
             }
 
