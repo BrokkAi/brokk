@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
-import static org.junit.jupiter.api.Assertions.*;
+import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.analyzer.Languages;
 
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
@@ -10,6 +11,9 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static io.github.jbellis.brokk.testutil.TestProject.*;
 
 public final class PythonAnalyzerTest {
 
@@ -80,9 +84,9 @@ public final class PythonAnalyzerTest {
                 declarationsInA.contains(funcA_CU),
                 "getDeclarationsInFile mismatch for file A: missing funcA_CU. Found: " + declarationsInA);
         // Add other expected CUs if necessary for a more complete check, e.g., methods of classA_CU
-        assertTrue(ana.getSkeleton(funcA_CU.fqName()).isPresent(), "Skeleton for funcA_CU should be present");
+        assertTrue(ana.getSkeleton(funcA_CU).isPresent(), "Skeleton for funcA_CU should be present");
         assertEquals(
-                funcASummary.trim(), ana.getSkeleton(funcA_CU.fqName()).get().trim(), "getSkeleton mismatch for funcA");
+                funcASummary.trim(), ana.getSkeleton(funcA_CU).get().trim(), "getSkeleton mismatch for funcA");
     }
 
     @Test
@@ -143,7 +147,7 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with preceding comment (use correct FQN format)
-        Optional<String> classSourceOpt = analyzer.getClassSource("DocumentedClass", true);
+        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "DocumentedClass", true);
         assertTrue(classSourceOpt.isPresent(), "DocumentedClass should be found");
 
         String normalizedSource = normalize.apply(classSourceOpt.get());
@@ -155,7 +159,7 @@ public final class PythonAnalyzerTest {
         assertTrue(normalizedSource.contains("\"\"\""), "Class source should include class docstring");
 
         // Test nested class with comments (use correct FQN format)
-        Optional<String> innerClassSourceOpt = analyzer.getClassSource("OuterClass$InnerClass", true);
+        Optional<String> innerClassSourceOpt = AnalyzerUtil.getClassSource(analyzer, "OuterClass$InnerClass", true);
         assertTrue(innerClassSourceOpt.isPresent(), "OuterClass$InnerClass should be found");
 
         String normalizedInnerSource = normalize.apply(innerClassSourceOpt.get());
@@ -179,7 +183,7 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test standalone function with docstring
-        Optional<String> functionSource = analyzer.getMethodSource("documented.standalone_function", true);
+        Optional<String> functionSource = AnalyzerUtil.getMethodSource(analyzer, "documented.standalone_function", true);
         assertTrue(functionSource.isPresent(), "standalone_function should be found");
 
         String normalizedFunctionSource = normalize.apply(functionSource.get());
@@ -189,7 +193,7 @@ public final class PythonAnalyzerTest {
         assertTrue(normalizedFunctionSource.contains("\"\"\""), "Function source should include docstring");
 
         // Test method with preceding comment (use correct FQN format)
-        Optional<String> methodSource = analyzer.getMethodSource("DocumentedClass.get_value", true);
+        Optional<String> methodSource = AnalyzerUtil.getMethodSource(analyzer, "DocumentedClass.get_value", true);
         assertTrue(methodSource.isPresent(), "get_value method should be found");
 
         String normalizedMethodSource = normalize.apply(methodSource.get());
@@ -203,7 +207,7 @@ public final class PythonAnalyzerTest {
         assertTrue(normalizedMethodSource.contains("\"\"\""), "Method source should include method docstring");
 
         // Test static method with comment (use correct FQN format)
-        Optional<String> staticMethodSource = analyzer.getMethodSource("DocumentedClass.utility_method", true);
+        Optional<String> staticMethodSource = AnalyzerUtil.getMethodSource(analyzer, "DocumentedClass.utility_method", true);
         assertTrue(staticMethodSource.isPresent(), "utility_method should be found");
 
         String normalizedStaticSource = normalize.apply(staticMethodSource.get());
@@ -217,7 +221,7 @@ public final class PythonAnalyzerTest {
                 "Static method source should include method definition");
 
         // Test class method with comment (use correct FQN format)
-        Optional<String> classMethodSource = analyzer.getMethodSource("DocumentedClass.create_default", true);
+        Optional<String> classMethodSource = AnalyzerUtil.getMethodSource(analyzer, "DocumentedClass.create_default", true);
         assertTrue(classMethodSource.isPresent(), "create_default should be found");
 
         String normalizedClassMethodSource = normalize.apply(classMethodSource.get());
@@ -238,7 +242,7 @@ public final class PythonAnalyzerTest {
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         // Test constructor with comment (use correct FQN format)
-        Optional<String> constructorSource = analyzer.getMethodSource("DocumentedClass.__init__", true);
+        Optional<String> constructorSource = AnalyzerUtil.getMethodSource(analyzer, "DocumentedClass.__init__", true);
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
 
         Function<String, String> normalize =
@@ -254,7 +258,7 @@ public final class PythonAnalyzerTest {
                 "Constructor source should include method definition");
 
         // Test nested class method (use correct FQN format)
-        Optional<String> innerMethodSource = analyzer.getMethodSource("OuterClass.InnerClass.inner_method", true);
+        Optional<String> innerMethodSource = AnalyzerUtil.getMethodSource(analyzer, "OuterClass.InnerClass.inner_method", true);
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
@@ -277,8 +281,8 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class source with and without comments
-        Optional<String> classSourceWithComments = analyzer.getClassSource("DocumentedClass", true);
-        Optional<String> classSourceWithoutComments = analyzer.getClassSource("DocumentedClass", false);
+        Optional<String> classSourceWithComments = AnalyzerUtil.getClassSource(analyzer, "DocumentedClass", true);
+        Optional<String> classSourceWithoutComments = AnalyzerUtil.getClassSource(analyzer, "DocumentedClass", false);
 
         assertTrue(classSourceWithComments.isPresent(), "Class source with comments should be present");
         assertTrue(classSourceWithoutComments.isPresent(), "Class source without comments should be present");
@@ -305,8 +309,8 @@ public final class PythonAnalyzerTest {
                 "Class source without comments should include class definition");
 
         // Test method source with and without comments
-        Optional<String> methodSourceWithComments = analyzer.getMethodSource("DocumentedClass.get_value", true);
-        Optional<String> methodSourceWithoutComments = analyzer.getMethodSource("DocumentedClass.get_value", false);
+        Optional<String> methodSourceWithComments = AnalyzerUtil.getMethodSource(analyzer, "DocumentedClass.get_value", true);
+        Optional<String> methodSourceWithoutComments = AnalyzerUtil.getMethodSource(analyzer, "DocumentedClass.get_value", false);
 
         assertTrue(methodSourceWithComments.isPresent(), "Method source with comments should be present");
         assertTrue(methodSourceWithoutComments.isPresent(), "Method source without comments should be present");

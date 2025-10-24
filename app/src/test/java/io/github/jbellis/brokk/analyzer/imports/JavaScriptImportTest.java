@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer.imports;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
@@ -30,7 +31,7 @@ public class JavaScriptImportTest {
                         "foo.js")
                 .build()) {
             var analyzer = createAnalyzer(testProject);
-            var file = analyzer.getFileFor("foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of(
                     "import { Something, AnotherThing as AT } from './another-module';",

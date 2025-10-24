@@ -736,7 +736,7 @@ public class EditBlock {
         var scp = scpOpt.get();
 
         if ("CLASS".equals(kind)) {
-            Optional<String> opt = scp.getClassSource(fqName, true);
+            Optional<String> opt = AnalyzerUtil.getClassSource(analyzer, fqName, true);
             if (opt.isEmpty()) {
                 var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                 var suggestions = analyzer.searchDefinitions(shortName).stream()
@@ -754,7 +754,7 @@ public class EditBlock {
         } else {
             Set<String> sources;
             try {
-                sources = scp.getMethodSources(fqName, true);
+                sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
             } catch (io.github.jbellis.brokk.analyzer.SymbolNotFoundException e) {
                 sources = Collections.emptySet();
             }

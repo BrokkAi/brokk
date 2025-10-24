@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer.update;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.*;
@@ -53,7 +55,7 @@ class CSharpAnalyzerUpdateTest {
                 }
                 """);
 
-        var file = analyzer.getFileFor("TestNs.A").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "TestNs.A").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
 
         assertTrue(analyzer.getDefinition("TestNs.A.Method2").isPresent());
@@ -75,7 +77,7 @@ class CSharpAnalyzerUpdateTest {
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("TestNs.A.Method3").isPresent());
 
-        var file = analyzer.getFileFor("TestNs.A").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "TestNs.A").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("TestNs.A").isEmpty());

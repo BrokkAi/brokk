@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer.update;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.*;
@@ -45,7 +47,7 @@ class TypescriptAnalyzerUpdateTest {
                 export function bar(): number { return 2; }
                 """);
 
-        var file = analyzer.getFileFor("foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
 
         assertTrue(analyzer.getDefinition("bar").isPresent());
@@ -63,7 +65,7 @@ class TypescriptAnalyzerUpdateTest {
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("baz").isPresent());
 
-        var file = analyzer.getFileFor("foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo").isEmpty());

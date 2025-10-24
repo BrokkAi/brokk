@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
-import static org.junit.jupiter.api.Assertions.*;
+import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.analyzer.Languages;
 
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.testutil.TestProject;
@@ -11,6 +12,9 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static io.github.jbellis.brokk.testutil.TestProject.*;
 
 public final class CSharpAnalyzerTest {
     private static final Function<String, String> normalizeSource =
@@ -73,7 +77,7 @@ public final class CSharpAnalyzerTest {
                         + declarationsInA_Cs);
         // Potentially add checks for members of classA_CU like MyField, MyProperty, MethodA if they are expected in
         // getDeclarationsInFile
-        var classASkeletonOpt = analyzer.getSkeleton(classA_CU.fqName());
+        var classASkeletonOpt = AnalyzerUtil.getSkeleton(analyzer, classA_CU.fqName());
         assertTrue(
                 classASkeletonOpt.isPresent(),
                 "Skeleton for classA fqName '" + classA_CU.fqName() + "' should be found.");
@@ -163,7 +167,7 @@ public final class CSharpAnalyzerTest {
 
         // Case 1: Single method (Constructor in this case, as it's simple and unique)
         // FQName for constructor of class A in TestNamespace is "TestNamespace.A.<init>"
-        Optional<String> constructorSourceOpt = analyzer.getMethodSource("TestNamespace.A.<init>", true);
+        Optional<String> constructorSourceOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.<init>", true);
         assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.<init> should be present.");
         String expectedConstructorSource =
                 """
@@ -179,7 +183,7 @@ public final class CSharpAnalyzerTest {
                 "Constructor A.<init> source mismatch.");
 
         // Case 2: Multiple overloads for TestNamespace.A.MethodA
-        Optional<String> methodASourcesOpt = analyzer.getMethodSource("TestNamespace.A.MethodA", true);
+        Optional<String> methodASourcesOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.MethodA", true);
         assertTrue(methodASourcesOpt.isPresent(), "Sources for TestNamespace.A.MethodA overloads should be present.");
 
         String expectedMethodAOverload1Source =
@@ -206,12 +210,12 @@ public final class CSharpAnalyzerTest {
                 "Combined sources for TestNamespace.A.MethodA mismatch.");
 
         // Case 3: Non-existent method
-        Optional<String> nonExistentSourceOpt = analyzer.getMethodSource("TestNamespace.A.NonExistentMethod", true);
+        Optional<String> nonExistentSourceOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.NonExistentMethod", true);
         assertFalse(nonExistentSourceOpt.isPresent(), "Source for non-existent method should be empty.");
 
         // Case 4: Method in a nested namespace class
         Optional<String> nestedMethodSourceOpt =
-                analyzer.getMethodSource("Outer.Inner.MyNestedClass.NestedMethod", true);
+                AnalyzerUtil.getMethodSource(analyzer, "Outer.Inner.MyNestedClass.NestedMethod", true);
         assertTrue(
                 nestedMethodSourceOpt.isPresent(),
                 "Source for Outer.Inner.MyNestedClass.NestedMethod should be present.");
@@ -275,7 +279,7 @@ public final class CSharpAnalyzerTest {
                 "Interface skeleton mismatch.");
 
         // Verify getSkeleton for the interface FQ name
-        Optional<String> ifaceSkeletonOpt = analyzer.getSkeleton(ifaceCU.fqName());
+        Optional<String> ifaceSkeletonOpt = AnalyzerUtil.getSkeleton(analyzer, ifaceCU.fqName());
         assertTrue(ifaceSkeletonOpt.isPresent(), "Skeleton for IAssetRegistrySA FQ name should be found.");
         assertEquals(
                 normalizeSource.apply(expectedIfaceSkeleton),
@@ -302,21 +306,21 @@ public final class CSharpAnalyzerTest {
                 "SkeletonFragment.description() mismatch.");
 
         // Method source extraction for interface methods
-        Optional<String> validateSourceOpt = analyzer.getMethodSource(validateCU.fqName(), true);
+        Optional<String> validateSourceOpt = AnalyzerUtil.getMethodSource(analyzer, validateCU.fqName(), true);
         assertTrue(validateSourceOpt.isPresent(), "Source for ValidateExistenceAsync should be present.");
         assertEquals(
                 normalizeSource.apply("public Task<Message> ValidateExistenceAsync(Guid assetId);"),
                 normalizeSource.apply(validateSourceOpt.get()),
                 "ValidateExistenceAsync source mismatch.");
 
-        Optional<String> canConnectSourceOpt = analyzer.getMethodSource(canConnectCU.fqName(), true);
+        Optional<String> canConnectSourceOpt = AnalyzerUtil.getMethodSource(analyzer, canConnectCU.fqName(), true);
         assertTrue(canConnectSourceOpt.isPresent(), "Source for CanConnectAsync should be present.");
         assertEquals(
                 normalizeSource.apply("public Task<bool> CanConnectAsync();"),
                 normalizeSource.apply(canConnectSourceOpt.get()),
                 "CanConnectAsync source mismatch.");
 
-        Optional<String> getDescSourceOpt = analyzer.getMethodSource(getDescCU.fqName(), true);
+        Optional<String> getDescSourceOpt = AnalyzerUtil.getMethodSource(analyzer, getDescCU.fqName(), true);
         assertTrue(getDescSourceOpt.isPresent(), "Source for GetDeliveryPointDescriptionAsync should be present.");
         assertEquals(
                 normalizeSource.apply("public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId);"),
@@ -371,7 +375,7 @@ public final class CSharpAnalyzerTest {
                 "Full qualified name should be correct without truncation");
 
         // Verify skeleton reconstruction works with proper names
-        Optional<String> handlerSkeleton = analyzer.getSkeleton(handlerClass.fqName());
+        Optional<String> handlerSkeleton = AnalyzerUtil.getSkeleton(analyzer, handlerClass.fqName());
         assertTrue(handlerSkeleton.isPresent(), "Handler skeleton should be present");
         assertTrue(
                 handlerSkeleton.get().contains("public class GetTerminationRecordByIdHandler"),

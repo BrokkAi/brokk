@@ -527,10 +527,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getSkeletonHeader(String fqName) {
-        return getDefinition(fqName).flatMap(this::getSkeletonHeader);
-    }
-
     public Optional<String> getSkeletonHeader(CodeUnit cu) {
         return Optional.of(reconstructFullSkeleton(cu, true));
     }
@@ -551,8 +547,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public boolean isDefinitionAvailable(String fqName) {
-        return allCodeUnits().anyMatch(cu -> cu.fqName().equals(fqName));
+    public boolean isDefinitionAvailable(CodeUnit cu) {
+        return allCodeUnits().anyMatch(unit -> unit.fqName().equals(cu.fqName()));
     }
 
     @Override
@@ -798,10 +794,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return getDefinition(fqName).flatMap(this::getSkeleton);
-    }
-
     public Optional<String> getSkeleton(CodeUnit cu) {
         var skeleton = reconstructFullSkeleton(cu, false);
         log.trace("getSkeleton: fqName='{}', found=true", cu.fqName());
@@ -846,10 +838,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getClassSource(String fqName, boolean includeComments) {
-        return getDefinition(fqName).filter(CodeUnit::isClass).flatMap(cu -> getClassSource(cu, includeComments));
-    }
-
     public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
         if (!cu.isClass()) {
             return Optional.empty();
@@ -877,13 +865,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return getDefinition(fqName)
-                .filter(CodeUnit::isFunction)
-                .map(cu -> getMethodSources(cu, includeComments))
-                .orElse(Collections.emptySet());
-    }
-
     public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
@@ -928,13 +909,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     @Override
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
+            Set<String> sources = getMethodSources(codeUnit, includeComments);
             if (sources.isEmpty()) {
                 return Optional.empty();
             }
             return Optional.of(String.join("\n\n", sources));
         } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName(), includeComments);
+            return getClassSource(codeUnit, includeComments);
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }

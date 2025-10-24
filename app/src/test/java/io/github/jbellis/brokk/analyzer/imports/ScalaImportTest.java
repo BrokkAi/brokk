@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer.imports;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
+
 import static io.github.jbellis.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -23,7 +25,7 @@ public class ScalaImportTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var file = analyzer.getFileFor("Foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.Baz", "import Bar");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
@@ -41,7 +43,7 @@ public class ScalaImportTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var file = analyzer.getFileFor("Foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.{Baz as Bar}");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
@@ -59,7 +61,7 @@ public class ScalaImportTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var file = analyzer.getFileFor("Foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.*");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");

@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.menu;
 
 import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -176,7 +177,7 @@ public class ContextMenuBuilder {
             var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
             var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
             if (analyzer != null
-                    && analyzer.isDefinitionAvailable(fqn)
+                    && AnalyzerUtil.isDefinitionAvailable(analyzer, fqn)
                     && analyzer.as(SourceCodeProvider.class).isPresent()) {
                 var captureSourceItem = new JMenuItem("Capture Class Source");
                 captureSourceItem.addActionListener(e -> captureClassSource(context));

@@ -168,6 +168,108 @@ public class AnalyzerUtil {
         return sources;
     }
 
+    /**
+     * Get skeleton for a symbol by fully qualified name.
+     */
+    public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
+        return analyzer.getDefinition(fqName).flatMap(cu -> analyzer.as(SkeletonProvider.class)
+                .flatMap(skp -> skp.getSkeleton(cu)));
+    }
+
+    /**
+     * Get skeleton header (class signature + fields without method bodies) for a class by name.
+     */
+    public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
+        return analyzer.getDefinition(className).flatMap(cu -> analyzer
+                .as(SkeletonProvider.class)
+                .flatMap(skp -> skp.getSkeletonHeader(cu)));
+    }
+
+    /**
+     * Get all source code versions for a method (handles overloads) by fully qualified name.
+     */
+    public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
+        return analyzer.getDefinition(fqName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
+                        .as(SourceCodeProvider.class)
+                        .map(scp -> scp.getMethodSources(cu, includeComments)))
+                .orElse(Collections.emptySet());
+    }
+
+    /**
+     * Get source code for a method by fully qualified name. If multiple versions exist (overloads), they are
+     * concatenated.
+     */
+    public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
+        return analyzer.getDefinition(fqName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
+                .as(SourceCodeProvider.class)
+                .flatMap(scp -> scp.getMethodSource(cu, includeComments)));
+    }
+
+    /**
+     * Get source code for a class by fully qualified name.
+     */
+    public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
+        return analyzer.getDefinition(fqcn).filter(CodeUnit::isClass).flatMap(cu -> analyzer
+                .as(SourceCodeProvider.class)
+                .flatMap(scp -> scp.getClassSource(cu, includeComments)));
+    }
+
+    /**
+     * Get call graph showing what calls the given method.
+     */
+    public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
+        return analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
+                        .as(CallGraphProvider.class)
+                        .map(cgp -> cgp.getCallgraphTo(cu, depth)))
+                .orElse(Collections.emptyMap());
+    }
+
+    /**
+     * Get call graph showing what the given method calls.
+     */
+    public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
+        return analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
+                        .as(CallGraphProvider.class)
+                        .map(cgp -> cgp.getCallgraphFrom(cu, depth)))
+                .orElse(Collections.emptyMap());
+    }
+
+    /**
+     * Get members (methods, fields, nested classes) of a class by fully qualified name.
+     */
+    public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
+        return analyzer.getDefinition(fqClass)
+                .filter(CodeUnit::isClass)
+                .map(analyzer::getMembersInClass)
+                .orElse(List.of());
+    }
+
+    /**
+     * Get the file containing the definition of a symbol by fully qualified name.
+     */
+    public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
+        return analyzer.getDefinition(fqName).map(analyzer::getFileFor).flatMap(f -> f);
+    }
+
+    /**
+     * Check if a definition is available for the given fully qualified name.
+     */
+    public static boolean isDefinitionAvailable(IAnalyzer analyzer, String fqName) {
+        return analyzer.getDefinition(fqName).map(analyzer::isDefinitionAvailable).orElse(false);
+    }
+
+    /**
+     * Extract the class/module/type name from a method/member reference.
+     * This is a heuristic method that uses language-specific parsing.
+     *
+     * @param analyzer The analyzer instance
+     * @param reference The reference string (e.g., "MyClass.myMethod", "std::vector::push")
+     * @return Optional containing the extracted class name, empty if none found
+     */
+    public static Optional<String> extractClassName(IAnalyzer analyzer, String reference) {
+        return analyzer.extractClassName(reference);
+    }
+
     public record CodeWithSource(String code, CodeUnit source) {
         /** Format this single CodeWithSource instance into the same textual representation used for lists. */
         public String text() {

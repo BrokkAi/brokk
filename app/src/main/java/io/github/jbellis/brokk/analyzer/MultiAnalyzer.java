@@ -100,17 +100,19 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphTo(methodName, depth))
-                .orElse(Collections.emptyMap()));
+    public Map<String, List<CallSite>> getCallgraphTo(CodeUnit method, int depth) {
+        return delegateFor(method)
+                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
+                .map(cgp -> cgp.getCallgraphTo(method, depth))
+                .orElse(Collections.emptyMap());
     }
 
     @Override
-    public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphFrom(methodName, depth))
-                .orElse(Collections.emptyMap()));
+    public Map<String, List<CallSite>> getCallgraphFrom(CodeUnit method, int depth) {
+        return delegateFor(method)
+                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
+                .map(cgp -> cgp.getCallgraphFrom(method, depth))
+                .orElse(Collections.emptyMap());
     }
 
     @Override
@@ -121,20 +123,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return getDefinition(fqName).flatMap(this::getSkeleton);
-    }
-
-    @Override
     public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
         return delegateFor(classUnit)
                 .flatMap(delegate -> delegate.as(SkeletonProvider.class))
                 .flatMap(skp -> skp.getSkeletonHeader(classUnit));
-    }
-
-    @Override
-    public Optional<String> getSkeletonHeader(String className) {
-        return getDefinition(className).filter(CodeUnit::isClass).flatMap(this::getSkeletonHeader);
     }
 
     @Override
@@ -158,23 +150,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return getDefinition(fqName)
-                .filter(CodeUnit::isFunction)
-                .map(cu -> getMethodSources(cu, includeComments))
-                .orElse(Collections.emptySet());
-    }
-
-    @Override
     public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
         return delegateFor(classUnit)
                 .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
                 .flatMap(scp -> scp.getClassSource(classUnit, includeComments));
-    }
-
-    @Override
-    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
-        return getDefinition(fqcn).filter(CodeUnit::isClass).flatMap(cu -> getClassSource(cu, includeComments));
     }
 
     @Override
@@ -192,12 +171,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public List<CodeUnit> getMembersInClass(String fqClass) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.getMembersInClass(fqClass).stream())
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
+    public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+        return delegateFor(classUnit)
+                .map(delegate -> delegate.getMembersInClass(classUnit))
+                .orElse(List.of());
     }
 
     @Override
@@ -215,18 +192,13 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<ProjectFile> getFileFor(String fqName) {
-        return findFirst(analyzer -> analyzer.getFileFor(fqName));
-    }
-
-    @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return findFirst(analyzer -> analyzer.getDefinition(fqName));
     }
 
     @Override
-    public boolean isDefinitionAvailable(String fqName) {
-        return delegates.values().stream().anyMatch(analyzer -> analyzer.isDefinitionAvailable(fqName));
+    public boolean isDefinitionAvailable(CodeUnit cu) {
+        return delegateFor(cu).map(delegate -> delegate.isDefinitionAvailable(cu)).orElse(false);
     }
 
     @Override

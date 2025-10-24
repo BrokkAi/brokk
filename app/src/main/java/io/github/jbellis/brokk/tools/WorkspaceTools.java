@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.tools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.ExceptionReporter;
 import io.github.jbellis.brokk.analyzer.*;
@@ -414,7 +415,7 @@ public class WorkspaceTools {
                 notFoundClasses.add("<blank or null>");
                 return;
             }
-            var fileOpt = analyzer.getFileFor(className);
+            var fileOpt = AnalyzerUtil.getFileFor(analyzer, className);
             if (fileOpt.isPresent()) {
                 foundFiles.add(fileOpt.get().toString());
             } else {
