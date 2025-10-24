@@ -1545,7 +1545,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
             displayAction = "Code With Plan";
         } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Ask with Search";
+            displayAction = "Lutz Mode - Agentic search & planning (baked in Amsterdam)";
         } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
             displayAction = "Ask";
         } else {
@@ -1582,7 +1582,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
             displayAction = "Code With Plan";
         } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Ask with Search";
+            displayAction = "Lutz Mode - Agentic search & planning (baked in Amsterdam)";
         } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
             displayAction = "Ask";
         } else {
