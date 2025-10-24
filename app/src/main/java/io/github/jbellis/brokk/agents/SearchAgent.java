@@ -501,8 +501,9 @@ public class SearchAgent {
         names.add("getClassSources");
         names.add("getMethodSources");
         names.add("getUsages");
-        names.add("getCallGraphTo");
-        names.add("getCallGraphFrom");
+        // fixme: Analyzers do not currently support call graphs
+        //        names.add("getCallGraphTo");
+        //        names.add("getCallGraphFrom");
 
         // Text-based search
         names.add("searchSubstrings");
