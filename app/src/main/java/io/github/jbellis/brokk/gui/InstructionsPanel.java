@@ -1886,49 +1886,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void refreshModeIndicator() {
         String mode = actionButton.getSelectedMode();
         boolean isDark = UIManager.getBoolean("laf.dark");
-        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
 
-        Color badgeBg;
-        Color badgeFg;
         Color accent;
-        String badgeText;
-
         try {
-            switch (mode) {
-                case ACTION_CODE -> {
-                    badgeText = "CODE MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
-                }
-                case ACTION_ASK -> {
-                    badgeText = "ASK MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
-                }
-                case ACTION_SEARCH -> {
-                    badgeText = "LUTZ MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
-                }
-                default -> {
-                    badgeText = "LUTZ MODE";
-                    badgeBg = new Color(0xF4C430);
-                    badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
-                    accent = new Color(0xF4C430);
-                }
-            }
+            accent = switch (mode) {
+                case ACTION_CODE -> ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
+                case ACTION_ASK -> ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
+                case ACTION_SEARCH -> ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
+                default -> new Color(0xF4C430);
+            };
         } catch (Exception ex) {
-            logger.debug("Theme color lookup failed; using fallback colors", ex);
-            badgeText = "LUTZ MODE";
-            badgeBg = new Color(0xF4C430);
-            badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
+            logger.debug("Theme color lookup failed; using fallback accent color", ex);
             accent = new Color(0xF4C430);
         }
-
-        // Mode badge removed; top-bar uses icon group instead.
 
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
