@@ -2775,6 +2775,18 @@ public class Chrome
     public void applyAdvancedModeVisibility() {
         Runnable r = () -> {
             boolean advanced = GlobalUiSettings.isAdvancedMode();
+            // Ensure the small header above the right tab stack is updated immediately.
+            try {
+                if (rightTabbedHeader != null) {
+                    rightTabbedHeader.setVisible(advanced);
+                    if (rightTabbedContainer != null) {
+                        rightTabbedContainer.revalidate();
+                        rightTabbedContainer.repaint();
+                    }
+                }
+            } catch (Exception ex) {
+                logger.debug("Failed to update rightTabbedHeader visibility (early)", ex);
+            }
             // Update session management visibility in History panel
             historyOutputPanel.setAdvancedMode(advanced);
 
