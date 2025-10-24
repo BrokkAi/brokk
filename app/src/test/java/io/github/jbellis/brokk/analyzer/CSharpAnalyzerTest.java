@@ -1,8 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.analyzer.Languages;
+import static io.github.jbellis.brokk.testutil.TestProject.*;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
@@ -12,9 +13,6 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static io.github.jbellis.brokk.testutil.TestProject.*;
 
 public final class CSharpAnalyzerTest {
     private static final Function<String, String> normalizeSource =
@@ -210,7 +208,8 @@ public final class CSharpAnalyzerTest {
                 "Combined sources for TestNamespace.A.MethodA mismatch.");
 
         // Case 3: Non-existent method
-        Optional<String> nonExistentSourceOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.NonExistentMethod", true);
+        Optional<String> nonExistentSourceOpt =
+                AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.NonExistentMethod", true);
         assertFalse(nonExistentSourceOpt.isPresent(), "Source for non-existent method should be empty.");
 
         // Case 4: Method in a nested namespace class

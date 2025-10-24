@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,8 +14,6 @@ import java.util.Set;
 import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;

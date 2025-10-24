@@ -3,7 +3,12 @@ package io.github.jbellis.brokk.analyzer;
 import java.util.List;
 import java.util.Map;
 
-/** Implemented by analyzers that can readily provide call graph analysis. */
+/**
+ * Implemented by analyzers that can readily provide call graph analysis.
+ *
+ * <p><b>API Pattern:</b> Methods accept {@link CodeUnit} parameters. For String FQNs,
+ * use {@link io.github.jbellis.brokk.AnalyzerUtil} convenience methods.
+ */
 public interface CallGraphProvider extends CapabilityProvider {
 
     /**

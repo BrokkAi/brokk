@@ -4,7 +4,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-/** Implemented by analyzers that can readily provide skeletons. */
+/**
+ * Implemented by analyzers that can readily provide skeletons.
+ *
+ * <p><b>API Pattern:</b> Methods accept {@link CodeUnit} parameters. For String FQNs,
+ * use {@link io.github.jbellis.brokk.AnalyzerUtil} convenience methods.
+ */
 public interface SkeletonProvider extends CapabilityProvider {
 
     /**

@@ -1,12 +1,10 @@
 package io.github.jbellis.brokk.analyzer.skeleton;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
-
 import static io.github.jbellis.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
@@ -39,7 +37,7 @@ public class ScalaSkeletonTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             // Provider extracted via AnalyzerUtil
-                    
+
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.Foo")
                     .ifPresentOrElse(
                             source -> assertEquals(
@@ -74,7 +72,7 @@ public class ScalaSkeletonTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             // Provider extracted via AnalyzerUtil
-                    
+
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.GenericFoo")
                     .ifPresentOrElse(
                             source -> assertEquals(
@@ -107,7 +105,7 @@ public class ScalaSkeletonTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             // Provider extracted via AnalyzerUtil
-                    
+
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.ImplicitFoo")
                     .ifPresentOrElse(
                             source -> assertEquals(
@@ -140,7 +138,7 @@ public class ScalaSkeletonTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             // Provider extracted via AnalyzerUtil
-                    
+
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.WhitespaceClass")
                     .ifPresentOrElse(
                             // Note in the following, Scala 2 braces are used

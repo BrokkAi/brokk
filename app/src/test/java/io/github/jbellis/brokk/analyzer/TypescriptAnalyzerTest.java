@@ -1,8 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.analyzer.Languages;
+import static io.github.jbellis.brokk.testutil.TestProject.*;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,9 +16,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static io.github.jbellis.brokk.testutil.TestProject.*;
 import org.junit.jupiter.api.io.TempDir;
 
 public class TypescriptAnalyzerTest {
@@ -727,8 +725,8 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testGetClassSource() throws IOException {
-        String greeterSource =
-                normalize.apply(AnalyzerUtil.getClassSource(analyzer, "Greeter", true).get());
+        String greeterSource = normalize.apply(
+                AnalyzerUtil.getClassSource(analyzer, "Greeter", true).get());
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
         assertTrue(greeterSource.contains("greeting: string;"));
@@ -736,8 +734,8 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.endsWith("}"));
 
         // Test with Point interface - could be from Hello.ts or Advanced.ts
-        String pointSource =
-                normalize.apply(AnalyzerUtil.getClassSource(analyzer, "Point", true).get());
+        String pointSource = normalize.apply(
+                AnalyzerUtil.getClassSource(analyzer, "Point", true).get());
         assertNotNull(pointSource);
         assertTrue(
                 pointSource.contains("x: number") && pointSource.contains("y: number"),
@@ -795,7 +793,8 @@ public class TypescriptAnalyzerTest {
                 helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
 
         // With distinct CodeUnits, getClassSource should work correctly without corruption
-        String pointSource = AnalyzerUtil.getClassSource(analyzer, "Point", true).get();
+        String pointSource =
+                AnalyzerUtil.getClassSource(analyzer, "Point", true).get();
 
         // The source should be a valid Point interface, not corrupted
         assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
@@ -1228,7 +1227,8 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedDeprecated.contains("async getUser"), "Method source should include method definition");
 
         // Test static method with annotations
-        Optional<String> validateConfigSource = AnalyzerUtil.getMethodSource(analyzer, "UserService.validateConfig", true);
+        Optional<String> validateConfigSource =
+                AnalyzerUtil.getMethodSource(analyzer, "UserService.validateConfig", true);
         assertTrue(validateConfigSource.isPresent(), "validateConfig static method should be found");
 
         String normalizedStatic = normalize.apply(validateConfigSource.get());

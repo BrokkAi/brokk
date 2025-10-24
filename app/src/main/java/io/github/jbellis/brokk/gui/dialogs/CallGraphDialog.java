@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.analyzer.CallGraphProvider;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;

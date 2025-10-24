@@ -3,7 +3,12 @@ package io.github.jbellis.brokk.analyzer;
 import java.util.Optional;
 import java.util.Set;
 
-/** Implemented by analyzers that can readily provide source code snippets. */
+/**
+ * Implemented by analyzers that can readily provide source code snippets.
+ *
+ * <p><b>API Pattern:</b> Methods accept {@link CodeUnit} parameters. For String FQNs,
+ * use {@link io.github.jbellis.brokk.AnalyzerUtil} convenience methods.
+ */
 public interface SourceCodeProvider extends CapabilityProvider {
 
     /**

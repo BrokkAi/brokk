@@ -1,10 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.analyzer.Languages;
-import static org.junit.jupiter.api.Assertions.*;
 import static io.github.jbellis.brokk.testutil.TestProject.*;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IProject;
 import java.io.IOException;
 import java.util.Optional;

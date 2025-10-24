@@ -1,9 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
-
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;

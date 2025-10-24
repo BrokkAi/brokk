@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
+import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
@@ -19,8 +19,6 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -545,7 +543,8 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer reports the class is not found
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var missingClassOpt = assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.NonExistentClass", true));
+        var missingClassOpt =
+                assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.NonExistentClass", true));
         assertTrue(missingClassOpt.isEmpty(), "Analyzer should report missing class A.NonExistentClass");
 
         String response =

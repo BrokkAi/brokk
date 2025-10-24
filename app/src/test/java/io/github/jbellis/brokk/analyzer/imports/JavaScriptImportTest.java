@@ -2,8 +2,8 @@ package io.github.jbellis.brokk.analyzer.imports;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;

@@ -1,11 +1,9 @@
 package io.github.jbellis.brokk.analyzer.source;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
-
 import static io.github.jbellis.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;

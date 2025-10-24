@@ -6,6 +6,12 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * String-based convenience methods for analyzer capabilities. All methods convert
+ * String FQNs to {@link io.github.jbellis.brokk.analyzer.CodeUnit} via
+ * {@code getDefinition()}, then delegate to CodeUnit-native provider methods.
+ * If you already have a CodeUnit, call the provider directly.
+ */
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
@@ -103,95 +109,29 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Retrieves method source code for the given method names.
-     *
-     * @param analyzer The Analyzer instance.
-     * @param methodNames Fully qualified method names.
-     * @return A map of method name to its source code string. Returns an empty map if no sources are found.
-     */
-    public static Map<String, String> getMethodSources(IAnalyzer analyzer, List<String> methodNames) {
-        assert analyzer instanceof SourceCodeProvider : "Analyzer is not available for getMethodSourcesData.";
-        if (methodNames.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, String> sources = new LinkedHashMap<>();
-
-        for (String methodName : methodNames) {
-            if (!methodName.isBlank()) {
-                var cuOpt = analyzer.getDefinition(methodName);
-                if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                    var cu = cuOpt.get();
-                    analyzer.as(SourceCodeProvider.class)
-                            .flatMap(scp -> scp.getMethodSource(cu, true))
-                            .ifPresent(methodSource ->
-                                    sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
-                }
-            }
-        }
-        return sources;
-    }
-
-    /**
-     * Retrieves class source code for the given class names, including filename headers.
-     *
-     * @param analyzer The Analyzer instance.
-     * @param classNames Fully qualified class names.
-     * @return A map of class name to its formatted source code string (with header). Returns an empty map if no sources
-     *     are found.
-     */
-    public static Map<String, String> getClassSources(IAnalyzer analyzer, List<String> classNames) {
-        assert analyzer instanceof SourceCodeProvider : "Analyzer is not available for getClassSourcesData.";
-        if (classNames.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, String> sources = new LinkedHashMap<>();
-
-        for (String className : classNames) {
-            if (!className.isBlank()) {
-                var cuOpt = analyzer.getDefinition(className);
-                if (cuOpt.isPresent() && cuOpt.get().isClass()) {
-                    var cu = cuOpt.get();
-                    analyzer.as(SourceCodeProvider.class)
-                            .flatMap(scp -> scp.getClassSource(cu, true))
-                            .filter(classSource -> !classSource.isEmpty())
-                            .ifPresent(classSource -> {
-                                String filename = cu.source().toString();
-                                String formattedSource = "Source code of %s (from %s):\n\n%s"
-                                        .formatted(className, filename, classSource);
-                                sources.put(className, formattedSource);
-                            });
-                }
-            }
-        }
-        return sources;
-    }
-
-    /**
      * Get skeleton for a symbol by fully qualified name.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinition(fqName).flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeleton(cu)));
+        return analyzer.getDefinition(fqName)
+                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu)));
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinition(className).flatMap(cu -> analyzer
-                .as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeletonHeader(cu)));
+        return analyzer.getDefinition(className)
+                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(cu)));
     }
 
     /**
      * Get all source code versions for a method (handles overloads) by fully qualified name.
      */
     public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinition(fqName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
-                        .as(SourceCodeProvider.class)
-                        .map(scp -> scp.getMethodSources(cu, includeComments)))
+        return analyzer.getDefinition(fqName)
+                .filter(CodeUnit::isFunction)
+                .flatMap(cu ->
+                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(cu, includeComments)))
                 .orElse(Collections.emptySet());
     }
 
@@ -200,8 +140,8 @@ public class AnalyzerUtil {
      * concatenated.
      */
     public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinition(fqName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
-                .as(SourceCodeProvider.class)
+        return analyzer.getDefinition(fqName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer.as(
+                        SourceCodeProvider.class)
                 .flatMap(scp -> scp.getMethodSource(cu, includeComments)));
     }
 
@@ -209,8 +149,8 @@ public class AnalyzerUtil {
      * Get source code for a class by fully qualified name.
      */
     public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
-        return analyzer.getDefinition(fqcn).filter(CodeUnit::isClass).flatMap(cu -> analyzer
-                .as(SourceCodeProvider.class)
+        return analyzer.getDefinition(fqcn).filter(CodeUnit::isClass).flatMap(cu -> analyzer.as(
+                        SourceCodeProvider.class)
                 .flatMap(scp -> scp.getClassSource(cu, includeComments)));
     }
 
@@ -218,9 +158,9 @@ public class AnalyzerUtil {
      * Get call graph showing what calls the given method.
      */
     public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
-                        .as(CallGraphProvider.class)
-                        .map(cgp -> cgp.getCallgraphTo(cu, depth)))
+        return analyzer.getDefinition(methodName)
+                .filter(CodeUnit::isFunction)
+                .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphTo(cu, depth)))
                 .orElse(Collections.emptyMap());
     }
 
@@ -228,9 +168,9 @@ public class AnalyzerUtil {
      * Get call graph showing what the given method calls.
      */
     public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer
-                        .as(CallGraphProvider.class)
-                        .map(cgp -> cgp.getCallgraphFrom(cu, depth)))
+        return analyzer.getDefinition(methodName)
+                .filter(CodeUnit::isFunction)
+                .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphFrom(cu, depth)))
                 .orElse(Collections.emptyMap());
     }
 
@@ -255,7 +195,9 @@ public class AnalyzerUtil {
      * Check if a definition is available for the given fully qualified name.
      */
     public static boolean isDefinitionAvailable(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinition(fqName).map(analyzer::isDefinitionAvailable).orElse(false);
+        return analyzer.getDefinition(fqName)
+                .map(analyzer::isDefinitionAvailable)
+                .orElse(false);
     }
 
     /**

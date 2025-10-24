@@ -1201,7 +1201,8 @@ public interface ContextFragment {
         /** Lazily finds and caches the usage result */
         private FuzzyResult.EitherUsagesOrError getUsageResult() {
             if (cachedUsageResult == null) {
-                FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
+                FuzzyResult usageResult =
+                        FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
                 cachedUsageResult = usageResult.toEither();
             }
             return cachedUsageResult;

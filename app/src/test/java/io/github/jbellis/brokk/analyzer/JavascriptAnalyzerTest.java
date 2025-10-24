@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static io.github.jbellis.brokk.testutil.TestProject.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.TestProject;
@@ -611,7 +611,8 @@ public final class JavascriptAnalyzerTest {
 
         // Test case 3: Non-existent class
         assertTrue(
-                AnalyzerUtil.getClassSource(jsAnalyzer, "NonExistentClass", true).isEmpty(),
+                AnalyzerUtil.getClassSource(jsAnalyzer, "NonExistentClass", true)
+                        .isEmpty(),
                 "Requesting source for a non-existent class should return Optional.empty().");
 
         // Test case 4: Existing symbol that is a function, not a class
@@ -621,7 +622,8 @@ public final class JavascriptAnalyzerTest {
 
         // Test case 5: Existing symbol that is a field, not a class
         assertTrue(
-                AnalyzerUtil.getClassSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true).isEmpty(),
+                AnalyzerUtil.getClassSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true)
+                        .isEmpty(),
                 "Requesting class source for a field symbol should return Optional.empty().");
     }
 
@@ -689,7 +691,8 @@ public final class JavascriptAnalyzerTest {
                 expectedPlainJsxFuncSource.trim(), plainJsxFuncSourceOpt.get().trim());
 
         // Test case 7: Non-existent method
-        Optional<String> nonExistentMethodSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "NonExistent.method", true);
+        Optional<String> nonExistentMethodSourceOpt =
+                AnalyzerUtil.getMethodSource(jsAnalyzer, "NonExistent.method", true);
         assertTrue(
                 nonExistentMethodSourceOpt.isEmpty(),
                 "Requesting source for a non-existent method should return Option.empty().");
@@ -701,7 +704,8 @@ public final class JavascriptAnalyzerTest {
                 "Requesting method source for a class symbol should return Option.empty().");
 
         // Test case 9: Existing symbol that is a field, not a function
-        Optional<String> fieldAsMethodSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true);
+        Optional<String> fieldAsMethodSourceOpt =
+                AnalyzerUtil.getMethodSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true);
         assertTrue(
                 fieldAsMethodSourceOpt.isEmpty(),
                 "Requesting method source for a field symbol should return Option.empty().");

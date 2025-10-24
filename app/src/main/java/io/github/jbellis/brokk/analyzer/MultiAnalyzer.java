@@ -198,7 +198,9 @@ public class MultiAnalyzer
 
     @Override
     public boolean isDefinitionAvailable(CodeUnit cu) {
-        return delegateFor(cu).map(delegate -> delegate.isDefinitionAvailable(cu)).orElse(false);
+        return delegateFor(cu)
+                .map(delegate -> delegate.isDefinitionAvailable(cu))
+                .orElse(false);
     }
 
     @Override

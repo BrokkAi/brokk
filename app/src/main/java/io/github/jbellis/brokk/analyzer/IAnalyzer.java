@@ -6,6 +6,14 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Core analyzer interface providing code intelligence capabilities.
+ *
+ * <p><b>API Pattern:</b> Capability providers ({@link SkeletonProvider}, {@link SourceCodeProvider},
+ * {@link CallGraphProvider}) accept {@link CodeUnit} parameters. When you have a CodeUnit, call
+ * provider methods directly. When you only have a String FQN, use {@link io.github.jbellis.brokk.AnalyzerUtil}
+ * convenience methods to convert and delegate.
+ */
 public interface IAnalyzer {
     /** Record representing a code unit relevance result with a code unit and its score. */
     record FileRelevance(ProjectFile file, double score) implements Comparable<FileRelevance> {
@@ -105,6 +113,13 @@ public interface IAnalyzer {
         return getDefinition(cu.fqName());
     }
 
+    /**
+     * Returns true if a definition is available for the given code unit. This
+     * is a fast way to test if {@link #getDefinition(String)} would return a non-empty Optional.
+     *
+     * @param cu The CodeUnit to check for definition availability
+     * @return true if a definition is available, false otherwise
+     */
     default boolean isDefinitionAvailable(CodeUnit cu) {
         return getDefinition(cu.fqName()).isPresent();
     }

@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,8 +14,6 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -365,7 +364,8 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMembersInClassTest() {
-        final var members = AnalyzerUtil.getMembersInClass(analyzer, "D").stream().sorted().toList();
+        final var members =
+                AnalyzerUtil.getMembersInClass(analyzer, "D").stream().sorted().toList();
         final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
         final var file = maybeFile.get();
@@ -637,16 +637,19 @@ public class JavaAnalyzerTest {
 
         // Class lookup with generics on the type
         assertTrue(
-                AnalyzerUtil.getClassSource(analyzer, "A<String>", false).isPresent(), "Class lookup with generics should normalize");
+                AnalyzerUtil.getClassSource(analyzer, "A<String>", false).isPresent(),
+                "Class lookup with generics should normalize");
 
         // Method lookup with generics on the containing class
         assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "A<Integer>.method1", false).isPresent(),
+                AnalyzerUtil.getMethodSource(analyzer, "A<Integer>.method1", false)
+                        .isPresent(),
                 "Method lookup with class generics should normalize");
 
         // Nested classes with generics on each segment
         assertTrue(
-                AnalyzerUtil.getMethodSource(analyzer, "A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
+                AnalyzerUtil.getMethodSource(
+                                analyzer, "A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
                         .isPresent(),
                 "Nested class method with generics should normalize");
     }
@@ -672,7 +675,8 @@ public class JavaAnalyzerTest {
                 "Constructor lookup with generics on the type should normalize and resolve");
 
         // Also ensure plain constructor lookup works (control)
-        assertTrue(AnalyzerUtil.getMethodSource(analyzer, "B.B", true).isPresent(), "Constructor lookup should resolve");
+        assertTrue(
+                AnalyzerUtil.getMethodSource(analyzer, "B.B", true).isPresent(), "Constructor lookup should resolve");
     }
 
     @Test

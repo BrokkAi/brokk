@@ -353,7 +353,8 @@ public class TreeSitterAnalyzerRustTest {
                 "Shape trait member count mismatch.");
         assertTrue(actualShapeMemberFqNames.containsAll(expectedShapeMemberFqNames), "Shape trait members mismatch.");
 
-        List<CodeUnit> nonClassMembers = AnalyzerUtil.getMembersInClass(rsAnalyzer, "distance"); // 'distance' is a function
+        List<CodeUnit> nonClassMembers =
+                AnalyzerUtil.getMembersInClass(rsAnalyzer, "distance"); // 'distance' is a function
         assertTrue(nonClassMembers.isEmpty(), "A function (distance) should not have members.");
 
         List<CodeUnit> nonExistentMembers = AnalyzerUtil.getMembersInClass(rsAnalyzer, "NonExistent");
@@ -486,7 +487,8 @@ public class TreeSitterAnalyzerRustTest {
     @Test
     void testGetClassSource_Rust() {
         // Source for struct Point
-        String pointSource = AnalyzerUtil.getClassSource(rsAnalyzer, "Point", true).get();
+        String pointSource =
+                AnalyzerUtil.getClassSource(rsAnalyzer, "Point", true).get();
         String expectedPointSource =
                 """
                                      pub struct Point {
@@ -497,7 +499,8 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedPointSource), normalizeSource.apply(pointSource));
 
         // Source for trait Drawable
-        String drawableSource = AnalyzerUtil.getClassSource(rsAnalyzer, "Drawable", true).get();
+        String drawableSource =
+                AnalyzerUtil.getClassSource(rsAnalyzer, "Drawable", true).get();
         String expectedDrawableSource =
                 """
                                         pub trait Drawable {
@@ -507,7 +510,8 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedDrawableSource), normalizeSource.apply(drawableSource));
 
         // Source for enum Color
-        String colorSource = AnalyzerUtil.getClassSource(rsAnalyzer, "Color", true).get();
+        String colorSource =
+                AnalyzerUtil.getClassSource(rsAnalyzer, "Color", true).get();
         String expectedColorSource =
                 """
                                      // To test package name with subdirectories
@@ -525,7 +529,8 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedColorSource), normalizeSource.apply(colorSource));
 
         // Source for trait Shape
-        String shapeSource = AnalyzerUtil.getClassSource(rsAnalyzer, "Shape", true).get();
+        String shapeSource =
+                AnalyzerUtil.getClassSource(rsAnalyzer, "Shape", true).get();
         String expectedShapeSource =
                 """
                                      pub trait Shape {
@@ -546,7 +551,8 @@ public class TreeSitterAnalyzerRustTest {
         // Let's assume the `struct_item` is primary for `getClassSource("Point")`.
 
         assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "distance", true).isEmpty()); // function, not class
-        assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "_module_.ORIGIN", true).isEmpty()); // field, not class
+        assertTrue(
+                AnalyzerUtil.getClassSource(rsAnalyzer, "_module_.ORIGIN", true).isEmpty()); // field, not class
         assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "Color.Red", true).isEmpty()); // enum variant, not class
         assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "Shape.ID", true).isEmpty()); // associated const, not class
         assertTrue(AnalyzerUtil.getClassSource(rsAnalyzer, "NonExistent", true).isEmpty());
@@ -582,7 +588,8 @@ public class TreeSitterAnalyzerRustTest {
                                           """;
         assertEquals(normalizeSource.apply(expectedDrawInImplSource), normalizeSource.apply(drawInImplSourceOpt.get()));
 
-        Optional<String> distanceSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "distance", true); // Free function
+        Optional<String> distanceSourceOpt =
+                AnalyzerUtil.getMethodSource(rsAnalyzer, "distance", true); // Free function
         assertTrue(distanceSourceOpt.isPresent(), "Source for distance function should be found.");
         String expectedDistanceSource =
                 """
@@ -603,7 +610,8 @@ public class TreeSitterAnalyzerRustTest {
         Optional<String> nonExistentSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "NonExistent.method", true);
         assertFalse(nonExistentSourceOpt.isPresent());
 
-        Optional<String> classAsMethodSourceOpt = AnalyzerUtil.getMethodSource(rsAnalyzer, "Point", true); // Class, not method
+        Optional<String> classAsMethodSourceOpt =
+                AnalyzerUtil.getMethodSource(rsAnalyzer, "Point", true); // Class, not method
         assertFalse(classAsMethodSourceOpt.isPresent());
     }
 
