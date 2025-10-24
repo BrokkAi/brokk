@@ -571,7 +571,8 @@ public class GitWorktreeTab extends JPanel {
                     // Explain why the option is disabled so users understand why the choice is unavailable.
                     useExistingBranchRadio.setToolTipText("No existing branches available — create a new branch.");
                     branchComboBox.setToolTipText("No existing branches available to choose from.");
-                    // Informational, non-blocking notification so the user understands what will happen if they create a new branch.
+                    // Informational, non-blocking notification so the user understands what will happen if they create
+                    // a new branch.
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "No existing branches are available — creating a new branch will use the selected 'From' branch.");
@@ -705,35 +706,35 @@ public class GitWorktreeTab extends JPanel {
             });
 
             try {
-            AddWorktreeDialogResult dialogResult = dialogFuture.get(); // Wait for dialog on background thread
-            if (!dialogResult.okPressed()) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Add worktree cancelled by user.");
-            return;
-            }
-            
-            String branchForWorktree = dialogResult.selectedBranch();
-            String sourceBranchForNew = dialogResult.sourceBranchForNew();
-            boolean isCreatingNewBranch = dialogResult.isCreatingNewBranch();
-            boolean copyWorkspace = dialogResult.copyWorkspace();
-            
-            // Defensive validation to guard against unexpected dialog results:
-            if (isCreatingNewBranch) {
-            // Require a non-null, non-empty branch name (trim whitespace)
-            if (branchForWorktree == null || branchForWorktree.trim().isEmpty()) {
-            chrome.toolError(
-            "New branch name cannot be empty. Please provide a valid branch name.",
-            "Invalid Branch Name");
-            return;
-            }
-            } else {
-            // Using existing branch: ensure the selected branch is actually available
-            if (branchForWorktree == null || !finalAvailableBranches.contains(branchForWorktree)) {
-            chrome.toolError(
-            "Selected branch is not available. Please choose an existing branch or create a new one.",
-            "Invalid Branch Selection");
-            return;
-            }
-            }
+                AddWorktreeDialogResult dialogResult = dialogFuture.get(); // Wait for dialog on background thread
+                if (!dialogResult.okPressed()) {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Add worktree cancelled by user.");
+                    return;
+                }
+
+                String branchForWorktree = dialogResult.selectedBranch();
+                String sourceBranchForNew = dialogResult.sourceBranchForNew();
+                boolean isCreatingNewBranch = dialogResult.isCreatingNewBranch();
+                boolean copyWorkspace = dialogResult.copyWorkspace();
+
+                // Defensive validation to guard against unexpected dialog results:
+                if (isCreatingNewBranch) {
+                    // Require a non-null, non-empty branch name (trim whitespace)
+                    if (branchForWorktree == null || branchForWorktree.trim().isEmpty()) {
+                        chrome.toolError(
+                                "New branch name cannot be empty. Please provide a valid branch name.",
+                                "Invalid Branch Name");
+                        return;
+                    }
+                } else {
+                    // Using existing branch: ensure the selected branch is actually available
+                    if (branchForWorktree == null || !finalAvailableBranches.contains(branchForWorktree)) {
+                        chrome.toolError(
+                                "Selected branch is not available. Please choose an existing branch or create a new one.",
+                                "Invalid Branch Selection");
+                        return;
+                    }
+                }
 
                 if (isCreatingNewBranch) {
                     if (branchForWorktree.isEmpty()) {
