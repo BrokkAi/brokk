@@ -1291,6 +1291,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             DefinitionInfoRecord defInfo = entry.getValue();
             String primaryCaptureName = defInfo.primaryCaptureName();
             String simpleName = defInfo.simpleName();
+            if (isClassLike(node)) {
+                simpleName = determineClassName(node.getType(), simpleName);
+            }
             List<String> modifierKeywords = defInfo.modifierKeywords();
 
             if (simpleName.isBlank()) {
@@ -1313,10 +1316,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             TSNode tempParent = node.getParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
                 if (isClassLike(tempParent)) {
+                    final var parent = tempParent;
                     extractSimpleName(tempParent, src)
                             .ifPresent(
                                     parentName -> { // extractSimpleName is now non-static
-                                        if (!parentName.isBlank()) enclosingClassNames.addFirst(parentName);
+                                        if (!parentName.isBlank()) {
+                                            var name = isClassLike(parent)
+                                                    ? determineClassName(parent.getType(), parentName)
+                                                    : parentName;
+                                            enclosingClassNames.addFirst(name);
+                                        }
                                     });
                 }
                 tempParent = tempParent.getParent();
@@ -1608,6 +1617,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements),
                 tree);
+    }
+
+    /**
+     * Useful for languages that separate the concept of instance and singleton classes that have the same names in
+     * source code, but are identified by some suffix or other transformation on a lower level, e.g., Kotlin, Scala, Ruby.
+     */
+    protected String determineClassName(String captureName, String shortName) {
+        return shortName;
     }
 
     /**
