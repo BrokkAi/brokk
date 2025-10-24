@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.testutil.FileUtil;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -29,6 +30,7 @@ class HistoryIoV3CompatibilityTest {
 
     @BeforeEach
     void setup() throws IOException, URISyntaxException {
+        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.LOCALHOST);
         projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
         mockContextManager = new TestContextManager(projectRoot, new NoOpConsoleIO());

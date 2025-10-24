@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.HistoryIo;
@@ -39,6 +40,7 @@ class HistoryV4MigrationTest {
 
     @BeforeEach
     void setup() throws IOException {
+        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.LOCALHOST);
         Path projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
         mockContextManager = new TestContextManager(projectRoot, new NoOpConsoleIO());
