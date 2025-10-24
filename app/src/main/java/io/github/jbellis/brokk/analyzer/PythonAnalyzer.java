@@ -8,12 +8,15 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
+    // Thread-safe tracking of field assignments per file to implement Python's "last assignment wins" behavior
+    private volatile Map<String, String> fieldAssignments;
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -105,6 +108,32 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 } else {
                     finalShortName = classChain + "." + simpleName;
                 }
+
+                // Implement Python's "last assignment wins" for top-level variables
+                if (classChain.isEmpty()) {
+                    // Lazy initialization for thread safety
+                    if (fieldAssignments == null) {
+                        synchronized (this) {
+                            if (fieldAssignments == null) {
+                                fieldAssignments = new ConcurrentHashMap<>();
+                            }
+                        }
+                    }
+
+                    String fileKey = file.absPath().toString();
+                    String previousAssignment = fieldAssignments.put(fileKey + "." + simpleName, finalShortName);
+
+                    if (previousAssignment != null) {
+                        // This is a duplicate assignment, log at TRACE level and skip creating CodeUnit
+                        log.trace(
+                                "Python duplicate field assignment in file {}: {} (previous: {})",
+                                file.getFileName(),
+                                simpleName,
+                                previousAssignment);
+                        yield null;
+                    }
+                }
+
                 yield CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {

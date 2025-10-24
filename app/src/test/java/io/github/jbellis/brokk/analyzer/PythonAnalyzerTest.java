@@ -340,38 +340,108 @@ public final class PythonAnalyzerTest {
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         ProjectFile localClassesFile = new ProjectFile(project.getRoot(), "local_classes.py");
-        
+
         // Get all declarations in the file
         Set<CodeUnit> declarations = analyzer.getDeclarations(localClassesFile);
-        
+
         // Should find the top-level class
         CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "", "TopLevelClass");
         assertTrue(declarations.contains(topLevelClassCU), "Should find top-level class");
-        
+
         // The fix worked! Local classes now have scoped FQNs like test_function_1$LocalClass
         var scopedLocalClasses = declarations.stream()
                 .filter(cu -> cu.fqName().contains("$LocalClass"))
                 .collect(Collectors.toSet());
-        
-        System.out.println("Scoped local classes found: " + scopedLocalClasses);
-        
+
         // Verify the fix worked correctly
         assertEquals(3, scopedLocalClasses.size(), "Should find 3 local classes with scoped FQNs");
-        
+
         // Check that each local class has the proper scoped FQN format
-        assertTrue(scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_1$LocalClass")), 
-                  "Should find test_function_1$LocalClass");
-        assertTrue(scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_2$LocalClass")), 
-                  "Should find test_function_2$LocalClass");
-        assertTrue(scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_3$LocalClass")), 
-                  "Should find test_function_3$LocalClass");
-        
+        assertTrue(
+                scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_1$LocalClass")),
+                "Should find test_function_1$LocalClass");
+        assertTrue(
+                scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_2$LocalClass")),
+                "Should find test_function_2$LocalClass");
+        assertTrue(
+                scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_3$LocalClass")),
+                "Should find test_function_3$LocalClass");
+
         // Verify no duplicate FQNs (the original bug is fixed)
         var fqNames = scopedLocalClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertEquals(3, fqNames.size(), "All local classes should have unique FQNs");
-        
+
         // Verify top-level declarations include the actual top-level class
-        var topLevelDecls = analyzer.withFileProperties(tld -> tld.get(localClassesFile)).topLevelCodeUnits();
+        var topLevelDecls =
+                analyzer.withFileProperties(tld -> tld.get(localClassesFile)).topLevelCodeUnits();
         assertTrue(topLevelDecls.contains(topLevelClassCU), "Top-level declarations should include TopLevelClass");
+    }
+
+    @Test
+    void testPythonDuplicateFieldsInDifferentScopes() {
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile duplicateFieldsFile = new ProjectFile(project.getRoot(), "python_duplicate_fields_test.py");
+
+        // Get all declarations in the file
+        Set<CodeUnit> declarations = analyzer.getDeclarations(duplicateFieldsFile);
+
+        // Should find only 1 SRCFILES field (due to deduplication of duplicates)
+        var srcfilesFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("SRCFILES"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, srcfilesFields.size(), "Should find 1 SRCFILES field after deduplication");
+
+        // The field should have the expected module-level FQN
+        assertEquals(
+                "python_duplicate_fields_test.SRCFILES", srcfilesFields.get(0).fqName());
+
+        // Should also find other variables
+        var localVarFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.fqName().contains("LOCAL_VAR"))
+                .collect(Collectors.toList());
+        assertEquals(0, localVarFields.size(), "Function-local variables should not be captured as fields");
+    }
+
+    @Test
+    void testPythonAstropyDuplicateFieldPattern() {
+        // Test specific astropy pattern that was causing ERROR logging
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile astropyFile = new ProjectFile(project.getRoot(), "python_duplicate_fields_test.py");
+
+        // Get all declarations in file
+        Set<CodeUnit> declarations = analyzer.getDeclarations(astropyFile);
+
+        // Should find only 1 SRCFILES field (last assignment wins)
+        var srcfilesFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("SRCFILES"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, srcfilesFields.size(), "Should find 1 SRCFILES field after deduplication");
+
+        // Should find only 1 VERSION field (last assignment wins)
+        var versionFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("VERSION"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, versionFields.size(), "Should find 1 VERSION field after deduplication");
+
+        // Should find OTHER_VAR field (no duplicates)
+        var otherVarFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("OTHER_VAR"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, otherVarFields.size(), "Should find 1 OTHER_VAR field");
+
+        // Should find class and function
+        var classCUs = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
+        var functionCUs = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+
+        assertEquals(2, classCUs.size(), "Should find 2 classes");
+        assertEquals(3, functionCUs.size(), "Should find 3 functions");
     }
 }
