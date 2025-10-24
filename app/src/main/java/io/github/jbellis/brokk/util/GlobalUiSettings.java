@@ -360,6 +360,7 @@ public final class GlobalUiSettings {
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
     }
+
     private static int getInt(String key) {
         var props = loadProps();
         try {
