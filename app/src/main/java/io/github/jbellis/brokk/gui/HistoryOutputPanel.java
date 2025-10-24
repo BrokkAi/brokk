@@ -232,6 +232,9 @@ public class HistoryOutputPanel extends JPanel {
         // Provide a popup menu supplier for the new session button that mirrors the
         // BranchSelectorButton behavior: top-level actions followed by a scrollable
         // list of sessions rendered with SessionInfoRenderer.
+        // Note: the supplier is invoked lazily when the split-button dropdown is opened (via showPopupMenuInternal()).
+        // This occurs after Chrome.initializeThemeManager() has run during startup, so chrome.themeManager
+        // is available when the popup is constructed and registered.
         this.newSessionButton.setMenuSupplier(() -> {
             var popup = new JPopupMenu();
 
