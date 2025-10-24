@@ -205,30 +205,17 @@ public class HistoryOutputPanel extends JPanel {
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
         this.sessionNameLabel = new JLabel();
-        var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
-        add(centerPanel, BorderLayout.CENTER);
 
-        // Initialize notification persistence and load saved notifications
-        this.notificationsFile = computeNotificationsFile();
-        loadPersistedNotifications();
-
-        // Build session controls and activity panel (East)
-        this.historyModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        this.historyTable = new JTable(this.historyModel);
-        this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
-        this.undoButton = new MaterialButton();
-        this.redoButton = new MaterialButton();
-        // Initialize new session button
+        // Initialize new session button early (used by buildCaptureOutputPanel)
         this.newSessionButton = new SplitButton("");
-
+        // Primary click → empty session
+        this.newSessionButton.addActionListener(e -> {
+            contextManager
+                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
+        });
         // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
-
         // Provide a popup menu supplier for the new session button that mirrors the
         // BranchSelectorButton behavior: top-level actions followed by a scrollable
         // list of sessions rendered with SessionInfoRenderer.
@@ -382,6 +369,25 @@ public class HistoryOutputPanel extends JPanel {
 
             return popup;
         });
+
+        var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
+        add(centerPanel, BorderLayout.CENTER);
+
+        // Initialize notification persistence and load saved notifications
+        this.notificationsFile = computeNotificationsFile();
+        loadPersistedNotifications();
+
+        // Build session controls and activity panel (East)
+        this.historyModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        this.historyTable = new JTable(this.historyModel);
+        this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
+        this.undoButton = new MaterialButton();
+        this.redoButton = new MaterialButton();
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
