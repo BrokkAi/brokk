@@ -121,7 +121,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
-    private @Nullable JLabel modeBadge;
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
 
@@ -631,23 +630,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.setLayout(new BoxLayout(topBarPanel, BoxLayout.X_AXIS));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        // Initialize mode badge
-        modeBadge = new JLabel("LUTZ MODE");
-        modeBadge.setOpaque(true);
-        modeBadge.setFont(modeBadge.getFont().deriveFont(Font.BOLD, 10f));
-        modeBadge.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        modeBadge.setHorizontalAlignment(SwingConstants.CENTER);
-        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Left-side icon group: microphone, wand (enhance), history
+        // Ensure vertical centering for each icon component
         micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        topBarPanel.add(modeBadge);
-        topBarPanel.add(Box.createHorizontalGlue());
-        topBarPanel.add(historyDropdown);
-        topBarPanel.add(wandButton);
+        // Add icons left-to-right, with a small gap between them
         topBarPanel.add(micButton);
+        topBarPanel.add(Box.createHorizontalStrut(H_GAP));
+        topBarPanel.add(wandButton);
+        topBarPanel.add(Box.createHorizontalStrut(H_GAP));
+        topBarPanel.add(historyDropdown);
+
+        // Push remaining components to the right
+        topBarPanel.add(Box.createHorizontalGlue());
 
         return topBarPanel;
     }
@@ -1931,12 +1928,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             accent = new Color(0xF4C430);
         }
 
-        if (modeBadge != null) {
-            modeBadge.setText(badgeText);
-            modeBadge.setBackground(badgeBg);
-            modeBadge.setForeground(badgeFg);
-            modeBadge.repaint();
-        }
+        // Mode badge removed; top-bar uses icon group instead.
 
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
