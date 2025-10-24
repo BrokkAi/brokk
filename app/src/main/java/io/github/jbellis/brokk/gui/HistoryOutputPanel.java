@@ -345,7 +345,8 @@ public class HistoryOutputPanel extends JPanel {
                     .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         });
 
-        // Split-arrow menu → keep "New + Copy Workspace", then add session management actions
+        // Move session management actions into newSessionButton dropdown; remove separate Manage button UI
+        // Move manage/rename/delete into the New Session dropdown and remove the separate Manage button.
         newSessionButton.setMenuSupplier(() -> {
             var popup = new JPopupMenu();
 
@@ -360,6 +361,13 @@ public class HistoryOutputPanel extends JPanel {
             // Separator to clearly separate creation actions from management actions
             popup.addSeparator();
 
+            var manageItem = new JMenuItem("Manage Sessions");
+            manageItem.addActionListener(ev -> {
+                // Open the Sessions dialog (modeless)
+                new SessionsDialog(chrome, contextManager).setVisible(true);
+            });
+            popup.add(manageItem);
+
             var renameItem = new JMenuItem("Rename Current Session");
             renameItem.addActionListener(
                     ev -> SessionsDialog.renameCurrentSession(HistoryOutputPanel.this, chrome, contextManager));
@@ -369,6 +377,9 @@ public class HistoryOutputPanel extends JPanel {
             deleteItem.addActionListener(
                     ev -> SessionsDialog.deleteCurrentSession(HistoryOutputPanel.this, chrome, contextManager));
             popup.add(deleteItem);
+
+            // Register popup with theme manager for consistent styling
+            chrome.themeManager.registerPopupMenu(popup);
 
             return popup;
         });
