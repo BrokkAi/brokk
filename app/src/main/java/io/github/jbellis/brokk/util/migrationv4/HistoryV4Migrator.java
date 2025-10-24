@@ -28,7 +28,7 @@ public class HistoryV4Migrator {
         var manifestBytes = readManifest(zip);
 
         var history = V3_HistoryIo.readZip(zip, mgr);
-        if (history.getHistory().isEmpty()) {
+        if (!history.getHistory().isEmpty()) {
             HistoryIo.writeZip(history, zip); // This will overwrite with V4 format
 
             if (manifestBytes != null) {
