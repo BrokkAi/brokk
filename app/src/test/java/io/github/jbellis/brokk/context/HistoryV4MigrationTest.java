@@ -1,16 +1,19 @@
 package io.github.jbellis.brokk.context;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
+import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.migrationv4.HistoryV4Migrator;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.*;
 import java.util.Collections;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -94,5 +97,53 @@ class HistoryV4MigrationTest {
         assertDoesNotThrow(
                 () -> HistoryV4Migrator.migrate(tempZip, mockContextManager),
                 "Migration should succeed for " + zipFileName);
+
+        var history = HistoryIo.readZip(tempZip, mockContextManager);
+        assertNotNull(history);
+
+        if ("v3-complex-content.zip".equals(zipFileName)) {
+            assertEquals(2, history.getHistory().size());
+            var ctx1 = history.getHistory().get(0);
+            assertEquals(2, ctx1.allFragments().count());
+            var ff = findFragment(
+                    ctx1, FrozenFragment.class, f -> f.originalClassName().contains("ProjectPathFragment"));
+            assertNotNull(ff);
+            assertTrue(ff.description().contains("File1.java"));
+
+            var sf = findFragment(ctx1, ContextFragment.StringFragment.class, f -> true);
+            assertNotNull(sf);
+            assertEquals("Virtual content 1", sf.text());
+
+            var ctx2 = history.getHistory().get(1);
+            assertEquals(1, ctx2.virtualFragments().count());
+            var pif = findFragment(ctx2, ContextFragment.AnonymousImageFragment.class, f -> true);
+            assertNotNull(pif);
+            assertEquals("Pasted Red Image", pif.description());
+            assertNotNull(pif.imageBytes());
+            assertTrue(pif.imageBytes().length > 0);
+
+            assertEquals(1, ctx2.getTaskHistory().size());
+            var taskEntry = ctx2.getTaskHistory().get(0);
+            assertNotNull(taskEntry.log());
+            assertEquals(2, taskEntry.log().messages().size());
+        } else if ("v3-gitfile-fragment-only.zip".equals(zipFileName)) {
+            assertEquals(1, history.getHistory().size());
+            var ctx = history.getLiveContext();
+            assertEquals(1, ctx.fileFragments().count());
+            var gff = findFragment(ctx, ContextFragment.GitFileFragment.class, f -> true);
+            assertNotNull(gff);
+            assertEquals("abcdef1234567890", gff.revision());
+            assertEquals("content for git file", gff.content());
+        }
+    }
+
+    private @Nullable <T extends ContextFragment> T findFragment(
+            Context context, Class<T> type, Predicate<T> condition) {
+        return context.allFragments()
+                .filter(type::isInstance)
+                .map(type::cast)
+                .filter(condition)
+                .findFirst()
+                .orElse(null);
     }
 }
