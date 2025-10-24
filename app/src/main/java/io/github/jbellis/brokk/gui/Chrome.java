@@ -3398,10 +3398,16 @@ public class Chrome
      *
      * @param branchName the branch name to display (may be null/blank)
      */
-    public void refreshBranchUi(String branchName) {
+    public void refreshBranchUi(@Nullable String branchName) {
         SwingUtilities.invokeLater(() -> {
             if (branchSelectorButton != null) {
-                branchSelectorButton.refreshBranch(branchName);
+                try {
+                    // BranchSelectorButton.refreshBranch expects a displayable string; pass empty string
+                    // when branchName is null to avoid unexpected null handling in downstream UI code.
+                    branchSelectorButton.refreshBranch(branchName == null ? "" : branchName);
+                } catch (Exception ex) {
+                    logger.debug("branchSelectorButton.refreshBranch failed", ex);
+                }
             }
             // Keep the project files drawer title in sync if needed
             try {
@@ -3419,11 +3425,12 @@ public class Chrome
      *
      * @param branchName branch name to append to the title (may be null/blank)
      */
-    private void updateProjectFilesDrawerTitle(String branchName) {
+    private void updateProjectFilesDrawerTitle(@Nullable String branchName) {
         SwingUtilities.invokeLater(() -> {
             try {
                 String base = "Project Files";
-                String suffix = branchName.isBlank() ? "" : " — " + branchName;
+                String safe = (branchName == null) ? "" : branchName;
+                String suffix = safe.isBlank() ? "" : " — " + safe;
                 projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
                 projectFilesPanel.revalidate();
                 projectFilesPanel.repaint();
