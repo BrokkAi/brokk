@@ -577,7 +577,12 @@ public class HistoryOutputPanel extends JPanel {
             sessionNameLabel.setText(display);
             sessionNameLabel.setToolTipText(fullName);
             sessionNameLabel.revalidate();
-            sessionNameLabel.repaint();
+            // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
+            SwingUtilities.invokeLater(() -> {
+                if (sessionsList != null) {
+                    sessionsList.repaint();
+                }
+            });
         });
     }
 
@@ -2832,11 +2837,10 @@ public class HistoryOutputPanel extends JPanel {
             } finally {
                 sessionAiResponseCounts.put(id, count);
                 sessionCountLoading.remove(id);
+                // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
                 SwingUtilities.invokeLater(() -> {
                     if (sessionsList != null) {
                         sessionsList.repaint();
-                    } else {
-                        sessionNameLabel.repaint();
                     }
                 });
             }
