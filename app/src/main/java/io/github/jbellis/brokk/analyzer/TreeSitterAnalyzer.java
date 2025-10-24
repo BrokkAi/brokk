@@ -1521,7 +1521,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
-                    localTopLevelCUs.add(cu);
+                    // Check if this top-level CU already exists, but only skip for Python FIELD duplicates
+                    // Python allows "last assignment wins" for fields, but duplicate classes should still error
+                    boolean alreadyExists = localTopLevelCUs.stream()
+                            .anyMatch(existing -> existing.fqName().equals(cu.fqName()));
+                    if (!alreadyExists) {
+                        localTopLevelCUs.add(cu);
+                    } else if (language == Languages.PYTHON && cu.isField()) {
+                        // Python field duplicate - skip to implement "last assignment wins"
+                        log.trace(
+                                "Skipping duplicate Python FIELD with same FQName: {} in file {}",
+                                cu.fqName(),
+                                file.getFileName());
+                    } else {
+                        // Other types of duplicates (classes, functions) - let the normal error handling deal with them
+                        localTopLevelCUs.add(cu);
+                    }
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu.packageName(), classChain);
