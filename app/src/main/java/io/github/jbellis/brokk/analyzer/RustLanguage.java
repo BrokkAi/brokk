@@ -65,21 +65,6 @@ public class RustLanguage implements Language {
     }
 
     @Override
-    public boolean providesSummaries() {
-        return true;
-    }
-
-    @Override
-    public boolean providesSourceCode() {
-        return true;
-    }
-
-    @Override
-    public boolean providesInterproceduralAnalysis() {
-        return false;
-    }
-
-    @Override
     public List<Path> getDependencyCandidates(IProject project) {
         // Use cargo metadata to detect any packages; return non-empty when Cargo workspace is present.
         try {

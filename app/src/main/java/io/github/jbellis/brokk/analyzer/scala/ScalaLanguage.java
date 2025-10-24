@@ -34,19 +34,4 @@ public class ScalaLanguage implements Language {
     public IAnalyzer loadAnalyzer(IProject project) {
         return createAnalyzer(project);
     }
-
-    @Override
-    public boolean providesSummaries() {
-        return true;
-    }
-
-    @Override
-    public boolean providesSourceCode() {
-        return true;
-    }
-
-    @Override
-    public boolean providesInterproceduralAnalysis() {
-        return true;
-    }
 }

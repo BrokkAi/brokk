@@ -412,10 +412,8 @@ public class SearchAgent {
 
         String testsGuidance = "";
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
-            var analyzerWrapper = cm.getAnalyzerWrapper();
-            var toolHint = analyzerWrapper.providesInterproceduralAnalysis()
-                    ? "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods."
-                    : "- To locate tests, use searchSubstrings to find test classes, @Test methods, and references to key symbols.";
+            var toolHint =
+                    "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods.";
             testsGuidance =
                     """
                     Tests:
@@ -499,19 +497,12 @@ public class SearchAgent {
         }
 
         // Fine-grained Analyzer capabilities
-        var analyzerWrapper = cm.getAnalyzerWrapper();
-        if (analyzerWrapper.providesSummaries()) {
-            names.add("getClassSkeletons");
-        }
-        if (analyzerWrapper.providesSourceCode()) {
-            names.add("getClassSources");
-            names.add("getMethodSources");
-        }
-        if (analyzerWrapper.providesInterproceduralAnalysis()) {
-            names.add("getUsages");
-            names.add("getCallGraphTo");
-            names.add("getCallGraphFrom");
-        }
+        names.add("getClassSkeletons");
+        names.add("getClassSources");
+        names.add("getMethodSources");
+        names.add("getUsages");
+        names.add("getCallGraphTo");
+        names.add("getCallGraphFrom");
 
         // Text-based search
         names.add("searchSubstrings");

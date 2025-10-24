@@ -332,21 +332,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         return analyzer;
     }
 
-    @Override
-    public boolean providesInterproceduralAnalysis() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesInterproceduralAnalysis);
-    }
-
-    @Override
-    public boolean providesSummaries() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSummaries);
-    }
-
-    @Override
-    public boolean providesSourceCode() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSourceCode);
-    }
-
     /** Convenience overload that infers the language set from {@link #project}. */
     private Language getLanguageHandle() {
         var projectLangs = project.getAnalyzerLanguages().stream()

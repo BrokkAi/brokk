@@ -411,8 +411,6 @@ public class SearchTools {
         final var analyzer = getAnalyzer();
         assert analyzer.as(CallGraphProvider.class).isPresent()
                 : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        assert (analyzer instanceof CallGraphProvider)
-                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodName: remove potential `(params)` suffix from LLM.
         final var cleanMethodName = stripParams(methodName);
         if (cleanMethodName.isBlank()) {

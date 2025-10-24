@@ -17,18 +17,6 @@ public interface IAnalyzerWrapper extends AutoCloseable {
     @Nullable
     IAnalyzer getNonBlocking();
 
-    default boolean providesInterproceduralAnalysis() {
-        return false;
-    }
-
-    default boolean providesSummaries() {
-        return false;
-    }
-
-    default boolean providesSourceCode() {
-        return false;
-    }
-
     default boolean isReady() {
         return getNonBlocking() != null;
     }
