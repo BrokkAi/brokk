@@ -2410,8 +2410,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Custom focus traversal policy for InstructionsPanel that defines the tab order: instructionsArea → actionButton →
-     * modeSwitch → codeCheckBox/searchProjectCheckBox → micButton → modelSelector → historyDropdown → branchSplitButton
+     * Custom focus traversal policy for InstructionsPanel.
+     * Tab order: instructionsArea → micButton → modelSelector → actionButton → historyDropdown → next.
      */
     private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
         @Override
@@ -2425,8 +2425,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else if (aComponent == actionButton) {
                 return findHistoryDropdown();
             } else if (aComponent == findHistoryDropdown()) {
-                return findBranchSplitButton();
-            } else if (aComponent == findBranchSplitButton()) {
                 return getNextFocusableComponent();
             }
             return instructionsArea;
@@ -2442,10 +2440,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return modelSelector.getComponent();
             } else if (aComponent == findHistoryDropdown()) {
                 return actionButton;
-            } else if (aComponent == findBranchSplitButton()) {
-                return findHistoryDropdown();
             } else if (aComponent == getNextFocusableComponent()) {
-                return findBranchSplitButton();
+                return findHistoryDropdown();
             }
             return instructionsArea;
         }
@@ -2457,7 +2453,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public Component getLastComponent(Container aContainer) {
-            return findBranchSplitButton();
+            return findHistoryDropdown();
         }
 
         @Override
@@ -2469,13 +2465,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return historyDropdown;
         }
 
-        private Component findBranchSplitButton() {
-            return findComponentInHierarchy(
-                    InstructionsPanel.this,
-                    comp -> comp instanceof SplitButton && comp != historyDropdown,
-                    instructionsArea);
-        }
-
         private Component getNextFocusableComponent() {
             Container parent = InstructionsPanel.this.getParent();
             while (parent != null && !(parent instanceof Window)) {
@@ -2485,22 +2474,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
             }
             return instructionsArea;
-        }
-
-        private Component findComponentInHierarchy(
-                Container container, Predicate<Component> predicate, Component fallback) {
-            for (Component comp : container.getComponents()) {
-                if (predicate.test(comp)) {
-                    return comp;
-                }
-                if (comp instanceof Container containerComp) {
-                    Component found = findComponentInHierarchy(containerComp, predicate, fallback);
-                    if (found != fallback) {
-                        return found;
-                    }
-                }
-            }
-            return fallback;
         }
     }
 
