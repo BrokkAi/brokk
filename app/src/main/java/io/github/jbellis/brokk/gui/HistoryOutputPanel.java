@@ -204,6 +204,7 @@ public class HistoryOutputPanel extends JPanel {
         });
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
+        this.sessionNameLabel = new JLabel();
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -222,8 +223,7 @@ public class HistoryOutputPanel extends JPanel {
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
         this.undoButton = new MaterialButton();
         this.redoButton = new MaterialButton();
-        // Initialize sessionNameLabel (read-only label that displays current session)
-        this.sessionNameLabel = new JLabel();
+        // Initialize new session button
         this.newSessionButton = new SplitButton("");
 
         // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
@@ -454,22 +454,29 @@ public class HistoryOutputPanel extends JPanel {
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
+
+        // Add session name label just under the titled border
+        sessionNameLabel.setOpaque(false);
+        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        sessionNameLabel.setBorder(new EmptyBorder(2, 8, 4, 8));
+        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        outputPanel.add(sessionNameLabel, BorderLayout.NORTH);
+
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
         // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(outputPanel, BorderLayout.CENTER);
-        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
+        centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
 
         return centerContainer;
     }
 
     /** Builds the session controls panel with a compact layout:
-     *  left = create/new session button, right = read-only session name label.
+     *  left = create/new session button.
      *
-     *  The label is non-editable, uses a sensible font and padding, and will display
-     *  an ellipsized form if the name is long; the full name is available via tooltip.
+     *  The session name label is now shown under the Output section title.
      */
     private JPanel buildSessionControlsPanel(
             JLabel sessionNameLabel, SplitButton newSessionButton) {
@@ -491,15 +498,7 @@ public class HistoryOutputPanel extends JPanel {
         // Put the create/new session SplitButton on the left
         topRow.add(newSessionButton, BorderLayout.WEST);
 
-        // Style the session name label for compact display on the right
-        sessionNameLabel.setVerticalAlignment(SwingConstants.CENTER);
-        sessionNameLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-        sessionNameLabel.setBorder(new EmptyBorder(4, 8, 4, 4));
-        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        sessionNameLabel.setOpaque(false);
-
-        // Place label at the right edge so the button remains compact on the left
-        topRow.add(sessionNameLabel, BorderLayout.EAST);
+        // Session name label moved under the Output panel title; not added here.
 
         panel.add(topRow, BorderLayout.NORTH);
 
@@ -597,12 +596,7 @@ public class HistoryOutputPanel extends JPanel {
             }
 
             final String fullName = labelText;
-            final int maxChars = 30;
-            String display = fullName;
-            if (fullName.length() > maxChars) {
-                display = fullName.substring(0, Math.max(0, maxChars - 3)) + "...";
-            }
-            sessionNameLabel.setText(display);
+            sessionNameLabel.setText(fullName);
             sessionNameLabel.setToolTipText(fullName);
             sessionNameLabel.revalidate();
             // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
