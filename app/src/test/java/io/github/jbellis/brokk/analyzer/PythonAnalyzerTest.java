@@ -333,4 +333,45 @@ public final class PythonAnalyzerTest {
                 normalizedMethodWithoutComments.contains("def get_value(self):"),
                 "Method source without comments should include method definition");
     }
+
+    @Test
+    void testPythonLocalClassesInFunctions() {
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile localClassesFile = new ProjectFile(project.getRoot(), "local_classes.py");
+        
+        // Get all declarations in the file
+        Set<CodeUnit> declarations = analyzer.getDeclarations(localClassesFile);
+        
+        // Should find the top-level class
+        CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "", "TopLevelClass");
+        assertTrue(declarations.contains(topLevelClassCU), "Should find top-level class");
+        
+        // The fix worked! Local classes now have scoped FQNs like test_function_1$LocalClass
+        var scopedLocalClasses = declarations.stream()
+                .filter(cu -> cu.fqName().contains("$LocalClass"))
+                .collect(Collectors.toSet());
+        
+        System.out.println("Scoped local classes found: " + scopedLocalClasses);
+        
+        // Verify the fix worked correctly
+        assertEquals(3, scopedLocalClasses.size(), "Should find 3 local classes with scoped FQNs");
+        
+        // Check that each local class has the proper scoped FQN format
+        assertTrue(scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_1$LocalClass")), 
+                  "Should find test_function_1$LocalClass");
+        assertTrue(scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_2$LocalClass")), 
+                  "Should find test_function_2$LocalClass");
+        assertTrue(scopedLocalClasses.stream().anyMatch(cu -> cu.fqName().equals("test_function_3$LocalClass")), 
+                  "Should find test_function_3$LocalClass");
+        
+        // Verify no duplicate FQNs (the original bug is fixed)
+        var fqNames = scopedLocalClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(3, fqNames.size(), "All local classes should have unique FQNs");
+        
+        // Verify top-level declarations include the actual top-level class
+        var topLevelDecls = analyzer.withFileProperties(tld -> tld.get(localClassesFile)).topLevelCodeUnits();
+        assertTrue(topLevelDecls.contains(topLevelClassCU), "Top-level declarations should include TopLevelClass");
+    }
 }

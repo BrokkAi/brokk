@@ -227,4 +227,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected boolean requiresSemicolons() {
         return false;
     }
+
+    /**
+     * Override isClassLike to include function definitions for Python class chain computation.
+     * This allows local classes inside functions to be properly scoped.
+     */
+    @Override
+    protected boolean isClassLike(TSNode node) {
+        // For Python class chain computation, we want to include functions as potential parents
+        // to detect local classes inside functions
+        return super.isClassLike(node) || "function_definition".equals(node.getType());
+    }
 }
