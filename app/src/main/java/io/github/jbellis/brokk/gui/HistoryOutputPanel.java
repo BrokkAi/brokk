@@ -473,10 +473,11 @@ public class HistoryOutputPanel extends JPanel {
         return centerContainer;
     }
 
-    /** Builds the session controls panel with a compact layout:
-     *  left = create/new session button.
+    /** Builds the Sessions panel container (temporary until removal).
      *
-     *  The session name label is now shown under the Output section title.
+     *  Note: The "New Session" control has been relocated to the Output panel bar (east side).
+     *  The session name label is shown under the Output section title.
+     *  This panel currently does not render the new session control to avoid duplication.
      */
     private JPanel buildSessionControlsPanel(
             JLabel sessionNameLabel, SplitButton newSessionButton) {
@@ -495,8 +496,7 @@ public class HistoryOutputPanel extends JPanel {
         // Ensure new session button has its tooltip and primary action defined by caller.
         // (Action listener that creates a session is attached where the button is created.)
 
-        // Put the create/new session SplitButton on the left
-        topRow.add(newSessionButton, BorderLayout.WEST);
+        // New session button intentionally not added here; it lives in the Output panel bar.
 
         // Session name label moved under the Output panel title; not added here.
 
