@@ -312,7 +312,12 @@ public class HistoryOutputPanel extends JPanel {
         return centerContainer;
     }
 
-    /** Builds the session controls panel with label and buttons */
+    /** Builds the session controls panel with a compact layout:
+     *  left = create/new session button, right = read-only session name label.
+     *
+     *  The label is non-editable, uses a sensible font and padding, and will display
+     *  an ellipsized form if the name is long; the full name is available via tooltip.
+     */
     private JPanel buildSessionControlsPanel(
             JLabel sessionNameLabel, SplitButton newSessionButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
@@ -323,85 +328,29 @@ public class HistoryOutputPanel extends JPanel {
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        // Top row: Create button at left and session name displayed center
-        var topRow = new JPanel(new BorderLayout(5, 0));
+        // Top row: compact layout with button on the left and the session name on the right.
+        var topRow = new JPanel(new BorderLayout(6, 0));
         topRow.setOpaque(false);
 
-        // Tooltip and action listener for the new session button
-        newSessionButton.setToolTipText("Create a new session");
-        // Primary click → empty session
-        newSessionButton.addActionListener(e -> {
-            contextManager
-                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
-        });
+        // Ensure new session button has its tooltip and primary action defined by caller.
+        // (Action listener that creates a session is attached where the button is created.)
 
-        // Build the sessions list that will be shown in the newSessionButton dropdown.
-        // The list is created lazily by the menu supplier when the user opens the menu.
-        newSessionButton.setMenuSupplier(() -> {
-            var popup = new JPopupMenu();
-
-            // Ensure sessionsList is created
-            if (sessionsList == null) {
-                sessionsList = buildSessionsList();
-            }
-
-            // Put the sessions list in a scroll pane at the top of the popup
-            var scroll = new JScrollPane(sessionsList);
-            scroll.setBorder(BorderFactory.createEmptyBorder());
-            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-            // Limit height to something reasonable
-            scroll.setPreferredSize(new Dimension(320, Math.min(320, sessionsList.getVisibleRowCount() * 24 + 10)));
-            popup.add(scroll);
-
-            // Separator to clearly separate creation actions from management actions
-            popup.addSeparator();
-
-            var copyWorkspaceItem = new JMenuItem("New + Copy Workspace");
-            copyWorkspaceItem.addActionListener(ev -> {
-                contextManager
-                        .createSessionFromContextAsync(contextManager.topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                        .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
-            });
-            popup.add(copyWorkspaceItem);
-
-            popup.addSeparator();
-
-            var manageItem = new JMenuItem("Manage Sessions");
-            manageItem.addActionListener(ev -> {
-                // Open the Sessions dialog (modeless)
-                new SessionsDialog(chrome, contextManager).setVisible(true);
-            });
-            popup.add(manageItem);
-
-            var renameItem = new JMenuItem("Rename Current Session");
-            renameItem.addActionListener(
-                    ev -> SessionsDialog.renameCurrentSession(HistoryOutputPanel.this, chrome, contextManager));
-            popup.add(renameItem);
-
-            var deleteItem = new JMenuItem("Delete Current Session");
-            deleteItem.addActionListener(
-                    ev -> SessionsDialog.deleteCurrentSession(HistoryOutputPanel.this, chrome, contextManager));
-            popup.add(deleteItem);
-
-            // Register popup with theme manager for consistent styling
-            chrome.themeManager.registerPopupMenu(popup);
-
-            // Ensure list is populated when showing
-            updateSessionComboBox();
-
-            return popup;
-        });
-
+        // Put the create/new session SplitButton on the left
         topRow.add(newSessionButton, BorderLayout.WEST);
-        // Style the session name label
+
+        // Style the session name label for compact display on the right
         sessionNameLabel.setVerticalAlignment(SwingConstants.CENTER);
-        sessionNameLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
-        topRow.add(sessionNameLabel, BorderLayout.CENTER);
+        sessionNameLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        sessionNameLabel.setBorder(new EmptyBorder(4, 8, 4, 4));
+        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        sessionNameLabel.setOpaque(false);
+
+        // Place label at the right edge so the button remains compact on the left
+        topRow.add(sessionNameLabel, BorderLayout.EAST);
 
         panel.add(topRow, BorderLayout.NORTH);
 
-        // Initialize with current sessions
+        // Populate the label and session list data
         updateSessionComboBox();
 
         return panel;
@@ -461,7 +410,7 @@ public class HistoryOutputPanel extends JPanel {
                 sessionsList.repaint();
             }
 
-            // Update the compact label display to show the active session name
+            // Update the compact label display to show the active session name (ellipsized if needed)
             var currentSessionId = contextManager.getCurrentSessionId();
             String labelText = "";
             for (var s : sessions) {
@@ -473,7 +422,17 @@ public class HistoryOutputPanel extends JPanel {
             if (labelText.isBlank()) {
                 labelText = ContextManager.DEFAULT_SESSION_NAME;
             }
-            sessionNameLabel.setText(labelText);
+
+            // Display a truncated version in the toolbar label to keep the layout compact,
+            // but expose the full name in a tooltip.
+            final String fullName = labelText;
+            final int maxChars = 30;
+            String display = fullName;
+            if (fullName.length() > maxChars) {
+                display = fullName.substring(0, Math.max(0, maxChars - 3)) + "...";
+            }
+            sessionNameLabel.setText(display);
+            sessionNameLabel.setToolTipText(fullName);
             sessionNameLabel.revalidate();
             sessionNameLabel.repaint();
         });
