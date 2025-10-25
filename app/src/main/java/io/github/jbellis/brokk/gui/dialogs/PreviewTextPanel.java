@@ -75,6 +75,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     @Nullable
     private MaterialButton saveButton;
 
+    private final MaterialButton btnDecreaseFont = new MaterialButton();
+    private final MaterialButton btnResetFont = new MaterialButton();
+    private final MaterialButton btnIncreaseFont = new MaterialButton();
+
     private final ContextManager cm;
 
     // Nullable
@@ -185,6 +189,38 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
             actionButtonPanel.add(editButton); // Add edit button to the action panel
         }
+
+        // Configure font size control buttons
+        btnDecreaseFont.setText("A");
+        btnDecreaseFont.setFont(new Font(btnDecreaseFont.getFont().getName(), Font.PLAIN, 10));
+        btnDecreaseFont.setToolTipText("Decrease editor font size");
+        btnDecreaseFont.setBorderPainted(false);
+        btnDecreaseFont.setContentAreaFilled(false);
+        btnDecreaseFont.setFocusPainted(false);
+        btnDecreaseFont.addActionListener(e -> decreaseEditorFont());
+
+        btnResetFont.setText("A");
+        btnResetFont.setFont(new Font(btnResetFont.getFont().getName(), Font.PLAIN, 14));
+        btnResetFont.setToolTipText("Reset editor font size");
+        btnResetFont.setBorderPainted(false);
+        btnResetFont.setContentAreaFilled(false);
+        btnResetFont.setFocusPainted(false);
+        btnResetFont.addActionListener(e -> resetEditorFont());
+
+        btnIncreaseFont.setText("A");
+        btnIncreaseFont.setFont(new Font(btnIncreaseFont.getFont().getName(), Font.PLAIN, 18));
+        btnIncreaseFont.setToolTipText("Increase editor font size");
+        btnIncreaseFont.setBorderPainted(false);
+        btnIncreaseFont.setContentAreaFilled(false);
+        btnIncreaseFont.setFocusPainted(false);
+        btnIncreaseFont.addActionListener(e -> increaseEditorFont());
+
+        // Add font size buttons to action panel with spacing
+        actionButtonPanel.add(btnDecreaseFont);
+        actionButtonPanel.add(Box.createHorizontalStrut(4));
+        actionButtonPanel.add(btnResetFont);
+        actionButtonPanel.add(Box.createHorizontalStrut(4));
+        actionButtonPanel.add(btnIncreaseFont);
 
         // Add the action button panel to the top panel if it has any buttons
         if (actionButtonPanel.getComponentCount() > 0) {
@@ -311,8 +347,32 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         Font newFont = base.deriveFont(size);
         textArea.setFont(newFont);
 
+        // Persist the font size so other panels can use it
+        GlobalUiSettings.saveDiffFontSize(size);
+
         textArea.revalidate();
         textArea.repaint();
+    }
+
+    /** Decrease font size to previous preset size and apply to the preview. */
+    private void decreaseEditorFont() {
+        if (currentFontIndex <= 0) return; // Already at minimum
+        currentFontIndex--;
+        applyEditorFontSize();
+    }
+
+    /** Increase font size to next preset size and apply to the preview. */
+    private void increaseEditorFont() {
+        if (currentFontIndex >= FONT_SIZES.length - 1) return; // Already at maximum
+        currentFontIndex++;
+        applyEditorFontSize();
+    }
+
+    /** Reset font size to default and apply to the preview. */
+    private void resetEditorFont() {
+        if (currentFontIndex == DEFAULT_FONT_INDEX) return; // Already at default
+        currentFontIndex = DEFAULT_FONT_INDEX;
+        applyEditorFontSize();
     }
 
     /**
