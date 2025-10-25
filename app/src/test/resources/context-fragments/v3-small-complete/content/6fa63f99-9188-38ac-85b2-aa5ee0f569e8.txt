@@ -1,0 +1,15 @@
+/** Expand paths that may contain wildcards (*, ?), returning all matches. */
+    public static List<BrokkFile> expandPath(IProject project, String pattern) {
+        var paths = expandPatternToPaths(project, pattern);
+        var root = project.getRoot().toAbsolutePath().normalize();
+        return paths.stream()
+                .map(p -> {
+                    var abs = p.toAbsolutePath().normalize();
+                    if (abs.startsWith(root)) {
+                        return (BrokkFile) new ProjectFile(root, root.relativize(abs));
+                    } else {
+                        return (BrokkFile) new ExternalFile(abs);
+                    }
+                })
+                .toList();
+    }

@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -266,7 +267,7 @@ public class ContextHistory {
         }
     }
 
-    public synchronized UndoResult undo(int steps, IConsoleIO io, AbstractProject project) {
+    public synchronized UndoResult undo(int steps, IConsoleIO io, IProject project) {
         if (steps <= 0 || !hasUndoStates()) {
             return UndoResult.none();
         }
@@ -285,7 +286,7 @@ public class ContextHistory {
         return UndoResult.success(toUndo);
     }
 
-    private void undoFileDeletions(IConsoleIO io, AbstractProject project, Context popped) {
+    private void undoFileDeletions(IConsoleIO io, IProject project, Context popped) {
         getEntryInfo(popped.id()).ifPresent(info -> {
             if (info.deletedFiles().isEmpty()) {
                 return;
