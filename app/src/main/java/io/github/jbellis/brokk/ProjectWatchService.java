@@ -5,9 +5,9 @@ import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
@@ -52,7 +52,7 @@ public class ProjectWatchService implements IWatchService {
     public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, List<Listener> listeners) {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;
-        this.listeners = new ArrayList<>(listeners);
+        this.listeners = new CopyOnWriteArrayList<>(listeners);
         this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
     }
 
@@ -272,6 +272,23 @@ public class ProjectWatchService implements IWatchService {
         if (pauseCount > 0) {
             pauseCount--;
         }
+    }
+
+    @Override
+    public synchronized boolean isPaused() {
+        return pauseCount > 0;
+    }
+
+    @Override
+    public void addListener(Listener listener) {
+        listeners.add(listener);
+        logger.debug("Added listener: {}", listener.getClass().getSimpleName());
+    }
+
+    @Override
+    public void removeListener(Listener listener) {
+        listeners.remove(listener);
+        logger.debug("Removed listener: {}", listener.getClass().getSimpleName());
     }
 
     @Override

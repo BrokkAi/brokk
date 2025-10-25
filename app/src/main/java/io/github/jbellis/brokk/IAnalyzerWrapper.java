@@ -31,6 +31,14 @@ public interface IAnalyzerWrapper extends AutoCloseable {
         return false;
     }
 
+    /**
+     * Returns the underlying watch service for direct access.
+     * Callers can use this to pause/resume file watching or add additional listeners.
+     */
+    default IWatchService getWatchService() {
+        return new IWatchService() {};
+    }
+
     @Override
     default void close() {}
 }
