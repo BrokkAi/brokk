@@ -350,7 +350,7 @@ public final class PythonAnalyzerTest {
 
         // The fix worked! Local classes now have scoped FQNs like test_function_1$LocalClass
         var scopedLocalClasses = declarations.stream()
-                .filter(cu -> cu.fqName().contains("$LocalClass"))
+                .filter(cu -> cu.isClass() && cu.fqName().contains("$LocalClass"))
                 .collect(Collectors.toSet());
 
         // Verify the fix worked correctly
@@ -375,6 +375,39 @@ public final class PythonAnalyzerTest {
         var topLevelDecls =
                 analyzer.withFileProperties(tld -> tld.get(localClassesFile)).topLevelCodeUnits();
         assertTrue(topLevelDecls.contains(topLevelClassCU), "Top-level declarations should include TopLevelClass");
+
+        var localClassMethods = declarations.stream()
+                .filter(cu -> cu.isFunction() && cu.fqName().contains(".LocalClass."))
+                .collect(Collectors.toList());
+
+        // Should find 3 methods: method1, method2, method3
+        assertEquals(
+                3,
+                localClassMethods.size(),
+                "Should find 3 methods of local classes. Found: "
+                        + localClassMethods.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        // Verify specific method FQNs (methods use dot notation throughout)
+        assertTrue(
+                localClassMethods.stream().anyMatch(cu -> cu.fqName().equals("test_function_1.LocalClass.method1")),
+                "Should find test_function_1.LocalClass.method1");
+        assertTrue(
+                localClassMethods.stream().anyMatch(cu -> cu.fqName().equals("test_function_2.LocalClass.method2")),
+                "Should find test_function_2.LocalClass.method2");
+        assertTrue(
+                localClassMethods.stream().anyMatch(cu -> cu.fqName().equals("test_function_3.LocalClass.method3")),
+                "Should find test_function_3.LocalClass.method3");
+
+        // Verify methods are properly attached as children of their classes
+        for (var localClass : scopedLocalClasses) {
+            var children = analyzer.getSubDeclarations(localClass);
+            assertEquals(
+                    1,
+                    children.size(),
+                    "Each local class should have exactly 1 method as child, but " + localClass.fqName() + " has "
+                            + children.size());
+            assertTrue(children.get(0).isFunction(), "Child of " + localClass.fqName() + " should be a function");
+        }
     }
 
     @Test
@@ -440,9 +473,6 @@ public final class PythonAnalyzerTest {
         var classCUs = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
         var functionCUs = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
 
-        System.out.println("Functions found in astropy test:");
-        functionCUs.forEach(cu -> System.out.println("  " + cu.fqName()));
-
         assertEquals(2, classCUs.size(), "Should find 2 classes");
         assertEquals(3, functionCUs.size(), "Should find 3 functions");
     }
@@ -484,5 +514,226 @@ public final class PythonAnalyzerTest {
         assertEquals(1, testUncertaintySetter.size(), "Should find test_uncertainty_setter function");
         assertEquals(1, setTemperature.size(), "Should find set_temperature function");
         assertEquals(1, processDataSetter.size(), "Should find process_data_setter function");
+    }
+
+    @Test
+    void testPythonPropertySetterFiltering() {
+        // Test the specific astropy scenario: property getter and setter with same name
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile testFile = new ProjectFile(project.getRoot(), "property_setter_test.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(testFile);
+
+        // Should find the class
+        var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
+        assertEquals(1, classes.size(), "Should find 1 class");
+        assertEquals("MplTimeConverter", classes.get(0).identifier());
+
+        // Should find exactly 2 methods: format (getter) and regular_method
+        // The format setter should be skipped
+        var methods = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+
+        assertEquals(
+                2,
+                methods.size(),
+                "Should find 2 methods (getter + regular method, setter skipped). Found: "
+                        + methods.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        // Verify we have the getter but not the setter
+        assertTrue(
+                methods.stream().anyMatch(m -> m.fqName().equals("MplTimeConverter.format")),
+                "Should find format getter");
+        assertTrue(
+                methods.stream().anyMatch(m -> m.fqName().equals("MplTimeConverter.regular_method")),
+                "Should find regular_method");
+
+        // Verify no duplicate format methods
+        long formatCount =
+                methods.stream().filter(m -> m.identifier().equals("format")).count();
+        assertEquals(1, formatCount, "Should find exactly 1 format method (getter only, setter filtered)");
+    }
+
+    @Test
+    void testAstropyDuplicateFunctionNames() {
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile astropyDuplicateFile = new ProjectFile(project.getRoot(), "astropy_duplicate_test.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(astropyDuplicateFile);
+
+        // Should find 2 LogDRepresentation classes with different function parents
+        var logDClasses = declarations.stream()
+                .filter(cu -> cu.isClass() && cu.fqName().contains("LogDRepresentation"))
+                .collect(Collectors.toList());
+
+        assertEquals(2, logDClasses.size(), "Should find 2 LogDRepresentation classes");
+
+        // Check that both classes have unique FQNs due to different function names
+        Set<String> fqNames = logDClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        assertEquals(2, fqNames.size(), "Both LogDRepresentation classes should have unique FQNs");
+
+        // Should find function-local classes with proper scoping
+        assertTrue(
+                fqNames.stream().anyMatch(fqn -> fqn.equals("test_minimal_subclass$LogDRepresentation")),
+                "Should find test_minimal_subclass$LogDRepresentation");
+
+        assertTrue(
+                fqNames.stream().anyMatch(fqn -> fqn.equals("another_test_function$LogDRepresentation")),
+                "Should find another_test_function$LogDRepresentation");
+
+        // Verify no duplicate FQNs exist (the main issue is fixed)
+        var duplicateFqNames =
+                fqNames.stream().collect(Collectors.groupingBy(fqn -> fqn, Collectors.counting())).entrySet().stream()
+                        .filter(entry -> entry.getValue() > 1)
+                        .count();
+
+        assertEquals(0, duplicateFqNames, "Should have no duplicate FQNs");
+
+        // Test the disambiguation mechanism by checking that function-local classes are properly scoped
+        var functionLocalClasses =
+                fqNames.stream().filter(fqn -> fqn.contains("$")).collect(Collectors.toList());
+
+        assertEquals(2, functionLocalClasses.size(), "Both classes should be function-local with $ scoping");
+    }
+
+    @Test
+    void testDeterministicDisambiguationAcrossFiles() {
+        // Test that disambiguation counters are file-specific and don't accumulate across files
+        // This verifies that prepareFileAnalysis() properly clears file-specific map entries
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile fileA = new ProjectFile(project.getRoot(), "disambiguation_test_a.py");
+        ProjectFile fileB = new ProjectFile(project.getRoot(), "disambiguation_test_b.py");
+
+        // Analyze file A first
+        Set<CodeUnit> declarationsA = analyzer.getDeclarations(fileA);
+        var classesA = declarationsA.stream()
+                .filter(CodeUnit::isClass)
+                .filter(cu -> cu.fqName().contains("LocalClass"))
+                .collect(Collectors.toList());
+
+        // Should find 2 classes with disambiguation: test_func$LocalClass and test_func[2]$LocalClass
+        assertEquals(2, classesA.size(), "File A should have 2 local classes");
+
+        var fqNamesA = classesA.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(
+                fqNamesA.contains("test_func$LocalClass"),
+                "File A should have first occurrence without number");
+        assertTrue(
+                fqNamesA.contains("test_func[2]$LocalClass"),
+                "File A should have second occurrence with [2]");
+
+        // Now analyze file B
+        Set<CodeUnit> declarationsB = analyzer.getDeclarations(fileB);
+        var classesB = declarationsB.stream()
+                .filter(CodeUnit::isClass)
+                .filter(cu -> cu.fqName().contains("LocalClass"))
+                .collect(Collectors.toList());
+
+        // Should also find 2 classes with same disambiguation pattern
+        // (not continuing from file A's counter)
+        assertEquals(2, classesB.size(), "File B should have 2 local classes");
+
+        var fqNamesB = classesB.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // CRITICAL: File B should start counting from 1 again, not continue from file A
+        assertTrue(
+                fqNamesB.contains("test_func$LocalClass"),
+                "File B should have first occurrence without number (not [3])");
+        assertTrue(
+                fqNamesB.contains("test_func[2]$LocalClass"),
+                "File B should have second occurrence with [2] (not [4])");
+
+        // Verify they're independent - same patterns in different files
+        assertEquals(
+                fqNamesA,
+                fqNamesB,
+                "Both files should have identical disambiguation patterns (counters are file-specific)");
+    }
+
+    @Test
+    void testNestedFunctionLocalClasses() {
+        // Test that nested classes inside function-local classes use consistent $ separation
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "nested_local_classes.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+        System.out.println("\n=== All declarations in nested_local_classes.py ===");
+        declarations.stream()
+                .sorted((a, b) -> a.fqName().compareTo(b.fqName()))
+                .forEach(cu -> System.out.println(
+                        "  " + cu.kind() + ": " + cu.fqName() + " (shortName: " + cu.shortName() + ")"));
+
+        // Find all classes
+        var classes = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toList());
+
+        assertEquals(3, classes.size(), "Should find 3 classes: OuterLocal, InnerLocal, DeepLocal");
+
+        System.out.println("\n=== Class identifiers ===");
+        classes.forEach(c -> System.out.println("  identifier: '" + c.identifier() + "', fqName: " + c.fqName()));
+
+        // Verify FQN consistency: all should use $ for separation in function-local context
+        var outerLocal = classes.stream()
+                .filter(cu -> cu.fqName().equals("outer_function$OuterLocal"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(
+                "outer_function$OuterLocal",
+                outerLocal.fqName(),
+                "OuterLocal should be outer_function$OuterLocal");
+
+        var innerLocal = classes.stream()
+                .filter(cu -> cu.fqName().equals("outer_function$OuterLocal$InnerLocal"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(
+                "outer_function$OuterLocal$InnerLocal",
+                innerLocal.fqName(),
+                "InnerLocal should use consistent $ separation: outer_function$OuterLocal$InnerLocal");
+
+        var deepLocal = classes.stream()
+                .filter(cu -> cu.fqName().equals("outer_function$OuterLocal$InnerLocal$DeepLocal"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(
+                "outer_function$OuterLocal$InnerLocal$DeepLocal",
+                deepLocal.fqName(),
+                "DeepLocal should use consistent $ separation throughout");
+
+        // Verify parent-child relationships work correctly
+        var innerChildren = analyzer.getSubDeclarations(innerLocal);
+        assertTrue(
+                innerChildren.stream().anyMatch(cu -> cu.equals(deepLocal)),
+                "InnerLocal should have DeepLocal as child");
+
+        var outerChildren = analyzer.getSubDeclarations(outerLocal);
+        assertTrue(
+                outerChildren.stream().anyMatch(cu -> cu.equals(innerLocal)),
+                "OuterLocal should have InnerLocal as child");
+
+        // Verify methods are properly attached (only class methods, not module-level functions)
+        var methods = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(m -> m.fqName().contains(".Out")) // Filter to only methods inside OuterLocal or InnerLocal
+                .collect(Collectors.toList());
+
+        assertEquals(2, methods.size(), "Should find 2 methods (class methods only)");
+
+        assertTrue(
+                methods.stream()
+                        .anyMatch(m -> m.fqName()
+                                .equals("outer_function.OuterLocal.InnerLocal.inner_method")),
+                "inner_method should use dot notation for methods");
+        assertTrue(
+                methods.stream()
+                        .anyMatch(m -> m.fqName().equals("outer_function.OuterLocal.outer_method")),
+                "outer_method should use dot notation for methods");
     }
 }

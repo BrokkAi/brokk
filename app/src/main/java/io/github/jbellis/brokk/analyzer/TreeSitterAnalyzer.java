@@ -1085,6 +1085,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     } // Default
 
     /**
+     * Checks if a node should be skipped for top-level processing.
+     * Default implementation returns false (no skipping).
+     * Language-specific analyzers can override this to filter out certain nodes.
+     *
+     * @param node the AST node to check
+     * @param captureName the capture name from the query
+     * @param srcBytes the source file bytes (for extracting node text if needed)
+     */
+    protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
+        return false;
+    }
+
+    /**
+     * Called before analyzing a file's content. Language-specific analyzers can override
+     * to prepare per-file state (e.g., clear cached entries to ensure deterministic analysis).
+     * Default implementation does nothing.
+     *
+     * @param file the file about to be analyzed
+     */
+    protected void prepareFileAnalysis(ProjectFile file) {
+        // Default: no-op
+    }
+
+    /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
      */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
@@ -1107,6 +1131,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             byte[] fileBytes,
             TSParser localParser,
             @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
+        // Allow language-specific analyzers to prepare per-file state
+        prepareFileAnalysis(file);
+
         log.trace("analyzeFileContent: Parsing file: {}", file);
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
@@ -1120,6 +1147,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
+        Set<String> seenTopLevelFqNames = new HashSet<>(); // For O(1) duplicate detection (performance optimization)
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -1380,6 +1408,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 }
             }
 
+            // Check if this node should be skipped for top-level processing
+            if (shouldSkipNode(node, primaryCaptureName, fileBytes)) {
+                log.trace(
+                        "Skipping node {} ({}) in file {} due to language-specific filtering",
+                        simpleName,
+                        primaryCaptureName,
+                        file.getFileName());
+                continue;
+            }
+
             CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain);
             log.trace("createCodeUnit returned: {}", cu);
 
@@ -1522,20 +1560,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
                     // Check if this top-level CU already exists, but only skip for Python FIELD duplicates
-                    // Python allows "last assignment wins" for fields, but duplicate classes should still error
-                    boolean alreadyExists = localTopLevelCUs.stream()
-                            .anyMatch(existing -> existing.fqName().equals(cu.fqName()));
-                    if (!alreadyExists) {
+                    // Python allows "last assignment wins" for fields, but duplicate classes/functions should still
+                    // error
+                    // Use HashSet for O(1) lookup instead of O(n) stream check
+                    if (!seenTopLevelFqNames.contains(cu.fqName())) {
                         localTopLevelCUs.add(cu);
+                        seenTopLevelFqNames.add(cu.fqName());
                     } else if (language == Languages.PYTHON && cu.isField()) {
-                        // Python field duplicate - skip to implement "last assignment wins"
+                        // Python field duplicate - replace previous with this one (last assignment wins)
+                        localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+                        localTopLevelCUs.add(cu);
                         log.trace(
-                                "Skipping duplicate Python FIELD with same FQName: {} in file {}",
+                                "Replacing duplicate Python FIELD with last assignment: {} in file {}",
                                 cu.fqName(),
                                 file.getFileName());
                     } else {
-                        // Other types of duplicates (classes, functions) - let the normal error handling deal with them
-                        localTopLevelCUs.add(cu);
+                        // Non-field duplicate - this is unexpected, log error
+                        log.error(
+                                "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={}, existing in set={})",
+                                file.getFileName(),
+                                cu.fqName(),
+                                cu.kind(),
+                                seenTopLevelFqNames.contains(cu.fqName()));
                     }
                 } else {
                     // Parent's shortName is the classChain string itself.

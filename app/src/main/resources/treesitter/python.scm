@@ -19,12 +19,27 @@
   )
 )
 
-; Decorated method definition (function_definition directly inside a class's body block, with decorators)
-; The decorated_definition node itself is captured as @function.definition for consistency,
-; and its inner function_definition's name is @function.name.
+; Decorated method definition with attribute decorators (e.g., @property, @name.setter)
+; Note: Property setters are filtered in PythonAnalyzer.shouldSkipNode() to avoid duplicates
 (class_definition
   body: (block
     (decorated_definition
+      (decorator
+        (attribute))
+      definition: (function_definition
+        name: (identifier) @function.name
+      )
+    ) @function.definition
+  )
+)
+
+; Decorated method definition with simple identifier decorators (e.g., @staticmethod, @classmethod)
+; No filtering needed for these since they don't create duplicates.
+(class_definition
+  body: (block
+    (decorated_definition
+      (decorator
+        (identifier))
       definition: (function_definition
         name: (identifier) @function.name
       )
