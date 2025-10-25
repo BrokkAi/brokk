@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -95,6 +96,16 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
+
+    /**
+     * Editor font size state with predefined sizes (standard sizes with 2pt minimum increments).
+     * Font size is persisted and shared with BrokkDiffPanel via GlobalUiSettings.getDiffFontSize() / saveDiffFontSize().
+     * Initialization will occur in the constructor (to be implemented in a follow-up change).
+     */
+    private static final float[] FONT_SIZES = {8f, 10f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f};
+    private static final int DEFAULT_FONT_INDEX = 2; // 12f
+    private static final float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES[DEFAULT_FONT_INDEX];
+    private int currentFontIndex = -1; // -1 = uninitialized
 
     public PreviewTextPanel(
             ContextManager cm,
@@ -210,6 +221,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Apply the current theme to the text area
         guiTheme.applyCurrentThemeToComponent(textArea);
 
+        // Initialize and apply persisted font size
+        float saved = GlobalUiSettings.getDiffFontSize();
+        if (saved > 0f) {
+            currentFontIndex = findClosestFontIndex(saved);
+        } else {
+            currentFontIndex = DEFAULT_FONT_INDEX;
+        }
+        applyEditorFontSize();
+
         // Add top panel (search + edit) + text area to this panel
         add(topPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
@@ -262,6 +282,37 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             fileDeclarations = null; // Ensure @Nullable field is explicitly null if file is null
             analyzerCapabilities = null;
         }
+    }
+
+    /** Find the closest font size index for a given font size. */
+    private static int findClosestFontIndex(float targetSize) {
+        int closestIndex = DEFAULT_FONT_INDEX;
+        float minDiff = Math.abs(FONT_SIZES[DEFAULT_FONT_INDEX] - targetSize);
+
+        for (int i = 0; i < FONT_SIZES.length; i++) {
+            float diff = Math.abs(FONT_SIZES[i] - targetSize);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestIndex = i;
+            }
+        }
+        return closestIndex;
+    }
+
+    /** Apply the current font size to the preview text area. */
+    private void applyEditorFontSize() {
+        int idx = Math.max(0, Math.min(currentFontIndex, FONT_SIZES.length - 1));
+        float size = FONT_SIZES[idx];
+
+        Font base = textArea.getFont();
+        if (base == null) {
+            base = new Font(Font.MONOSPACED, Font.PLAIN, (int) DEFAULT_FALLBACK_FONT_SIZE);
+        }
+        Font newFont = base.deriveFont(size);
+        textArea.setFont(newFont);
+
+        textArea.revalidate();
+        textArea.repaint();
     }
 
     /**
