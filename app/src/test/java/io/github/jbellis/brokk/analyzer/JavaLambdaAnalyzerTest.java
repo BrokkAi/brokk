@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -38,7 +39,7 @@ public class JavaLambdaAnalyzerTest {
     @Test
     public void discoversLambdaInsideNestedMethod_InterfaceDEFAULTLambda() {
         // Interface.DEFAULT contains: root -> { };
-        final var maybeFile = analyzer.getFileFor("Interface");
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "Interface");
         assertTrue(maybeFile.isPresent(), "Should resolve file for class Interface");
         final var file = maybeFile.get();
 
@@ -53,7 +54,7 @@ public class JavaLambdaAnalyzerTest {
     @Test
     public void discoversLambdaInsideNestedMethod_ifPresentLambda() {
         // AnonymousUsage.NestedClass.getSomething contains: ifPresent(s -> ...)
-        final var maybeFile = analyzer.getFileFor("AnonymousUsage");
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "AnonymousUsage");
         assertTrue(maybeFile.isPresent(), "Should resolve file for class AnonymousUsage");
         final var file = maybeFile.get();
 
@@ -68,7 +69,7 @@ public class JavaLambdaAnalyzerTest {
     @Test
     public void lambdaSource_InterfaceDEFAULT() {
         // Interface.DEFAULT contains: root -> { };
-        final var maybeFile = analyzer.getFileFor("Interface");
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "Interface");
         assertTrue(maybeFile.isPresent(), "Should resolve file for class Interface");
         final var file = maybeFile.get();
 
@@ -90,7 +91,7 @@ public class JavaLambdaAnalyzerTest {
     @Test
     public void lambdaSource_AnonymousUsage_ifPresent() {
         // AnonymousUsage.NestedClass.getSomething contains: ifPresent(s -> map.put("foo", "test"))
-        final var maybeFile = analyzer.getFileFor("AnonymousUsage");
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "AnonymousUsage");
         assertTrue(maybeFile.isPresent(), "Should resolve file for class AnonymousUsage");
         final var file = maybeFile.get();
 

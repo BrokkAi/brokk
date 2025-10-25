@@ -6,6 +6,14 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Core analyzer interface providing code intelligence capabilities.
+ *
+ * <p><b>API Pattern:</b> Capability providers ({@link SkeletonProvider}, {@link SourceCodeProvider},
+ * {@link CallGraphProvider}) accept {@link CodeUnit} parameters. When you have a CodeUnit, call
+ * provider methods directly. When you only have a String FQN, use {@link io.github.jbellis.brokk.AnalyzerUtil}
+ * convenience methods to convert and delegate.
+ */
 public interface IAnalyzer {
     /** Record representing a code unit relevance result with a code unit and its score. */
     record FileRelevance(ProjectFile file, double score) implements Comparable<FileRelevance> {
@@ -65,11 +73,8 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default List<CodeUnit> getMembersInClass(String fqClass) {
-        return getDefinition(fqClass)
-                .filter(CodeUnit::isClass)
-                .map(this::directChildren)
-                .orElse(List.of());
+    default List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+        return directChildren(classUnit);
     }
 
     /** All top-level declarations in the project. */
@@ -89,8 +94,8 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default Optional<ProjectFile> getFileFor(String fqName) {
-        return getDefinition(fqName).map(CodeUnit::source);
+    default Optional<ProjectFile> getFileFor(CodeUnit cu) {
+        return Optional.of(cu.source());
     }
 
     /**
@@ -104,23 +109,19 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Checks if a definition is available for the given fully-qualified name without creating the CodeUnit object. This
-     * is a fast way to test if {@link #getDefinition(String)} would return a non-empty Optional.
-     *
-     * @param fqName The exact, case-sensitive FQ name of the class, method, or field
-     * @return true if a definition is available, false otherwise
-     */
-    default boolean isDefinitionAvailable(String fqName) {
-        return getDefinition(fqName).isPresent();
+    default Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        return getDefinition(cu.fqName());
     }
 
     /**
-     * Gets the source code for the entire given class. Implementations may return Optional.empty() when the analyzer
-     * cannot provide source text for the requested FQCN.
+     * Returns true if a definition is available for the given code unit. This
+     * is a fast way to test if {@link #getDefinition(String)} would return a non-empty Optional.
+     *
+     * @param cu The CodeUnit to check for definition availability
+     * @return true if a definition is available, false otherwise
      */
-    default Optional<String> getClassSource(String fqcn) {
-        throw new UnsupportedOperationException();
+    default boolean isDefinitionAvailable(CodeUnit cu) {
+        return getDefinition(cu.fqName()).isPresent();
     }
 
     /**
@@ -302,6 +303,7 @@ public interface IAnalyzer {
     /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
+     * Package-private: external callers should use {@link io.github.jbellis.brokk.AnalyzerUtil#extractClassName}.
      *
      * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
      * @return Optional containing the extracted class/module name, empty if none found

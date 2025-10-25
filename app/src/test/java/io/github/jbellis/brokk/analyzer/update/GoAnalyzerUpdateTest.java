@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
@@ -47,7 +48,7 @@ class GoAnalyzerUpdateTest {
                 func Bar() int { return 2 }
                 """);
 
-        var file = analyzer.getFileFor("main.Foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "main.Foo").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
         assertTrue(analyzer.getDefinition("main.Bar").isPresent());
     }
@@ -65,7 +66,7 @@ class GoAnalyzerUpdateTest {
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("main.Baz").isPresent());
 
-        var file = analyzer.getFileFor("main.Foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "main.Foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("main.Foo").isEmpty());

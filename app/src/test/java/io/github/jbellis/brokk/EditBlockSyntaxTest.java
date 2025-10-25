@@ -130,7 +130,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find the target method
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var methodOpt = assertDoesNotThrow(() -> analyzer.getMethodSource("A.method4", true));
+        var methodOpt = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "A.method4", true));
         assertTrue(methodOpt.isPresent(), "Analyzer should locate A.method4");
 
         String response =
@@ -376,7 +376,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find the nested target class
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var clsOpt = assertDoesNotThrow(() -> analyzer.getClassSource("A.AInner", true));
+        var clsOpt = assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.AInner", true));
         assertTrue(clsOpt.isPresent(), "Analyzer should locate class A.AInner");
 
         String response =
@@ -415,7 +415,7 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find the doubly nested target class
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var clsOpt = analyzer.getClassSource("A.AInner.AInnerInner", true);
+        var clsOpt = AnalyzerUtil.getClassSource(analyzer, "A.AInner.AInnerInner", true);
         assertTrue(clsOpt.isPresent(), "Analyzer should locate class A.AInner.AInnerInner");
 
         String response =
@@ -543,7 +543,8 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer reports the class is not found
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var missingClassOpt = assertDoesNotThrow(() -> analyzer.getClassSource("A.NonExistentClass", true));
+        var missingClassOpt =
+                assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.NonExistentClass", true));
         assertTrue(missingClassOpt.isEmpty(), "Analyzer should report missing class A.NonExistentClass");
 
         String response =
@@ -675,8 +676,8 @@ public class EditBlockSyntaxTest {
 
         // Pre-check: ensure analyzer can find both target methods in E
         assertNotNull(analyzer, "Analyzer should be initialized");
-        var sMethod = assertDoesNotThrow(() -> analyzer.getMethodSource("E.sMethod", true));
-        var iMethod = assertDoesNotThrow(() -> analyzer.getMethodSource("E.iMethod", true));
+        var sMethod = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "E.sMethod", true));
+        var iMethod = assertDoesNotThrow(() -> AnalyzerUtil.getMethodSource(analyzer, "E.iMethod", true));
         assertTrue(sMethod.isPresent(), "Analyzer should locate E.sMethod");
         assertTrue(iMethod.isPresent(), "Analyzer should locate E.iMethod");
 

@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
@@ -47,7 +48,7 @@ class PythonAnalyzerUpdateTest {
             return 2
         """);
 
-        var maybeFile = analyzer.getFileFor("mod.foo");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "mod.foo");
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
         assertTrue(analyzer.getDefinition("mod.bar").isPresent());
@@ -66,7 +67,7 @@ class PythonAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("mod.foo").isPresent());
 
         // delete file – symbols should disappear
-        var pyFile = analyzer.getFileFor("mod.foo").orElseThrow();
+        var pyFile = AnalyzerUtil.getFileFor(analyzer, "mod.foo").orElseThrow();
         Files.deleteIfExists(pyFile.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("mod.foo").isEmpty());

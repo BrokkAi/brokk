@@ -219,12 +219,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        var cuOpt = getDefinition(fqName);
-        if (cuOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        var cu = cuOpt.get();
+    public Optional<String> getSkeleton(CodeUnit cu) {
         var ranges = rangesByCodeUnit.get(cu);
 
         if (ranges == null || ranges.isEmpty()) {
@@ -244,7 +239,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
             if (range.endByte() > allBytes.length || range.startByte() > range.endByte()) {
                 logger.error(
                         "Invalid range for skeleton for {}: start {}, end {}, file size {}",
-                        fqName,
+                        cu.fqName(),
                         range.startByte(),
                         range.endByte(),
                         allBytes.length);
@@ -263,9 +258,9 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<String> getSkeletonHeader(String fqName) {
+    public Optional<String> getSkeletonHeader(CodeUnit cu) {
         // For SQL CREATE TABLE/VIEW, the "header" is the full statement.
-        return getSkeleton(fqName);
+        return getSkeleton(cu);
     }
 
     @Override

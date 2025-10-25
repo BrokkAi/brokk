@@ -4,7 +4,7 @@ import static io.github.jbellis.brokk.testutil.AnalyzerCreator.createTreeSitterA
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
@@ -36,9 +36,9 @@ public class ScalaSkeletonTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var scp = analyzer.as(SkeletonProvider.class)
-                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
-            scp.getSkeleton("ai.brokk.Foo")
+            // Provider extracted via AnalyzerUtil
+
+            AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.Foo")
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -71,9 +71,9 @@ public class ScalaSkeletonTest {
                         "GenericFoo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var scp = analyzer.as(SkeletonProvider.class)
-                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
-            scp.getSkeleton("ai.brokk.GenericFoo")
+            // Provider extracted via AnalyzerUtil
+
+            AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.GenericFoo")
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -104,9 +104,9 @@ public class ScalaSkeletonTest {
                         "ImplicitFoo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var scp = analyzer.as(SkeletonProvider.class)
-                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
-            scp.getSkeleton("ai.brokk.ImplicitFoo")
+            // Provider extracted via AnalyzerUtil
+
+            AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.ImplicitFoo")
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -137,9 +137,9 @@ public class ScalaSkeletonTest {
                         "WhitespaceClass.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var scp = analyzer.as(SkeletonProvider.class)
-                    .orElseGet(() -> fail("Analyzer does not support skeleton extraction!"));
-            scp.getSkeleton("ai.brokk.WhitespaceClass")
+            // Provider extracted via AnalyzerUtil
+
+            AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.WhitespaceClass")
                     .ifPresentOrElse(
                             // Note in the following, Scala 2 braces are used
                             source -> assertEquals(

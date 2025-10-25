@@ -500,7 +500,7 @@ public class ContextAgent {
         return coalescedClasses.parallelStream()
                 .map(cu -> {
                     final String skeleton = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu.fqName()))
+                            .flatMap(skp -> skp.getSkeleton(cu))
                             .orElse("");
                     return Map.entry(cu, skeleton);
                 })

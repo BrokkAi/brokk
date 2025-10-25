@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.mop;
 
+import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -314,7 +315,7 @@ public class SymbolLookupService {
             }
 
             // Fallback: Try partial matching via class name extraction
-            var extractedClassName = analyzer.extractClassName(trimmed);
+            var extractedClassName = AnalyzerUtil.extractClassName(analyzer, trimmed);
             if (extractedClassName.isPresent()) {
                 var rawClassName = extractedClassName.get();
                 logger.trace("Extracted class name '{}' from '{}'", rawClassName, trimmed);

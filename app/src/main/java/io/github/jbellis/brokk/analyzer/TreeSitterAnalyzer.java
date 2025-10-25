@@ -527,8 +527,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getSkeletonHeader(String fqName) {
-        return getSkeletonImpl(fqName, true);
+    public Optional<String> getSkeletonHeader(CodeUnit cu) {
+        return Optional.of(reconstructFullSkeleton(cu, true));
     }
 
     @Override
@@ -547,8 +547,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public boolean isDefinitionAvailable(String fqName) {
-        return allCodeUnits().anyMatch(cu -> cu.fqName().equals(fqName));
+    public boolean isDefinitionAvailable(CodeUnit cu) {
+        return allCodeUnits().anyMatch(unit -> unit.fqName().equals(cu.fqName()));
     }
 
     @Override
@@ -794,19 +794,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return getSkeletonImpl(fqName, false);
-    }
-
-    public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
-        final var cuOpt = getDefinition(fqName);
-        if (cuOpt.isPresent()) {
-            var skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
-            log.trace("getSkeleton: fqName='{}', found=true", fqName);
-            return Optional.of(skeleton);
-        }
-        log.trace("getSkeleton: fqName='{}', found=false", fqName);
-        return Optional.empty();
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        var skeleton = reconstructFullSkeleton(cu, false);
+        log.trace("getSkeleton: fqName='{}', found=true", cu.fqName());
+        return Optional.of(skeleton);
     }
 
     private static boolean containsAnyHierarchySeparator(String s) {
@@ -847,12 +838,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getClassSource(String fqName, boolean includeComments) {
-        var cuOpt = getDefinition(fqName).filter(CodeUnit::isClass);
-        if (cuOpt.isEmpty()) {
+    public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
+        if (!cu.isClass()) {
             return Optional.empty();
         }
-        var cu = cuOpt.get();
 
         var ranges = rangesOf(cu);
         if (ranges.isEmpty()) {
@@ -876,65 +865,57 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
-                // overloads)
-                .filter(CodeUnit::isFunction)
-                .map(cu -> {
-                    List<Range> rangesForOverloads = rangesOf(cu);
-                    if (rangesForOverloads.isEmpty()) {
-                        log.warn(
-                                "No source ranges found for CU {} (fqName {}) although definition was found.",
-                                cu,
-                                fqName);
-                        return Collections.<String>emptySet();
-                    }
+    public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
+        if (!cu.isFunction()) {
+            return Collections.emptySet();
+        }
 
-                    var fileContentOpt = cu.source().read();
-                    if (fileContentOpt.isEmpty()) {
-                        log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
-                        return Collections.<String>emptySet();
-                    }
-                    String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
+        List<Range> rangesForOverloads = rangesOf(cu);
+        if (rangesForOverloads.isEmpty()) {
+            log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, cu.fqName());
+            return Collections.emptySet();
+        }
 
-                    var methodSources = new LinkedHashSet<String>();
-                    for (Range range : rangesForOverloads) {
-                        // Choose start byte based on includeComments parameter
-                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-                        String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, extractStartByte, range.endByte());
-                        if (!methodSource.isEmpty()) {
-                            methodSources.add(methodSource);
-                        } else {
-                            log.warn(
-                                    "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    extractStartByte,
-                                    range.endByte(),
-                                    cu,
-                                    fqName);
-                        }
-                    }
-                    if (methodSources.isEmpty()) {
-                        log.warn(
-                                "After processing ranges, no valid method sources found for CU {} (fqName {}).",
-                                cu,
-                                fqName);
-                    }
-                    return methodSources;
-                })
-                .orElse(Collections.emptySet());
+        var fileContentOpt = cu.source().read();
+        if (fileContentOpt.isEmpty()) {
+            log.warn("Could not read source for CU {} (fqName {}): {}", cu, cu.fqName(), "unreadable");
+            return Collections.emptySet();
+        }
+        String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
+
+        var methodSources = new LinkedHashSet<String>();
+        for (Range range : rangesForOverloads) {
+            // Choose start byte based on includeComments parameter
+            int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+            String methodSource =
+                    ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, extractStartByte, range.endByte());
+            if (!methodSource.isEmpty()) {
+                methodSources.add(methodSource);
+            } else {
+                log.warn(
+                        "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                        extractStartByte,
+                        range.endByte(),
+                        cu,
+                        cu.fqName());
+            }
+        }
+        if (methodSources.isEmpty()) {
+            log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
+        }
+        return methodSources;
     }
 
     @Override
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
+            Set<String> sources = getMethodSources(codeUnit, includeComments);
             if (sources.isEmpty()) {
                 return Optional.empty();
             }
             return Optional.of(String.join("\n\n", sources));
         } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName(), includeComments);
+            return getClassSource(codeUnit, includeComments);
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }

@@ -521,6 +521,36 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        // Find the top-level parent to get the full namespace skeleton
+        CodeUnit topLevel = findTopLevelParent(cu);
+
+        // Get skeleton through getSkeletons() which applies TypeScript-specific cleanup
+        Map<CodeUnit, String> skeletons = getSkeletons(topLevel.source());
+        String skeleton = skeletons.get(topLevel);
+
+        return Optional.ofNullable(skeleton);
+    }
+
+    private CodeUnit findTopLevelParent(CodeUnit cu) {
+        // Walk up parent chain to find top-level declaration
+        CodeUnit current = cu;
+        while (true) {
+            String fqn = current.fqName();
+            int lastSep = Math.max(fqn.lastIndexOf('.'), Math.max(fqn.lastIndexOf('$'), fqn.lastIndexOf("::")));
+            if (lastSep == -1) {
+                return current; // Already at top level
+            }
+            String parentFqn = fqn.substring(0, lastSep);
+            Optional<CodeUnit> parentOpt = getDefinition(parentFqn);
+            if (parentOpt.isEmpty()) {
+                return current; // Parent not found, current is top level
+            }
+            current = parentOpt.get();
+        }
+    }
+
+    @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         var skeletons = super.getSkeletons(file);
 
@@ -724,54 +754,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected TSLanguage createTSLanguage() {
         return new TreeSitterTypescript();
-    }
-
-    @Override
-    public Optional<String> getSkeleton(String fqName) {
-        // Find the CodeUnit for this FQN - optimize with early termination
-        CodeUnit foundCu = null;
-        for (CodeUnit cu : withCodeUnitProperties(Map::keySet)) {
-            if (cu.fqName().equals(fqName)) {
-                foundCu = cu;
-                break;
-            }
-        }
-
-        if (foundCu != null) {
-            // Find the top-level parent for this CodeUnit
-            CodeUnit topLevelParent = findTopLevelParent(foundCu);
-
-            // Get the skeleton from getSkeletons and apply our cleanup
-            Map<CodeUnit, String> skeletons = getSkeletons(topLevelParent.source());
-            String skeleton = skeletons.get(topLevelParent);
-
-            return Optional.ofNullable(skeleton);
-        }
-        return Optional.empty();
-    }
-
-    /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
-    private CodeUnit findTopLevelParent(CodeUnit cu) {
-        // Build parent chain without caching
-        CodeUnit current = cu;
-        CodeUnit parent = findDirectParent(current);
-        while (parent != null) {
-            current = parent;
-            parent = findDirectParent(current);
-        }
-        return current;
-    }
-
-    /** Find direct parent of a CodeUnit by looking in childrenByParent map */
-    private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
-        for (var entry : withCodeUnitProperties(Map::entrySet)) {
-            CodeUnit parent = entry.getKey();
-            List<CodeUnit> children = entry.getValue().children();
-            if (children.contains(cu)) {
-                return parent;
-            }
-        }
-        return null;
     }
 
     @Override
