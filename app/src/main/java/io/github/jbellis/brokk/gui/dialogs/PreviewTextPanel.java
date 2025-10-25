@@ -337,25 +337,81 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
     /** Apply the current font size to the preview text area. */
     private void applyEditorFontSize() {
+        if (currentFontIndex < 0) return; // guard
+
+        // Ensure index in-range
         int idx = Math.max(0, Math.min(currentFontIndex, FONT_SIZES.length - 1));
-        float size = FONT_SIZES[idx];
+        float fontSize = FONT_SIZES[idx];
 
-        Font base = textArea.getFont();
-        if (base == null) {
-            base = new Font(Font.MONOSPACED, Font.PLAIN, (int) DEFAULT_FALLBACK_FONT_SIZE);
+        // Persist chosen font size for other panels
+        GlobalUiSettings.saveDiffFontSize(fontSize);
+
+        // Apply to this preview's editor
+        setEditorFont(textArea, fontSize);
+
+        // Refresh scroll pane and this panel
+        if (scrollPane != null) {
+            scrollPane.revalidate();
+            scrollPane.repaint();
         }
-        Font newFont = base.deriveFont(size);
-        textArea.setFont(newFont);
+        SwingUtilities.invokeLater(() -> {
+            this.revalidate();
+            this.repaint();
+        });
+    }
 
-        // Persist the font size so other panels can use it
-        GlobalUiSettings.saveDiffFontSize(size);
+    /**
+     * Set the font for an editor and update its syntax scheme while preserving colors.
+     *
+     * @param editor The editor to update
+     * @param size The font size to apply
+     */
+    private void setEditorFont(RSyntaxTextArea editor, float size) {
+        try {
+            Font base = editor.getFont();
+            Font newFont = (base != null) ? base.deriveFont(size) : editor.getFont().deriveFont(size);
+            editor.setFont(newFont);
+            updateSyntaxSchemeFonts(editor, newFont);
+            editor.revalidate();
+            editor.repaint();
+        } catch (Exception ex) {
+            logger.debug("Could not apply font to editor", ex);
+        }
+    }
 
-        textArea.revalidate();
-        textArea.repaint();
+    /**
+     * Update all token styles in the syntax scheme to use the new font while preserving colors. This ensures consistent
+     * font sizing across all syntax elements (keywords, identifiers, etc.).
+     */
+    private void updateSyntaxSchemeFonts(RSyntaxTextArea editor, Font newFont) {
+        try {
+            var scheme = editor.getSyntaxScheme();
+            if (scheme == null) return;
+
+            // Update font for each token type style while preserving colors
+            for (int i = 0; i < scheme.getStyleCount(); i++) {
+                var style = scheme.getStyle(i);
+                if (style != null && style.font != null) {
+                    // Preserve font style (bold, italic) but use new size
+                    int fontStyle = style.font.getStyle();
+                    style.font = newFont.deriveFont(fontStyle);
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Could not update syntax scheme fonts", ex);
+        }
     }
 
     /** Decrease font size to previous preset size and apply to the preview. */
     private void decreaseEditorFont() {
+        if (currentFontIndex == -1) {
+            float saved = GlobalUiSettings.getDiffFontSize();
+            if (saved > 0f) {
+                currentFontIndex = findClosestFontIndex(saved);
+            } else {
+                currentFontIndex = DEFAULT_FONT_INDEX;
+            }
+        }
         if (currentFontIndex <= 0) return; // Already at minimum
         currentFontIndex--;
         applyEditorFontSize();
@@ -363,6 +419,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
     /** Increase font size to next preset size and apply to the preview. */
     private void increaseEditorFont() {
+        if (currentFontIndex == -1) {
+            float saved = GlobalUiSettings.getDiffFontSize();
+            if (saved > 0f) {
+                currentFontIndex = findClosestFontIndex(saved);
+            } else {
+                currentFontIndex = DEFAULT_FONT_INDEX;
+            }
+        }
         if (currentFontIndex >= FONT_SIZES.length - 1) return; // Already at maximum
         currentFontIndex++;
         applyEditorFontSize();
@@ -370,6 +434,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
     /** Reset font size to default and apply to the preview. */
     private void resetEditorFont() {
+        if (currentFontIndex == -1) {
+            float saved = GlobalUiSettings.getDiffFontSize();
+            if (saved > 0f) {
+                currentFontIndex = findClosestFontIndex(saved);
+            } else {
+                currentFontIndex = DEFAULT_FONT_INDEX;
+            }
+        }
         if (currentFontIndex == DEFAULT_FONT_INDEX) return; // Already at default
         currentFontIndex = DEFAULT_FONT_INDEX;
         applyEditorFontSize();
