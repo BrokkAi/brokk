@@ -3077,4 +3077,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
         return best;
     }
+
+    /**
+     * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
+     *
+     * @param topLevelCodeUnits the top-level code units.
+     * @param parsedTree the corresponding parse tree.
+     * @param importStatements imports found on this file.
+     */
+    public static record FileProperties(
+            List<CodeUnit> topLevelCodeUnits, @Nullable TSTree parsedTree, List<String> importStatements) {
+
+        public static FileProperties empty() {
+            return new FileProperties(Collections.emptyList(), null, Collections.emptyList());
+        }
+    }
 }
