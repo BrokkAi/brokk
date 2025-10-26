@@ -935,11 +935,11 @@ public class HistoryOutputPanel extends JPanel {
             int currentRow = 0;
 
             var contexts = contextManager.getContextHistoryList();
-            // Proactively compute diffs so grouping can reflect file-diff boundaries
+            // Proactively compute diffs for the renderer; grouping boundaries are independent of diffs
             for (var c : contexts) {
                 scheduleDiffComputation(c);
             }
-            boolean lastIsNonLlm = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
+            boolean lastIsNotBoundary = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
 
             var descriptors =
                     io.github.jbellis.brokk.gui.HistoryGrouping.GroupingBuilder.discoverGroups(
@@ -964,7 +964,7 @@ public class HistoryOutputPanel extends JPanel {
 
                 // Render group header + (optional) children if expanded
                 var uuidKey = UUID.fromString(descriptor.key());
-                boolean expandedDefault = descriptor.isLastGroup() && lastIsNonLlm;
+                boolean expandedDefault = descriptor.isLastGroup() && lastIsNotBoundary;
                 boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
 
                 boolean containsClearHistory = children.stream()
@@ -2793,14 +2793,6 @@ public class HistoryOutputPanel extends JPanel {
         return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
     }
 
-    private static String firstWord(String text) {
-        if (text.isBlank()) {
-            return "";
-        }
-        var trimmed = text.trim();
-        int idx = trimmed.indexOf(' ');
-        return idx < 0 ? trimmed : trimmed.substring(0, idx);
-    }
 
     private void toggleGroupRow(int row) {
         var val = historyModel.getValueAt(row, 2);
