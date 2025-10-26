@@ -938,128 +938,47 @@ public class HistoryOutputPanel extends JPanel {
             }
             boolean lastIsNonLlm = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
 
-            for (int i = 0; i < contexts.size(); i++) {
-                var ctx = contexts.get(i);
+            var descriptors =
+                    io.github.jbellis.brokk.gui.HistoryGrouping.GroupingBuilder.discoverGroups(
+                            contexts, this::isGroupingBoundary);
 
-                // Prefer grouping contiguous contexts that share a non-null groupId
-                var gid = ctx.getGroupId();
-                if (gid != null) {
-                    int j = i;
-                    while (j < contexts.size() && gid.equals(contexts.get(j).getGroupId())) {
-                        j++;
-                    }
-                    var children = contexts.subList(i, j);
+            for (var descriptor : descriptors) {
+                var children = descriptor.children();
 
-                    if (children.size() == 1) {
-                        // Single entry with groupId: render as a normal top-level entry
-                        Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                        historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
-                        if (ctx.equals(contextToSelect)) {
-                            rowToSelect = currentRow;
-                        }
-                        currentRow++;
-                    } else {
-                        // Group header: use groupLabel if present, else fallback to previous title logic
-                        String title;
-                        var first = children.get(0);
-                        var groupLabel = first.getGroupLabel();
-                        if (groupLabel != null && !groupLabel.isBlank()) {
-                            title = groupLabel;
-                        } else if (children.size() == 2) {
-                            title = firstWord(children.get(0).getAction()) + " + "
-                                    + firstWord(children.get(1).getAction());
-                        } else {
-                            title = children.size() + " actions";
-                        }
-
-                        var key = gid; // stable key for expand/collapse
-                        boolean isLastGroup = j == contexts.size();
-                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
-                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
-
-                        boolean containsClearHistory = children.stream()
-                                .anyMatch(c ->
-                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
-
-                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
-                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
-                        currentRow++;
-
-                        if (expanded) {
-                            for (var child : children) {
-                                String childText = "   " + child.getAction();
-                                historyModel.addRow(new Object[] {null, childText, child});
-                                if (child.equals(contextToSelect)) {
-                                    rowToSelect = currentRow;
-                                }
-                                currentRow++;
-                            }
-                        }
-                    }
-
-                    i = j - 1;
-                    continue;
-                }
-
-                // Legacy/fallback grouping for entries without a groupId
-                if (isGroupingBoundary(ctx)) {
+                if (!descriptor.shouldShowHeader()) {
+                    // Render singleton (no header)
+                    assert children.size() == 1 : "Descriptor without header must be singleton";
+                    var ctx = children.getFirst();
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
                     historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
                     if (ctx.equals(contextToSelect)) {
                         rowToSelect = currentRow;
                     }
                     currentRow++;
-                } else {
-                    int j = i;
-                    while (j < contexts.size()
-                            && contexts.get(j).getGroupId() == null
-                            && !isGroupingBoundary(contexts.get(j))) {
-                        j++;
-                    }
-                    var children = contexts.subList(i, j);
-                    if (children.size() == 1) {
-                        var child = children.get(0);
-                        // Render single-entry groups as a normal top-level entry
-                        historyModel.addRow(new Object[] {null, child.getAction(), child});
+                    continue;
+                }
+
+                // Render group header + (optional) children if expanded
+                var uuidKey = UUID.fromString(descriptor.key());
+                boolean expandedDefault = descriptor.isLastGroup() && lastIsNonLlm;
+                boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
+
+                boolean containsClearHistory = children.stream()
+                        .anyMatch(c -> ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+
+                var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
+                historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor.label(), groupRow});
+                currentRow++;
+
+                if (expanded) {
+                    for (var child : children) {
+                        String childText = "   " + child.getAction();
+                        historyModel.addRow(new Object[] {null, childText, child});
                         if (child.equals(contextToSelect)) {
                             rowToSelect = currentRow;
                         }
                         currentRow++;
-                    } else { // children.size() >= 2
-                        String title;
-                        if (children.size() == 2) {
-                            title = firstWord(children.get(0).getAction()) + " + "
-                                    + firstWord(children.get(1).getAction());
-                        } else {
-                            title = children.size() + " actions";
-                        }
-                        var first = children.get(0); // For key and other metadata
-                        var key = first.id(); // legacy fallback key: first child context id
-                        boolean isLastGroup = j == contexts.size();
-                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
-                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
-
-                        boolean containsClearHistory = children.stream()
-                                .anyMatch(c ->
-                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
-
-                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
-                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
-                        currentRow++;
-
-                        if (expanded) {
-                            for (var child : children) {
-                                String childText = "   " + child.getAction();
-                                historyModel.addRow(new Object[] {null, childText, child});
-                                if (child.equals(contextToSelect)) {
-                                    rowToSelect = currentRow;
-                                }
-                                currentRow++;
-                            }
-                        }
                     }
-
-                    i = j - 1;
                 }
             }
 
