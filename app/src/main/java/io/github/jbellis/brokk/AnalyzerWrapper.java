@@ -56,7 +56,11 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         if (listener == null) {
             this.watchService = new IWatchService() {};
         } else {
-            this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
+            Path globalGitignorePath = null;
+            if (project instanceof AbstractProject abstractProject) {
+                globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
+            }
+            this.watchService = new ProjectWatchService(root, gitRepoRoot, globalGitignorePath, this);
         }
 
         // Create a single-threaded executor for analyzer refresh tasks (wrapped with logging).

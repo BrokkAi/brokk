@@ -137,14 +137,20 @@ public class BuildAgent {
                         .collect(Collectors.toSet());
 
                 // Look for directories that exist but are not in the filtered list
-                try (var dirStream = Files.walk(project.getRoot(), 1)) {
+                // Walk the full directory tree to find nested ignored directories.
+                // Note: This full tree walk is acceptable here because it's a one-time operation
+                // at agent startup, not in the hot filtering path. For frequent file filtering
+                // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
+                // with direct path checking instead.
+                try (var dirStream = Files.walk(project.getRoot())) {
                     dirStream
                             .filter(Files::isDirectory)
                             .filter(path -> !path.equals(project.getRoot())) // Skip root
-                            .map(path -> project.getRoot().relativize(path).toString())
-                            .filter(dirName -> !dirName.startsWith(".")) // Skip hidden dirs like .git
-                            .filter(dirName -> !includedDirectories.contains(Path.of(dirName)))
-                            .forEach(dirName -> {
+                            .map(path -> project.getRoot().relativize(path))
+                            .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
+                            .filter(relPath -> !includedDirectories.contains(relPath))
+                            .forEach(relPath -> {
+                                var dirName = relPath.toString();
                                 this.currentExcludedDirectories.add(dirName);
                                 addedFromGitignore.add(dirName);
                             });

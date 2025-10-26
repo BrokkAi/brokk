@@ -29,14 +29,18 @@ public class ProjectWatchService implements IWatchService {
     @Nullable
     private final Path gitMetaDir;
 
+    @Nullable
+    private final Path globalGitignorePath;
+
     private final Listener listener;
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
 
-    public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, Listener listener) {
+    public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, @Nullable Path globalGitignorePath, Listener listener) {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;
+        this.globalGitignorePath = globalGitignorePath;
         this.listener = listener;
         this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
     }
@@ -65,6 +69,23 @@ public class ProjectWatchService implements IWatchService {
                         gitRepoRoot.resolve(".git"));
             } else {
                 logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
+            }
+
+            // Watch global gitignore file directory if it exists
+            if (globalGitignorePath != null && Files.exists(globalGitignorePath)) {
+                Path globalGitignoreDir = globalGitignorePath.getParent();
+                if (globalGitignoreDir != null && Files.isDirectory(globalGitignoreDir)) {
+                    logger.debug("Watching global gitignore directory for changes: {}", globalGitignoreDir);
+                    try {
+                        globalGitignoreDir.register(
+                                watchService,
+                                StandardWatchEventKinds.ENTRY_CREATE,
+                                StandardWatchEventKinds.ENTRY_DELETE,
+                                StandardWatchEventKinds.ENTRY_MODIFY);
+                    } catch (IOException e) {
+                        logger.warn("Failed to watch global gitignore directory {}: {}", globalGitignoreDir, e.getMessage());
+                    }
+                }
             }
 
             // Wait for the initial future to complete.
@@ -119,8 +140,8 @@ public class ProjectWatchService implements IWatchService {
 
     /**
      * Checks if a gitignore-related file change should trigger cache invalidation.
-     * This targets untracked .gitignore files and .git/info/exclude which are not
-     * covered by git metadata watching.
+     * This targets untracked .gitignore files, .git/info/exclude, and global gitignore files
+     * which are not covered by git metadata watching.
      */
     private boolean shouldInvalidateForGitignoreChange(Path eventPath) {
         var fileName = eventPath.getFileName().toString();
@@ -137,6 +158,12 @@ public class ProjectWatchService implements IWatchService {
             // We can't easily determine if it's tracked here, so we'll be conservative
             // and invalidate. The performance impact is minimal since this is rare.
             logger.debug("Gitignore file changed: {}", eventPath);
+            return true;
+        }
+
+        // Check if this is the global gitignore file
+        if (globalGitignorePath != null && eventPath.equals(globalGitignorePath)) {
+            logger.debug("Global gitignore file changed: {}", eventPath);
             return true;
         }
 
