@@ -310,9 +310,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     ? classChain.split("[.$]")[0]
                     : classChain;
 
-            // Check if classChain starts with a function (lowercase first char)
-            boolean isFunctionLocal = !firstSegment.isEmpty()
-                    && Character.isLowerCase(firstSegment.charAt(0));
+            // Check if classChain starts with a function (lowercase identifier, including _private names)
+            // Functions: my_function, _private, __dunder__ (first letter is lowercase)
+            // Classes: MyClass, _PrivateClass (first letter is uppercase)
+            boolean isFunctionLocal = isLowercaseIdentifier(firstSegment);
 
             if (isFunctionLocal) {
                 // Single element (module-level function) - return with package prefix if present
@@ -352,6 +353,28 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean requiresSemicolons() {
         return false;
+    }
+
+    /**
+     * Determines if a Python identifier follows function naming convention (not PascalCase).
+     * Python functions use lowercase_with_underscores (PEP 8), which includes:
+     * - Regular functions: my_function, calculate_total
+     * - Private functions: _private_function, __dunder_function__
+     * Classes use PascalCase: MyClass, _PrivateClass
+     *
+     * @param identifier the identifier to check (e.g., "my_function", "_private", "MyClass")
+     * @return true if the identifier follows function naming (first letter is lowercase or all underscores)
+     */
+    private static boolean isLowercaseIdentifier(String identifier) {
+        // Find first letter character (skip leading underscores)
+        for (int i = 0; i < identifier.length(); i++) {
+            char c = identifier.charAt(i);
+            if (Character.isLetter(c)) {
+                return Character.isLowerCase(c);
+            }
+        }
+        // All underscores (like "____") or empty - treat as function-like
+        return true;
     }
 
     /**

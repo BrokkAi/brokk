@@ -617,7 +617,9 @@ public final class PythonAnalyzerTest {
 
         // Should find only 1 class (last definition wins)
         assertEquals(1, classesA.size(), "File A should have only 1 local class (last wins)");
-        assertEquals("test_func$LocalClass", classesA.get(0).fqName(),
+        assertEquals(
+                "test_func$LocalClass",
+                classesA.get(0).fqName(),
                 "Should use standard $ notation without bracketed disambiguation");
 
         // Now analyze file B
@@ -629,7 +631,9 @@ public final class PythonAnalyzerTest {
 
         // Should also find only 1 class (last definition wins)
         assertEquals(1, classesB.size(), "File B should have only 1 local class (last wins)");
-        assertEquals("test_func$LocalClass", classesB.get(0).fqName(),
+        assertEquals(
+                "test_func$LocalClass",
+                classesB.get(0).fqName(),
                 "Should use standard $ notation without bracketed disambiguation");
 
         // Verify they're independent - same behavior in different files
@@ -655,9 +659,7 @@ public final class PythonAnalyzerTest {
                         "  " + cu.kind() + ": " + cu.fqName() + " (shortName: " + cu.shortName() + ")"));
 
         // Find all classes
-        var classes = declarations.stream()
-                .filter(CodeUnit::isClass)
-                .collect(Collectors.toList());
+        var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
 
         assertEquals(3, classes.size(), "Should find 3 classes: OuterLocal, InnerLocal, DeepLocal");
 
@@ -670,9 +672,7 @@ public final class PythonAnalyzerTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals(
-                "outer_function$OuterLocal",
-                outerLocal.fqName(),
-                "OuterLocal should be outer_function$OuterLocal");
+                "outer_function$OuterLocal", outerLocal.fqName(), "OuterLocal should be outer_function$OuterLocal");
 
         var innerLocal = classes.stream()
                 .filter(cu -> cu.fqName().equals("outer_function$OuterLocal$InnerLocal"))
@@ -712,13 +712,84 @@ public final class PythonAnalyzerTest {
         assertEquals(2, methods.size(), "Should find 2 methods (class methods only)");
 
         assertTrue(
-                methods.stream()
-                        .anyMatch(m -> m.fqName()
-                                .equals("outer_function.OuterLocal.InnerLocal.inner_method")),
+                methods.stream().anyMatch(m -> m.fqName().equals("outer_function.OuterLocal.InnerLocal.inner_method")),
                 "inner_method should use dot notation for methods");
         assertTrue(
-                methods.stream()
-                        .anyMatch(m -> m.fqName().equals("outer_function.OuterLocal.outer_method")),
+                methods.stream().anyMatch(m -> m.fqName().equals("outer_function.OuterLocal.outer_method")),
                 "outer_method should use dot notation for methods");
+    }
+
+    @Test
+    void testUnderscorePrefixedFunctionLocalClasses() {
+        // Test that functions starting with underscores (_private, __dunder__) are correctly
+        // identified as functions (not classes) when detecting function-local classes
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "underscore_functions.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+        System.out.println("\n=== All declarations in underscore_functions.py ===");
+        declarations.stream()
+                .sorted((a, b) -> a.fqName().compareTo(b.fqName()))
+                .forEach(cu -> System.out.println(
+                        "  " + cu.kind() + ": " + cu.fqName() + " (shortName: " + cu.shortName() + ")"));
+
+        // Find all classes
+        var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
+
+        assertEquals(5, classes.size(), "Should find 5 classes: LocalClass, AnotherLocal, MyClass, _PrivateClass, NestedClass");
+
+        // Verify _private_function$LocalClass (function-local class)
+        var localClass = classes.stream()
+                .filter(cu -> cu.fqName().equals("_private_function$LocalClass"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "LocalClass should be _private_function$LocalClass (function-local), found: "
+                                + classes.stream()
+                                        .map(CodeUnit::fqName)
+                                        .collect(Collectors.joining(", "))));
+        assertEquals(
+                "_private_function$LocalClass",
+                localClass.fqName(),
+                "_private_function should be recognized as function, not class");
+
+        // Verify __dunder_function__$AnotherLocal (function-local class)
+        var anotherLocal = classes.stream()
+                .filter(cu -> cu.fqName().equals("__dunder_function__$AnotherLocal"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "AnotherLocal should be __dunder_function__$AnotherLocal (function-local), found: "
+                                + classes.stream()
+                                        .map(CodeUnit::fqName)
+                                        .collect(Collectors.joining(", "))));
+        assertEquals(
+                "__dunder_function__$AnotherLocal",
+                anotherLocal.fqName(),
+                "__dunder_function__ should be recognized as function, not class");
+
+        // Verify _PrivateClass.NestedClass (regular nested class, NOT function-local)
+        var nestedClass = classes.stream()
+                .filter(cu -> cu.fqName().equals("_PrivateClass$NestedClass"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "NestedClass should be _PrivateClass$NestedClass (regular nested), found: "
+                                + classes.stream()
+                                        .map(CodeUnit::fqName)
+                                        .collect(Collectors.joining(", "))));
+        assertEquals(
+                "_PrivateClass$NestedClass",
+                nestedClass.fqName(),
+                "_PrivateClass should be recognized as class (PascalCase), not function");
+
+        // Verify parent-child relationship for _PrivateClass
+        var privateClass = classes.stream()
+                .filter(cu -> cu.fqName().equals("_PrivateClass"))
+                .findFirst()
+                .orElseThrow();
+        var privateClassChildren = analyzer.getSubDeclarations(privateClass);
+        assertTrue(
+                privateClassChildren.stream().anyMatch(cu -> cu.equals(nestedClass)),
+                "_PrivateClass should have NestedClass as child");
     }
 }
