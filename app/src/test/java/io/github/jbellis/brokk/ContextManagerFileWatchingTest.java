@@ -57,10 +57,13 @@ class ContextManagerFileWatchingTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        // Don't call contextManager.close() - these tests use minimal initialization
-        // without creating the full GUI/analyzer/file watcher infrastructure.
-        // Calling close() can leave file handles open on Windows, preventing @TempDir cleanup.
-        // The JVM will clean up any resources when the test completes.
+        // Close the SessionManager to release file handles on Windows.
+        // MainProject creates a SessionManager which scans the .brokk/sessions directory
+        // and opens zip files. On Windows, these file handles prevent @TempDir cleanup
+        // even though the threads are daemon. Explicitly closing ensures proper cleanup.
+        if (project != null) {
+            project.getSessionManager().close();
+        }
     }
 
     /**
