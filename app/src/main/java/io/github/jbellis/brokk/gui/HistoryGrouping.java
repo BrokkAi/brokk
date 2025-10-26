@@ -232,18 +232,20 @@ public final class HistoryGrouping {
    */
   public static java.util.Map<java.util.UUID, Integer> buildContextToRowMap(
       java.util.List<GroupDescriptor> descriptors, javax.swing.JTable table) {
-    if (table == null || descriptors == null || descriptors.isEmpty()) {
+    if (table == null) {
       return java.util.Map.of();
     }
 
     // Index descriptors by UUID key (groupId for id-groups; first-child id for legacy action groups)
     var byKey = new HashMap<java.util.UUID, GroupDescriptor>();
-    for (var gd : descriptors) {
-      try {
-        var keyUuid = java.util.UUID.fromString(gd.key());
-        byKey.put(keyUuid, gd);
-      } catch (IllegalArgumentException ignored) {
-        // skip malformed keys
+    if (descriptors != null) {
+      for (var gd : descriptors) {
+        try {
+          var keyUuid = java.util.UUID.fromString(gd.key());
+          byKey.put(keyUuid, gd);
+        } catch (IllegalArgumentException ignored) {
+          // skip malformed keys
+        }
       }
     }
 
