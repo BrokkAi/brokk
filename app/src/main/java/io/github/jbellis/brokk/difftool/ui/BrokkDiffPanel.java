@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.components.EditorFontSizeControl;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.gui.theme.ThemeAware;
@@ -65,7 +66,7 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class BrokkDiffPanel extends JPanel implements ThemeAware {
+public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSizeControl {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -414,15 +415,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton captureDiffButton = new MaterialButton();
 
     // Font size adjustment buttons
-    private final MaterialButton btnDecreaseFont = new MaterialButton();
-    private final MaterialButton btnResetFont = new MaterialButton();
-    private final MaterialButton btnIncreaseFont = new MaterialButton();
+    private MaterialButton btnDecreaseFont;
+    private MaterialButton btnResetFont;
+    private MaterialButton btnIncreaseFont;
 
-    // Editor font size state with predefined sizes (standard sizes with 2pt minimum increments)
-    private static final float[] FONT_SIZES = {8f, 10f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f};
-    private static final int DEFAULT_FONT_INDEX = 2; // 12f
-    private static final float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES[DEFAULT_FONT_INDEX];
+    // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
+
+    @Override
+    public int getCurrentFontIndex() {
+        return currentFontIndex;
+    }
+
+    @Override
+    public void setCurrentFontIndex(int index) {
+        this.currentFontIndex = index;
+    }
 
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
@@ -844,45 +852,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
 
         // Font size controls (positioned before capture button)
-        var zoomOutKs = GlobalUiSettings.getKeybinding(
-                "view.zoomOut",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        var resetZoomKs = GlobalUiSettings.getKeybinding(
-                "view.resetZoom",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        var zoomInKs = GlobalUiSettings.getKeybinding(
-                "view.zoomIn",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-
-        btnDecreaseFont.setText("A");
-        btnDecreaseFont.setFont(new Font(btnDecreaseFont.getFont().getName(), Font.PLAIN, 10));
-        btnDecreaseFont.setToolTipText(
-                "Decrease editor font size (" + KeyboardShortcutUtil.formatKeyStroke(zoomOutKs) + ")");
-        btnDecreaseFont.setBorderPainted(false);
-        btnDecreaseFont.setContentAreaFilled(false);
-        btnDecreaseFont.setFocusPainted(false);
-        btnDecreaseFont.addActionListener(e -> decreaseEditorFont());
-
-        btnResetFont.setText("A");
-        btnResetFont.setFont(new Font(btnResetFont.getFont().getName(), Font.PLAIN, 14));
-        btnResetFont.setToolTipText(
-                "Reset editor font size (" + KeyboardShortcutUtil.formatKeyStroke(resetZoomKs) + ")");
-        btnResetFont.setBorderPainted(false);
-        btnResetFont.setContentAreaFilled(false);
-        btnResetFont.setFocusPainted(false);
-        btnResetFont.addActionListener(e -> resetEditorFont());
-
-        btnIncreaseFont.setText("A");
-        btnIncreaseFont.setFont(new Font(btnIncreaseFont.getFont().getName(), Font.PLAIN, 18));
-        btnIncreaseFont.setToolTipText(
-                "Increase editor font size (" + KeyboardShortcutUtil.formatKeyStroke(zoomInKs) + ")");
-        btnIncreaseFont.setBorderPainted(false);
-        btnIncreaseFont.setContentAreaFilled(false);
-        btnIncreaseFont.setFocusPainted(false);
-        btnIncreaseFont.addActionListener(e -> increaseEditorFont());
+        // Create font size control buttons using interface methods
+        btnDecreaseFont = createDecreaseFontButton(this::decreaseEditorFont);
+        btnResetFont = createResetFontButton(this::resetEditorFont);
+        btnIncreaseFont = createIncreaseFontButton(this::increaseEditorFont);
 
         toolBar.add(btnDecreaseFont);
         toolBar.add(Box.createHorizontalStrut(4));
@@ -1914,33 +1887,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         System.gc();
     }
 
-    /** Find the closest font size index for a given font size. */
-    private static int findClosestFontIndex(float targetSize) {
-        int closestIndex = DEFAULT_FONT_INDEX;
-        float minDiff = Math.abs(FONT_SIZES[DEFAULT_FONT_INDEX] - targetSize);
-
-        for (int i = 0; i < FONT_SIZES.length; i++) {
-            float diff = Math.abs(FONT_SIZES[i] - targetSize);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closestIndex = i;
-            }
-        }
-        return closestIndex;
-    }
-
     /**
-     * Lazily initialize the currentFontIndex from saved font size, then from a panel or component if not saved. Accepts
-     * either an IDiffPanel (preferred) or any Component (e.g., AbstractContentPanel is a Component). If no saved font
-     * size and no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
+     * Lazily initialize the currentFontIndex from saved font size, then from a panel or component if not saved.
      */
     private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
-        if (currentFontIndex >= 0) return;
+        if (getCurrentFontIndex() >= 0) return;
 
         // Try to load from saved font size first
         float savedFontSize = GlobalUiSettings.getDiffFontSize();
         if (savedFontSize > 0) {
-            currentFontIndex = findClosestFontIndex(savedFontSize);
+            setCurrentFontIndex(findClosestFontIndex(savedFontSize));
             return;
         }
 
@@ -1964,12 +1920,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 }
             }
         } catch (Exception e) {
-            // Defensive: don't let any unexpected runtime errors prevent initialization
             logger.debug("Failed to derive editor font size from component", e);
         }
 
-        // Find closest index
-        currentFontIndex = findClosestFontIndex(size);
+        setCurrentFontIndex(findClosestFontIndex(size));
     }
 
     /**
@@ -2026,14 +1980,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Apply font size from current index to every visible code editor and gutter (cached panels + visible panel). This
-     * is the central helper for immediately applying font changes across all panels.
+     * Apply font size from current index to every visible code editor and gutter (cached panels + visible panel).
      */
-    private void applyEditorFontSize() {
-        if (currentFontIndex < 0) return;
+    private void applyAllEditorFontSizes() {
+        if (getCurrentFontIndex() < 0) return;
 
-        float fontSize = FONT_SIZES[currentFontIndex];
-        // Save the actual font size
+        float fontSize = FONT_SIZES[getCurrentFontIndex()];
         GlobalUiSettings.saveDiffFontSize(fontSize);
 
         // Apply to cached panels
@@ -2054,58 +2006,34 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
         }
 
-        // Force a UI refresh
         SwingUtilities.invokeLater(() -> {
             revalidate();
             repaint();
         });
     }
 
-    /** Increase font size to next preset size and apply to cached/current panels. */
-    private void increaseEditorFont() {
+    /** Increase font size using interface method, then apply to all panels. */
+    public void increaseEditorFont() {
         var panel = getCurrentContentPanel();
         ensureEditorFontSizeInitialized(panel);
-        if (currentFontIndex >= FONT_SIZES.length - 1) return; // Already at maximum
-        currentFontIndex++;
-        applyEditorFontSize();
+        EditorFontSizeControl.super.increaseEditorFont();
+        applyAllEditorFontSizes();
     }
 
-    /** Decrease font size to previous preset size and apply to cached/current panels. */
-    private void decreaseEditorFont() {
+    /** Decrease font size using interface method, then apply to all panels. */
+    public void decreaseEditorFont() {
         var panel = getCurrentContentPanel();
         ensureEditorFontSizeInitialized(panel);
-        if (currentFontIndex <= 0) return; // Already at minimum
-        currentFontIndex--;
-        applyEditorFontSize();
+        EditorFontSizeControl.super.decreaseEditorFont();
+        applyAllEditorFontSizes();
     }
 
-    /** Reset font size to default and apply to cached/current panels. */
-    private void resetEditorFont() {
+    /** Reset font size using interface method, then apply to all panels. */
+    public void resetEditorFont() {
         var panel = getCurrentContentPanel();
         ensureEditorFontSizeInitialized(panel);
-        if (currentFontIndex == DEFAULT_FONT_INDEX) return; // Already at default
-        currentFontIndex = DEFAULT_FONT_INDEX;
-        applyEditorFontSize();
-    }
-
-    /**
-     * Set the font for an editor and update its syntax scheme while preserving colors.
-     *
-     * @param editor The editor to update
-     * @param size The font size to apply
-     */
-    private void setEditorFont(RSyntaxTextArea editor, float size) {
-        try {
-            Font base = editor.getFont();
-            Font newFont =
-                    (base != null) ? base.deriveFont(size) : editor.getFont().deriveFont(size);
-            editor.setFont(newFont);
-            updateSyntaxSchemeFonts(editor, newFont);
-            editor.revalidate();
-            editor.repaint();
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to editor", ex);
-        }
+        EditorFontSizeControl.super.resetEditorFont();
+        applyAllEditorFontSizes();
     }
 
     /**
@@ -2175,28 +2103,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Update all token styles in the syntax scheme to use the new font while preserving colors. This ensures consistent
-     * font sizing across all syntax elements (keywords, identifiers, etc.).
-     */
-    private void updateSyntaxSchemeFonts(RSyntaxTextArea editor, Font newFont) {
-        try {
-            var scheme = editor.getSyntaxScheme();
-            if (scheme == null) return;
-
-            // Update font for each token type style while preserving colors
-            for (int i = 0; i < scheme.getStyleCount(); i++) {
-                var style = scheme.getStyle(i);
-                if (style != null && style.font != null) {
-                    // Preserve font style (bold, italic) but use new size
-                    int fontStyle = style.font.getStyle();
-                    style.font = newFont.deriveFont(fontStyle);
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("Could not update syntax scheme fonts", ex);
-        }
-    }
+    // updateSyntaxSchemeFonts and setEditorFont delegated to EditorFontSizeControl interface
 
     /** Recursively search the component tree for the first RSyntaxTextArea instance and return it. */
     private Optional<RSyntaxTextArea> findEditorInComponent(Component c) {
