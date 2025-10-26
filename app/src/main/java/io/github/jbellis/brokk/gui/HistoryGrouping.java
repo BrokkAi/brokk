@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Predicate;
 import javax.swing.JTable;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Unified grouping model for context history rendering.
@@ -131,9 +132,17 @@ public final class HistoryGrouping {
             j++;
           }
           List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-          boolean showHeader = children.size() >= 2;
+          // Group-by-id groups always show a header, even for singletons.
+          boolean showHeader = true;
 
-          String label = showHeader ? computeHeaderLabelFor(children) : "";
+          // Prefer an explicit groupLabel; otherwise compute a fallback label.
+          String preferredLabel = children.stream()
+              .map(Context::getGroupLabel)
+              .filter(s -> s != null && !s.isBlank())
+              .findFirst()
+              .orElse(null);
+
+          String label = computeLabelForGroup(preferredLabel, children);
           GroupDescriptor gd = new GroupDescriptor(
               GroupType.GROUP_BY_ID,
               groupId.toString(),
@@ -204,6 +213,20 @@ public final class HistoryGrouping {
       }
 
       return List.copyOf(out);
+    }
+
+    private static String computeLabelForGroup(@Nullable String groupLabel, List<Context> children) {
+      if (groupLabel != null && !groupLabel.isBlank()) {
+        return groupLabel;
+      }
+      int size = children.size();
+      if (size == 1) {
+        var only = children.getFirst();
+        var action = only.getAction();
+        return action == null ? "" : action;
+      }
+      // size >= 2 falls back to the existing rules
+      return computeHeaderLabelFor(children);
     }
 
     private static String computeHeaderLabelFor(List<Context> children) {
