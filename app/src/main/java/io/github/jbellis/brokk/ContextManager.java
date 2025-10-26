@@ -1084,12 +1084,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     for (VirtualFragment vfToAdd : virtualFragmentsToAdd) {
                         modifiedCtx = modifiedCtx.addVirtualFragment(vfToAdd);
                     }
-                    return new Context(
+                    return Context.createWithId(
+                            Context.newContextId(),
                             this,
                             modifiedCtx.allFragments().toList(),
                             newHistory,
                             null,
-                            CompletableFuture.completedFuture(actionMessage));
+                            CompletableFuture.completedFuture(actionMessage),
+                            currentLiveCtx.getGroupId(),
+                            currentLiveCtx.getGroupLabel());
                 });
 
                 io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
