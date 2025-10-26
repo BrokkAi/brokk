@@ -173,6 +173,9 @@ public class HistoryOutputPanel extends JPanel {
     // Track expand/collapse state for grouped non-LLM action runs
     private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
 
+    // Cache of latest group descriptors used to render the table; used by arrow painter
+    private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
+
     // Selection directives applied after a table rebuild (for expand/collapse UX)
     private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
     private @Nullable UUID pendingSelectionGroupKey = null;
@@ -941,6 +944,7 @@ public class HistoryOutputPanel extends JPanel {
             var descriptors =
                     io.github.jbellis.brokk.gui.HistoryGrouping.GroupingBuilder.discoverGroups(
                             contexts, this::isGroupingBoundary);
+            latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
                 var children = descriptor.children();
@@ -2620,65 +2624,9 @@ public class HistoryOutputPanel extends JPanel {
                 return;
             }
 
-            // Map context IDs to the visible row indices where arrows should anchor.
-            // - For visible Context rows, map directly to their row.
-            // - For contexts hidden by collapsed groups, map to the group header row.
-            Map<UUID, Integer> contextIdToRow = new HashMap<>();
-
-            // 1) First pass: map all visible Context rows
-            for (int i = 0; i < model.getRowCount(); i++) {
-                var val = model.getValueAt(i, 2);
-                if (val instanceof Context ctx) {
-                    contextIdToRow.put(ctx.id(), i);
-                }
-            }
-
-            // 2) Build helper data from the full context history to determine group membership
-            var contexts = contextManager.getContextHistoryList();
-            Map<UUID, Integer> idToIndex = new HashMap<>();
-            for (int i = 0; i < contexts.size(); i++) {
-                idToIndex.put(contexts.get(i).id(), i);
-            }
-
-            // 3) Second pass: for collapsed groups, map their children context IDs to the group header row
-            for (int row = 0; row < model.getRowCount(); row++) {
-                var val = model.getValueAt(row, 2);
-                if (val instanceof GroupRow gr && !gr.expanded()) {
-                    Integer startIdx = idToIndex.get(gr.key());
-
-                    if (startIdx != null) {
-                        // Legacy fallback group keyed by first child context id: walk until a boundary
-                        int j = startIdx;
-                        while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
-                            UUID ctxId = contexts.get(j).id();
-                            // Only map if not already visible; collapsed children should anchor to the header row
-                            contextIdToRow.putIfAbsent(ctxId, row);
-                            j++;
-                        }
-                    } else {
-                        // groupId-based group: collect the contiguous block of contexts sharing this groupId
-                        UUID groupId = gr.key();
-                        int firstIdx = -1;
-                        for (int i = 0; i < contexts.size(); i++) {
-                            var ctxCandidate = contexts.get(i);
-                            if (groupId.equals(ctxCandidate.getGroupId())) {
-                                firstIdx = i;
-                                break;
-                            }
-                        }
-                        if (firstIdx < 0) {
-                            continue;
-                        }
-                        int j = firstIdx;
-                        while (j < contexts.size()
-                                && groupId.equals(contexts.get(j).getGroupId())) {
-                            UUID ctxId = contexts.get(j).id();
-                            contextIdToRow.putIfAbsent(ctxId, row);
-                            j++;
-                        }
-                    }
-                }
-            }
+            // Use unified helper to compute anchor rows for each Context id
+            Map<UUID, Integer> contextIdToRow =
+                    HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
 
             // 4) Build list of arrows with geometry between the resolved row anchors
             List<Arrow> arrows = new ArrayList<>();

@@ -3,10 +3,13 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.context.Context;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Predicate;
+import javax.swing.JTable;
 
 /**
  * Unified grouping model for context history rendering.
@@ -220,5 +223,55 @@ public final class HistoryGrouping {
       int idx = text.indexOf(' ');
       return (idx < 0) ? text : text.substring(0, idx);
     }
+  }
+
+  /**
+   * Build a mapping from Context.id to the visible row index in the given JTable.
+   * Visible children map to their own row; children of collapsed groups map to the group's header row.
+   * Returns an empty map if descriptors or table are null/empty.
+   */
+  public static java.util.Map<java.util.UUID, Integer> buildContextToRowMap(
+      java.util.List<GroupDescriptor> descriptors, javax.swing.JTable table) {
+    if (table == null || descriptors == null || descriptors.isEmpty()) {
+      return java.util.Map.of();
+    }
+
+    // Index descriptors by UUID key (groupId for id-groups; first-child id for legacy action groups)
+    var byKey = new HashMap<java.util.UUID, GroupDescriptor>();
+    for (var gd : descriptors) {
+      try {
+        var keyUuid = java.util.UUID.fromString(gd.key());
+        byKey.put(keyUuid, gd);
+      } catch (IllegalArgumentException ignored) {
+        // skip malformed keys
+      }
+    }
+
+    var result = new HashMap<java.util.UUID, Integer>();
+
+    var model = table.getModel();
+    // First pass: map visible Context rows directly
+    for (int row = 0; row < model.getRowCount(); row++) {
+      var val = model.getValueAt(row, 2);
+      if (val instanceof io.github.jbellis.brokk.context.Context ctx) {
+        result.put(ctx.id(), row);
+      }
+    }
+
+    // Second pass: for collapsed group headers, map each child to the header row
+    for (int row = 0; row < model.getRowCount(); row++) {
+      var val = model.getValueAt(row, 2);
+      if (val instanceof io.github.jbellis.brokk.gui.HistoryOutputPanel.GroupRow gr && !gr.expanded()) {
+        var gd = byKey.get(gr.key());
+        if (gd == null || !gd.shouldShowHeader()) {
+          continue;
+        }
+        for (var child : gd.children()) {
+          result.putIfAbsent(child.id(), row);
+        }
+      }
+    }
+
+    return result;
   }
 }
