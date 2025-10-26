@@ -182,7 +182,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         // Get the decorator text using the inherited textSlice method
                         String decoratorText =
                                 textSlice(decoratorChild, srcBytes).trim();
-                        // Skip if decorator ends with ".setter" or ".deleter" (e.g., "@format.setter", "@value.deleter")
+                        // Skip if decorator ends with ".setter" or ".deleter" (e.g., "@format.setter",
+                        // "@value.deleter")
                         if (decoratorText.endsWith(".setter") || decoratorText.endsWith(".deleter")) {
                             log.trace("Skipping property setter/deleter with decorator: {}", decoratorText);
                             return true;

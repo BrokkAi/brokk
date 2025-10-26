@@ -1596,7 +1596,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     log.warn(
                             "Replacing non-exported CU/signature list for {} with new EXPORTED signature.",
                             cu.fqName());
-                    localSignatures.remove(existingCUforKeyLookup); // Remove old CU's signatures
+                    // Remove old CU from all maps to ensure clean replacement
+                    localSignatures.remove(existingCUforKeyLookup);
+                    localSourceRanges.remove(existingCUforKeyLookup);
+                    localChildren.remove(existingCUforKeyLookup);
                     // The new signature for `cu` will be added below.
                 } else if (!newIsExported && oldIsExported) {
                     log.trace(
@@ -1659,7 +1662,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 if (classChain.isEmpty()) {
                     // Top-level CU - use helper to handle duplicates appropriately
                     addTopLevelCodeUnit(
-                            cu, localTopLevelCUs, seenTopLevelFqNames, localChildren, localSignatures, localSourceRanges, file);
+                            cu,
+                            localTopLevelCUs,
+                            seenTopLevelFqNames,
+                            localChildren,
+                            localSignatures,
+                            localSourceRanges,
+                            file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(file, cu.packageName(), classChain);
@@ -1677,7 +1686,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 classChain);
                         // Fallback: add as top-level, but use helper to handle duplicates
                         addTopLevelCodeUnit(
-                                cu, localTopLevelCUs, seenTopLevelFqNames, localChildren, localSignatures, localSourceRanges, file);
+                                cu,
+                                localTopLevelCUs,
+                                seenTopLevelFqNames,
+                                localChildren,
+                                localSignatures,
+                                localSourceRanges,
+                                file);
                     }
                 }
             }

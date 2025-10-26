@@ -7,6 +7,7 @@ import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterJava;
@@ -80,7 +81,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(
+    protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 

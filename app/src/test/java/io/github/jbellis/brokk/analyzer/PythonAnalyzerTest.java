@@ -659,19 +659,10 @@ public final class PythonAnalyzerTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "nested_local_classes.py");
         Set<CodeUnit> declarations = analyzer.getDeclarations(file);
 
-        System.out.println("\n=== All declarations in nested_local_classes.py ===");
-        declarations.stream()
-                .sorted((a, b) -> a.fqName().compareTo(b.fqName()))
-                .forEach(cu -> System.out.println(
-                        "  " + cu.kind() + ": " + cu.fqName() + " (shortName: " + cu.shortName() + ")"));
-
         // Find all classes
         var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
 
         assertEquals(3, classes.size(), "Should find 3 classes: OuterLocal, InnerLocal, DeepLocal");
-
-        System.out.println("\n=== Class identifiers ===");
-        classes.forEach(c -> System.out.println("  identifier: '" + c.identifier() + "', fqName: " + c.fqName()));
 
         // Verify FQN consistency: all should use $ for separation in function-local context
         var outerLocal = classes.stream()
@@ -736,26 +727,21 @@ public final class PythonAnalyzerTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "underscore_functions.py");
         Set<CodeUnit> declarations = analyzer.getDeclarations(file);
 
-        System.out.println("\n=== All declarations in underscore_functions.py ===");
-        declarations.stream()
-                .sorted((a, b) -> a.fqName().compareTo(b.fqName()))
-                .forEach(cu -> System.out.println(
-                        "  " + cu.kind() + ": " + cu.fqName() + " (shortName: " + cu.shortName() + ")"));
-
         // Find all classes
         var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
 
-        assertEquals(5, classes.size(), "Should find 5 classes: LocalClass, AnotherLocal, MyClass, _PrivateClass, NestedClass");
+        assertEquals(
+                5,
+                classes.size(),
+                "Should find 5 classes: LocalClass, AnotherLocal, MyClass, _PrivateClass, NestedClass");
 
         // Verify _private_function$LocalClass (function-local class)
         var localClass = classes.stream()
                 .filter(cu -> cu.fqName().equals("_private_function$LocalClass"))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "LocalClass should be _private_function$LocalClass (function-local), found: "
-                                + classes.stream()
-                                        .map(CodeUnit::fqName)
-                                        .collect(Collectors.joining(", "))));
+                .orElseThrow(() ->
+                        new AssertionError("LocalClass should be _private_function$LocalClass (function-local), found: "
+                                + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
                 "_private_function$LocalClass",
                 localClass.fqName(),
@@ -767,9 +753,7 @@ public final class PythonAnalyzerTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
                         "AnotherLocal should be __dunder_function__$AnotherLocal (function-local), found: "
-                                + classes.stream()
-                                        .map(CodeUnit::fqName)
-                                        .collect(Collectors.joining(", "))));
+                                + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
                 "__dunder_function__$AnotherLocal",
                 anotherLocal.fqName(),
@@ -779,11 +763,9 @@ public final class PythonAnalyzerTest {
         var nestedClass = classes.stream()
                 .filter(cu -> cu.fqName().equals("_PrivateClass$NestedClass"))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "NestedClass should be _PrivateClass$NestedClass (regular nested), found: "
-                                + classes.stream()
-                                        .map(CodeUnit::fqName)
-                                        .collect(Collectors.joining(", "))));
+                .orElseThrow(() ->
+                        new AssertionError("NestedClass should be _PrivateClass$NestedClass (regular nested), found: "
+                                + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
                 "_PrivateClass$NestedClass",
                 nestedClass.fqName(),
@@ -809,18 +791,19 @@ public final class PythonAnalyzerTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "function_redefinition.py");
         Set<CodeUnit> declarations = analyzer.getDeclarations(file);
 
-
         // Verify only ONE function named my_function exists (the last definition)
         var functions = declarations.stream()
                 .filter(CodeUnit::isFunction)
-                .filter(cu -> cu.fqName().endsWith(".my_function") || cu.fqName().equals("my_function"))
+                .filter(cu ->
+                        cu.fqName().endsWith(".my_function") || cu.fqName().equals("my_function"))
                 .collect(Collectors.toList());
 
         assertEquals(1, functions.size(), "Should only have ONE my_function (last definition wins)");
 
         CodeUnit myFunction = functions.getFirst();
         assertTrue(
-                myFunction.fqName().endsWith(".my_function") || myFunction.fqName().equals("my_function"),
+                myFunction.fqName().endsWith(".my_function")
+                        || myFunction.fqName().equals("my_function"),
                 "Function FQN should end with .my_function");
 
         // Find all classes
@@ -833,24 +816,17 @@ public final class PythonAnalyzerTest {
                 "Should find 2 classes: MyClass and SecondLocal (FirstLocal should NOT exist since first function was replaced)");
 
         // Verify MyClass exists
-        assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("MyClass")),
-                "MyClass should exist");
+        assertTrue(classes.stream().anyMatch(cu -> cu.fqName().equals("MyClass")), "MyClass should exist");
 
         // Verify SecondLocal exists as child of second my_function
         var secondLocal = classes.stream()
                 .filter(cu -> cu.fqName().equals("my_function$SecondLocal"))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "SecondLocal should exist from second function definition, found: "
-                                + classes.stream()
-                                        .map(CodeUnit::fqName)
-                                        .collect(Collectors.joining(", "))));
+                .orElseThrow(
+                        () -> new AssertionError("SecondLocal should exist from second function definition, found: "
+                                + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
 
-        assertEquals(
-                "my_function$SecondLocal",
-                secondLocal.fqName(),
-                "SecondLocal should be attached to my_function");
+        assertEquals("my_function$SecondLocal", secondLocal.fqName(), "SecondLocal should be attached to my_function");
 
         // Verify FirstLocal does NOT exist (function was replaced before children were attached)
         assertFalse(
@@ -859,10 +835,7 @@ public final class PythonAnalyzerTest {
 
         // Verify parent-child relationship
         var functionChildren = analyzer.getSubDeclarations(myFunction);
-        assertEquals(
-                1,
-                functionChildren.size(),
-                "my_function should have exactly 1 child (SecondLocal)");
+        assertEquals(1, functionChildren.size(), "my_function should have exactly 1 child (SecondLocal)");
         assertTrue(
                 functionChildren.stream().anyMatch(cu -> cu.equals(secondLocal)),
                 "my_function should have SecondLocal as child");
@@ -913,10 +886,7 @@ public final class PythonAnalyzerTest {
 
         // Verify parent-child relationship
         var functionChildren = analyzer.getSubDeclarations(myFunction);
-        assertEquals(
-                1,
-                functionChildren.size(),
-                "my_function should have exactly 1 child (LocalClass)");
+        assertEquals(1, functionChildren.size(), "my_function should have exactly 1 child (LocalClass)");
         assertTrue(
                 functionChildren.stream().anyMatch(cu -> cu.equals(localClass)),
                 "my_function should have LocalClass as child");
