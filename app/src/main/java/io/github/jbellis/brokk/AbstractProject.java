@@ -615,8 +615,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
         Path gitTopLevel = gitRepo.getGitTopLevel();
         Path projectAbsPath = root.resolve(projectRelPath);
-        Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
-        return gitRelPath.toString().replace('\\', '/');
+        try {
+            Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
+            return gitRelPath.toString().replace('\\', '/');
+        } catch (IllegalArgumentException e) {
+            // Path is not under gitTopLevel (e.g., monorepo edge case where project root
+            // is outside the git repo). Fall back to using just the filename.
+            logger.debug("Path {} is not under git top level {}, using filename fallback", projectAbsPath, gitTopLevel);
+            return projectAbsPath.getFileName().toString();
+        }
     }
 
     /**
@@ -677,6 +684,37 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    /**
+     * Computes the fixed gitignore pairs that apply to all paths in the repository.
+     * These are computed once per filtering operation for efficiency.
+     *
+     * @param gitRepo The git repository
+     * @param gitTopLevel The top level of the git repository
+     * @return List of fixed gitignore pairs (global, .git/info/exclude, root .gitignore)
+     */
+    private List<Map.Entry<Path, Path>> computeFixedGitignorePairs(GitRepo gitRepo, Path gitTopLevel) {
+        var fixedPairs = new ArrayList<Map.Entry<Path, Path>>();
+
+        // Add global gitignore (lowest precedence)
+        getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
+            fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
+        });
+
+        // Add .git/info/exclude
+        var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
+        if (Files.exists(gitInfoExclude)) {
+            fixedPairs.add(Map.entry(Path.of(""), gitInfoExclude));
+        }
+
+        // Add root .gitignore
+        var rootGitignore = gitTopLevel.resolve(".gitignore");
+        if (Files.exists(rootGitignore)) {
+            fixedPairs.add(Map.entry(Path.of(""), rootGitignore));
+        }
+
+        return fixedPairs;
+    }
+
     private MatchResult checkIgnoreFile(Path ignoreFile, String pathToCheck, boolean isDirectory) throws IOException {
         var ignoreNode = ignoreNodeCache.computeIfAbsent(ignoreFile, path -> {
             try {
@@ -698,30 +736,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * Returns a list of (directory, gitignore-file) pairs where directory is the path
      * that the gitignore file's patterns are relative to.
      *
-     * @param gitRepo The git repository
      * @param gitTopLevel The top level of the git repository
      * @param gitRelPath The path to check (relative to git top level)
+     * @param fixedGitignorePairs Precomputed fixed gitignore pairs (global, .git/info/exclude, root .gitignore)
      * @return List of (directory, gitignore-file) pairs in precedence order (lowest to highest)
      */
-    private List<Map.Entry<Path, Path>> collectGitignorePairs(GitRepo gitRepo, Path gitTopLevel, Path gitRelPath) {
+    private List<Map.Entry<Path, Path>> collectGitignorePairs(
+            Path gitTopLevel, Path gitRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
         var gitignorePairs = new ArrayList<Map.Entry<Path, Path>>();
 
-        // Add global gitignore (lowest precedence)
-        getGlobalGitignoreFile(gitRepo).ifPresent(globalIgnore -> {
-            gitignorePairs.add(Map.entry(Path.of(""), globalIgnore));
-        });
-
-        // Add .git/info/exclude
-        var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
-        if (Files.exists(gitInfoExclude)) {
-            gitignorePairs.add(Map.entry(Path.of(""), gitInfoExclude));
-        }
-
-        // Add root .gitignore
-        var rootGitignore = gitTopLevel.resolve(".gitignore");
-        if (Files.exists(rootGitignore)) {
-            gitignorePairs.add(Map.entry(Path.of(""), rootGitignore));
-        }
+        // Add precomputed fixed pairs (global, .git/info/exclude, root .gitignore)
+        gitignorePairs.addAll(fixedGitignorePairs);
 
         // Add nested .gitignore files for each directory in the path
         Path currentDir = gitRelPath.getParent();
@@ -758,9 +783,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      *
      * @param gitRepo The git repository
      * @param projectRelPath Path relative to project root
+     * @param fixedGitignorePairs Precomputed fixed gitignore pairs (global, .git/info/exclude, root .gitignore)
      * @return true if the path is ignored by gitignore rules
      */
-    private boolean isPathIgnored(GitRepo gitRepo, Path projectRelPath) throws IOException {
+    private boolean isPathIgnored(GitRepo gitRepo, Path projectRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs)
+            throws IOException {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
         Path gitRelPathObj = Path.of(gitRelPath);
         var gitTopLevel = gitRepo.getGitTopLevel();
@@ -770,7 +797,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         boolean isDirectory = Files.isDirectory(absPath);
 
         // Collect all gitignore files that apply to this path
-        var gitignorePairs = collectGitignorePairs(gitRepo, gitTopLevel, gitRelPathObj);
+        var gitignorePairs = collectGitignorePairs(gitTopLevel, gitRelPathObj, fixedGitignorePairs);
 
         // Check each ignore file from lowest to highest precedence
         // Later (higher precedence) files override earlier ones
@@ -796,18 +823,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // If this .gitignore has an explicit match (IGNORED or NOT_IGNORED), it overrides previous results
             if (result == MatchResult.IGNORED) {
                 finalResult = MatchResult.IGNORED;
-                logger.debug(
-                        "Path {} matched IGNORED in {} (checking {})",
-                        gitRelPath,
-                        gitignoreFile,
-                        relativeToGitignoreDir);
             } else if (result == MatchResult.NOT_IGNORED) {
                 finalResult = MatchResult.NOT_IGNORED;
-                logger.debug(
-                        "Path {} matched NOT_IGNORED in {} (checking {})",
-                        gitRelPath,
-                        gitignoreFile,
-                        relativeToGitignoreDir);
             }
             // If CHECK_PARENT, keep current finalResult
         }
@@ -826,7 +843,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             String parentPath = parent.toString().replace('\\', '/');
 
             // Collect all gitignore files that apply to this parent path
-            var parentGitignorePairs = collectGitignorePairs(gitRepo, gitTopLevel, parent);
+            var parentGitignorePairs = collectGitignorePairs(gitTopLevel, parent, fixedGitignorePairs);
 
             // Check parent against all .gitignore files
             MatchResult parentResult = MatchResult.CHECK_PARENT;
@@ -903,6 +920,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         try {
+            // Precompute fixed gitignore pairs once for all files (performance optimization)
+            var gitTopLevel = gitRepo.getGitTopLevel();
+            var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+
             var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
                     .map(s -> s.replace('\\', '/').trim())
                     .map(s -> s.startsWith("./") ? s.substring(2) : s)
@@ -914,7 +935,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     .filter(file -> !isBaselineExcluded(file, baselineExclusions))
                     .filter(file -> {
                         try {
-                            return !isPathIgnored(gitRepo, file.getRelPath());
+                            return !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignorePairs);
                         } catch (IOException e) {
                             logger.warn(
                                     "Error checking if path {} is ignored, including it: {}",

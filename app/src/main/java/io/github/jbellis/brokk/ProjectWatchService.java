@@ -32,6 +32,9 @@ public class ProjectWatchService implements IWatchService {
     @Nullable
     private final Path globalGitignorePath;
 
+    @Nullable
+    private final Path globalGitignoreRealPath;
+
     private final Listener listener;
 
     private volatile boolean running = true;
@@ -43,6 +46,21 @@ public class ProjectWatchService implements IWatchService {
         this.globalGitignorePath = globalGitignorePath;
         this.listener = listener;
         this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+
+        // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
+        if (globalGitignorePath != null) {
+            Path realPath;
+            try {
+                realPath = globalGitignorePath.toRealPath();
+            } catch (IOException e) {
+                // If file doesn't exist or can't be resolved, use original path as fallback
+                realPath = globalGitignorePath;
+                logger.debug("Could not resolve global gitignore to real path: {}", e.getMessage());
+            }
+            this.globalGitignoreRealPath = realPath;
+        } else {
+            this.globalGitignoreRealPath = null;
+        }
     }
 
     @Override
@@ -147,9 +165,16 @@ public class ProjectWatchService implements IWatchService {
         var fileName = eventPath.getFileName().toString();
 
         // .git/info/exclude is never tracked by git
-        if (fileName.equals("exclude") && eventPath.toString().contains("/.git/info/")) {
-            logger.debug("Git info exclude file changed: {}", eventPath);
-            return true;
+        // Use path traversal instead of string matching for cross-platform compatibility
+        if (fileName.equals("exclude")) {
+            var parent = eventPath.getParent();
+            if (parent != null && parent.getFileName().toString().equals("info")) {
+                var grandParent = parent.getParent();
+                if (grandParent != null && grandParent.getFileName().toString().equals(".git")) {
+                    logger.debug("Git info exclude file changed: {}", eventPath);
+                    return true;
+                }
+            }
         }
 
         // For .gitignore files, only trigger if they're likely untracked
@@ -162,9 +187,20 @@ public class ProjectWatchService implements IWatchService {
         }
 
         // Check if this is the global gitignore file
-        if (globalGitignorePath != null && eventPath.equals(globalGitignorePath)) {
-            logger.debug("Global gitignore file changed: {}", eventPath);
-            return true;
+        if (globalGitignoreRealPath != null) {
+            try {
+                Path eventRealPath = eventPath.toRealPath();
+                if (eventRealPath.equals(globalGitignoreRealPath)) {
+                    logger.debug("Global gitignore file changed: {}", eventPath);
+                    return true;
+                }
+            } catch (IOException e) {
+                // If toRealPath() fails (file deleted during event), fall back to simple comparison
+                if (eventPath.equals(globalGitignorePath)) {
+                    logger.debug("Global gitignore file changed: {} (fallback comparison)", eventPath);
+                    return true;
+                }
+            }
         }
 
         return false;
