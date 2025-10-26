@@ -222,15 +222,9 @@ val baselineJvmArgsProvider = object : CommandLineArgumentProvider {
 
 val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
     override fun asArguments(): Iterable<String> {
-        // Check if debugging is explicitly disabled
-        val disableDebug = (project.findProperty("disableDebug") as String?)?.toBoolean() ?: false
-        if (disableDebug) {
-            return emptyList()
-        }
-
-        // Only add JDWP if not already present (IntelliJ adds it when debugging)
-        val jdwpAlreadyPresent = System.getProperty("jdwp.present") == "true"
-        if (jdwpAlreadyPresent) {
+        // Only enable debugging when explicitly requested
+        val enableDebug = (project.findProperty("enableDebug") as String?)?.toBoolean() ?: false
+        if (!enableDebug) {
             return emptyList()
         }
 
