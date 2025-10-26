@@ -1540,7 +1540,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         TaskResult result;
-        try (var scope = beginTask(prompt, false)) {
+        try (var scope = beginTask(prompt, false, "Task")) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithSearch();
         } finally {
@@ -2090,31 +2090,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
     public TaskScope beginTask(String input, boolean compressAtCommit) {
-        TaskScope scope = new TaskScope(compressAtCommit, input);
-
-        // prepare MOP
-        var history = liveContext().getTaskHistory();
-        var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragment.TaskFragment(this, messages, input);
-        io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
-
-        // rename the session if needed
-        var sessionManager = project.getSessionManager();
-        var sessions = sessionManager.listSessions();
-        var currentSession =
-                sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
-
-        if (currentSession.isPresent()
-                && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-            var actionFuture = summarizeTaskForConversation(input);
-            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                if (io instanceof Chrome) {
-                    project.sessionsListChanged();
-                }
-            });
-        }
-
-        return scope;
+        return beginTask(input, compressAtCommit, null);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */

@@ -96,14 +96,7 @@ public class DtoMapper {
             groupUuid = UUID.fromString(dto.groupId());
         }
         return Context.createWithId(
-                ctxId,
-                mgr,
-                combined,
-                taskHistory,
-                parsedOutputFragment,
-                actionFuture,
-                groupUuid,
-                dto.groupLabel());
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture, groupUuid, dto.groupLabel());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}

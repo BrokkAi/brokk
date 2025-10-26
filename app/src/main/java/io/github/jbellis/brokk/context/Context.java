@@ -256,7 +256,8 @@ public class Context {
     }
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
-        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action, this.groupId, this.groupLabel);
+        return new Context(
+                newContextId(), contextManager, newFragments, taskHistory, null, action, this.groupId, this.groupLabel);
     }
 
     /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
@@ -432,7 +433,15 @@ public class Context {
             TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action, this.groupId, this.groupLabel);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                newTaskHistory,
+                parsed,
+                action,
+                this.groupId,
+                this.groupLabel);
     }
 
     public Context clearHistory() {
@@ -487,7 +496,15 @@ public class Context {
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
-        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, this.groupId, this.groupLabel);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                this.groupId,
+                this.groupLabel);
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
@@ -503,10 +520,6 @@ public class Context {
     }
 
     public Context withAction(Future<String> action) {
-        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, this.groupId, this.groupLabel);
-    }
-
-    public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
         return new Context(
                 newContextId(),
                 contextManager,
@@ -514,8 +527,13 @@ public class Context {
                 taskHistory,
                 parsedOutput,
                 action,
-                groupId,
-                groupLabel);
+                this.groupId,
+                this.groupLabel);
+    }
+
+    public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
+        return new Context(
+                newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, groupId, groupLabel);
     }
 
     public static Context createWithId(

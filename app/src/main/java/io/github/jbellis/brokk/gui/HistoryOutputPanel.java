@@ -2751,7 +2751,8 @@ public class HistoryOutputPanel extends JPanel {
                             continue;
                         }
                         int j = firstIdx;
-                        while (j < contexts.size() && groupId.equals(contexts.get(j).getGroupId())) {
+                        while (j < contexts.size()
+                                && groupId.equals(contexts.get(j).getGroupId())) {
                             UUID ctxId = contexts.get(j).id();
                             contextIdToRow.putIfAbsent(ctxId, row);
                             j++;

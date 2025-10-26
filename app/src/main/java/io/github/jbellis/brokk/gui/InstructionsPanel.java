@@ -87,7 +87,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
     public static final String ACTION_ASK = "Ask";
-    public static final String ACTION_SEARCH = "Search";
+    public static final String ACTION_SEARCH = "Lutz Mode";
     public static final String ACTION_RUN = "Run";
 
     private static final String PLACEHOLDER_TEXT =
@@ -1734,7 +1734,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
-                try (var scope = cm.beginTask(input, false)) {
+                try (var scope = cm.beginTask(input, false, "Lutz Mode")) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
