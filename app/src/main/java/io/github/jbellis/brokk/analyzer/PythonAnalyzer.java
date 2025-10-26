@@ -298,11 +298,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String buildParentFqName(String packageName, String classChain) {
+    protected String buildParentFqName(ProjectFile file, String packageName, String classChain) {
         // For function-local classes, transform classChain to match stored FQNs
         // Example: classChain="test_function.LocalClass" → "test_function$LocalClass"
         // Detection: classChain starting with lowercase indicates function-local class
         //            (Python functions use lowercase_with_underscores, classes use PascalCase per PEP 8)
+
+        // Extract module name from filename for function FQN construction
+        String moduleName = file.getFileName();
+        if (moduleName.endsWith(".py")) {
+            moduleName = moduleName.substring(0, moduleName.length() - 3);
+        }
 
         if (classChain != null && !classChain.isBlank()) {
             // Extract first segment to determine if this is function-local
@@ -316,15 +322,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             boolean isFunctionLocal = isLowercaseIdentifier(firstSegment);
 
             if (isFunctionLocal) {
-                // Single element (module-level function) - return with package prefix if present
+                // Single element (module-level function) - need to prepend module name
+                // Function FQNs are stored as "moduleName.functionName" even when packageName is empty
                 if (!classChain.contains(".") && !classChain.contains("$")) {
-                    log.trace("Python parent lookup: classChain='{}', returning direct function name", classChain);
-                    return packageName.isEmpty() ? classChain : packageName + "." + classChain;
+                    // Build FQN matching how functions are stored: moduleName.functionName
+                    String functionFqn = moduleName + "." + classChain;
+                    log.trace(
+                            "Python parent lookup: classChain='{}', module='{}', returning function FQN '{}'",
+                            classChain,
+                            moduleName,
+                            functionFqn);
+                    return packageName.isEmpty() ? functionFqn : packageName + "." + functionFqn;
                 }
 
                 // Multiple elements: function-local class hierarchy
                 // Pattern: "function.LocalClass" or "function.LocalClass.InnerClass"
                 // Transform ALL dots to $ for consistent function-local class naming
+                // NOTE: Don't prepend module name here - only the top-level function has module prefix
+                // Parent classes use the function-local $ notation without module prefix
                 if (!classChain.contains("$") && classChain.contains(".")) {
                     String transformed = classChain.replace(".", "$");
                     log.trace(

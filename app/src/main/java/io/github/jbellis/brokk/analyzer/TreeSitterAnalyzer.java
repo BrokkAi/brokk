@@ -1065,8 +1065,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Builds the parent FQName from package name and class chain for parent-child relationship lookup. Override this
      * method to apply language-specific FQName correction logic.
+     *
+     * @param file The file being analyzed (for language-specific module name extraction)
+     * @param packageName The package name of the child looking for its parent
+     * @param classChain The class chain indicating the parent hierarchy
+     * @return The fully qualified name to use for parent lookup
      */
-    protected String buildParentFqName(String packageName, String classChain) {
+    protected String buildParentFqName(ProjectFile file, String packageName, String classChain) {
         return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 
@@ -1110,25 +1115,52 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
-     * For Python, applies "last wins" semantics for fields and classes (matching runtime behavior).
+     * For Python, applies "last wins" semantics for fields, classes, and functions (matching runtime behavior).
      * For other languages, logs an error for unexpected duplicates.
      *
      * @param cu the CodeUnit to add
      * @param localTopLevelCUs the list of top-level CodeUnits
      * @param seenTopLevelFqNames set tracking FQNs already seen
+     * @param localChildren map of parent-child relationships (cleaned up for Python duplicates)
+     * @param localSignatures map of CodeUnit signatures (cleaned up for Python duplicates)
+     * @param localSourceRanges map of CodeUnit source ranges (cleaned up for Python duplicates)
      * @param file the file being analyzed
      */
     private void addTopLevelCodeUnit(
-            CodeUnit cu, List<CodeUnit> localTopLevelCUs, Set<String> seenTopLevelFqNames, ProjectFile file) {
+            CodeUnit cu,
+            List<CodeUnit> localTopLevelCUs,
+            Set<String> seenTopLevelFqNames,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            ProjectFile file) {
 
         if (!seenTopLevelFqNames.contains(cu.fqName())) {
             localTopLevelCUs.add(cu);
             seenTopLevelFqNames.add(cu.fqName());
-        } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass())) {
+        } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass() || cu.isFunction())) {
             // Python duplicate - replace previous with this one (last assignment wins)
             // This matches Python's runtime behavior where duplicate definitions replace earlier ones
+            // Find and remove the old CodeUnit from both top-level list and all related maps
+            CodeUnit oldCu = localTopLevelCUs.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()))
+                    .findFirst()
+                    .orElse(null);
+
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
+
+            // Recursively remove the old definition and all its descendants from all maps
+            // This prevents orphaned children from appearing in the final result
+            if (oldCu != null) {
+                log.trace(
+                        "Removing old Python {} and its descendants: {} in file {}",
+                        oldCu.kind(),
+                        oldCu.fqName(),
+                        file.getFileName());
+                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
+            }
+
             log.trace(
                     "Replacing duplicate Python {} with last definition: {} in file {}",
                     cu.kind(),
@@ -1142,6 +1174,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     cu.fqName(),
                     cu.kind(),
                     seenTopLevelFqNames.contains(cu.fqName()));
+        }
+    }
+
+    /**
+     * Recursively removes a CodeUnit and all its descendants from the analysis maps.
+     * Used when replacing Python duplicates to ensure children of the old definition don't appear in results.
+     */
+    private void removeCodeUnitAndDescendants(
+            CodeUnit cu,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+
+        log.trace("Removing CodeUnit from maps: {} (kind={})", cu.fqName(), cu.kind());
+
+        // Get children before removing from map
+        List<CodeUnit> children = localChildren.get(cu);
+
+        // Remove this CodeUnit from all maps
+        localChildren.remove(cu);
+        localSignatures.remove(cu);
+        localSourceRanges.remove(cu);
+
+        // Recursively remove all descendants
+        if (children != null) {
+            log.trace("  Removing {} children of {}", children.size(), cu.fqName());
+            for (CodeUnit child : children) {
+                removeCodeUnitAndDescendants(child, localChildren, localSignatures, localSourceRanges);
+            }
         }
     }
 
@@ -1597,10 +1658,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
                     // Top-level CU - use helper to handle duplicates appropriately
-                    addTopLevelCodeUnit(cu, localTopLevelCUs, seenTopLevelFqNames, file);
+                    addTopLevelCodeUnit(
+                            cu, localTopLevelCUs, seenTopLevelFqNames, localChildren, localSignatures, localSourceRanges, file);
                 } else {
                     // Parent's shortName is the classChain string itself.
-                    String parentFqName = buildParentFqName(cu.packageName(), classChain);
+                    String parentFqName = buildParentFqName(file, cu.packageName(), classChain);
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
@@ -1614,7 +1676,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 parentFqName,
                                 classChain);
                         // Fallback: add as top-level, but use helper to handle duplicates
-                        addTopLevelCodeUnit(cu, localTopLevelCUs, seenTopLevelFqNames, file);
+                        addTopLevelCodeUnit(
+                                cu, localTopLevelCUs, seenTopLevelFqNames, localChildren, localSignatures, localSourceRanges, file);
                     }
                 }
             }

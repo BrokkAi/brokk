@@ -792,4 +792,72 @@ public final class PythonAnalyzerTest {
                 privateClassChildren.stream().anyMatch(cu -> cu.equals(nestedClass)),
                 "_PrivateClass should have NestedClass as child");
     }
+
+    @Test
+    void testFunctionRedefinition() {
+        // Test that Python's "last wins" semantics work for top-level function redefinition
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "function_redefinition.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+
+        // Verify only ONE function named my_function exists (the last definition)
+        var functions = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> cu.fqName().endsWith(".my_function") || cu.fqName().equals("my_function"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, functions.size(), "Should only have ONE my_function (last definition wins)");
+
+        CodeUnit myFunction = functions.getFirst();
+        assertTrue(
+                myFunction.fqName().endsWith(".my_function") || myFunction.fqName().equals("my_function"),
+                "Function FQN should end with .my_function");
+
+        // Find all classes
+        var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
+
+        // Should have 2 classes: MyClass (top-level) and SecondLocal (from second function definition)
+        assertEquals(
+                2,
+                classes.size(),
+                "Should find 2 classes: MyClass and SecondLocal (FirstLocal should NOT exist since first function was replaced)");
+
+        // Verify MyClass exists
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("MyClass")),
+                "MyClass should exist");
+
+        // Verify SecondLocal exists as child of second my_function
+        var secondLocal = classes.stream()
+                .filter(cu -> cu.fqName().equals("my_function$SecondLocal"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "SecondLocal should exist from second function definition, found: "
+                                + classes.stream()
+                                        .map(CodeUnit::fqName)
+                                        .collect(Collectors.joining(", "))));
+
+        assertEquals(
+                "my_function$SecondLocal",
+                secondLocal.fqName(),
+                "SecondLocal should be attached to my_function");
+
+        // Verify FirstLocal does NOT exist (function was replaced before children were attached)
+        assertFalse(
+                classes.stream().anyMatch(cu -> cu.fqName().contains("FirstLocal")),
+                "FirstLocal should NOT exist - first function definition was replaced");
+
+        // Verify parent-child relationship
+        var functionChildren = analyzer.getSubDeclarations(myFunction);
+        assertEquals(
+                1,
+                functionChildren.size(),
+                "my_function should have exactly 1 child (SecondLocal)");
+        assertTrue(
+                functionChildren.stream().anyMatch(cu -> cu.equals(secondLocal)),
+                "my_function should have SecondLocal as child");
+    }
 }
