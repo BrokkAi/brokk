@@ -518,7 +518,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonPropertySetterFiltering() {
-        // Test the specific astropy scenario: property getter and setter with same name
+        // Test property getter, setter, and deleter filtering
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
@@ -530,28 +530,35 @@ public final class PythonAnalyzerTest {
         assertEquals(1, classes.size(), "Should find 1 class");
         assertEquals("MplTimeConverter", classes.get(0).identifier());
 
-        // Should find exactly 2 methods: format (getter) and regular_method
-        // The format setter should be skipped
+        // Should find exactly 3 methods: format (getter), value (getter), and regular_method
+        // The format setter and value deleter should be skipped
         var methods = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
 
         assertEquals(
-                2,
+                3,
                 methods.size(),
-                "Should find 2 methods (getter + regular method, setter skipped). Found: "
+                "Should find 3 methods (2 getters + regular method, setter and deleter skipped). Found: "
                         + methods.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
 
-        // Verify we have the getter but not the setter
+        // Verify we have the getters but not the setter or deleter
         assertTrue(
                 methods.stream().anyMatch(m -> m.fqName().equals("MplTimeConverter.format")),
                 "Should find format getter");
         assertTrue(
+                methods.stream().anyMatch(m -> m.fqName().equals("MplTimeConverter.value")),
+                "Should find value getter");
+        assertTrue(
                 methods.stream().anyMatch(m -> m.fqName().equals("MplTimeConverter.regular_method")),
                 "Should find regular_method");
 
-        // Verify no duplicate format methods
+        // Verify no duplicate format or value methods
         long formatCount =
                 methods.stream().filter(m -> m.identifier().equals("format")).count();
         assertEquals(1, formatCount, "Should find exactly 1 format method (getter only, setter filtered)");
+
+        long valueCount =
+                methods.stream().filter(m -> m.identifier().equals("value")).count();
+        assertEquals(1, valueCount, "Should find exactly 1 value method (getter only, deleter filtered)");
     }
 
     @Test
@@ -859,5 +866,70 @@ public final class PythonAnalyzerTest {
         assertTrue(
                 functionChildren.stream().anyMatch(cu -> cu.equals(secondLocal)),
                 "my_function should have SecondLocal as child");
+    }
+
+    @Test
+    void testPackagedFunctionLocalClasses() {
+        // Test that function-local classes work correctly in packaged Python modules
+        // This verifies that buildParentFqName correctly handles the case where:
+        // - packageName is non-empty (from __init__.py)
+        // - Function FQNs include module name: "package.module.function"
+        // - Parent lookup must find "package.module.function" when child has classChain="my_function"
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "mypackage/packaged_functions.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+        // Find the function
+        var functions = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> cu.identifier().equals("my_function"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, functions.size(), "Should find exactly one my_function");
+        CodeUnit myFunction = functions.getFirst();
+
+        // Verify function FQN includes package and module
+        assertEquals(
+                "mypackage.packaged_functions.my_function",
+                myFunction.fqName(),
+                "Function FQN should include package and module name");
+
+        // Find the local class
+        var localClasses = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .filter(cu -> cu.fqName().contains("LocalClass"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, localClasses.size(), "Should find exactly one LocalClass");
+        CodeUnit localClass = localClasses.getFirst();
+
+        // Verify local class FQN
+        assertEquals(
+                "mypackage.my_function$LocalClass",
+                localClass.fqName(),
+                "Local class FQN should be in package with function-local naming");
+
+        // Verify parent-child relationship
+        var functionChildren = analyzer.getSubDeclarations(myFunction);
+        assertEquals(
+                1,
+                functionChildren.size(),
+                "my_function should have exactly 1 child (LocalClass)");
+        assertTrue(
+                functionChildren.stream().anyMatch(cu -> cu.equals(localClass)),
+                "my_function should have LocalClass as child");
+
+        // Verify the local class has a method
+        var classChildren = analyzer.getSubDeclarations(localClass);
+        assertEquals(1, classChildren.size(), "LocalClass should have exactly 1 method");
+        var method = classChildren.stream().findFirst().orElseThrow();
+        // Methods in function-local classes use dot notation throughout (not $)
+        // See PythonAnalyzer.java:111-113
+        assertEquals(
+                "mypackage.my_function.LocalClass.method",
+                method.fqName(),
+                "Method FQN should use dot notation (package.function.LocalClass.method)");
     }
 }
