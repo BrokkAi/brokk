@@ -2114,6 +2114,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return scope;
     }
 
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
+    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
+        TaskScope scope = new TaskScope(compressAtCommit, input, groupLabel);
+
+        // prepare MOP
+        var history = liveContext().getTaskHistory();
+        var messages = List.<ChatMessage>of(new UserMessage(input));
+        var taskFragment = new ContextFragment.TaskFragment(this, messages, input);
+        io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
+
+        // rename the session if needed
+        var sessionManager = project.getSessionManager();
+        var sessions = sessionManager.listSessions();
+        var currentSession =
+                sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
+
+        if (currentSession.isPresent()
+                && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+            var actionFuture = summarizeTaskForConversation(input);
+            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
+                if (io instanceof Chrome) {
+                    project.sessionsListChanged();
+                }
+            });
+        }
+
+        return scope;
+    }
+
     /**
      * Aggregating scope that collects messages/files and commits once.
      * By design, this keeps only the Context from the final TaskResult in the Scope.
@@ -2123,9 +2152,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
         private boolean closed = false;
+        private final @Nullable UUID groupId;
+        private final @Nullable String groupLabel;
 
         private TaskScope(boolean compressResults, String input) {
+            this(compressResults, input, null);
+        }
+
+        private TaskScope(boolean compressResults, String input, @Nullable String groupLabel) {
             this.compressResults = compressResults;
+            this.groupLabel = groupLabel;
+            this.groupId = (groupLabel != null) ? UUID.randomUUID() : null;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
         }
@@ -2163,7 +2200,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // push context
             final Context[] updatedContext = new Context[1];
             pushContext(currentLiveCtx -> {
-                var updated = result.context();
+                var updated = result.context().withGroup(groupId, groupLabel);
                 TaskEntry entry = updated.createTaskEntry(result);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
                 updatedContext[0] = updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
