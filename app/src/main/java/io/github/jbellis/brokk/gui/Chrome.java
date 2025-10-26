@@ -1710,7 +1710,7 @@ public class Chrome
             }
 
             // Set a minimum width for preview windows to ensure search controls work properly
-            previewFrame.setMinimumSize(new Dimension(400, 200));
+            previewFrame.setMinimumSize(new Dimension(700, 200));
 
             // Add listener to save bounds using the "preview" key
             final JFrame finalFrameForBounds = previewFrame;
