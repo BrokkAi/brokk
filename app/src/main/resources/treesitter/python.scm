@@ -19,27 +19,12 @@
   )
 )
 
-; Decorated method definition with attribute decorators (e.g., @property, @name.setter)
-; Note: Property setters are filtered in PythonAnalyzer.shouldSkipNode() to avoid duplicates
+; Decorated method definition (any decorator type: attribute, identifier, or call)
+; Single pattern avoids duplicate matches when methods have mixed decorator types.
+; Property setters are filtered in PythonAnalyzer.shouldSkipNode() to avoid duplicates.
 (class_definition
   body: (block
     (decorated_definition
-      (decorator
-        (attribute))
-      definition: (function_definition
-        name: (identifier) @function.name
-      )
-    ) @function.definition
-  )
-)
-
-; Decorated method definition with simple identifier decorators (e.g., @staticmethod, @classmethod)
-; No filtering needed for these since they don't create duplicates.
-(class_definition
-  body: (block
-    (decorated_definition
-      (decorator
-        (identifier))
       definition: (function_definition
         name: (identifier) @function.name
       )

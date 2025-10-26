@@ -8,8 +8,6 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -18,11 +16,10 @@ import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
-    // Thread-safe tracking of field assignments per file to implement Python's "last assignment wins" behavior
-    private volatile Map<String, String> fieldAssignments;
-
-    // For disambiguating function-local classes when multiple functions have the same name
-    private volatile Map<String, AtomicInteger> functionLocalClassCounters;
+    // Per-thread tracking of field assignments to implement Python's "last assignment wins" behavior
+    // Each file analysis gets a fresh map via prepareFileAnalysis()
+    private static final ThreadLocal<Map<String, String>> fieldAssignments =
+            ThreadLocal.withInitial(java.util.HashMap::new);
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -96,40 +93,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     finalShortName = simpleName;
                 } else if (!classChain.contains("$")) {
                     // Function-local class hierarchy (no $ yet)
-                    // Cases:
-                    // - "outer_function" → direct function-local class
-                    // - "outer_function.OuterLocal" → nested inside function-local class
-                    // - "outer_function.OuterLocal.InnerLocal" → deeply nested
-
-                    if (!classChain.contains(".")) {
-                        // Direct function-local class: classChain is just the function name
-                        String functionName = classChain;
-                        String key = file.absPath() + ":" + functionName;
-
-                        // Lazy initialization for thread safety
-                        if (functionLocalClassCounters == null) {
-                            synchronized (this) {
-                                if (functionLocalClassCounters == null) {
-                                    functionLocalClassCounters = new ConcurrentHashMap<>();
-                                }
-                            }
-                        }
-
-                        int count = functionLocalClassCounters
-                                .computeIfAbsent(key, k -> new AtomicInteger(0))
-                                .incrementAndGet();
-
-                        if (count > 1) {
-                            finalShortName = functionName + "[" + count + "]$" + simpleName;
-                        } else {
-                            finalShortName = functionName + "$" + simpleName;
-                        }
-                    } else {
-                        // Nested function-local class: "function.OuterClass" or "function.OuterClass.InnerClass"
-                        // Normalize by replacing all dots with $ for consistency
-                        String normalizedChain = classChain.replace(".", "$");
-                        finalShortName = normalizedChain + "$" + simpleName;
-                    }
+                    // Normalize by replacing all dots with $ for consistency
+                    // Examples:
+                    // - "outer_function" → "outer_function$LocalClass"
+                    // - "outer_function.OuterLocal" → "outer_function$OuterLocal$InnerLocal"
+                    // - "outer_function.OuterLocal.InnerLocal" → "outer_function$OuterLocal$InnerLocal$DeepLocal"
+                    // Note: Duplicate function definitions follow Python's "last wins" semantics
+                    String normalizedChain = classChain.replace(".", "$");
+                    finalShortName = normalizedChain + "$" + simpleName;
                 } else {
                     // Regular nested class or already processed function-local chain (contains $)
                     finalShortName = classChain + "$" + simpleName;
@@ -167,17 +138,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
                 // Implement Python's "last assignment wins" for top-level variables
                 if (classChain.isEmpty()) {
-                    // Lazy initialization for thread safety
-                    if (fieldAssignments == null) {
-                        synchronized (this) {
-                            if (fieldAssignments == null) {
-                                fieldAssignments = new ConcurrentHashMap<>();
-                            }
-                        }
-                    }
-
-                    String fileKey = file.absPath().toString();
-                    String previousAssignment = fieldAssignments.put(fileKey + "." + simpleName, finalShortName);
+                    // Track field assignments in thread-local map (cleared per file)
+                    var assignmentsMap = fieldAssignments.get();
+                    String previousAssignment = assignmentsMap.put(simpleName, finalShortName);
 
                     if (previousAssignment != null) {
                         // This is a duplicate assignment - log at TRACE level but create CodeUnit anyway
@@ -233,19 +196,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected void prepareFileAnalysis(ProjectFile file) {
-        // Clear file-specific entries to ensure deterministic analysis
-        // This prevents counters from accumulating across multiple analyses of the same file
-        String filePrefix = file.absPath() + ":";
+        // Clear thread-local state for new file analysis
+        // Each file analysis gets a fresh map to track field assignments
+        fieldAssignments.get().clear();
 
-        if (fieldAssignments != null) {
-            fieldAssignments.keySet().removeIf(key -> key.startsWith(filePrefix));
-        }
-
-        if (functionLocalClassCounters != null) {
-            functionLocalClassCounters.keySet().removeIf(key -> key.startsWith(filePrefix));
-        }
-
-        log.trace("Cleared file-specific entries for: {}", file.getFileName());
+        log.trace("Cleared thread-local field assignments for: {}", file.getFileName());
     }
 
     @Override
@@ -344,34 +299,45 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String buildParentFqName(String packageName, String classChain) {
-        // For function-local classes, we need to transform classChain to match stored FQNs
-        // Example: classChain="test_function.LocalClass" should become "test_function$LocalClass"
-        // Example: classChain="test_function.LocalClass.InnerLocal" should become "test_function$LocalClass$InnerLocal"
-        // This is because createCodeUnit stores function-local classes with $ separator throughout
+        // For function-local classes, transform classChain to match stored FQNs
+        // Example: classChain="test_function.LocalClass" → "test_function$LocalClass"
+        // Detection: classChain starting with lowercase indicates function-local class
+        //            (Python functions use lowercase_with_underscores, classes use PascalCase per PEP 8)
 
-        if (packageName.isEmpty() && classChain != null && !classChain.isBlank()) {
-            // Single element (module-level function) - return as-is
-            if (!classChain.contains(".") && !classChain.contains("$")) {
-                log.trace("Python parent lookup: classChain='{}', returning direct function name", classChain);
-                return classChain;
-            }
+        if (classChain != null && !classChain.isBlank()) {
+            // Extract first segment to determine if this is function-local
+            String firstSegment = classChain.contains(".") || classChain.contains("$")
+                    ? classChain.split("[.$]")[0]
+                    : classChain;
 
-            // Multiple elements: function-local class hierarchy
-            // Pattern: "function.LocalClass" or "function.LocalClass.InnerClass"
-            // Transform ALL dots to $ for consistent function-local class naming
-            if (!classChain.contains("$") && classChain.contains(".")) {
-                String transformed = classChain.replace(".", "$");
-                log.trace(
-                        "Python parent lookup: classChain='{}', transformed to '{}' for function-local class lookup",
-                        classChain,
-                        transformed);
-                return transformed;
+            // Check if classChain starts with a function (lowercase first char)
+            boolean isFunctionLocal = !firstSegment.isEmpty()
+                    && Character.isLowerCase(firstSegment.charAt(0));
+
+            if (isFunctionLocal) {
+                // Single element (module-level function) - return with package prefix if present
+                if (!classChain.contains(".") && !classChain.contains("$")) {
+                    log.trace("Python parent lookup: classChain='{}', returning direct function name", classChain);
+                    return packageName.isEmpty() ? classChain : packageName + "." + classChain;
+                }
+
+                // Multiple elements: function-local class hierarchy
+                // Pattern: "function.LocalClass" or "function.LocalClass.InnerClass"
+                // Transform ALL dots to $ for consistent function-local class naming
+                if (!classChain.contains("$") && classChain.contains(".")) {
+                    String transformed = classChain.replace(".", "$");
+                    log.trace(
+                            "Python parent lookup: classChain='{}', transformed to '{}' for function-local class lookup",
+                            classChain,
+                            transformed);
+                    return packageName.isEmpty() ? transformed : packageName + "." + transformed;
+                }
             }
         }
 
         log.trace(
                 "Python parent lookup: packageName='{}', classChain='{}', using default join", packageName, classChain);
-        // Default behavior for packaged classes
+        // Default behavior for regular nested classes
         return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 

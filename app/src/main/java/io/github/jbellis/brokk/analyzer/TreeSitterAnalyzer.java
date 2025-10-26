@@ -1109,6 +1109,43 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
+     * For Python, applies "last wins" semantics for fields and classes (matching runtime behavior).
+     * For other languages, logs an error for unexpected duplicates.
+     *
+     * @param cu the CodeUnit to add
+     * @param localTopLevelCUs the list of top-level CodeUnits
+     * @param seenTopLevelFqNames set tracking FQNs already seen
+     * @param file the file being analyzed
+     */
+    private void addTopLevelCodeUnit(
+            CodeUnit cu, List<CodeUnit> localTopLevelCUs, Set<String> seenTopLevelFqNames, ProjectFile file) {
+
+        if (!seenTopLevelFqNames.contains(cu.fqName())) {
+            localTopLevelCUs.add(cu);
+            seenTopLevelFqNames.add(cu.fqName());
+        } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass())) {
+            // Python duplicate - replace previous with this one (last assignment wins)
+            // This matches Python's runtime behavior where duplicate definitions replace earlier ones
+            localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+            localTopLevelCUs.add(cu);
+            log.trace(
+                    "Replacing duplicate Python {} with last definition: {} in file {}",
+                    cu.kind(),
+                    cu.fqName(),
+                    file.getFileName());
+        } else {
+            // Unexpected duplicate for other languages/types
+            log.error(
+                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={}, existing in set={})",
+                    file.getFileName(),
+                    cu.fqName(),
+                    cu.kind(),
+                    seenTopLevelFqNames.contains(cu.fqName()));
+        }
+    }
+
+    /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
      */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
@@ -1559,30 +1596,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
-                    // Check if this top-level CU already exists, but only skip for Python FIELD duplicates
-                    // Python allows "last assignment wins" for fields, but duplicate classes/functions should still
-                    // error
-                    // Use HashSet for O(1) lookup instead of O(n) stream check
-                    if (!seenTopLevelFqNames.contains(cu.fqName())) {
-                        localTopLevelCUs.add(cu);
-                        seenTopLevelFqNames.add(cu.fqName());
-                    } else if (language == Languages.PYTHON && cu.isField()) {
-                        // Python field duplicate - replace previous with this one (last assignment wins)
-                        localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
-                        localTopLevelCUs.add(cu);
-                        log.trace(
-                                "Replacing duplicate Python FIELD with last assignment: {} in file {}",
-                                cu.fqName(),
-                                file.getFileName());
-                    } else {
-                        // Non-field duplicate - this is unexpected, log error
-                        log.error(
-                                "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={}, existing in set={})",
-                                file.getFileName(),
-                                cu.fqName(),
-                                cu.kind(),
-                                seenTopLevelFqNames.contains(cu.fqName()));
-                    }
+                    // Top-level CU - use helper to handle duplicates appropriately
+                    addTopLevelCodeUnit(cu, localTopLevelCUs, seenTopLevelFqNames, file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu.packageName(), classChain);
@@ -1598,7 +1613,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 cu,
                                 parentFqName,
                                 classChain);
-                        localTopLevelCUs.add(cu); // Fallback
+                        // Fallback: add as top-level, but use helper to handle duplicates
+                        addTopLevelCodeUnit(cu, localTopLevelCUs, seenTopLevelFqNames, file);
                     }
                 }
             }

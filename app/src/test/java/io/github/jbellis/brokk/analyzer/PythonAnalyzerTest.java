@@ -600,8 +600,8 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testDeterministicDisambiguationAcrossFiles() {
-        // Test that disambiguation counters are file-specific and don't accumulate across files
-        // This verifies that prepareFileAnalysis() properly clears file-specific map entries
+        // Test that Python's "last wins" behavior applies to duplicate function-local classes
+        // This matches Python's runtime semantics where duplicate definitions replace earlier ones
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
@@ -615,16 +615,10 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.fqName().contains("LocalClass"))
                 .collect(Collectors.toList());
 
-        // Should find 2 classes with disambiguation: test_func$LocalClass and test_func[2]$LocalClass
-        assertEquals(2, classesA.size(), "File A should have 2 local classes");
-
-        var fqNamesA = classesA.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(
-                fqNamesA.contains("test_func$LocalClass"),
-                "File A should have first occurrence without number");
-        assertTrue(
-                fqNamesA.contains("test_func[2]$LocalClass"),
-                "File A should have second occurrence with [2]");
+        // Should find only 1 class (last definition wins)
+        assertEquals(1, classesA.size(), "File A should have only 1 local class (last wins)");
+        assertEquals("test_func$LocalClass", classesA.get(0).fqName(),
+                "Should use standard $ notation without bracketed disambiguation");
 
         // Now analyze file B
         Set<CodeUnit> declarationsB = analyzer.getDeclarations(fileB);
@@ -633,25 +627,16 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.fqName().contains("LocalClass"))
                 .collect(Collectors.toList());
 
-        // Should also find 2 classes with same disambiguation pattern
-        // (not continuing from file A's counter)
-        assertEquals(2, classesB.size(), "File B should have 2 local classes");
+        // Should also find only 1 class (last definition wins)
+        assertEquals(1, classesB.size(), "File B should have only 1 local class (last wins)");
+        assertEquals("test_func$LocalClass", classesB.get(0).fqName(),
+                "Should use standard $ notation without bracketed disambiguation");
 
-        var fqNamesB = classesB.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-
-        // CRITICAL: File B should start counting from 1 again, not continue from file A
-        assertTrue(
-                fqNamesB.contains("test_func$LocalClass"),
-                "File B should have first occurrence without number (not [3])");
-        assertTrue(
-                fqNamesB.contains("test_func[2]$LocalClass"),
-                "File B should have second occurrence with [2] (not [4])");
-
-        // Verify they're independent - same patterns in different files
+        // Verify they're independent - same behavior in different files
         assertEquals(
-                fqNamesA,
-                fqNamesB,
-                "Both files should have identical disambiguation patterns (counters are file-specific)");
+                classesA.get(0).fqName(),
+                classesB.get(0).fqName(),
+                "Both files should have identical FQN pattern (last wins applies consistently)");
     }
 
     @Test
