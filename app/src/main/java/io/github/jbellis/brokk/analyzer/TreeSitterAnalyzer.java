@@ -1103,17 +1103,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Called before analyzing a file's content. Language-specific analyzers can override
-     * to prepare per-file state (e.g., clear cached entries to ensure deterministic analysis).
-     * Default implementation does nothing.
-     *
-     * @param file the file about to be analyzed
-     */
-    protected void prepareFileAnalysis(ProjectFile file) {
-        // Default: no-op
-    }
-
-    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * For Python, applies "last wins" semantics for fields, classes, and functions (matching runtime behavior).
      * For other languages, logs an error for unexpected duplicates.
@@ -1207,6 +1196,42 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Adds a child CodeUnit to its parent's children list, handling Python's "last wins" duplicate semantics.
+     * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
+     */
+    private void addChildCodeUnit(
+            CodeUnit cu,
+            CodeUnit parentCu,
+            List<CodeUnit> kids,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            ProjectFile file) {
+
+        if (!kids.contains(cu)) {
+            kids.add(cu);
+        } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass() || cu.isFunction())) {
+            // Python "last wins" semantics - replace existing child with same FQN
+            CodeUnit oldCu = kids.stream().filter(k -> k.equals(cu)).findFirst().orElse(null);
+
+            if (oldCu != null) {
+                log.trace(
+                        "Replacing duplicate Python child {} in parent {} (file: {})",
+                        cu.fqName(),
+                        parentCu.fqName(),
+                        file.getFileName());
+
+                kids.remove(oldCu);
+                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
+                kids.add(cu);
+            }
+        } else {
+            // For non-Python or other types, just skip adding the duplicate
+            log.trace("Skipping duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
+        }
+    }
+
+    /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
      */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
@@ -1229,9 +1254,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             byte[] fileBytes,
             TSParser localParser,
             @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
-        // Allow language-specific analyzers to prepare per-file state
-        prepareFileAnalysis(file);
-
         log.trace("analyzeFileContent: Parsing file: {}", file);
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
@@ -1646,9 +1668,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        if (!kids.contains(cu)) {
-                            kids.add(cu);
-                        }
+                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, file);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -1675,9 +1695,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        if (!kids.contains(cu)) { // Prevent adding duplicate children
-                            kids.add(cu);
-                        }
+                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, file);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",

@@ -16,10 +16,8 @@ import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
-    // Per-thread tracking of field assignments to implement Python's "last assignment wins" behavior
-    // Each file analysis gets a fresh map via prepareFileAnalysis()
-    private static final ThreadLocal<Map<String, String>> fieldAssignments =
-            ThreadLocal.withInitial(java.util.HashMap::new);
+    // Python's "last assignment wins" behavior is automatically handled by TreeSitterAnalyzer:
+    // When multiple CodeUnits have the same FQN, the last one added replaces earlier ones in the codeUnits map.
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -116,16 +114,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
             case "field.definition" -> { // For class attributes or top-level variables
-                if (file.getFileName().equals("vars.py")) {
-                    log.trace(
-                            "[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
-                            file.getFileName(),
-                            captureName,
-                            simpleName,
-                            packageName,
-                            classChain,
-                            moduleName);
-                }
                 String finalShortName;
                 if (classChain.isEmpty()) {
                     // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of
@@ -136,23 +124,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     finalShortName = classChain + "." + simpleName;
                 }
 
-                // Implement Python's "last assignment wins" for top-level variables
-                if (classChain.isEmpty()) {
-                    // Track field assignments in thread-local map (cleared per file)
-                    var assignmentsMap = fieldAssignments.get();
-                    String previousAssignment = assignmentsMap.put(simpleName, finalShortName);
-
-                    if (previousAssignment != null) {
-                        // This is a duplicate assignment - log at TRACE level but create CodeUnit anyway
-                        // TreeSitterAnalyzer will replace the previous CodeUnit due to same FQName
-                        log.trace(
-                                "Python duplicate field assignment in file {}: {} (previous: {}), creating new CodeUnit to replace previous",
-                                file.getFileName(),
-                                simpleName,
-                                previousAssignment);
-                    }
-                }
-
+                // Python's "last assignment wins" behavior is automatically handled by TreeSitterAnalyzer:
+                // If we create multiple CodeUnits with the same FQN, the last one will replace earlier ones
                 yield CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
@@ -182,9 +155,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         // Get the decorator text using the inherited textSlice method
                         String decoratorText =
                                 textSlice(decoratorChild, srcBytes).trim();
-                        // Skip if decorator ends with ".setter" or ".deleter" (e.g., "@format.setter",
-                        // "@value.deleter")
-                        if (decoratorText.endsWith(".setter") || decoratorText.endsWith(".deleter")) {
+                        // Skip property setters/deleters: must match pattern "<identifier>.(setter|deleter)"
+                        // where identifier is a simple name (no dots). This prevents false positives
+                        // like "@module.Class.property.setter" which has multiple dots.
+                        if (decoratorText.matches("[^.]+\\.(setter|deleter)")) {
                             log.trace("Skipping property setter/deleter with decorator: {}", decoratorText);
                             return true;
                         }
@@ -193,15 +167,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
         return false;
-    }
-
-    @Override
-    protected void prepareFileAnalysis(ProjectFile file) {
-        // Clear thread-local state for new file analysis
-        // Each file analysis gets a fresh map to track field assignments
-        fieldAssignments.get().clear();
-
-        log.trace("Cleared thread-local field assignments for: {}", file.getFileName());
     }
 
     @Override

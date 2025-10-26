@@ -842,6 +842,50 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    void testPythonDuplicateChildren() {
+        // Test Python's "last wins" semantics for duplicate children
+        // (methods, class attributes, nested classes)
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "duplicate_children.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+        // Find TestDuplicates class
+        var testDuplicatesClass = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .filter(cu -> cu.identifier().equals("TestDuplicates"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("TestDuplicates class not found"));
+
+        // Get children of TestDuplicates
+        var children = analyzer.getSubDeclarations(testDuplicatesClass);
+
+        // 1. Test duplicate method - should have only 1 "method" (last wins)
+        var methods = children.stream()
+                .filter(cu -> cu.isFunction() && cu.identifier().equals("method"))
+                .toList();
+        assertEquals(1, methods.size(), "Should have exactly 1 'method' (last wins)");
+
+        // 2. Test duplicate nested class - should be in children with $ separator
+        var innerClasses = children.stream()
+                .filter(cu -> cu.isClass()
+                        && cu.shortName().contains("Inner")
+                        && !cu.shortName().contains("Unique"))
+                .toList();
+        assertEquals(1, innerClasses.size(), "Should have exactly 1 'Inner' class (last wins)");
+
+        // 3. Verify non-duplicates still exist
+        assertTrue(
+                children.stream()
+                        .anyMatch(cu -> cu.isFunction() && cu.identifier().equals("unique_method")),
+                "unique_method should exist");
+        assertTrue(
+                children.stream().anyMatch(cu -> cu.isClass() && cu.shortName().contains("UniqueInner")),
+                "UniqueInner class should exist");
+    }
+
+    @Test
     void testPackagedFunctionLocalClasses() {
         // Test that function-local classes work correctly in packaged Python modules
         // This verifies that buildParentFqName correctly handles the case where:
