@@ -306,7 +306,9 @@ public class FragmentDtos {
             List<String> virtuals,
             List<TaskEntryRefDto> tasks,
             @Nullable String parsedOutputId,
-            String action) {
+            String action,
+            @Nullable String groupId,
+            @Nullable String groupLabel) {
         public CompactContextDto {
             // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);

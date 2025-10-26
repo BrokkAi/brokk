@@ -273,7 +273,9 @@ public final class HistoryIo {
                     ctx.virtualFragments().map(ContextFragment::id).toList(),
                     taskEntryRefs,
                     ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
-                    summarizeAction(ctx));
+                    summarizeAction(ctx),
+                    ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
+                    ctx.getGroupLabel());
             contextsJsonlContent
                     .append(objectMapper.writeValueAsString(compactDto))
                     .append('\n');
