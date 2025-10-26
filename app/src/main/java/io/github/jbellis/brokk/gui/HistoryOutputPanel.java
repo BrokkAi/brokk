@@ -940,6 +940,68 @@ public class HistoryOutputPanel extends JPanel {
 
             for (int i = 0; i < contexts.size(); i++) {
                 var ctx = contexts.get(i);
+
+                // Prefer grouping contiguous contexts that share a non-null groupId
+                var gid = ctx.getGroupId();
+                if (gid != null) {
+                    int j = i;
+                    while (j < contexts.size() && gid.equals(contexts.get(j).getGroupId())) {
+                        j++;
+                    }
+                    var children = contexts.subList(i, j);
+
+                    if (children.size() == 1) {
+                        // Single entry with groupId: render as a normal top-level entry
+                        Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
+                        historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
+                        if (ctx.equals(contextToSelect)) {
+                            rowToSelect = currentRow;
+                        }
+                        currentRow++;
+                    } else {
+                        // Group header: use groupLabel if present, else fallback to previous title logic
+                        String title;
+                        var first = children.get(0);
+                        var groupLabel = first.getGroupLabel();
+                        if (groupLabel != null && !groupLabel.isBlank()) {
+                            title = groupLabel;
+                        } else if (children.size() == 2) {
+                            title = firstWord(children.get(0).getAction()) + " + "
+                                    + firstWord(children.get(1).getAction());
+                        } else {
+                            title = children.size() + " actions";
+                        }
+
+                        var key = gid; // stable key for expand/collapse
+                        boolean isLastGroup = j == contexts.size();
+                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
+                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
+
+                        boolean containsClearHistory = children.stream()
+                                .anyMatch(c ->
+                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+
+                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
+                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
+                        currentRow++;
+
+                        if (expanded) {
+                            for (var child : children) {
+                                String childText = "   " + child.getAction();
+                                historyModel.addRow(new Object[] {null, childText, child});
+                                if (child.equals(contextToSelect)) {
+                                    rowToSelect = currentRow;
+                                }
+                                currentRow++;
+                            }
+                        }
+                    }
+
+                    i = j - 1;
+                    continue;
+                }
+
+                // Legacy/fallback grouping for entries without a groupId
                 if (isGroupingBoundary(ctx)) {
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
                     historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
@@ -949,7 +1011,9 @@ public class HistoryOutputPanel extends JPanel {
                     currentRow++;
                 } else {
                     int j = i;
-                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
+                    while (j < contexts.size()
+                            && contexts.get(j).getGroupId() == null
+                            && !isGroupingBoundary(contexts.get(j))) {
                         j++;
                     }
                     var children = contexts.subList(i, j);
@@ -970,7 +1034,7 @@ public class HistoryOutputPanel extends JPanel {
                             title = children.size() + " actions";
                         }
                         var first = children.get(0); // For key and other metadata
-                        var key = first.id();
+                        var key = first.id(); // legacy fallback key: first child context id
                         boolean isLastGroup = j == contexts.size();
                         boolean expandedDefault = isLastGroup && lastIsNonLlm;
                         boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
@@ -2662,15 +2726,36 @@ public class HistoryOutputPanel extends JPanel {
                 var val = model.getValueAt(row, 2);
                 if (val instanceof GroupRow gr && !gr.expanded()) {
                     Integer startIdx = idToIndex.get(gr.key());
-                    if (startIdx == null) {
-                        continue;
-                    }
-                    int j = startIdx;
-                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
-                        UUID ctxId = contexts.get(j).id();
-                        // Only map if not already visible; collapsed children should anchor to the header row
-                        contextIdToRow.putIfAbsent(ctxId, row);
-                        j++;
+
+                    if (startIdx != null) {
+                        // Legacy fallback group keyed by first child context id: walk until a boundary
+                        int j = startIdx;
+                        while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
+                            UUID ctxId = contexts.get(j).id();
+                            // Only map if not already visible; collapsed children should anchor to the header row
+                            contextIdToRow.putIfAbsent(ctxId, row);
+                            j++;
+                        }
+                    } else {
+                        // groupId-based group: collect the contiguous block of contexts sharing this groupId
+                        UUID groupId = gr.key();
+                        int firstIdx = -1;
+                        for (int i = 0; i < contexts.size(); i++) {
+                            var ctxCandidate = contexts.get(i);
+                            if (groupId.equals(ctxCandidate.getGroupId())) {
+                                firstIdx = i;
+                                break;
+                            }
+                        }
+                        if (firstIdx < 0) {
+                            continue;
+                        }
+                        int j = firstIdx;
+                        while (j < contexts.size() && groupId.equals(contexts.get(j).getGroupId())) {
+                            UUID ctxId = contexts.get(j).id();
+                            contextIdToRow.putIfAbsent(ctxId, row);
+                            j++;
+                        }
                     }
                 }
             }
