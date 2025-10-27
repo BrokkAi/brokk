@@ -1094,7 +1094,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
                 if (idx >= 0) {
                     try {
-                        tabs.setTitleAt(idx, "(...)");
+                        tabs.setTitleAt(idx, "Changes (...)");
                         tabs.setToolTipTextAt(idx, "Computing cumulative changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Tab might have changed; ignore safely
@@ -2482,39 +2482,39 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
         if (outputTabs != null && lastCumulativeChanges != null) {
-            int idx = -1;
-            if (changesTabPlaceholder != null) {
-                idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-            }
-            if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                idx = 1; // Fallback: assume second tab is "Changes"
-            }
-            if (idx >= 0) {
-                var res = lastCumulativeChanges;
-                try {
-                    if (res.filesChanged() == 0) {
-                        outputTabs.setTitleAt(idx, "(0)");
-                        outputTabs.setToolTipTextAt(idx, "No changes in this session.");
-                    } else {
-                        boolean isDark = chrome.getTheme().isDarkTheme();
-                        Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                        Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                        String htmlTitle = String.format(
-                                "<html>(%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                                res.filesChanged(),
-                                toHex(plusColor), res.totalAdded(),
-                                toHex(minusColor), res.totalDeleted());
-                        outputTabs.setTitleAt(idx, htmlTitle);
-                        String tooltip = "Cumulative changes: "
-                                + res.filesChanged()
-                                + " files, +" + res.totalAdded()
-                                + "/-" + res.totalDeleted();
-                        outputTabs.setToolTipTextAt(idx, tooltip);
-                    }
-                } catch (IndexOutOfBoundsException ignore) {
-                    // Tab lineup changed; safe to ignore
-                }
-            }
+        int idx = -1;
+        if (changesTabPlaceholder != null) {
+        idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+        }
+        if (idx < 0 && outputTabs.getTabCount() >= 2) {
+        idx = 1; // Fallback: assume second tab is "Changes"
+        }
+        if (idx >= 0) {
+        var res = lastCumulativeChanges;
+        try {
+        if (res.filesChanged() == 0) {
+        outputTabs.setTitleAt(idx, "Changes (0)");
+        outputTabs.setToolTipTextAt(idx, "No changes in this session.");
+        } else {
+        boolean isDark = chrome.getTheme().isDarkTheme();
+        Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+        Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+        String htmlTitle = String.format(
+        "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
+        res.filesChanged(),
+        toHex(plusColor), res.totalAdded(),
+        toHex(minusColor), res.totalDeleted());
+        outputTabs.setTitleAt(idx, htmlTitle);
+        String tooltip = "Cumulative changes: "
+        + res.filesChanged()
+        + " files, +" + res.totalAdded()
+        + "/-" + res.totalDeleted();
+        outputTabs.setToolTipTextAt(idx, tooltip);
+        }
+        } catch (IndexOutOfBoundsException ignore) {
+        // Tab lineup changed; safe to ignore
+        }
+        }
         }
 
         SwingUtilities.updateComponentTreeUI(this);
@@ -2866,31 +2866,31 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                             if (idx >= 0) {
                                 if (result.filesChanged() == 0) {
-                                    try {
-                                        tabs.setTitleAt(idx, "(0)");
-                                        tabs.setToolTipTextAt(idx, "No changes in this session.");
-                                    } catch (IndexOutOfBoundsException ignore) {
-                                        // Tab disappeared or index changed; ignore
-                                    }
+                                try {
+                                tabs.setTitleAt(idx, "Changes (0)");
+                                tabs.setToolTipTextAt(idx, "No changes in this session.");
+                                } catch (IndexOutOfBoundsException ignore) {
+                                // Tab disappeared or index changed; ignore
+                                }
                                 } else {
-                                    boolean isDark = chrome.getTheme().isDarkTheme();
-                                    Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                                    Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                                    String htmlTitle = String.format(
-                                            "<html>(%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                                            result.filesChanged(),
-                                            toHex(plusColor), result.totalAdded(),
-                                            toHex(minusColor), result.totalDeleted());
-                                    try {
-                                        tabs.setTitleAt(idx, htmlTitle);
-                                        String tooltip = "Cumulative changes: "
-                                                + result.filesChanged()
-                                                + " files, +" + result.totalAdded()
-                                                + "/-" + result.totalDeleted();
-                                        tabs.setToolTipTextAt(idx, tooltip);
-                                    } catch (IndexOutOfBoundsException ignore) {
-                                        // Tab disappeared or index changed; ignore
-                                    }
+                                boolean isDark = chrome.getTheme().isDarkTheme();
+                                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+                                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+                                String htmlTitle = String.format(
+                                "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
+                                result.filesChanged(),
+                                toHex(plusColor), result.totalAdded(),
+                                toHex(minusColor), result.totalDeleted());
+                                try {
+                                tabs.setTitleAt(idx, htmlTitle);
+                                String tooltip = "Cumulative changes: "
+                                + result.filesChanged()
+                                + " files, +" + result.totalAdded()
+                                + "/-" + result.totalDeleted();
+                                tabs.setToolTipTextAt(idx, tooltip);
+                                } catch (IndexOutOfBoundsException ignore) {
+                                // Tab disappeared or index changed; ignore
+                                }
                                 }
                             }
                         }
