@@ -400,7 +400,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
 
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
-        add(centerPanel, BorderLayout.CENTER);
 
         // Initialize notification persistence and load saved notifications
         this.notificationsFile = computeNotificationsFile();
@@ -423,21 +422,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
-        // Create main history panel (Activity only; Sessions panel removed)
-        var historyPanel = new JPanel(new BorderLayout());
-        historyPanel.add(activityPanel, BorderLayout.CENTER);
-
         // Ensure session label under Output is initialized
         updateSessionComboBox();
 
-        // Calculate preferred width to match old panel size
-        int preferredWidth = 230;
-        var preferredSize = new Dimension(preferredWidth, historyPanel.getPreferredSize().height);
-        historyPanel.setPreferredSize(preferredSize);
-        historyPanel.setMinimumSize(preferredSize);
-        historyPanel.setMaximumSize(new Dimension(preferredWidth, Integer.MAX_VALUE));
+        // Create wrapper panel with titled border containing output and activity
+        var sessionPanel = new JPanel(new BorderLayout());
+        sessionPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Session",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        add(historyPanel, BorderLayout.EAST);
+        sessionPanel.add(centerPanel, BorderLayout.CENTER);
+        sessionPanel.add(activityPanel, BorderLayout.EAST);
+
+        add(sessionPanel, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
