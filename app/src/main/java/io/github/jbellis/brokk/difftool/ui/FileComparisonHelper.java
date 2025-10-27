@@ -88,22 +88,38 @@ public class FileComparisonHelper {
             return originalTitle; // Handle special markers or blank as is
         }
 
-        // Attempt to treat as commitId and fetch message
-        IGitRepo repo = contextManager.getProject().getRepo();
-        if (repo instanceof GitRepo gitRepo) { // Ensure it's our GitRepo implementation
-            try {
-                String commitIdToLookup = originalTitle.endsWith("^")
-                        ? originalTitle.substring(0, originalTitle.length() - 1)
-                        : originalTitle;
-                Optional<CommitInfo> commitInfoOpt = gitRepo.getLocalCommitInfo(commitIdToLookup);
-                if (commitInfoOpt.isPresent()) {
-                    return commitInfoOpt.get().message(); // This is already the short/first line
+        if (source instanceof BufferSource.StringSource stringSource) {
+            // Avoid resolving commit metadata for in-memory buffers (no revisionSha) or non-commit-like titles
+            if (stringSource.revisionSha() == null || !isCommitLike(originalTitle)) {
+                return originalTitle;
+            }
+
+            IGitRepo repo = contextManager.getProject().getRepo();
+            if (repo instanceof GitRepo gitRepo) { // Ensure it's our GitRepo implementation
+                try {
+                    String commitIdToLookup = stringSource.revisionSha();
+                    var commitInfoOpt = gitRepo.getLocalCommitInfo(commitIdToLookup);
+                    if (commitInfoOpt.isPresent()) {
+                        return commitInfoOpt.get().message(); // This is already the short/first line
+                    }
+                } catch (GitAPIException | RuntimeException e) {
+                    // Fall back to originalTitle on any parsing or repo error
+                    return originalTitle;
                 }
-            } catch (GitAPIException e) {
-                // Fall through to return originalTitle
             }
         }
-        return originalTitle; // Fallback to original commit ID if message not found or repo error
+
+        return originalTitle; // Fallback to original commit ID/label if message not found or repo error
+    }
+
+    // Heuristic to identify commit-like identifiers to avoid resolving arbitrary human labels
+    private static boolean isCommitLike(String ref) {
+        var t = ref.trim();
+        if (t.isEmpty()) return false;
+        if ("HEAD".equals(t)) return true;
+        if (t.matches("HEAD(?:\\^\\d*|~\\d*)?")) return true;
+        // SHA-1 short or full (7-40 hex), optional ^N or ~N
+        return t.matches("(?i)[0-9a-f]{7,40}(?:\\^\\d*|~\\d*)?");
     }
 
     /**
