@@ -1125,19 +1125,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // Recursively remove the old definition and all its descendants from all maps
             // This prevents orphaned children from appearing in the final result
             if (oldCu != null) {
-                log.trace(
-                        "Removing old Python {} and its descendants: {} in file {}",
-                        oldCu.kind(),
-                        oldCu.fqName(),
-                        file.getFileName());
                 removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
             }
-
-            log.trace(
-                    "Replacing duplicate Python {} with last definition: {} in file {}",
-                    cu.kind(),
-                    cu.fqName(),
-                    file.getFileName());
         } else {
             // Unexpected duplicate for other languages/types
             log.error(
@@ -1197,12 +1186,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             CodeUnit oldCu = kids.stream().filter(k -> k.equals(cu)).findFirst().orElse(null);
 
             if (oldCu != null) {
-                log.trace(
-                        "Replacing duplicate Python child {} in parent {} (file: {})",
-                        cu.fqName(),
-                        parentCu.fqName(),
-                        file.getFileName());
-
                 kids.remove(oldCu);
                 removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
                 kids.add(cu);
@@ -1532,7 +1515,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
-                log.debug(
+                log.trace(
                         "createCodeUnit returned null for node {} ({}) in file {}",
                         simpleName,
                         primaryCaptureName,

@@ -16,8 +16,7 @@ import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
-    // Python's "last assignment wins" behavior is automatically handled by TreeSitterAnalyzer:
-    // When multiple CodeUnits have the same FQN, the last one added replaces earlier ones in the codeUnits map.
+    // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -90,13 +89,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 if (classChain.isEmpty()) {
                     finalShortName = simpleName;
                 } else if (!classChain.contains("$")) {
-                    // Function-local class hierarchy (no $ yet)
-                    // Normalize by replacing all dots with $ for consistency
-                    // Examples:
-                    // - "outer_function" → "outer_function$LocalClass"
-                    // - "outer_function.OuterLocal" → "outer_function$OuterLocal$InnerLocal"
-                    // - "outer_function.OuterLocal.InnerLocal" → "outer_function$OuterLocal$InnerLocal$DeepLocal"
-                    // Note: Duplicate function definitions follow Python's "last wins" semantics
+                    // Function-local class: replace dots with $ (e.g., "func.Outer" → "func$Outer$Inner")
                     String normalizedChain = classChain.replace(".", "$");
                     finalShortName = normalizedChain + "$" + simpleName;
                 } else {
@@ -106,9 +99,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {
-                // Methods use dot notation throughout, even for function-local classes
-                // Example: method in function-local class has FQN "test_function.LocalClass.method"
-                // (The parent class itself uses $: "test_function$LocalClass")
+                // Methods always use dot notation (parent classes use $)
                 String finalShortName =
                         classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
                 yield CodeUnit.fn(file, packageName, finalShortName);
@@ -116,16 +107,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             case CaptureNames.FIELD_DEFINITION -> { // For class attributes or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of
-                    // a "."
-                    // This also makes it consistent with how top-level functions are named (moduleName.funcName)
+                    // Top-level variables use "moduleName.variableName" (consistent with functions)
                     finalShortName = moduleName + "." + simpleName;
                 } else {
                     finalShortName = classChain + "." + simpleName;
                 }
 
-                // Python's "last assignment wins" behavior is automatically handled by TreeSitterAnalyzer:
-                // If we create multiple CodeUnits with the same FQN, the last one will replace earlier ones
+                // Duplicates handled by addTopLevelCodeUnit() ("last wins" for Python)
                 yield CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
@@ -155,9 +143,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         // Get the decorator text using the inherited textSlice method
                         String decoratorText =
                                 textSlice(decoratorChild, srcBytes).trim();
-                        // Skip property setters/deleters: must match pattern "<identifier>.(setter|deleter)"
-                        // where identifier is a simple name (no dots). This prevents false positives
-                        // like "@module.Class.property.setter" which has multiple dots.
+                        // Skip property setters/deleters: match "<name>.(setter|deleter)" only
                         if (decoratorText.matches("[^.]+\\.(setter|deleter)")) {
                             log.trace("Skipping property setter/deleter with decorator: {}", decoratorText);
                             return true;
@@ -265,10 +251,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
-        // For function-local classes, transform classChain to match stored FQNs
-        // Example: classChain="test_function.LocalClass" → "test_function$LocalClass"
-        // Detection: classChain starting with lowercase indicates function-local class
-        //            (Python functions use lowercase_with_underscores, classes use PascalCase per PEP 8)
+        // Transform function-local class chains: "func.LocalClass" → "func$LocalClass"
+        // Detection: lowercase start = function (per PEP 8)
 
         // Extract module name from filename for function FQN construction
         String moduleName = cu.source().getFileName();
@@ -284,9 +268,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     ? classChain.split("[.$]")[0]
                     : classChain;
 
-            // Check if classChain starts with a function (lowercase identifier, including _private names)
-            // Functions: my_function, _private, __dunder__ (first letter is lowercase)
-            // Classes: MyClass, _PrivateClass (first letter is uppercase)
+            // Check if classChain starts with a function (lowercase = function, PascalCase = class)
             boolean isFunctionLocal = isLowercaseIdentifier(firstSegment);
 
             if (isFunctionLocal) {
@@ -303,11 +285,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     return packageName.isEmpty() ? functionFqn : packageName + "." + functionFqn;
                 }
 
-                // Multiple elements: function-local class hierarchy
-                // Pattern: "function.LocalClass" or "function.LocalClass.InnerClass"
-                // Transform ALL dots to $ for consistent function-local class naming
-                // NOTE: Don't prepend module name here - only the top-level function has module prefix
-                // Parent classes use the function-local $ notation without module prefix
+                // Function-local class hierarchy: transform dots to $
+                // Don't prepend module name - only top-level functions get module prefix
                 if (!classChain.contains("$") && classChain.contains(".")) {
                     String transformed = classChain.replace(".", "$");
                     log.trace(
@@ -339,14 +318,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Determines if a Python identifier follows function naming convention (not PascalCase).
-     * Python functions use lowercase_with_underscores (PEP 8), which includes:
-     * - Regular functions: my_function, calculate_total
-     * - Private functions: _private_function, __dunder_function__
-     * Classes use PascalCase: MyClass, _PrivateClass
+     * Checks if identifier follows Python function naming (lowercase start) vs class naming (PascalCase).
      *
      * @param identifier the identifier to check (e.g., "my_function", "_private", "MyClass")
-     * @return true if the identifier follows function naming (first letter is lowercase or all underscores)
+     * @return true if first letter is lowercase (function naming convention per PEP 8)
      */
     private static boolean isLowercaseIdentifier(String identifier) {
         // Find first letter character (skip leading underscores)
@@ -361,13 +336,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Override isClassLike to include function definitions for Python class chain computation.
-     * This allows local classes inside functions to be properly scoped.
+     * Include functions as class-like parents to detect local classes inside functions.
      */
     @Override
     protected boolean isClassLike(TSNode node) {
-        // For Python class chain computation, we want to include functions as potential parents
-        // to detect local classes inside functions
         return super.isClassLike(node) || "function_definition".equals(node.getType());
     }
 }
