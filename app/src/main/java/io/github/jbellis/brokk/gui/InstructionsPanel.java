@@ -2135,9 +2135,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.dropdownIcon = null;
 
             // Build base tooltip with keybinding info
-            KeyStroke submitKs =
-                    GlobalUiSettings.getKeybinding("instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
-            this.baseTooltip = "Run the selected action (Enter)";
+            this.baseTooltip = "Run action: ";
 
             updateButtonText();
             updateTooltip();
@@ -2212,8 +2210,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Defensive: leave toggleLine empty if anything goes wrong
             }
 
+            String submitLine = "";
+            try {
+                var submitKs = GlobalUiSettings.getKeybinding(
+                        "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+                var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
+                if (submitStr == null || submitStr.isBlank()) {
+                    submitStr = "(unbound)";
+                }
+                submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
+            } catch (Exception ignore) {
+                // Defensive: leave submitLine empty if anything goes wrong
+            }
+
             return "<html><body style='width: 350px;'>" + modeTooltip
-                    + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>" + baseTooltip
+                    + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>"
+                    + submitLine
                     + toggleLine
                     + "</body></html>";
         }
