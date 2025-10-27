@@ -96,7 +96,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JList<SessionInfo> sessionsList;
 
     private final SplitButton sessionNameLabel;
-    private final SplitButton newSessionButton;
+    private final MaterialButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
     @Nullable
@@ -234,7 +234,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         this.sessionNameLabel = new SplitButton("");
 
         // Initialize new session button early (used by buildCaptureOutputPanel)
-        this.newSessionButton = new SplitButton("");
+        this.newSessionButton = new MaterialButton("");
+        this.newSessionButton.setToolTipText("Create a new session");
         // Primary click → empty session
         this.newSessionButton.addActionListener(e -> {
             contextManager
@@ -380,8 +381,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return popup;
         };
 
-        // Apply the menu supplier to both buttons
-        this.newSessionButton.setMenuSupplier(sessionsMenuSupplier);
+        // Apply the menu supplier to the session label
         this.sessionNameLabel.setMenuSupplier(sessionsMenuSupplier);
 
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
@@ -506,19 +506,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        // Create header panel with button (west) and session label (east)
+        // Create header panel with session label (west) and button (east)
         var sessionHeaderPanel = new JPanel(new BorderLayout(5, 0));
         sessionHeaderPanel.setOpaque(false);
         sessionHeaderPanel.setBorder(new EmptyBorder(2, 8, 4, 8));
         
-        // Add button to the west
-        newSessionButton.setMinimumSize(newSessionButton.getPreferredSize());
-        sessionHeaderPanel.add(newSessionButton, BorderLayout.WEST);
-        
-        // Configure and add session name split button to the center/east
+        // Configure and add session name split button to the west
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         sessionNameLabel.setMinimumSize(new Dimension(0, 0)); // Allow flexible sizing
-        sessionHeaderPanel.add(sessionNameLabel, BorderLayout.CENTER);
+        sessionHeaderPanel.add(sessionNameLabel, BorderLayout.WEST);
+        
+        // Add button to the east
+        newSessionButton.setMinimumSize(newSessionButton.getPreferredSize());
+        sessionHeaderPanel.add(newSessionButton, BorderLayout.EAST);
         
         sessionPanel.add(sessionHeaderPanel, BorderLayout.NORTH);
 
