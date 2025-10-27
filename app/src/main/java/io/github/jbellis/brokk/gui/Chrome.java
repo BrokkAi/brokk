@@ -2321,6 +2321,10 @@ public class Chrome
         frame.setSize(intendedWidth, intendedHeight); // Restore intended window size
         frame.validate();
 
+        // Enforce hidden top split (Workspace | Instructions) regardless of saved preferences
+        topSplitPane.setDividerSize(0);
+        topSplitPane.setDividerLocation(0);
+
         // NOW calculate vertical split pane dividers with proper component heights
 
         // Global-first for top split (Workspace | Instructions)
