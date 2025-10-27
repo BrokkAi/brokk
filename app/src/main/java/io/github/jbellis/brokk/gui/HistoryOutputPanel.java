@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
@@ -115,6 +116,8 @@ public class HistoryOutputPanel extends JPanel {
     private JPanel changesTabPlaceholder;
     @Nullable
     private JPanel outputTabContent;
+    @Nullable
+    private JComponent aggregatedChangesPanel;
 
     @Nullable
     private JTextArea captureDescriptionArea;
@@ -2618,7 +2621,7 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     // Compute the cumulative changes across the entire session history in the background,
-    // reusing cached diffs where possible. Updates the "Changes" tab title on the EDT.
+    // reusing cached diffs where possible. Updates the "Changes" tab title and content on the EDT.
     private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
                 .submitBackgroundTask("Aggregate session changes", () -> {
@@ -2701,9 +2704,89 @@ public class HistoryOutputPanel extends JPanel {
                                 }
                             }
                         }
+
+                        // Render or update the Changes tab content
+                        updateChangesTabContent(result);
                     });
                     return result;
                 });
+    }
+
+    // Build and insert the aggregated multi-file diff panel into the Changes tab.
+    // Must be called on the EDT.
+    private void updateChangesTabContent(CumulativeChanges res) {
+        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
+        var container = changesTabPlaceholder;
+        if (container == null) {
+            return;
+        }
+
+        // Dispose any previous diff panel to free resources
+        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
+            try {
+                diffPanel.dispose();
+            } catch (Throwable t) {
+                logger.debug("Ignoring error disposing previous BrokkDiffPanel", t);
+            }
+        }
+        aggregatedChangesPanel = null;
+
+        container.removeAll();
+
+        if (res.filesChanged() == 0) {
+            var none = new JLabel("No changes in this session.", SwingConstants.CENTER);
+            none.setBorder(new EmptyBorder(20, 0, 20, 0));
+            container.setLayout(new BorderLayout());
+            container.add(none, BorderLayout.CENTER);
+            container.revalidate();
+            container.repaint();
+            return;
+        }
+
+        var aggregatedPanel = buildAggregatedChangesPanel(res);
+        container.setLayout(new BorderLayout());
+        container.add(aggregatedPanel, BorderLayout.CENTER);
+        container.revalidate();
+        container.repaint();
+    }
+
+    // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
+    // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
+    private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
+        var wrapper = new JPanel(new BorderLayout());
+
+        // Header summary
+        String headerText = String.format("%d files changed, +%d/-%d", res.filesChanged(), res.totalAdded(), res.totalDeleted());
+        var header = new JLabel(headerText);
+        header.setBorder(new EmptyBorder(6, 8, 6, 8));
+        header.setFont(header.getFont().deriveFont(Font.PLAIN, Math.max(11f, header.getFont().getSize2D() - 1f)));
+        wrapper.add(header, BorderLayout.NORTH);
+
+        // Build BrokkDiffPanel with string sources
+        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                .setMultipleCommitsContext(false)
+                .setRootTitle("Cumulative Changes")
+                .setInitialFileIndex(0);
+
+        // Stable order by path key
+        var keys = new ArrayList<>(res.perFileMap().keySet());
+        keys.sort(Comparator.naturalOrder());
+
+        for (var path : keys) {
+            var change = res.perFileMap().get(path);
+            String leftContent = change.earliestOld() == null ? "" : change.earliestOld();
+            String rightContent = change.latestNew() == null ? "" : change.latestNew();
+
+            BufferSource left = new BufferSource.StringSource(leftContent, "Session Start", path, null);
+            BufferSource right = new BufferSource.StringSource(rightContent, "Current (Session)", path, null);
+            builder.addComparison(left, right);
+        }
+
+        var diffPanel = builder.build();
+        aggregatedChangesPanel = diffPanel;
+
+        wrapper.add(diffPanel, BorderLayout.CENTER);
+        return wrapper;
     }
 
     private static String safeFragmentText(Context.DiffEntry de) {
