@@ -379,6 +379,75 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return super.getToolTipText(event);
     }
 
+    @Override
+    public Point getToolTipLocation(MouseEvent event) {
+        try {
+            String text = getToolTipText(event);
+            if (text == null || text.isEmpty()) {
+                return null; // default behavior if no tooltip
+            }
+
+            JToolTip tip = createToolTip();
+            tip.setTipText(text);
+            Dimension sz = tip.getPreferredSize();
+
+            int compW = getWidth();
+            int compH = getHeight();
+
+            // Prefer centering over the hovered segment; otherwise around the mouse x
+            int anchorX;
+            Segment seg = findSegmentAt(event.getX());
+            if (seg != null) {
+                anchorX = seg.startX + Math.max(0, seg.widthPx) / 2;
+            } else {
+                anchorX = Math.max(0, Math.min(event.getX(), compW));
+            }
+
+            int x = anchorX - sz.width / 2;
+            x = Math.max(0, Math.min(x, Math.max(0, compW - sz.width)));
+
+            // Place above by default with a small margin; fallback below if not enough room
+            int yAbove = -sz.height - 6;
+
+            Point aboveScreen = new Point(x, yAbove);
+            SwingUtilities.convertPointToScreen(aboveScreen, this);
+
+            Rectangle screenBounds;
+            GraphicsConfiguration gc = getGraphicsConfiguration();
+            if (gc != null) {
+                screenBounds = gc.getBounds();
+            } else {
+                Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
+                screenBounds = new Rectangle(0, 0, scr.width, scr.height);
+            }
+
+            boolean fitsAbove = aboveScreen.y >= screenBounds.y;
+
+            int yBelow = compH + 6;
+            Point belowScreen = new Point(x, yBelow);
+            SwingUtilities.convertPointToScreen(belowScreen, this);
+            boolean fitsBelow = (belowScreen.y + sz.height) <= (screenBounds.y + screenBounds.height);
+
+            int y = (fitsAbove || !fitsBelow) ? yAbove : yBelow;
+
+            // Clamp horizontally to on-screen bounds as well
+            Point finalScreen = new Point(x, y);
+            SwingUtilities.convertPointToScreen(finalScreen, this);
+            int minX = screenBounds.x;
+            int maxX = screenBounds.x + screenBounds.width - sz.width;
+            if (finalScreen.x < minX) {
+                x += (minX - finalScreen.x);
+            } else if (finalScreen.x > maxX) {
+                x -= (finalScreen.x - maxX);
+            }
+
+            return new Point(x, y);
+        } catch (Exception ex) {
+            logger.trace("Failed to compute tooltip location for TokenUsageBar", ex);
+            return null; // default placement
+        }
+    }
+
     @Nullable
     private Segment findSegmentAt(int x) {
         int width = getWidth();

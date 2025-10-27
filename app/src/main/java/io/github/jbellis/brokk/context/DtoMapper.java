@@ -91,7 +91,12 @@ public class DtoMapper {
                         virtualFragments.stream().map(v -> (ContextFragment) v))
                 .toList();
 
-        return Context.createWithId(ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture);
+        UUID groupUuid = null;
+        if (dto.groupId() != null && !dto.groupId().isEmpty()) {
+            groupUuid = UUID.fromString(dto.groupId());
+        }
+        return Context.createWithId(
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture, groupUuid, dto.groupLabel());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}

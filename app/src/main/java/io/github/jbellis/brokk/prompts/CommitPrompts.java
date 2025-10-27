@@ -26,8 +26,8 @@ public class CommitPrompts {
 
     public static final CommitPrompts instance = new CommitPrompts() {};
 
-    private static final int FILE_LIMIT = 5;
-    private static final int LINES_PER_FILE = 100;
+    static final int FILE_LIMIT = 5;
+    static final int LINES_PER_FILE = 100;
 
     private CommitPrompts() {}
 
@@ -36,7 +36,7 @@ public class CommitPrompts {
             return List.of();
         }
 
-        var trimmedDiff = preprocessUnifiedDiff(diffTxt, FILE_LIMIT);
+        var trimmedDiff = preprocessUnifiedDiff(diffTxt, FILE_LIMIT, LINES_PER_FILE);
         if (trimmedDiff.isBlank()) {
             return List.of();
         }
@@ -81,7 +81,7 @@ public class CommitPrompts {
                 .formatted(formatInstructions);
     }
 
-    public String preprocessUnifiedDiff(String diffTxt, int fileCount) {
+    public String preprocessUnifiedDiff(String diffTxt, int fileCount, int linesPerFile) {
         // Pre-validate the diff text to avoid unnecessary parsing attempts
         if (diffTxt.trim().isEmpty()) {
             return "";
@@ -177,13 +177,13 @@ public class CommitPrompts {
             for (var d : deltas) {
                 int size = deltaSize(d);
                 var lines = deltaAsUnifiedLines(d);
-                if (!includedAtLeastOne && size > LINES_PER_FILE) {
+                if (!includedAtLeastOne && size > linesPerFile) {
                     // Include the largest hunk even if it exceeds the limit
                     output.addAll(lines);
                     includedAtLeastOne = true;
                     break;
                 }
-                if (added + size <= LINES_PER_FILE) {
+                if (added + size <= linesPerFile) {
                     output.addAll(lines);
                     added += size;
                     includedAtLeastOne = true;

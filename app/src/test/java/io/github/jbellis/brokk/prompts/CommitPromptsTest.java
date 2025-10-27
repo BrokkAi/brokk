@@ -11,10 +11,8 @@ import org.junit.jupiter.api.Test;
 class CommitPromptsTest {
 
     private static String invokePreprocess(String diffTxt) {
-        // The preprocessUnifiedDiff API now takes an additional parameter.
-        // Call it directly on the instance and pass the configured max diff line length.
         return CommitPrompts.instance.preprocessUnifiedDiff(
-                diffTxt, (int) PerformanceConstants.MAX_DIFF_LINE_LENGTH_BYTES);
+                diffTxt, CommitPrompts.FILE_LIMIT, CommitPrompts.LINES_PER_FILE);
     }
 
     private static String genFileDiff(String filename, List<int[]> hunksOldNewCounts) {

@@ -14,18 +14,11 @@ import org.jetbrains.annotations.Nullable;
 
 public final class AdaptiveExecutor {
     public static ExecutorService create(Service service, StreamingChatModel model, int taskCount) {
-        return create(service, model, taskCount, null);
-    }
-
-    public static ExecutorService create(
-            Service service, StreamingChatModel model, int taskCount, @Nullable Integer defaultMaxConcurrentRequests) {
         @Nullable Integer maxConcurrentRequests = service.getMaxConcurrentRequests(model);
         @Nullable Integer tokensPerMinute = service.getTokensPerMinute(model);
 
-        var mcrToUse = maxConcurrentRequests != null ? maxConcurrentRequests : defaultMaxConcurrentRequests;
-
-        if (mcrToUse != null) {
-            int poolSize = Math.min(mcrToUse, Math.max(1, taskCount));
+        if (maxConcurrentRequests != null) {
+            int poolSize = Math.min(maxConcurrentRequests, Math.max(1, taskCount));
             return Executors.newFixedThreadPool(poolSize);
         }
         if (tokensPerMinute != null) {

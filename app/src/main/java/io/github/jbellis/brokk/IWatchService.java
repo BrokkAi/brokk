@@ -12,6 +12,22 @@ public interface IWatchService extends AutoCloseable {
 
     default void resume() {}
 
+    default boolean isPaused() {
+        return false;
+    }
+
+    /**
+     * Dynamically add a listener to receive file system events.
+     * @param listener The listener to add
+     */
+    default void addListener(Listener listener) {}
+
+    /**
+     * Remove a previously added listener.
+     * @param listener The listener to remove
+     */
+    default void removeListener(Listener listener) {}
+
     @Override
     default void close() {}
 

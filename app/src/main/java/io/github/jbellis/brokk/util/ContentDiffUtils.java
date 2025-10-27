@@ -69,8 +69,8 @@ public class ContentDiffUtils {
 
         Patch<String> patch = DiffUtils.diff(oldLines, newLines);
         if (patch.getDeltas().isEmpty()) {
-            if (logger.isDebugEnabled()) {
-                logger.debug(
+            if (logger.isTraceEnabled()) {
+                logger.trace(
                         "computeDiffResult: {} -> {} | no changes (oldLines={}, newLines={})",
                         oldName,
                         newName,
@@ -93,8 +93,8 @@ public class ContentDiffUtils {
             }
         }
 
-        if (logger.isDebugEnabled()) {
-            logger.debug(
+        if (logger.isTraceEnabled()) {
+            logger.trace(
                     "computeDiffResult: {} -> {} | deltas={} added={} deleted={} (oldLines={}, newLines={}, context={})",
                     oldName,
                     newName,

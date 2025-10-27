@@ -4,18 +4,14 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.exception.LlmException;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
-import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
-import io.github.jbellis.brokk.util.Messages;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -310,38 +306,5 @@ public final class GitWorkflow {
                 "Committed " + repo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
         io.updateCommitPanel();
         return Optional.of(commitResult);
-    }
-
-    /**
-     * Explain a single commit by generating a unified diff between the commit and its parent (or the empty tree if it
-     * is a root commit), and asking an LLM to summarize it with emphasis on public API changes.
-     *
-     * @param model The LLM model to use.
-     * @param revision The commit id (or any rev resolvable to a single commit).
-     * @return Markdown-formatted explanation text from the LLM (may be empty if an error occurs).
-     */
-    public String explainCommit(StreamingChatModel model, String revision)
-            throws GitAPIException, InterruptedException {
-        assert !revision.isBlank();
-
-        String diff = repo.getDiff(parentOrEmptyTree(revision), revision);
-
-        var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
-                ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
-                : diff;
-        if (preprocessedDiff.isBlank()) {
-            return "No changes detected for %s.".formatted(revision);
-        }
-        var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
-
-        var shortId = repo.shortHash(revision);
-        var llm = cm.getLlm(model, "Explain commit %s".formatted(shortId));
-        Llm.StreamingResult response = llm.sendRequest(messages);
-
-        if (response.error() != null) {
-            throw new LlmException("LLM error while explaining commit %s".formatted(shortId), response.error());
-        }
-
-        return response.text().trim();
     }
 }

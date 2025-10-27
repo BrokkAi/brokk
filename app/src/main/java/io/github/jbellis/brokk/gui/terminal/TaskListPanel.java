@@ -116,6 +116,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final JComponent controls;
     private final JPanel southPanel;
     private @Nullable JComponent sharedModelSelectorComp = null;
+    private @Nullable JComponent sharedStatusStripComp = null;
     private long runningAnimStartMs = 0L;
 
     private @Nullable Integer runningIndex = null;
@@ -347,7 +348,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        controls.add(input);
+        // Keep controls layout consistent with InstructionsPanel:
+        // glue pushes the ModelSelector and Go/Stop button to the right.
         controls.add(Box.createHorizontalGlue());
 
         goStopButton = new MaterialButton() {
@@ -459,6 +461,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Right group: Clear Completed
             topToolbar.add(clearCompletedBtn);
+
+            // Vertical separator and add-text input to the right of Clear Completed
+            JSeparator sep2 = new JSeparator(SwingConstants.VERTICAL);
+            sep2.setPreferredSize(new Dimension(8, 24));
+            topToolbar.add(sep2);
+
+            // Move the existing input field into the top toolbar
+            topToolbar.add(input);
 
             add(topToolbar, BorderLayout.NORTH);
         }
@@ -1259,6 +1269,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             sharedModelSelectorComp = null;
             controls.revalidate();
         }
+        // Also remove the shared status strip from controls if present
+        if (sharedStatusStripComp != null && sharedStatusStripComp.getParent() == controls) {
+            controls.remove(sharedStatusStripComp);
+            sharedStatusStripComp = null;
+            controls.revalidate();
+        }
         revalidate();
         repaint();
     }
@@ -1315,6 +1331,88 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 controls.repaint();
             } catch (Exception e) {
                 logger.debug("Error setting shared ModelSelector in TaskListPanel", e);
+            }
+        });
+    }
+
+    /**
+     * Hosts the shared analyzer status strip on the controls row, to the right of the model selector
+     * and immediately before the Play/Stop button, with a small horizontal gap.
+     */
+    public void setSharedStatusStrip(JComponent comp) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Detach from any previous parent first
+                Container prevParent = comp.getParent();
+                if (prevParent != null) {
+                    prevParent.remove(comp);
+                    prevParent.revalidate();
+                    prevParent.repaint();
+                }
+
+                sharedStatusStripComp = comp;
+                comp.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+                // If the comp is already in our controls, don't duplicate; just ensure layout refresh.
+                if (comp.getParent() == controls) {
+                    controls.revalidate();
+                    controls.repaint();
+                    return;
+                }
+
+                // Find the current index of the go/stop button in controls
+                int buttonIndex = -1;
+                for (int i = 0; i < controls.getComponentCount(); i++) {
+                    if (controls.getComponent(i) == goStopButton) {
+                        buttonIndex = i;
+                        break;
+                    }
+                }
+
+                // Remove the 8px strut immediately before the button if present (we'll re-add)
+                if (buttonIndex > 0 && buttonIndex <= controls.getComponentCount() - 1) {
+                    Component before = controls.getComponent(buttonIndex - 1);
+                    if (before instanceof Box.Filler) {
+                        controls.remove(buttonIndex - 1);
+                        buttonIndex--;
+                    }
+                }
+
+                // Remove the button temporarily so we can rebuild the right edge in the correct order
+                if (buttonIndex >= 0 && buttonIndex < controls.getComponentCount()) {
+                    controls.remove(buttonIndex);
+                }
+
+                boolean insertedAfterModelSelector = false;
+                if (sharedModelSelectorComp != null && sharedModelSelectorComp.getParent() == controls) {
+                    // Insert the status strip immediately after the model selector, with a 6px gap
+                    int msIndex = -1;
+                    for (int i = 0; i < controls.getComponentCount(); i++) {
+                        if (controls.getComponent(i) == sharedModelSelectorComp) {
+                            msIndex = i;
+                            break;
+                        }
+                    }
+                    if (msIndex >= 0) {
+                        controls.add(Box.createHorizontalStrut(6), msIndex + 1);
+                        controls.add(comp, msIndex + 2);
+                        insertedAfterModelSelector = true;
+                    }
+                }
+
+                if (!insertedAfterModelSelector) {
+                    // Fallback: insert the status strip at the end (right side) prior to the button
+                    controls.add(comp);
+                }
+
+                // Re-add the standard 8px spacer and the go/stop button
+                controls.add(Box.createHorizontalStrut(8));
+                controls.add(goStopButton);
+
+                controls.revalidate();
+                controls.repaint();
+            } catch (Exception e) {
+                logger.debug("Error setting shared status strip in TaskListPanel", e);
             }
         });
     }

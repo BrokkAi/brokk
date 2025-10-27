@@ -16,7 +16,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
-import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.dialogs.AttachContextDialog;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
 import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
@@ -641,7 +640,6 @@ public class WorkspacePanel extends JPanel {
     private JPanel summaryWithAdd;
     private JPanel warningPanel; // Panel for warning messages
     private JPanel analyzerRebuildPanel;
-    private @Nullable JLabel analyzerRebuildSpinner;
     private boolean workspaceCurrentlyEditable = true;
 
     @Nullable
@@ -2225,59 +2223,28 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
-    /** Shows the analyzer rebuild notification with spinner. */
+    /**
+     * DEPRECATED: Use Chrome.showAnalyzerRebuildStatus() instead.
+     * This remains as an EDT-safe forwarder for backward compatibility.
+     */
+    @Deprecated(forRemoval = false, since = "2025-10")
     public void showAnalyzerRebuildSpinner() {
         SwingUtilities.invokeLater(() -> {
-            if (analyzerRebuildSpinner == null) {
-                analyzerRebuildSpinner = new JLabel();
-                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, /*small=*/ true);
-                if (spinnerIcon != null) {
-                    analyzerRebuildSpinner.setIcon(spinnerIcon);
-                }
-
-                // Create notification text that supports wrapping
-                JTextArea notificationText =
-                        new JTextArea("Rebuilding Code Intelligence. Workspace will automatically update");
-                notificationText.setWrapStyleWord(true);
-                notificationText.setLineWrap(true);
-                notificationText.setEditable(false);
-                notificationText.setFocusable(false);
-                notificationText.setOpaque(false);
-                notificationText.setFont(UIManager.getFont("Label.font"));
-                notificationText.setForeground(UIManager.getColor("Label.foreground"));
-                notificationText.setBorder(null);
-
-                // Layout: spinner on left (aligned to top), text on right
-                JPanel spinnerWrapper = new JPanel(new BorderLayout());
-                spinnerWrapper.setOpaque(false);
-                spinnerWrapper.add(analyzerRebuildSpinner, BorderLayout.NORTH);
-
-                JPanel contentPanel = new JPanel(new BorderLayout(5, 0));
-                contentPanel.setOpaque(false);
-                contentPanel.add(spinnerWrapper, BorderLayout.WEST);
-                contentPanel.add(notificationText, BorderLayout.CENTER);
-
-                analyzerRebuildPanel.removeAll();
-                analyzerRebuildPanel.add(contentPanel, BorderLayout.CENTER);
-            }
-
-            analyzerRebuildPanel.setVisible(true);
-            analyzerRebuildPanel.revalidate();
-            analyzerRebuildPanel.repaint();
-
-            // Notify listeners about layout change
+            chrome.showAnalyzerRebuildStatus();
+            // Preserve existing behavior of notifying listeners
             fireBottomControlsHeightChanged();
         });
     }
 
-    /** Hides the analyzer rebuild notification. */
+    /**
+     * DEPRECATED: Use Chrome.hideAnalyzerRebuildStatus() instead.
+     * This remains as an EDT-safe forwarder for backward compatibility.
+     */
+    @Deprecated(forRemoval = false, since = "2025-10")
     public void hideAnalyzerRebuildSpinner() {
         SwingUtilities.invokeLater(() -> {
-            analyzerRebuildPanel.setVisible(false);
-            analyzerRebuildPanel.revalidate();
-            analyzerRebuildPanel.repaint();
-
-            // Notify listeners about layout change
+            chrome.hideAnalyzerRebuildStatus();
+            // Preserve existing behavior of notifying listeners
             fireBottomControlsHeightChanged();
         });
     }

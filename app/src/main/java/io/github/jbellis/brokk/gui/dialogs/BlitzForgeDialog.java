@@ -1273,7 +1273,7 @@ public class BlitzForgeDialog extends JDialog {
                             if (!acText.isBlank()) {
                                 return """
                                 <related_classes>
-                                The user requested to include the top %d related classes.
+                                Here are the top %d related classes.
 
                                 %s
                                 </related_classes>

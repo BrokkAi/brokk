@@ -169,7 +169,7 @@ public class ToolRegistry {
                             existing.instance().getClass().getName(),
                             toolProviderInstance.getClass().getName());
                 } else {
-                    logger.debug("Registering tool: '{}' from class {}", toolName, clazz.getName());
+                    logger.trace("Registering tool: '{}' from class {}", toolName, clazz.getName());
                 }
                 entries.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
             }
@@ -274,7 +274,7 @@ public class ToolRegistry {
                     var providerClass = toolProviderInstance.getClass().getName();
                     logger.debug("Overriding tool {} provided by {} with {}", toolName, existingClass, providerClass);
                 } else {
-                    logger.debug("Registering tool: '{}' from class {}", toolName, clazz.getName());
+                    logger.trace("Registering tool: '{}' from class {}", toolName, clazz.getName());
                 }
                 toolMap.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
             }

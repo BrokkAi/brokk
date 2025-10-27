@@ -10,7 +10,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.tools.SearchTools;
-import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -134,28 +133,25 @@ public final class FuzzyUsageFinder {
                     mapping.add(hit);
                 }
 
-                try (var executor = AdaptiveExecutor.create(
-                        service, llm.getModel(), tasks.size(), RelevanceClassifier.DEFAULT_MAX_CONCURRENT_REQUESTS)) {
-                    if (UsageConfig.isBooleanUsageMode()) {
-                        var decisions = RelevanceClassifier.relevanceBooleanBatch(llm, tasks, executor);
-                        for (int i = 0; i < tasks.size(); i++) {
-                            var task = tasks.get(i);
-                            var decision = decisions.getOrDefault(task, false);
-                            var base = mapping.get(i);
-                            var scored = base.withConfidence(decision ? 1.0 : 0.0);
-                            scoredHits.add(scored);
-                            unscoredHits.remove(base);
-                        }
-                    } else {
-                        var scores = RelevanceClassifier.relevanceScoreBatch(llm, tasks, executor);
-                        for (int i = 0; i < tasks.size(); i++) {
-                            var task = tasks.get(i);
-                            var score = scores.getOrDefault(task, 0.0);
-                            var base = mapping.get(i);
-                            var scored = base.withConfidence(score);
-                            scoredHits.add(scored);
-                            unscoredHits.remove(base);
-                        }
+                if (UsageConfig.isBooleanUsageMode()) {
+                    var decisions = RelevanceClassifier.relevanceBooleanBatch(llm, service, tasks);
+                    for (int i = 0; i < tasks.size(); i++) {
+                        var task = tasks.get(i);
+                        var decision = decisions.getOrDefault(task, false);
+                        var base = mapping.get(i);
+                        var scored = base.withConfidence(decision ? 1.0 : 0.0);
+                        scoredHits.add(scored);
+                        unscoredHits.remove(base);
+                    }
+                } else {
+                    var scores = RelevanceClassifier.relevanceScoreBatch(llm, service, tasks);
+                    for (int i = 0; i < tasks.size(); i++) {
+                        var task = tasks.get(i);
+                        var score = scores.getOrDefault(task, 0.0);
+                        var base = mapping.get(i);
+                        var scored = base.withConfidence(score);
+                        scoredHits.add(scored);
+                        unscoredHits.remove(base);
                     }
                 }
             } catch (InterruptedException e) {

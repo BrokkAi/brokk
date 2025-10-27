@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
+import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -280,8 +281,14 @@ public class Chrome
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
         backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
 
+        // Initialize shared analyzer rebuild status strip before first use
+        // MUST be initialized before being added to statusPanel to avoid NullPointerException.
+        this.analyzerStatusStrip = new AnalyzerStatusStrip();
+        this.analyzerStatusStrip.setVisible(false);
+
         // Panel to hold both labels
         var statusPanel = new JPanel(new BorderLayout());
+        statusPanel.add(getAnalyzerStatusStrip(), BorderLayout.WEST);
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
 
         var statusLabels = (JComponent) statusPanel;
@@ -574,11 +581,13 @@ public class Chrome
                 } catch (Exception ex) {
                     logger.debug("Unable to move shared ModelSelector to TaskListPanel", ex);
                 }
+
             } else if (selected == terminalPanel) {
-                if (terminalPanel.isReady()) {
+                // Keep analyzer strip pinned to bottom status bar; just focus terminal
+                try {
                     terminalPanel.requestFocusInTerminal();
-                } else {
-                    terminalPanel.whenReady().thenRun(() -> terminalPanel.requestFocusInTerminal());
+                } catch (Exception ex) {
+                    logger.debug("Unable to focus terminal on tab selection", ex);
                 }
             }
         });
@@ -933,6 +942,9 @@ public class Chrome
 
     // Theme manager and constants
     GuiTheme themeManager;
+
+    // Shared analyzer rebuild status strip
+    private final AnalyzerStatusStrip analyzerStatusStrip;
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
@@ -2336,17 +2348,8 @@ public class Chrome
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
 
-        // Restore Workspace collapsed/expanded state: prefer per-project, fallback to global default
-        try {
-            Boolean projCollapsed = readProjectWorkspaceCollapsed();
-            boolean collapsed = (projCollapsed != null) ? projCollapsed : readGlobalWorkspaceCollapsed();
-            // Only apply if different from current to avoid redundant relayout
-            if (collapsed != this.workspaceCollapsed) {
-                setWorkspaceCollapsed(collapsed);
-            }
-        } catch (Exception ignored) {
-            // Defensive: do not let preference errors interrupt UI construction
-        }
+        // Always start with workspace collapsed on every session
+        setWorkspaceCollapsed(true);
     }
 
     /**
@@ -3315,6 +3318,47 @@ public class Chrome
     }
 
     /**
+     * Shared "Rebuilding Code Intelligence" status strip with spinner and text.
+     * Hidden by default. Other panels can embed this component via getAnalyzerStatusStrip().
+     * The spinner icon is refreshed against the current theme whenever it is shown or a theme is applied.
+     */
+    private class AnalyzerStatusStrip extends JPanel implements ThemeAware {
+        private final JLabel label;
+
+        private AnalyzerStatusStrip() {
+            super();
+            setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
+            setBorder(new EmptyBorder(2, 6, 2, 6));
+            label = new JLabel("Rebuilding Code Intelligence...");
+            label.setIcon(null); // set on show to ensure theme-correct icon
+            label.setAlignmentY(Component.CENTER_ALIGNMENT);
+            add(label);
+            setOpaque(true);
+            // Start hidden by default. Visibility controlled by Chrome methods.
+            setVisible(false);
+        }
+
+        void refreshSpinnerIcon() {
+            // Must be called on EDT; SpinnerIconUtil asserts EDT
+            Icon icon = SpinnerIconUtil.getSpinner(Chrome.this, true);
+            label.setIcon(icon);
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            // Keep basic colors in sync with theme; refresh spinner icon if visible
+            Color bg = UIManager.getColor("Panel.background");
+            Color fg = UIManager.getColor("Label.foreground");
+            setBackground(bg != null ? bg : getBackground());
+            label.setForeground(fg != null ? fg : label.getForeground());
+            if (isVisible()) {
+                refreshSpinnerIcon();
+            }
+            SwingUtilities.updateComponentTreeUI(this);
+        }
+    }
+
+    /**
      * Updates the git tab badge with the current number of modified files. Should be called whenever the git status
      * changes
      */
@@ -3476,12 +3520,11 @@ public class Chrome
     }
 
     /**
-     * Collapse/expand the Workspace area.
+     * Collapse the Workspace area. Expand requests are ignored; the workspace remains permanently hidden.
      *
-     * <p>New behavior: - When collapsed, completely remove the Workspace+Instructions split from the bottom stack and
-     * show only the Instructions/Drawer as the bottom component. The Output↔Bottom divider remains visible. - When
-     * expanded, restore the original Workspace+Instructions split as the bottom component and restore the previous
-     * divider location for the top split (Workspace↔Instructions).
+     * <p>When collapsed, the Workspace+Instructions split is removed from the bottom stack and only the
+     * Instructions/Drawer is shown as the bottom component. The Output↔Bottom divider remains visible.
+     * Once collapsed, the workspace cannot be expanded. Any call to expand (collapsed=false) is a no-op.
      */
     public void setWorkspaceCollapsed(boolean collapsed) {
         Runnable r = () -> {
@@ -3536,59 +3579,19 @@ public class Chrome
                         () -> applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx)));
 
                 this.workspaceCollapsed = true;
-            } else {
-                // Ensure the workspace split bottom points to the instructions area (rightTabbedContainer), then
-                // restore it
-                // as bottom
+
+                // Refresh layout/paint
+                mainVerticalSplitPane.revalidate();
+                mainVerticalSplitPane.repaint();
+
+                // Persist collapsed/expanded state (per-project + global)
                 try {
-                    topSplitPane.setBottomComponent(rightTabbedContainer);
-                } catch (Exception ex) {
-                    // If it's already set due to prior operations, ignore but record for diagnostics
-                    logger.debug("topSplitPane.setBottomComponent() failed (likely already set)", ex);
+                    saveWorkspaceCollapsedSetting(this.workspaceCollapsed);
+                } catch (Exception ignored) {
+                    // Non-fatal persistence failure
                 }
-                mainVerticalSplitPane.setBottomComponent(topSplitPane);
-
-                // Revalidate the top split, then restore Workspace and bottom height exactly
-                topSplitPane.revalidate();
-                SwingUtilities.invokeLater(() -> {
-                    // Choose saved proportion; fall back to DEFAULT if missing
-                    double p = (savedTopSplitProportion > 0.0 && savedTopSplitProportion < 1.0)
-                            ? savedTopSplitProportion
-                            : DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT;
-                    // Clamp proportion
-                    p = Math.max(0.05, Math.min(0.95, p));
-
-                    // Compute the target bottom height so that Instructions stays at pinnedInstructionsHeightPx
-                    // For a vertical JSplitPane: bottomHeight = (1 - p) * T - dividerSize  =>  T = (pinned +
-                    // dividerSize) / (1 - p)
-                    int dividerSizeTS = topSplitPane.getDividerSize();
-                    int pinned = Math.max(0, pinnedInstructionsHeightPx);
-                    int desiredBottom = (int) Math.round((pinned + dividerSizeTS) / Math.max(0.05, (1.0 - p)));
-
-                    // Set the main Output↔Bottom divider so bottom == desiredBottom (clamped)
-                    applyMainDividerForExactBottomHeight(desiredBottom);
-
-                    // Finally set the top split divider by proportion to restore Workspace share
-                    try {
-                        topSplitPane.setDividerLocation(p);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to set topSplitPane divider by proportion; will rely on layout", ex);
-                    }
-                });
-
-                this.workspaceCollapsed = false;
             }
-
-            // Refresh layout/paint
-            mainVerticalSplitPane.revalidate();
-            mainVerticalSplitPane.repaint();
-
-            // Persist collapsed/expanded state (per-project + global)
-            try {
-                saveWorkspaceCollapsedSetting(this.workspaceCollapsed);
-            } catch (Exception ignored) {
-                // Non-fatal persistence failure
-            }
+            // else: ignore expand requests; workspace stays collapsed permanently
         };
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -3619,6 +3622,38 @@ public class Chrome
 
         int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
         mainVerticalSplitPane.setDividerLocation(safeDivider);
+    }
+
+    /**
+     * Shows the shared analyzer rebuild status strip. Safe to call from any thread.
+     */
+    public void showAnalyzerRebuildStatus() {
+        SwingUtil.runOnEdt(() -> {
+            analyzerStatusStrip.refreshSpinnerIcon();
+            analyzerStatusStrip.setVisible(true);
+            analyzerStatusStrip.revalidate();
+            analyzerStatusStrip.repaint();
+        });
+    }
+
+    /**
+     * Hides the shared analyzer rebuild status strip. Safe to call from any thread.
+     */
+    public void hideAnalyzerRebuildStatus() {
+        SwingUtil.runOnEdt(() -> {
+            analyzerStatusStrip.setVisible(false);
+            analyzerStatusStrip.revalidate();
+            analyzerStatusStrip.repaint();
+        });
+    }
+
+    /**
+     * Returns the shared analyzer rebuild status strip so other panels can embed it.
+     * Note: Swing components can have only one parent; callers should remove it from
+     * a previous parent before adding it elsewhere.
+     */
+    public JComponent getAnalyzerStatusStrip() {
+        return analyzerStatusStrip;
     }
 
     @Override
