@@ -42,7 +42,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean wasReady = false;
-    private volatile boolean paused = false;
     private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
 
     // Dedicated single-threaded executor for analyzer refresh tasks
@@ -52,12 +51,12 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     /**
      * Creates an AnalyzerWrapper with an AnalyzerListener.
      * Creates a temporary UI listener internally for backward compatibility.
-     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService.Listener)} instead
+     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService)} instead
      */
     @Deprecated
     @SuppressWarnings("InlineMeSuggester")
     public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener) {
-        this(project, listener, null);
+        this(project, listener, (IWatchService) null);
     }
 
     /**
@@ -65,7 +64,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param project The project to analyze
      * @param analyzerListener Listener for analyzer lifecycle events (can be null)
      * @param fileWatchListener Additional file watch listener (e.g., from ContextManager). If null, creates temporary uiListener.
+     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService)} and add listeners via watchService.addListener()
      */
+    @Deprecated
     public AnalyzerWrapper(
             IProject project,
             @Nullable AnalyzerListener analyzerListener,
@@ -82,18 +83,54 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             var listeners = new ArrayList<IWatchService.Listener>();
             listeners.add(this); // Analyzer listener
 
-            // Add file watch listener (from ContextManager if provided, otherwise create temporary one)
+            // Add file watch listener if provided
             if (fileWatchListener != null) {
                 listeners.add(fileWatchListener);
-            } else {
-                // Backward compatibility: create temporary uiListener
-                listeners.add(createUiNotificationListener());
             }
+            // Note: If no fileWatchListener is provided, only analyzer events will be handled.
+            // Callers should use the new constructor and add their own listeners via watchService.addListener()
 
             this.watchService = new ProjectWatchService(root, gitRepoRoot, listeners);
         }
 
-        // Create a single-threaded executor for analyzer refresh tasks (wrapped with logging).
+        // Initialize executor and analyzer
+        this.analyzerExecutor = createAnalyzerExecutor();
+        submitInitialAnalyzerBuild();
+    }
+
+    /**
+     * Creates an AnalyzerWrapper with an injected watch service.
+     * This is the preferred constructor - it allows the caller to create and manage the IWatchService,
+     * then inject it into AnalyzerWrapper. AnalyzerWrapper will register itself as a listener if needed.
+     *
+     * @param project The project to analyze
+     * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
+     * @param watchService The watch service to use (can be null for headless mode or testing)
+     */
+    public AnalyzerWrapper(
+            IProject project, @Nullable AnalyzerListener analyzerListener, @Nullable IWatchService watchService) {
+        this.project = project;
+        this.root = project.getRoot();
+        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
+        this.listener = analyzerListener;
+
+        // Use provided watch service or create stub for headless mode
+        this.watchService = watchService != null ? watchService : new IWatchService() {};
+
+        // Register self as listener if we have both a real watch service and an analyzer listener
+        if (watchService != null && analyzerListener != null) {
+            watchService.addListener(this);
+        }
+
+        // Initialize executor and analyzer
+        this.analyzerExecutor = createAnalyzerExecutor();
+        submitInitialAnalyzerBuild();
+    }
+
+    /**
+     * Creates the single-threaded executor for analyzer refresh tasks.
+     */
+    private LoggingExecutorService createAnalyzerExecutor() {
         var threadFactory = new ThreadFactory() {
             private final ThreadFactory delegate = Executors.defaultThreadFactory();
 
@@ -108,9 +145,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         };
         var delegateExecutor = Executors.newSingleThreadExecutor(threadFactory);
         Consumer<Throwable> exceptionHandler = th -> logger.error("Uncaught exception in analyzer executor", th);
-        this.analyzerExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
+        return new LoggingExecutorService(delegateExecutor, exceptionHandler);
+    }
 
-        // build the initial Analyzer
+    /**
+     * Submits the initial analyzer build task.
+     */
+    private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
             // Watcher will wait for the future to complete before processing events,
             // but it will start watching files immediately in order not to miss any changes in the meantime.
@@ -467,74 +508,26 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         externalRebuildRequested = true;
     }
 
-    /**
-     * Creates a listener that handles UI-related file change notifications.
-     * This listener detects git metadata changes and tracked file changes,
-     * and notifies the AnalyzerListener accordingly.
-     * <p>
-     * This is a temporary solution for Phase 2. In Phase 4, ContextManager
-     * will have its own IWatchService.Listener and this can be removed.
-     */
-    private IWatchService.Listener createUiNotificationListener() {
-        return new IWatchService.Listener() {
-            @Override
-            public void onFilesChanged(EventBatch batch) {
-                if (listener == null) {
-                    return; // No listener to notify
-                }
-
-                logger.trace("UI notification listener received events batch: {}", batch);
-
-                // 1) Check for git metadata changes
-                if (gitRepoRoot != null) {
-                    Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-                    boolean gitMetaTouched =
-                            batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-
-                    if (batch.isOverflowed || gitMetaTouched) {
-                        logger.debug("Git metadata changes detected, notifying listener");
-                        listener.onRepoChange();
-                        listener.onTrackedFileChange(); // Tracked files can change with git ops
-                        return; // Already notified, no need to check tracked files again
-                    }
-                }
-
-                // 2) Check for tracked file changes (non-git-metadata)
-                var trackedFiles = project.getRepo().getTrackedFiles();
-                var changedTrackedFiles =
-                        batch.files.stream().filter(trackedFiles::contains).collect(Collectors.toSet());
-
-                if (!changedTrackedFiles.isEmpty() || batch.isOverflowed) {
-                    logger.debug(
-                            "Tracked file changes detected ({} files), notifying listener", changedTrackedFiles.size());
-                    listener.onTrackedFileChange();
-                }
-            }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {
-                // No UI updates needed for "no changes"
-            }
-        };
-    }
-
     /** Pause the file watching service. */
     @Override
     public synchronized void pause() {
-        paused = true;
         watchService.pause();
     }
 
     /** Resume the file watching service. */
     @Override
     public synchronized void resume() {
-        paused = false;
         watchService.resume();
     }
 
     @Override
     public boolean isPause() {
-        return paused;
+        return watchService.isPaused();
+    }
+
+    @Override
+    public IWatchService getWatchService() {
+        return watchService;
     }
 
     @Override

@@ -37,7 +37,8 @@ Dependencies:
 ## Essential Gradle Tasks for New Developers
 
 ### Quick Start
-- `./gradlew run` - Run the application (from app)
+- `./gradlew run` - Run the application (from app) without debugging
+- `./gradlew run -PenableDebug=true` - Run with debugging enabled on port 5005
 - `./gradlew build` - Full build (compile, test, check) - all modules + frontend
 - `./gradlew assemble` - Build without tests - all modules + frontend
 
@@ -204,6 +205,29 @@ The build system uses aggressive multi-level caching for optimal performance:
 - Compiler uses 2GB heap with G1GC for faster compilation
 - File system watching enabled for better incremental builds
 - Frontend build uses Gradle cache and incremental compilation for faster rebuilds
+
+### Debugging Configuration
+
+Debugging is disabled by default and must be explicitly enabled when needed. This prevents conflicts with IDE debuggers.
+
+#### Debugging Options
+- **Default**: `./gradlew run` - Run without debugging
+- **Enable debugging**: `./gradlew run -PenableDebug=true` - Enable JDWP debugging on port 5005
+- **Custom port**: `./gradlew run -PenableDebug=true -PdebugPort=8000` - Use different debug port
+- **IntelliJ integration**: Debug normally from IntelliJ - no conflicts with Gradle
+
+#### Multiple Instances
+To run multiple instances simultaneously, enable debugging only on specific instances:
+```bash
+# Instance 1 without debugging
+./gradlew run
+
+# Instance 2 with debugging on port 5005
+./gradlew run -PenableDebug=true
+
+# Instance 3 with debugging on custom port
+./gradlew run -PenableDebug=true -PdebugPort=5006
+```
 
 ### JAR Creation
 - **Development builds** (`build`, `assemble`) skip JAR creation for speed

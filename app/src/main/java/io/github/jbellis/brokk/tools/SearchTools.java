@@ -375,6 +375,7 @@ public class SearchTools {
             """
                     Search git commit messages using a Java regular expression.
                     Returns matching commits with their message and list of changed files.
+                    If the list of files is extremely long, it will be summarized with respect to your explanation.
                     """)
     public String searchGitCommitMessages(
             @P("Java-style regex pattern to search for within commit messages.") String pattern,
@@ -645,6 +646,9 @@ public class SearchTools {
     @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
     public String createTaskList(
             @P(
+                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
+                    String explanation,
+            @P(
                             """
             Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
 
@@ -671,6 +675,7 @@ public class SearchTools {
         }
 
         var io = contextManager.getIo();
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
         contextManager.appendTasksToTaskList(tasks);
 
         var lines = IntStream.range(0, tasks.size())

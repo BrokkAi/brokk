@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.tools;
 import com.jakewharton.disklrucache.DiskLruCache;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
@@ -23,7 +24,8 @@ import org.jetbrains.annotations.Nullable;
 public class GitTools {
 
     private static final Logger logger = LogManager.getLogger(GitTools.class);
-    private static final int EXPLAIN_COMMIT_FILE_LIMIT = 50;
+    private static final int EXPLAIN_COMMIT_FILE_LIMIT = 10;
+    private static final int EXPLAIN_COMMIT_LINES_PER_FILE = 1_000;
 
     // Caching for commit explanations (best-effort using DiskLruCache per project)
     // A ConcurrentHashMap could be used for in-memory caching across runs for a single session
@@ -49,6 +51,7 @@ public class GitTools {
      * Explain a single commit with caching on the project's DiskLruCache (best-effort).
      * If {@code detailed} is true, a full explanation is generated using MergePrompts.collectMessages.
      * If {@code detailed} is false, a concise summary is generated using SummarizerPrompts.collectMessages (100 words).
+     * Handles ContextTooLargeException by halving lines-per-file and retrying.
      */
     public static String explainCommitCached(IContextManager cm, String revision, boolean detailed)
             throws InterruptedException {
@@ -83,30 +86,7 @@ public class GitTools {
 
         StreamingChatModel modelToUse = cm.getService().getScanModel();
         Llm llm = cm.getLlm(modelToUse, (detailed ? "Explain commit " : "Summarize commit ") + shortHash);
-        Llm.StreamingResult response;
-
-        if (detailed) {
-            var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
-                    ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
-                    : diff;
-            var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
-            response = llm.sendRequest(messages);
-        } else {
-            // Concise summary with preprocessing to keep token usage under control on large diffs
-            var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
-                    ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
-                    : diff;
-            var messages = SummarizerPrompts.instance.collectMessages(preprocessedDiff, 100); // ~100 words
-            response = llm.sendRequest(messages);
-        }
-
-        if (response.error() != null) {
-            throw new LlmException(
-                    "LLM error while " + (detailed ? "explaining" : "summarizing") + " commit %s".formatted(shortHash),
-                    response.error());
-        }
-
-        String explanation = response.text().trim();
+        String explanation = explainWithHalving(diff, detailed, revision, llm);
 
         // Try to write into cache (best-effort)
         DiskLruCache.Editor editor = null;
@@ -133,6 +113,45 @@ public class GitTools {
         }
 
         return explanation;
+    }
+
+    private static String explainWithHalving(String diff, boolean detailed, String revision, Llm llm)
+            throws InterruptedException {
+        int linesPerFile = EXPLAIN_COMMIT_LINES_PER_FILE;
+        while (true) {
+            String preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
+                    ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT, linesPerFile)
+                    : diff;
+
+            try {
+                Llm.StreamingResult response;
+                if (detailed) {
+                    var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
+                    response = llm.sendRequest(messages);
+                } else {
+                    var messages = SummarizerPrompts.instance.collectMessages(preprocessedDiff, 100);
+                    response = llm.sendRequest(messages);
+                }
+
+                if (response.error() != null) {
+                    throw new LlmException(
+                            "LLM error while " + (detailed ? "explaining" : "summarizing")
+                                    + " commit %s".formatted(revision),
+                            response.error());
+                }
+
+                return response.text().trim();
+            } catch (ContextTooLargeException e) {
+                if (linesPerFile <= 100) {
+                    logger.debug("Context still too large with minimum lines-per-file (50); giving up.");
+                    throw e;
+                }
+                linesPerFile = linesPerFile / 2;
+                logger.debug(
+                        "Context too large for commit explanation; halving lines-per-file to {} and retrying.",
+                        linesPerFile);
+            }
+        }
     }
 
     /**

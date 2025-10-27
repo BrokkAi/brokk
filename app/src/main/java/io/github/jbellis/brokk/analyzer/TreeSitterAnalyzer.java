@@ -98,6 +98,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private volatile AnalyzerState state;
 
     /**
+     * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
+     *
+     * @param topLevelCodeUnits the top-level code units.
+     * @param parsedTree the corresponding parse tree.
+     * @param importStatements imports found on this file.
+     */
+    public record FileProperties(
+            List<CodeUnit> topLevelCodeUnits, @Nullable TSTree parsedTree, List<String> importStatements) {
+
+        public static FileProperties empty() {
+            return new FileProperties(Collections.emptyList(), null, Collections.emptyList());
+        }
+    }
+
+    /**
      * Read-only index of symbol keys with efficient prefix scan.
      */
     record SymbolKeyIndex(NavigableSet<String> keys) {

@@ -192,6 +192,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Track expand/collapse state for grouped non-LLM action runs
     private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
 
+    // Cache of latest group descriptors used to render the table; used by arrow painter
+    private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
+
     // Selection directives applied after a table rebuild (for expand/collapse UX)
     private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
     private @Nullable UUID pendingSelectionGroupKey = null;
@@ -972,70 +975,52 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int currentRow = 0;
 
             var contexts = contextManager.getContextHistoryList();
-            // Proactively compute diffs so grouping can reflect file-diff boundaries
+            // Proactively compute diffs for the renderer; grouping boundaries are independent of diffs
             for (var c : contexts) {
                 scheduleDiffComputation(c);
             }
-            boolean lastIsNonLlm = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
+            var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
+            latestDescriptors = descriptors;
 
-            for (int i = 0; i < contexts.size(); i++) {
-                var ctx = contexts.get(i);
-                if (isGroupingBoundary(ctx)) {
+            for (var descriptor : descriptors) {
+                var children = descriptor.children();
+
+                if (!descriptor.shouldShowHeader()) {
+                    // Render singleton (no header)
+                    assert children.size() == 1 : "Descriptor without header must be singleton";
+                    var ctx = children.getFirst();
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
+                    var actionVal = new ActionText(ctx.getAction(), 0);
+                    historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
                         rowToSelect = currentRow;
                     }
                     currentRow++;
-                } else {
-                    int j = i;
-                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
-                        j++;
-                    }
-                    var children = contexts.subList(i, j);
-                    if (children.size() == 1) {
-                        var child = children.get(0);
-                        // Render single-entry groups as a normal top-level entry
-                        historyModel.addRow(new Object[] {null, child.getAction(), child});
+                    continue;
+                }
+
+                // Render group header + (optional) children if expanded
+                var uuidKey = UUID.fromString(descriptor.key());
+                boolean expandedDefault = descriptor.isLastGroup();
+                boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
+
+                boolean containsClearHistory = children.stream()
+                        .anyMatch(c -> ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+
+                var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
+                historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor.label(), groupRow});
+                currentRow++;
+
+                if (expanded) {
+                    for (var child : children) {
+                        var childAction = new ActionText(child.getAction(), 1);
+                        Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
+                        historyModel.addRow(new Object[] {childIcon, childAction, child});
                         if (child.equals(contextToSelect)) {
                             rowToSelect = currentRow;
                         }
                         currentRow++;
-                    } else { // children.size() >= 2
-                        String title;
-                        if (children.size() == 2) {
-                            title = firstWord(children.get(0).getAction()) + " + "
-                                    + firstWord(children.get(1).getAction());
-                        } else {
-                            title = children.size() + " actions";
-                        }
-                        var first = children.get(0); // For key and other metadata
-                        var key = first.id();
-                        boolean isLastGroup = j == contexts.size();
-                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
-                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
-
-                        boolean containsClearHistory = children.stream()
-                                .anyMatch(c ->
-                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
-
-                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
-                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
-                        currentRow++;
-
-                        if (expanded) {
-                            for (var child : children) {
-                                String childText = "   " + child.getAction();
-                                historyModel.addRow(new Object[] {null, childText, child});
-                                if (child.equals(contextToSelect)) {
-                                    rowToSelect = currentRow;
-                                }
-                                currentRow++;
-                            }
-                        }
                     }
-
-                    i = j - 1;
                 }
             }
 
@@ -2559,9 +2544,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            // Extract action text and structural indent level
+            int indentLevel = 0;
+            String actionText;
+            if (value instanceof ActionText at) {
+                actionText = at.text();
+                indentLevel = Math.max(0, at.indentLevel());
+            } else {
+                actionText = value != null ? value.toString() : "";
+            }
+
             // Separator handling delegates to existing painter
-            if (ActivityTableRenderers.isSeparatorAction(value)) {
-                var comp = fallback.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (ActivityTableRenderers.isSeparatorAction(actionText)) {
+                var comp = fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
                 return adjustRowHeight(table, row, column, comp);
             }
 
@@ -2570,9 +2565,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // If not a Context row, render a normal label (top-aligned)
             if (!(ctxVal instanceof Context ctx)) {
-                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                var comp = super.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
                 if (comp instanceof JLabel lbl) {
                     lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                if (comp instanceof JComponent jc) {
+                    jc.setToolTipText(actionText); // Show full header text on hover
                 }
                 return adjustRowHeight(table, row, column, comp);
             }
@@ -2580,81 +2578,77 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Decide whether to render a diff panel or just the label
             var cached = diffCache.get(ctx.id());
 
-            // Not yet cached → kick off background computation; show a compact label for now
+            // Kick off background computation if needed
             if (cached == null) {
                 scheduleDiffComputation(ctx);
-                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (comp instanceof JLabel lbl) {
-                    lbl.setVerticalAlignment(JLabel.TOP);
-                }
-                return adjustRowHeight(table, row, column, comp);
             }
 
-            // Cached but empty → no changes; compact label
-            if (cached.isEmpty()) {
-                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (comp instanceof JLabel lbl) {
-                    lbl.setVerticalAlignment(JLabel.TOP);
-                }
-                return adjustRowHeight(table, row, column, comp);
+            // Build action component using LAF-consistent renderer, but make it non-opaque
+            var actionComp =
+                    fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
+            if (actionComp instanceof JComponent jc) {
+                jc.setOpaque(false);
             }
 
-            // Cached with entries → build diff summary panel
-            boolean isDark = chrome.getTheme().isDarkTheme();
-
-            // Container for per-file rows with an inset on the left
-            var diffPanel = new JPanel();
-            diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
-            diffPanel.setOpaque(false);
-            diffPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
-
-            for (var de : cached) {
-                String bareName;
-                try {
-                    var files = de.fragment().files();
-                    if (!files.isEmpty()) {
-                        var pf = files.iterator().next();
-                        bareName = pf.getRelPath().getFileName().toString();
-                    } else {
-                        bareName = de.fragment().shortDescription();
-                    }
-                } catch (Exception ex) {
-                    bareName = de.fragment().shortDescription();
-                }
-
-                var nameLabel = new JLabel(bareName + " ");
-                nameLabel.setFont(smallFont);
-                nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-
-                var plus = new JLabel("+" + de.linesAdded());
-                plus.setFont(smallFont);
-                plus.setForeground(ThemeColors.getColor(isDark, "diff_added_fg"));
-
-                var minus = new JLabel("-" + de.linesDeleted());
-                minus.setFont(smallFont);
-                minus.setForeground(ThemeColors.getColor(isDark, "diff_deleted_fg"));
-
-                var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-                rowPanel.setOpaque(false);
-                rowPanel.add(nameLabel);
-                rowPanel.add(plus);
-                rowPanel.add(minus);
-
-                diffPanel.add(rowPanel);
-            }
-
-            // Build composite panel (action text on top, diff below)
+            // Composite panel that applies structural indent to the entire cell
             var panel = new JPanel(new BorderLayout());
             panel.setOpaque(true);
             panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
             panel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
 
-            var actionLabel = new JLabel(value != null ? value.toString() : "");
-            actionLabel.setOpaque(false);
-            actionLabel.setFont(table.getFont());
-            actionLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-            panel.add(actionLabel, BorderLayout.NORTH);
-            panel.add(diffPanel, BorderLayout.CENTER);
+            int indentPx = indentLevel * Constants.H_GAP * 3;
+            panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
+            panel.add(actionComp, BorderLayout.NORTH);
+            // Ensure tooltip is visible even though we return a composite panel
+            panel.setToolTipText(actionText);
+
+            // If we have cached diff entries, add a summary panel; otherwise, action-only
+            if (cached != null && !cached.isEmpty()) {
+                boolean isDark = chrome.getTheme().isDarkTheme();
+
+                var diffPanel = new JPanel();
+                diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
+                diffPanel.setOpaque(false);
+                // No extra left inset; the outer panel border provides the indent alignment
+                diffPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
+
+                for (var de : cached) {
+                    String bareName;
+                    try {
+                        var files = de.fragment().files();
+                        if (!files.isEmpty()) {
+                            var pf = files.iterator().next();
+                            bareName = pf.getRelPath().getFileName().toString();
+                        } else {
+                            bareName = de.fragment().shortDescription();
+                        }
+                    } catch (Exception ex) {
+                        bareName = de.fragment().shortDescription();
+                    }
+
+                    var nameLabel = new JLabel(bareName + " ");
+                    nameLabel.setFont(smallFont);
+                    nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+
+                    var plus = new JLabel("+" + de.linesAdded());
+                    plus.setFont(smallFont);
+                    plus.setForeground(ThemeColors.getDiffAdded(!isDark));
+
+                    var minus = new JLabel("-" + de.linesDeleted());
+                    minus.setFont(smallFont);
+                    minus.setForeground(ThemeColors.getDiffDeleted(!isDark));
+
+                    var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+                    rowPanel.setOpaque(false);
+                    rowPanel.add(nameLabel);
+                    rowPanel.add(plus);
+                    rowPanel.add(minus);
+
+                    diffPanel.add(rowPanel);
+                }
+
+                panel.add(diffPanel, BorderLayout.CENTER);
+            }
 
             return adjustRowHeight(table, row, column, panel);
         }
@@ -3108,43 +3102,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            // Map context IDs to the visible row indices where arrows should anchor.
-            // - For visible Context rows, map directly to their row.
-            // - For contexts hidden by collapsed groups, map to the group header row.
-            Map<UUID, Integer> contextIdToRow = new HashMap<>();
-
-            // 1) First pass: map all visible Context rows
-            for (int i = 0; i < model.getRowCount(); i++) {
-                var val = model.getValueAt(i, 2);
-                if (val instanceof Context ctx) {
-                    contextIdToRow.put(ctx.id(), i);
-                }
-            }
-
-            // 2) Build helper data from the full context history to determine group membership
-            var contexts = contextManager.getContextHistoryList();
-            Map<UUID, Integer> idToIndex = new HashMap<>();
-            for (int i = 0; i < contexts.size(); i++) {
-                idToIndex.put(contexts.get(i).id(), i);
-            }
-
-            // 3) Second pass: for collapsed groups, map their children context IDs to the group header row
-            for (int row = 0; row < model.getRowCount(); row++) {
-                var val = model.getValueAt(row, 2);
-                if (val instanceof GroupRow gr && !gr.expanded()) {
-                    Integer startIdx = idToIndex.get(gr.key());
-                    if (startIdx == null) {
-                        continue;
-                    }
-                    int j = startIdx;
-                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
-                        UUID ctxId = contexts.get(j).id();
-                        // Only map if not already visible; collapsed children should anchor to the header row
-                        contextIdToRow.putIfAbsent(ctxId, row);
-                        j++;
-                    }
-                }
-            }
+            // Use unified helper to compute anchor rows for each Context id
+            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
 
             // 4) Build list of arrows with geometry between the resolved row anchors
             List<Arrow> arrows = new ArrayList<>();
@@ -3240,6 +3199,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
+    // Structural action text + indent data for column 1 (Option A)
+    private static record ActionText(String text, int indentLevel) {}
+
     private enum PendingSelectionType {
         NONE,
         CLEAR,
@@ -3307,17 +3269,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private boolean isGroupingBoundary(Context ctx) {
         // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result, or an explicit "dropped all context" separator.
-        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
-    }
-
-    private static String firstWord(String text) {
-        if (text.isBlank()) {
-            return "";
-        }
-        var trimmed = text.trim();
-        int idx = trimmed.indexOf(' ');
-        return idx < 0 ? trimmed : trimmed.substring(0, idx);
+        // Boundary when this is an AI result WITHOUT a groupId, or an explicit "dropped all context" separator.
+        // Note: AI results that carry a groupId are NOT boundaries and may merge into a single GROUP_BY_ID run.
+        return (ctx.isAiResult() && ctx.getGroupId() == null)
+                || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
     }
 
     private void toggleGroupRow(int row) {

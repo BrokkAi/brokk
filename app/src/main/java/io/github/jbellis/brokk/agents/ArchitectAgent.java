@@ -23,7 +23,6 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -624,14 +623,21 @@ public class ArchitectAgent {
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
-        // Add auto-context as a separate message/ack pair
-        var acList = context.buildAutoContext(10);
-        var topClassesRaw = ContextFragment.SummaryFragment.combinedText(acList);
-        if (!topClassesRaw.isBlank()) {
+        // Add related identifiers as a separate message/ack pair
+        var related = context.buildRelatedIdentifiers(10);
+        if (!related.isEmpty()) {
+            var topClassesRaw = related.entrySet().stream()
+                    .sorted(Comparator.comparing(e -> e.getKey().fqName()))
+                    .map(e -> {
+                        var cu = e.getKey();
+                        var subs = e.getValue();
+                        return "- " + cu.fqName() + (subs.isBlank() ? "" : " (members: " + subs + ")");
+                    })
+                    .collect(Collectors.joining("\n"));
             var topClassesText =
                     """
                             <related_classes>
-                            Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                            Here are some classes that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
                             If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
                             visible to Code Agent. If they are not relevant, just ignore them.
 

@@ -5,13 +5,40 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 public final class PythonAnalyzerTest {
+
+    @Nullable
+    private static TestProject project;
+
+    @Nullable
+    private static PythonAnalyzer analyzer;
+
+    @BeforeAll
+    public static void setup() {
+        Path testDir = Path.of("src/test/resources", "testcode-py");
+        assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
+        assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
+        project = new TestProject(testDir.toAbsolutePath(), Languages.PYTHON);
+        analyzer = new PythonAnalyzer(project);
+    }
+
+    @AfterAll
+    public static void teardown() {
+        if (project != null) {
+            project.close();
+        }
+    }
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
     static TestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
@@ -25,19 +52,17 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonInitializationAndSkeletons() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON); // Use Brokk's Language enum
-        PythonAnalyzer ana = new PythonAnalyzer(project);
-        assertInstanceOf(PythonAnalyzer.class, ana);
+        assertInstanceOf(PythonAnalyzer.class, analyzer);
         // Cast to PythonAnalyzer
-        assertFalse(ana.isEmpty(), "Analyzer should have processed Python files");
+        assertFalse(analyzer.isEmpty(), "Analyzer should have processed Python files");
 
         ProjectFile fileA = new ProjectFile(project.getRoot(), "a/A.py");
         // Skeletons are now reconstructed. We check CodeUnits first.
-        var classesInFileA = ana.getDeclarations(fileA);
+        var classesInFileA = analyzer.getDeclarations(fileA);
         var classA_CU = CodeUnit.cls(fileA, "a", "A");
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
-        var topLevelDeclsInA = ana.withFileProperties(tld -> tld.get(fileA))
+        var topLevelDeclsInA = analyzer.withFileProperties(tld -> tld.get(fileA))
                 .topLevelCodeUnits(); // Accessing internal for test validation
         assertNotNull(topLevelDeclsInA, "Top level declarations for file A should exist.");
 
@@ -46,7 +71,7 @@ public final class PythonAnalyzerTest {
         assertTrue(topLevelDeclsInA.contains(classA_CU), "File A should contain class A as top-level.");
 
         // Test reconstructed skeletons
-        var skelA = ana.getSkeletons(fileA);
+        var skelA = analyzer.getSkeletons(fileA);
         assertFalse(skelA.isEmpty(), "Reconstructed skeletons map for file A should not be empty.");
 
         assertTrue(skelA.containsKey(classA_CU), "Skeleton map should contain class A.");
@@ -72,7 +97,7 @@ public final class PythonAnalyzerTest {
         // Note: PythonAnalyzer.getLanguageSpecificIndent() might affect exact string match if not "  "
         assertEquals(classASummary.trim(), classASkeleton.trim(), "Class A skeleton mismatch.");
 
-        Set<CodeUnit> declarationsInA = ana.getDeclarations(fileA);
+        Set<CodeUnit> declarationsInA = analyzer.getDeclarations(fileA);
         assertTrue(
                 declarationsInA.contains(classA_CU),
                 "getDeclarationsInFile mismatch for file A: missing classA_CU. Found: " + declarationsInA);
@@ -80,18 +105,15 @@ public final class PythonAnalyzerTest {
                 declarationsInA.contains(funcA_CU),
                 "getDeclarationsInFile mismatch for file A: missing funcA_CU. Found: " + declarationsInA);
         // Add other expected CUs if necessary for a more complete check, e.g., methods of classA_CU
-        assertTrue(ana.getSkeleton(funcA_CU.fqName()).isPresent(), "Skeleton for funcA_CU should be present");
+        assertTrue(analyzer.getSkeleton(funcA_CU.fqName()).isPresent(), "Skeleton for funcA_CU should be present");
         assertEquals(
-                funcASummary.trim(), ana.getSkeleton(funcA_CU.fqName()).get().trim(), "getSkeleton mismatch for funcA");
+                funcASummary.trim(),
+                analyzer.getSkeleton(funcA_CU.fqName()).get().trim(),
+                "getSkeleton mismatch for funcA");
     }
 
     @Test
     void testPythonTopLevelVariables() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        IAnalyzer ana = new PythonAnalyzer(project);
-        assertInstanceOf(PythonAnalyzer.class, ana);
-        PythonAnalyzer analyzer = (PythonAnalyzer) ana;
-
         ProjectFile varsPyFile = new ProjectFile(project.getRoot(), "vars.py");
         var skelVars = analyzer.getSkeletons(varsPyFile);
 
@@ -136,9 +158,6 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonGetClassSourceWithComments() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
@@ -172,9 +191,6 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonGetMethodSourceWithComments() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
@@ -234,9 +250,6 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonCommentExpansionEdgeCases() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
         // Test constructor with comment (use correct FQN format)
         Optional<String> constructorSource = analyzer.getMethodSource("DocumentedClass.__init__", true);
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
@@ -270,9 +283,6 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonDualRangeExtraction() {
-        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-
         Function<String, String> normalize =
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
@@ -332,5 +342,22 @@ public final class PythonAnalyzerTest {
         assertTrue(
                 normalizedMethodWithoutComments.contains("def get_value(self):"),
                 "Method source without comments should include method definition");
+    }
+
+    @Test
+    public void testCodeUnitsAreDeduplicated() {
+        // getAllDeclarations should not contain duplicate FQNs even if multiple capture paths produce same logical unit
+        var allDecls = analyzer.getAllDeclarations();
+        var unique = new HashSet<>(allDecls);
+        assertEquals(unique.size(), allDecls.size(), "All declaration FQNs should be unique after deduplication");
+
+        var topDecls = analyzer.getTopLevelDeclarations().values().stream()
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
+        var uniqueTopDecls = new HashSet<>(topDecls);
+        assertEquals(
+                uniqueTopDecls.size(),
+                topDecls.size(),
+                "Top-level declaration FQNs should be unique after deduplication");
     }
 }

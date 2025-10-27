@@ -73,6 +73,12 @@ public class Context {
     /** description of the action that created this context, can be a future (like PasteFragment) */
     public final transient Future<String> action;
 
+    @Nullable
+    private final UUID groupId;
+
+    @Nullable
+    private final String groupLabel;
+
     /** Constructor for initial empty context */
     public Context(IContextManager contextManager, @Nullable String initialOutputText) {
         this(
@@ -81,7 +87,9 @@ public class Context {
                 List.of(),
                 List.of(),
                 null,
-                CompletableFuture.completedFuture(WELCOME_ACTION));
+                CompletableFuture.completedFuture(WELCOME_ACTION),
+                null,
+                null);
     }
 
     private Context(
@@ -90,13 +98,17 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragment.TaskFragment parsedOutput,
-            Future<String> action) {
+            Future<String> action,
+            @Nullable UUID groupId,
+            @Nullable String groupLabel) {
         this.id = id;
         this.contextManager = contextManager;
         this.fragments = List.copyOf(fragments);
         this.taskHistory = List.copyOf(taskHistory);
         this.action = action;
         this.parsedOutput = parsedOutput;
+        this.groupId = groupId;
+        this.groupLabel = groupLabel;
     }
 
     public Context(
@@ -105,7 +117,22 @@ public class Context {
             List<TaskEntry> taskHistory,
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action) {
-        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
+        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
+    }
+
+    public Map<CodeUnit, String> buildRelatedIdentifiers(int k) throws InterruptedException {
+        var candidates = getMostRelevantFiles(k).stream().sorted().toList();
+        return buildRelatedIdentifiers(contextManager.getAnalyzer(), candidates);
+    }
+
+    public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, List<ProjectFile> candidates) {
+        return candidates.parallelStream()
+                .flatMap(c -> analyzer.getTopLevelDeclarations(c).stream())
+                .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getSubDeclarations(cu).stream()
+                        .map(CodeUnit::shortName)
+                        .distinct()
+                        .sorted()
+                        .collect(Collectors.joining(", "))));
     }
 
     /** Per-fragment diff entry between two contexts. */
@@ -154,7 +181,9 @@ public class Context {
                 List.copyOf(expandedFragments),
                 frozen.getTaskHistory(),
                 frozen.getParsedOutput(),
-                frozen.action);
+                frozen.action,
+                frozen.getGroupId(),
+                frozen.getGroupLabel());
     }
 
     public static UUID newContextId() {
@@ -227,7 +256,8 @@ public class Context {
     }
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
-        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action);
+        return new Context(
+                newContextId(), contextManager, newFragments, taskHistory, null, action, this.groupId, this.groupLabel);
     }
 
     /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
@@ -297,6 +327,16 @@ public class Context {
 
     public UUID id() {
         return id;
+    }
+
+    @Nullable
+    public UUID getGroupId() {
+        return groupId;
+    }
+
+    @Nullable
+    public String getGroupLabel() {
+        return groupLabel;
     }
 
     public Stream<ContextFragment> fileFragments() {
@@ -369,7 +409,15 @@ public class Context {
 
     public Context removeAll() {
         String action = ActivityTableRenderers.DROPPED_ALL_CONTEXT;
-        return new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture(action));
+        return new Context(
+                newContextId(),
+                contextManager,
+                List.of(),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture(action),
+                this.groupId,
+                this.groupLabel);
     }
 
     public boolean isEmpty() {
@@ -385,7 +433,15 @@ public class Context {
             TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                newTaskHistory,
+                parsed,
+                action,
+                this.groupId,
+                this.groupLabel);
     }
 
     public Context clearHistory() {
@@ -395,7 +451,9 @@ public class Context {
                 fragments,
                 List.of(),
                 null,
-                CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY));
+                CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY),
+                this.groupId,
+                this.groupLabel);
     }
 
     /** @return an immutable copy of the task history. */
@@ -438,7 +496,15 @@ public class Context {
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
-        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                this.groupId,
+                this.groupLabel);
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
@@ -448,11 +514,26 @@ public class Context {
                 fragments,
                 taskHistory,
                 parsedOutput,
-                CompletableFuture.completedFuture(action));
+                CompletableFuture.completedFuture(action),
+                this.groupId,
+                this.groupLabel);
     }
 
     public Context withAction(Future<String> action) {
-        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                this.groupId,
+                this.groupLabel);
+    }
+
+    public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
+        return new Context(
+                newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, groupId, groupLabel);
     }
 
     public static Context createWithId(
@@ -462,7 +543,19 @@ public class Context {
             List<TaskEntry> history,
             @Nullable ContextFragment.TaskFragment parsed,
             Future<String> action) {
-        return new Context(id, cm, fragments, history, parsed, action);
+        return createWithId(id, cm, fragments, history, parsed, action, null, null);
+    }
+
+    public static Context createWithId(
+            UUID id,
+            IContextManager cm,
+            List<ContextFragment> fragments,
+            List<TaskEntry> history,
+            @Nullable ContextFragment.TaskFragment parsed,
+            Future<String> action,
+            @Nullable UUID groupId,
+            @Nullable String groupLabel) {
+        return new Context(id, cm, fragments, history, parsed, action, groupId, groupLabel);
     }
 
     /**
@@ -476,7 +569,9 @@ public class Context {
                 fragments,
                 newHistory,
                 null,
-                CompletableFuture.completedFuture("Compress History"));
+                CompletableFuture.completedFuture("Compress History"),
+                this.groupId,
+                this.groupLabel);
     }
 
     @Nullable
@@ -506,7 +601,9 @@ public class Context {
                 unfrozenFragments,
                 newHistory,
                 null,
-                CompletableFuture.completedFuture("Reset context to historical state"));
+                CompletableFuture.completedFuture("Reset context to historical state"),
+                sourceContext.getGroupId(),
+                sourceContext.getGroupLabel());
     }
 
     public record FreezeResult(Context liveContext, Context frozenContext) {}
@@ -534,14 +631,28 @@ public class Context {
 
         Context liveContext;
         if (!liveFragments.equals(fragments)) {
-            liveContext =
-                    new Context(this.contextManager, liveFragments, this.taskHistory, this.parsedOutput, this.action);
+            liveContext = new Context(
+                    newContextId(),
+                    this.contextManager,
+                    liveFragments,
+                    this.taskHistory,
+                    this.parsedOutput,
+                    this.action,
+                    this.groupId,
+                    this.groupLabel);
         } else {
             liveContext = this;
         }
 
         var frozenContext = new Context(
-                this.id, this.contextManager, frozenFragments, this.taskHistory, this.parsedOutput, this.action);
+                this.id,
+                this.contextManager,
+                frozenFragments,
+                this.taskHistory,
+                this.parsedOutput,
+                this.action,
+                this.groupId,
+                this.groupLabel);
 
         return new FreezeResult(liveContext, frozenContext);
     }
@@ -871,7 +982,9 @@ public class Context {
                 newFragments,
                 afterClear.taskHistory,
                 afterClear.parsedOutput,
-                CompletableFuture.completedFuture("Build results updated (failure)"));
+                CompletableFuture.completedFuture("Build results updated (failure)"),
+                afterClear.getGroupId(),
+                afterClear.getGroupLabel());
     }
 
     private boolean isNewFileInGit(FrozenFragment ff) {

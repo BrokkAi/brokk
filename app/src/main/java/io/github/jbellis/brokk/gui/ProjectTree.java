@@ -258,7 +258,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
         boolean allFilesTracked = project.getRepo().getTrackedFiles().containsAll(targetFiles);
 
-        String editLabel = bulk ? "Edit All" : "Edit";
+        String editLabel = bulk ? "Attach All" : "Attach";
         String summarizeLabel = bulk ? "Summarize All" : "Summarize";
 
         JMenuItem editItem = new JMenuItem(editLabel);
