@@ -2916,8 +2916,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             String leftContent = change.earliestOld() == null ? "" : change.earliestOld();
             String rightContent = change.latestNew() == null ? "" : change.latestNew();
 
-            BufferSource left = new BufferSource.StringSource(leftContent, "Session Start", path, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "Current (Session)", path, null);
+            // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
+            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
+            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
             builder.addComparison(left, right);
         }
 
