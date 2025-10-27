@@ -4,11 +4,10 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
@@ -21,6 +20,8 @@ public final class RelevanceClassifier {
     public static final String RELEVANT_MARKER = "BRK_RELEVANT";
     public static final String IRRELEVANT_MARKER = "BRK_IRRELEVANT";
     private static final int MAX_RELEVANCE_TRIES = 3;
+    public static final int DEFAULT_MAX_CONCURRENT_REQUESTS =
+            2 * Runtime.getRuntime().availableProcessors();
 
     private RelevanceClassifier() {}
 
@@ -166,31 +167,34 @@ public final class RelevanceClassifier {
      * scoreRelevance(). Preserves insertion order in the returned map.
      *
      * @param llm the model to use for scoring
-     * @param service the LLM service.
+     * @param executor the executor to submit tasks to
      * @param tasks list of tasks to score
      * @return a map from task to relevance score in [0.0, 1.0]
      */
-    public static Map<RelevanceTask, Double> relevanceScoreBatch(Llm llm, Service service, List<RelevanceTask> tasks)
-            throws InterruptedException {
+    public static Map<RelevanceTask, Double> relevanceScoreBatch(
+            Llm llm, List<RelevanceTask> tasks, ExecutorService executor) throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
-        var results = new HashMap<RelevanceTask, Double>();
+        var tempResults = new HashMap<RelevanceTask, Double>();
+        var recommendationTasks = getRecommendationTasks(llm, tasks);
+        var futures = executor.invokeAll(recommendationTasks);
 
-        try (var executor = AdaptiveExecutor.create(service, llm.getModel(), tasks.size())) {
-            var recommendationTasks = getRecommendationTasks(llm, tasks);
-            var futures = executor.invokeAll(recommendationTasks);
-
-            for (var future : futures) {
-                try {
-                    var result = future.get();
-                    results.put(result.task(), result.score());
-                } catch (ExecutionException e) {
-                    logger.error("Execution of a task failed while waiting for result", e);
-                }
+        for (var future : futures) {
+            try {
+                var result = future.get();
+                tempResults.put(result.task(), result.score());
+            } catch (ExecutionException e) {
+                logger.error("Execution of a task failed while waiting for result", e);
             }
         }
 
-        return Map.copyOf(results);
+        var orderedResults = new LinkedHashMap<RelevanceTask, Double>(tasks.size());
+        for (var task : tasks) {
+            if (tempResults.containsKey(task)) {
+                orderedResults.put(task, tempResults.get(task));
+            }
+        }
+        return Map.copyOf(orderedResults);
     }
 
     private static List<Callable<RelevanceResult>> getRecommendationTasks(Llm llm, List<RelevanceTask> tasks) {
@@ -213,31 +217,34 @@ public final class RelevanceClassifier {
      * Batch boolean relevance classification. Preserves insertion order in the returned map.
      *
      * @param llm the model to use
-     * @param service the LLM service
+     * @param executor the executor to submit tasks to
      * @param tasks tasks to classify
      * @return a map from task to boolean relevance
      */
-    public static Map<RelevanceTask, Boolean> relevanceBooleanBatch(Llm llm, Service service, List<RelevanceTask> tasks)
-            throws InterruptedException {
+    public static Map<RelevanceTask, Boolean> relevanceBooleanBatch(
+            Llm llm, List<RelevanceTask> tasks, ExecutorService executor) throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
-        var results = new HashMap<RelevanceTask, Boolean>();
+        var tempResults = new HashMap<RelevanceTask, Boolean>();
+        var booleanTasks = getBooleanTasks(llm, tasks);
+        var futures = executor.invokeAll(booleanTasks);
 
-        try (var executor = AdaptiveExecutor.create(service, llm.getModel(), tasks.size())) {
-            var booleanTasks = getBooleanTasks(llm, tasks);
-            var futures = executor.invokeAll(booleanTasks);
-
-            for (var future : futures) {
-                try {
-                    var result = future.get();
-                    results.put(result.task(), result.relevant());
-                } catch (ExecutionException e) {
-                    logger.error("Execution of a boolean task failed while waiting for result", e);
-                }
+        for (var future : futures) {
+            try {
+                var result = future.get();
+                tempResults.put(result.task(), result.relevant());
+            } catch (ExecutionException e) {
+                logger.error("Execution of a boolean task failed while waiting for result", e);
             }
         }
 
-        return Map.copyOf(results);
+        var orderedResults = new LinkedHashMap<RelevanceTask, Boolean>(tasks.size());
+        for (var task : tasks) {
+            if (tempResults.containsKey(task)) {
+                orderedResults.put(task, tempResults.get(task));
+            }
+        }
+        return Map.copyOf(orderedResults);
     }
 
     private static List<Callable<BoolRelevanceResult>> getBooleanTasks(Llm llm, List<RelevanceTask> tasks) {
