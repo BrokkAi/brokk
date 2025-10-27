@@ -306,7 +306,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
             // Use cached tree to avoid redundant parsing - significant performance improvement
             String fileContent = getCachedFileContent(file);
-            TSTree tree = getCachedTree(file);
+            TSTree tree = treeOf(file);
             if (tree == null) {
                 // Fallback: parse the file if tree is not cached (should rarely happen)
                 log.warn("Tree not found in cache for {}. Parsing on-demand - this may indicate a bug.", file);
@@ -484,10 +484,14 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     public String getCacheStatistics() {
+        // Count non-null parsed trees in fileState
+        int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
+                .filter(fp -> fp.parsedTree() != null)
+                .count());
         return String.format(
                 "FileContent: %d, ParsedTrees: %d, SkeletonGen: %d, NamespaceProc: %d",
                 fileContentCache.size(),
-                super.cacheSize(),
+                parsedTreeCount,
                 skeletonGenerator.getCacheSize(),
                 namespaceProcessor.getCacheSize());
     }
