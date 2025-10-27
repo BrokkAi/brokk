@@ -563,6 +563,12 @@ public class Chrome
 
                 // Move shared ModelSelector back to Instructions bottom bar (always try this)
                 instructionsPanel.restoreModelSelectorToBottom();
+                // Move shared Analyzer status strip back to Instructions bottom bar
+                try {
+                    instructionsPanel.setStatusStrip(getAnalyzerStatusStrip());
+                } catch (Exception ex) {
+                    logger.debug("Unable to move analyzer status strip back to InstructionsPanel", ex);
+                }
             } else if (selected == taskListPanel) {
                 // Move shared Context area to Tasks
                 var parent = contextAreaContainer.getParent();
@@ -580,11 +586,37 @@ public class Chrome
                 } catch (Exception ex) {
                     logger.debug("Unable to move shared ModelSelector to TaskListPanel", ex);
                 }
+
+                // Move shared Analyzer status strip to the TaskList controls
+                try {
+                    taskListPanel.setSharedStatusStrip(getAnalyzerStatusStrip());
+                } catch (Exception ex) {
+                    logger.debug("Unable to move analyzer status strip to TaskListPanel", ex);
+                }
             } else if (selected == terminalPanel) {
+                // Move shared Analyzer status strip to Terminal bottom toolbar
+                Runnable attachStripToTerminal = () -> {
+                    try {
+                        var strip = getAnalyzerStatusStrip();
+                        var parent = strip.getParent();
+                        if (parent != null) {
+                            parent.remove(strip);
+                            parent.revalidate();
+                            parent.repaint();
+                        }
+                        terminalPanel.setBottomToolbarComponent(strip);
+                    } catch (Exception ex) {
+                        logger.debug("Unable to move analyzer status strip to TerminalPanel", ex);
+                    }
+                };
                 if (terminalPanel.isReady()) {
+                    attachStripToTerminal.run();
                     terminalPanel.requestFocusInTerminal();
                 } else {
-                    terminalPanel.whenReady().thenRun(() -> terminalPanel.requestFocusInTerminal());
+                    terminalPanel.whenReady().thenRun(() -> {
+                        SwingUtilities.invokeLater(attachStripToTerminal);
+                        terminalPanel.requestFocusInTerminal();
+                    });
                 }
             }
         });
