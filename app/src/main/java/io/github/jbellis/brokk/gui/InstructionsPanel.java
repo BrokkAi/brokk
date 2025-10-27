@@ -123,6 +123,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent inputLayeredPane;
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
+    private @Nullable JComponent statusStripComponent;
+    private @Nullable JPanel bottomToolbarPanel;
+    private @Nullable JPanel selectorStripPanel;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -1087,15 +1090,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel bottomPanel = new JPanel();
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        this.bottomToolbarPanel = bottomPanel;
 
-        // Flexible space before model selector and action button
+        // Flexible space before right-side controls (model selector + optional status strip + action button)
         bottomPanel.add(Box.createHorizontalGlue());
+
+        // Build a compact container that hosts the ModelSelector and, if present, the status strip
+        this.selectorStripPanel = new JPanel();
+        this.selectorStripPanel.setOpaque(false);
+        this.selectorStripPanel.setLayout(new BoxLayout(this.selectorStripPanel, BoxLayout.LINE_AXIS));
 
         // Model selector on the right
         var modelComp = modelSelector.getComponent();
         modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
-        modelComp.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, H_GAP));
-        bottomPanel.add(modelComp);
+        // Keep spacing purely via struts to avoid double padding from per-component borders
+        this.selectorStripPanel.add(modelComp);
+
+        // If a status strip has already been provided, add it adjacent to the model selector with a small gap
+        if (statusStripComponent != null) {
+            this.selectorStripPanel.add(Box.createHorizontalStrut(Math.max(1, H_GAP / 2)));
+            statusStripComponent.setAlignmentY(Component.CENTER_ALIGNMENT);
+            // Ensure status strip is detached from any previous parent
+            if (statusStripComponent.getParent() != null) {
+                statusStripComponent.getParent().remove(statusStripComponent);
+            }
+            this.selectorStripPanel.add(statusStripComponent);
+        }
+
+        bottomPanel.add(this.selectorStripPanel);
+        // Gap between the selector+strip cluster and the action button
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Action split button (with integrated mode dropdown) on the right
@@ -2024,66 +2047,115 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Ensures the ModelSelector component is attached to the Instructions bottom bar,
-     * immediately before the actionButton with proper spacing, and revalidates the layout.
-     * Safe to call from any thread.
+     * Accepts an externally provided status strip and places it immediately next to the ModelSelector
+     * in the bottom toolbar. Safe to call from any thread.
+     *
+     * If a strip was previously installed, it is removed first. The provided component is detached
+     * from any prior parent before insertion (Swing components can only have one parent).
+     */
+    public void setStatusStrip(@Nullable JComponent comp) {
+        Runnable r = () -> {
+            try {
+                // Remove existing strip from its current parent (if any)
+                if (statusStripComponent != null) {
+                    Container p = statusStripComponent.getParent();
+                    if (p != null) {
+                        p.remove(statusStripComponent);
+                        p.revalidate();
+                        p.repaint();
+                    }
+                }
+
+                statusStripComponent = comp;
+
+                if (selectorStripPanel == null) {
+                    // Not built yet; will be placed when buildBottomPanel is called
+                    return;
+                }
+
+                // Rebuild the selector strip panel with model selector and optional status strip
+                selectorStripPanel.removeAll();
+
+                var modelComp = modelSelector.getComponent();
+                Container currentParent = modelComp.getParent();
+                if (currentParent != null) {
+                    currentParent.remove(modelComp);
+                    currentParent.revalidate();
+                    currentParent.repaint();
+                }
+                modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
+                selectorStripPanel.add(modelComp);
+
+                if (statusStripComponent != null) {
+                    // Ensure provided component has no parent
+                    Container stripParent = statusStripComponent.getParent();
+                    if (stripParent != null) {
+                        stripParent.remove(statusStripComponent);
+                        stripParent.revalidate();
+                        stripParent.repaint();
+                    }
+                    selectorStripPanel.add(Box.createHorizontalStrut(Math.max(1, H_GAP / 2)));
+                    statusStripComponent.setAlignmentY(Component.CENTER_ALIGNMENT);
+                    selectorStripPanel.add(statusStripComponent);
+                }
+
+                selectorStripPanel.revalidate();
+                selectorStripPanel.repaint();
+                if (bottomToolbarPanel != null) {
+                    bottomToolbarPanel.revalidate();
+                    bottomToolbarPanel.repaint();
+                }
+            } catch (Exception ex) {
+                logger.debug("setStatusStrip: non-fatal error while installing status strip", ex);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeLater(r);
+    }
+
+    /**
+     * Ensures the ModelSelector component is attached to the Instructions bottom bar (inside the selectorStripPanel),
+     * immediately adjacent to the status strip (if any), and revalidates the layout. Safe to call from any thread.
      */
     public void restoreModelSelectorToBottom() {
         Runnable r = () -> {
             try {
-                JComponent comp = modelSelector.getComponent();
-                var currentParent = comp.getParent();
-                var bottom = actionButton.getParent();
-                if (bottom == null) return;
+                var comp = modelSelector.getComponent();
 
-                if (currentParent != bottom) {
-                    if (currentParent != null) {
-                        currentParent.remove(comp);
-                        currentParent.revalidate();
-                        currentParent.repaint();
-                    }
-                    // Insert right before the action button with spacing strut
-                    int actionIndex = indexOfChild(bottom, actionButton);
-                    if (actionIndex >= 0) {
-                        bottom.add(comp, actionIndex);
-                        bottom.add(Box.createHorizontalStrut(H_GAP), actionIndex + 1);
-                        bottom.revalidate();
-                        bottom.repaint();
-                    }
-                } else {
-                    // Already in the right parent; ensure correct ordering with strut
-                    int compIndex = indexOfChild(bottom, comp);
-                    int actionIndex = indexOfChild(bottom, actionButton);
+                // Detach from any previous parent
+                Container currentParent = comp.getParent();
+                if (currentParent != null) {
+                    currentParent.remove(comp);
+                    currentParent.revalidate();
+                    currentParent.repaint();
+                }
 
-                    // Check if strut exists right after model selector
-                    boolean strutExists = false;
-                    if (actionIndex >= 1) {
-                        Component potentialStrut = bottom.getComponent(actionIndex - 1);
-                        strutExists = potentialStrut instanceof Box.Filler;
-                    }
+                if (selectorStripPanel != null) {
+                    // Rebuild selector+strip cluster
+                    selectorStripPanel.removeAll();
 
-                    if (compIndex != actionIndex - 2 || !strutExists) {
-                        // Reposition: remove model selector and any old strut, then re-add both
-                        bottom.remove(comp);
+                    comp.setAlignmentY(Component.CENTER_ALIGNMENT);
+                    selectorStripPanel.add(comp);
 
-                        // Also remove the old strut if it exists
-                        int newActionIndex = indexOfChild(bottom, actionButton);
-                        if (newActionIndex >= 1) {
-                            Component potentialStrut = bottom.getComponent(newActionIndex - 1);
-                            if (potentialStrut instanceof Box.Filler) {
-                                bottom.remove(potentialStrut);
-                                newActionIndex = indexOfChild(bottom, actionButton);
-                            }
+                    if (statusStripComponent != null) {
+                        Container stripParent = statusStripComponent.getParent();
+                        if (stripParent != null) {
+                            stripParent.remove(statusStripComponent);
+                            stripParent.revalidate();
+                            stripParent.repaint();
                         }
-
-                        // Add model selector and new strut before action button
-                        if (newActionIndex >= 0) {
-                            bottom.add(comp, newActionIndex);
-                            bottom.add(Box.createHorizontalStrut(H_GAP), newActionIndex + 1);
-                        }
-                        bottom.revalidate();
-                        bottom.repaint();
+                        selectorStripPanel.add(Box.createHorizontalStrut(Math.max(1, H_GAP / 2)));
+                        statusStripComponent.setAlignmentY(Component.CENTER_ALIGNMENT);
+                        selectorStripPanel.add(statusStripComponent);
                     }
+
+                    selectorStripPanel.revalidate();
+                    selectorStripPanel.repaint();
+                }
+
+                if (bottomToolbarPanel != null) {
+                    bottomToolbarPanel.revalidate();
+                    bottomToolbarPanel.repaint();
                 }
             } catch (Exception ex) {
                 logger.debug("restoreModelSelectorToBottom: non-fatal error repositioning model selector", ex);
