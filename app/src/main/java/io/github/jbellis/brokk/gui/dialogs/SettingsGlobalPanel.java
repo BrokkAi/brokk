@@ -303,7 +303,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         RowAdder adder = new RowAdder();
         // Instructions panel
         adder.add("instructions.submit", "Submit (Enter)");
-        adder.add("instructions.toggleMode", "Toggle Code/Ask");
+        adder.add("instructions.toggleMode", "Toggle Code/Ask/Lutz");
 
         // Global text editing
         adder.add("global.undo", "Undo");
@@ -489,7 +489,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
             case "instructions.submit" -> "Submit (Enter)";
-            case "instructions.toggleMode" -> "Toggle Code/Ask";
+            case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
             case "global.copy" -> "Copy";
