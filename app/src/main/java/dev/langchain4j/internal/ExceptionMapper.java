@@ -8,6 +8,7 @@ import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.exception.ModelNotFoundException;
 import dev.langchain4j.exception.NetworkException;
 import dev.langchain4j.exception.RateLimitException;
+import dev.langchain4j.exception.RequestEntityTooLargeException;
 import dev.langchain4j.exception.TimeoutException;
 import dev.langchain4j.exception.UnresolvedModelServerException;
 import java.io.IOException;
@@ -58,7 +59,8 @@ public interface ExceptionMapper {
             }
 
             if (rootCause instanceof IOException) {
-                // Generic network/IO failures (connection reset, timeouts, premature close, etc.)
+                // Generic network/IO failures (connection reset, timeouts, premature close,
+                // etc.)
                 return new NetworkException(rootCause);
             }
 
@@ -80,6 +82,9 @@ public interface ExceptionMapper {
             }
             if (httpStatusCode == 429) {
                 return new RateLimitException(cause);
+            }
+            if (httpStatusCode == 413) {
+                return new RequestEntityTooLargeException(cause);
             }
             if (httpStatusCode >= 400 && httpStatusCode < 500) {
                 return new InvalidRequestException(cause);
