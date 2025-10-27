@@ -28,6 +28,8 @@ import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.theme.GuiTheme;
+import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -76,7 +78,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class HistoryOutputPanel extends JPanel {
+public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
 
     private final Chrome chrome;
@@ -2461,6 +2463,45 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        assert SwingUtilities.isEventDispatchThread() : "applyTheme must be called on EDT";
+        // Propagate theme to child output area
+        llmStreamArea.applyTheme(guiTheme);
+        // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
+        if (aggregatedChangesPanel instanceof ThemeAware ta) {
+            ta.applyTheme(guiTheme);
+        }
+        SwingUtilities.updateComponentTreeUI(this);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Releases owned resources. Must be called on the EDT.
+     */
+    public void dispose() {
+        assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
+        // Dispose aggregated changes panel if present
+        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
+            try {
+                diffPanel.dispose();
+            } catch (Throwable t) {
+                logger.debug("Ignoring error disposing aggregated BrokkDiffPanel during HistoryOutputPanel.dispose()", t);
+            } finally {
+                aggregatedChangesPanel = null;
+            }
+        } else {
+            aggregatedChangesPanel = null;
+        }
+        // Dispose the web-based markdown output panel
+        try {
+            llmStreamArea.dispose();
+        } catch (Throwable t) {
+            logger.debug("Ignoring error disposing MarkdownOutputPanel during HistoryOutputPanel.dispose()", t);
+        }
+    }
+
     /** A renderer that shows the action text and a diff summary (when available) under it. */
     private class DiffAwareActionRenderer extends DefaultTableCellRenderer {
         private final ActivityTableRenderers.ActionCellRenderer fallback =
@@ -2873,6 +2914,8 @@ public class HistoryOutputPanel extends JPanel {
 
         var diffPanel = builder.build();
         aggregatedChangesPanel = diffPanel;
+        // Ensure the embedded diff reflects the current theme immediately
+        diffPanel.applyTheme(chrome.getTheme());
 
         wrapper.add(diffPanel, BorderLayout.CENTER);
         return wrapper;
