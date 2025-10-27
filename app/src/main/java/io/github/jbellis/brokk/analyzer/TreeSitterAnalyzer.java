@@ -1063,16 +1063,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Builds the parent FQName from package name and class chain for parent-child relationship lookup. Override this
+     * Builds the parent FQName from class chain for parent-child relationship lookup. Override this
      * method to apply language-specific FQName correction logic.
      *
-     * @param file The file being analyzed (for language-specific module name extraction)
-     * @param packageName The package name of the child looking for its parent
+     * @param cu The CodeUnit being attached to its parent (provides access to file, packageName, etc.)
      * @param classChain The class chain indicating the parent hierarchy
      * @return The fully qualified name to use for parent lookup
      */
-    protected String buildParentFqName(ProjectFile file, String packageName, String classChain) {
-        return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        return Stream.of(cu.packageName(), classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 
     /**
@@ -1691,7 +1690,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             file);
                 } else {
                     // Parent's shortName is the classChain string itself.
-                    String parentFqName = buildParentFqName(file, cu.packageName(), classChain);
+                    String parentFqName = buildParentFqName(cu, classChain);
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());

@@ -264,17 +264,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String buildParentFqName(ProjectFile file, String packageName, String classChain) {
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
         // For function-local classes, transform classChain to match stored FQNs
         // Example: classChain="test_function.LocalClass" → "test_function$LocalClass"
         // Detection: classChain starting with lowercase indicates function-local class
         //            (Python functions use lowercase_with_underscores, classes use PascalCase per PEP 8)
 
         // Extract module name from filename for function FQN construction
-        String moduleName = file.getFileName();
+        String moduleName = cu.source().getFileName();
         if (moduleName.endsWith(".py")) {
             moduleName = moduleName.substring(0, moduleName.length() - 3);
         }
+
+        String packageName = cu.packageName();
 
         if (classChain != null && !classChain.isBlank()) {
             // Extract first segment to determine if this is function-local

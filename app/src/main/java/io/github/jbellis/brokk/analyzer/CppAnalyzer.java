@@ -157,7 +157,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String buildParentFqName(ProjectFile file, String packageName, String classChain) {
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        String packageName = cu.packageName();
         String correctedClassChain = classChain;
         if (!packageName.isEmpty() && classChain.equals(packageName)) {
             correctedClassChain = "";
