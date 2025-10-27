@@ -347,7 +347,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        controls.add(input);
+        // Keep controls layout consistent with InstructionsPanel:
+        // glue pushes the ModelSelector and Go/Stop button to the right.
         controls.add(Box.createHorizontalGlue());
 
         goStopButton = new MaterialButton() {
@@ -459,6 +460,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Right group: Clear Completed
             topToolbar.add(clearCompletedBtn);
+
+            // Vertical separator and add-text input to the right of Clear Completed
+            JSeparator sep2 = new JSeparator(SwingConstants.VERTICAL);
+            sep2.setPreferredSize(new Dimension(8, 24));
+            topToolbar.add(sep2);
+
+            // Move the existing input field into the top toolbar
+            topToolbar.add(input);
 
             add(topToolbar, BorderLayout.NORTH);
         }
