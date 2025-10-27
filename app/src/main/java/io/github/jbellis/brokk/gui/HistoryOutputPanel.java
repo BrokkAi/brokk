@@ -490,13 +490,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
-        // Add session name label just under the titled border
-        sessionNameLabel.setOpaque(false);
-        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
-        sessionNameLabel.setBorder(new EmptyBorder(2, 8, 4, 8));
-        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        outputPanel.add(sessionNameLabel, BorderLayout.NORTH);
-
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
@@ -516,12 +509,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         tabs.addTab("Changes", placeholder);
         this.outputTabs = tabs;
 
-        // Container for the combined section
-        var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(tabs, BorderLayout.CENTER);
-        centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
+        // Create the session panel wrapper with titled border and session label
+        var sessionPanel = new JPanel(new BorderLayout());
+        sessionPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Session",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        return centerContainer;
+        // Configure and add session name label at the top
+        sessionNameLabel.setOpaque(false);
+        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        sessionNameLabel.setBorder(new EmptyBorder(2, 8, 4, 8));
+        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        sessionPanel.add(sessionNameLabel, BorderLayout.NORTH);
+
+        // Add tabs to the session panel
+        sessionPanel.add(tabs, BorderLayout.CENTER);
+        sessionPanel.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
+
+        return sessionPanel;
     }
 
     /** Builds the Sessions panel container (temporary until removal).
