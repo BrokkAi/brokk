@@ -325,7 +325,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.modeBadge = new ModeBadge();
         modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         modeBadge.setFocusable(false);
-        modeBadge.setToolTipText("Current mode");
+        
 
         // Initialize mode indicator
         refreshModeIndicator();
@@ -1912,6 +1912,50 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Let the badge compute its own theme-aware colors based on the active mode
         modeBadge.setActiveMode(mode);
+
+        // Build and set a dynamic tooltip that includes the mode description and the toggle shortcut
+        try {
+            var toggleKs = GlobalUiSettings.getKeybinding(
+                    "instructions.toggleMode",
+                    KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+            var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+            if (toggleStr == null || toggleStr.isBlank()) {
+                toggleStr = "(unbound)";
+            }
+
+            String title;
+            String desc;
+            switch (mode) {
+                case ACTION_CODE -> {
+                    title = "Code Mode";
+                    desc = "Code: Applies changes directly to the files currently in your Workspace context based on your instructions.";
+                }
+                case ACTION_ASK -> {
+                    title = "Ask Mode";
+                    desc = "Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.";
+                }
+                case ACTION_SEARCH -> {
+                    title = "Lutz Mode";
+                    desc = "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
+                }
+                default -> {
+                    title = "Lutz Mode";
+                    desc = "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
+                }
+            }
+
+            StringBuilder body = new StringBuilder();
+            body.append("<div><b>").append(htmlEscape(title)).append("</b></div>");
+            body.append("<div style='margin-top: 4px;'>").append(htmlEscape(desc)).append("</div>");
+            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
+            body.append("<div>Toggle mode: ").append(htmlEscape(toggleStr)).append("</div>");
+
+            String html = wrapTooltipHtml(body.toString(), 320);
+            modeBadge.setToolTipText(html);
+        } catch (Exception ex) {
+            // Defensive: ensure tooltip failures don't affect the UI
+            modeBadge.setToolTipText(null);
+        }
 
         // Use the badge's accent for the input pane stripe
         Color accent = modeBadge.getAccent();
