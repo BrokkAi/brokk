@@ -79,6 +79,8 @@
       "diff_added": "#DCFADC",
       "diff_changed": "#DCEBFA",
       "diff_deleted": "#FADCDC",
+      "diff_added_fg": "#2A7722",
+      "diff_deleted_fg": "#B71C1C",
 
       "search_highlight": "#FFFF00",
       "search_current": "#FFA500",
