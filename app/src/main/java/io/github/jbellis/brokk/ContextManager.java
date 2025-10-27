@@ -2095,7 +2095,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
     public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
-        TaskScope scope = new TaskScope(compressAtCommit, input, groupLabel);
+        TaskScope scope = new TaskScope(compressAtCommit, groupLabel != null ? groupLabel + ": " + input : input);
 
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2134,11 +2134,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
-        private TaskScope(boolean compressResults, String input) {
-            this(compressResults, input, null);
+        private TaskScope(boolean compressResults) {
+            this(compressResults, null);
         }
 
-        private TaskScope(boolean compressResults, String input, @Nullable String groupLabel) {
+        private TaskScope(boolean compressResults, @Nullable String groupLabel) {
             this.compressResults = compressResults;
             this.groupLabel = groupLabel;
             this.groupId = (groupLabel != null) ? UUID.randomUUID() : null;
