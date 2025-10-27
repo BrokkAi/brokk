@@ -658,8 +658,7 @@ public class SessionsDialog extends JDialog {
                 return;
             }
 
-            Map<UUID, Integer> contextIdToRow =
-                    HistoryGrouping.buildContextToRowMap(java.util.List.of(), table);
+            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(java.util.List.of(), table);
 
             // 1. Build list of all possible arrows with their geometry
             List<Arrow> arrows = new ArrayList<>();

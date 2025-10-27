@@ -939,9 +939,7 @@ public class HistoryOutputPanel extends JPanel {
             for (var c : contexts) {
                 scheduleDiffComputation(c);
             }
-            var descriptors =
-                    HistoryGrouping.GroupingBuilder.discoverGroups(
-                            contexts, this::isGroupingBoundary);
+            var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
@@ -2634,8 +2632,7 @@ public class HistoryOutputPanel extends JPanel {
             }
 
             // Use unified helper to compute anchor rows for each Context id
-            Map<UUID, Integer> contextIdToRow =
-                    HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
+            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
 
             // 4) Build list of arrows with geometry between the resolved row anchors
             List<Arrow> arrows = new ArrayList<>();
@@ -2806,7 +2803,6 @@ public class HistoryOutputPanel extends JPanel {
         return (ctx.isAiResult() && ctx.getGroupId() == null)
                 || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
     }
-
 
     private void toggleGroupRow(int row) {
         var val = historyModel.getValueAt(row, 2);
