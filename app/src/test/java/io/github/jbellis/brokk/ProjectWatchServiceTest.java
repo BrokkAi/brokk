@@ -57,8 +57,8 @@ class ProjectWatchServiceTest {
         watchService = new ProjectWatchService(tempDir, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
-        // Give the watch service time to start
-        Thread.sleep(100);
+        // Give the watch service time to start (increased for CI reliability)
+        Thread.sleep(500);
 
         // Create a file to trigger an event
         Path testFile = tempDir.resolve("test.txt");
@@ -98,7 +98,8 @@ class ProjectWatchServiceTest {
         watchService = new ProjectWatchService(tempDir, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
-        Thread.sleep(100);
+        // Give watcher time to initialize (increased for CI reliability)
+        Thread.sleep(500);
 
         // Create a file to trigger an event
         Path testFile = tempDir.resolve("test.txt");
@@ -128,7 +129,8 @@ class ProjectWatchServiceTest {
         watchService = new ProjectWatchService(tempDir, null, listener);
         watchService.start(CompletableFuture.completedFuture(null));
 
-        Thread.sleep(100);
+        // Give watcher more time to fully initialize (race condition on slower CI systems)
+        Thread.sleep(500);
 
         // Create a file to trigger an event
         Path testFile = tempDir.resolve("test.txt");
@@ -156,6 +158,9 @@ class ProjectWatchServiceTest {
         List<Listener> listeners = new ArrayList<>(testListeners);
         watchService = new ProjectWatchService(tempDir, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
+
+        // Give watcher time to initialize
+        Thread.sleep(500);
 
         // Wait for multiple poll intervals to pass
         // The poll timeout varies (100ms focused, 1000ms unfocused)
@@ -193,7 +198,8 @@ class ProjectWatchServiceTest {
         watchService = new ProjectWatchService(tempDir, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
-        Thread.sleep(100);
+        // Give watcher time to initialize (increased for CI reliability)
+        Thread.sleep(500);
 
         // Pause the watch service
         watchService.pause();
@@ -234,7 +240,8 @@ class ProjectWatchServiceTest {
         watchService = new ProjectWatchService(tempDir, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
-        Thread.sleep(100);
+        // Give watcher time to initialize (increased for CI reliability)
+        Thread.sleep(500);
 
         // Create a file - should not throw any errors
         Path testFile = tempDir.resolve("test.txt");

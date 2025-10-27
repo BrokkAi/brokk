@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
-import com.jakewharton.disklrucache.DiskLruCache;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -20,13 +19,11 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -35,6 +32,7 @@ import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /** Encapsulates the per-file agentic merge planning loop. This class hosts the tool methods the LLM can call. */
@@ -60,14 +58,17 @@ public final class MergeOneFile {
     private final ConflictAnnotator.ConflictFileCommits conflict;
     private final IConsoleIO io;
 
-    private transient @Nullable List<ChatMessage> currentSessionMessages = null;
+    private @Nullable List<ChatMessage> currentSessionMessages = null;
 
     // Per-merge state
     private boolean abortRequested = false;
-    private transient @Nullable String abortExplanation = null;
+    private @Nullable String abortExplanation = null;
 
     // CodeAgent result holder (replaces previous ThreadLocal)
-    private transient @Nullable TaskResult lastCodeAgentResult = null;
+    private @Nullable TaskResult lastCodeAgentResult = null;
+
+    // Last instructions sent to CodeAgent for this file (for debugging/visibility)
+    private @Nullable String codeAgentInstructions = null;
 
     public MergeOneFile(
             IContextManager cm,
@@ -255,16 +256,6 @@ public final class MergeOneFile {
     // Tool implementations (hosted on this planner instance)
     // =====================
 
-    @Tool(
-            "Explain a single commit by summarizing its diff vs its parent. Use this to understand intent behind changes.")
-    public String explainCommit(
-            @P("Commit id (or revision)") String revision,
-            @P("Why you need this explanation (optional).") @Nullable String reasoning)
-            throws InterruptedException {
-        logger.debug("explainCommit {} reason={}", revision, reasoning);
-        return explainCommitCached((ContextManager) cm, revision);
-    }
-
     @Tool("Get the content of a file at a specific revision.")
     public String getContentsAtRevision(
             @P("Repository-relative file path") String filepath, @P("Revision (commit id)") String revision) {
@@ -292,61 +283,6 @@ public final class MergeOneFile {
     // =====================
     // Caching of commit explanations is now stored per-project via DiskLruCache (best-effort).
     // The previous in-memory EXPLAIN_CACHE has been removed.
-
-    /** Explain a single commit with caching on the project's DiskLruCache (best-effort). */
-    public static String explainCommitCached(IContextManager cm, String revision) throws InterruptedException {
-        var shortHash = ((GitRepo) cm.getProject().getRepo()).shortHash(revision);
-        var key = "explain-" + shortHash;
-
-        DiskLruCache cache = cm.getProject().getDiskCache();
-        try (var snapshot = cache.get(key)) {
-            if (snapshot != null) {
-                try (var is = snapshot.getInputStream(0)) {
-                    var bytes = is.readAllBytes();
-                    return new String(bytes, StandardCharsets.UTF_8);
-                }
-            }
-        } catch (IOException e) {
-            logger.warn("Disk cache read failed for {}: {}", key, e.toString());
-            // fallthrough to compute explanation
-        }
-
-        // Compute explanation
-        var gw = new GitWorkflow(cm);
-        var explainModel = cm.getService().getScanModel();
-        String explanation;
-        try {
-            explanation = gw.explainCommit(explainModel, shortHash);
-        } catch (GitAPIException e) {
-            throw new RuntimeException(e);
-        }
-
-        // Try to write into cache (best-effort)
-        DiskLruCache.Editor editor = null;
-        boolean editorCommitted = false;
-        try {
-            editor = cache.edit(key);
-            if (editor != null) {
-                try (var os = editor.newOutputStream(0)) {
-                    os.write(explanation.getBytes(StandardCharsets.UTF_8));
-                }
-                editor.commit();
-                editorCommitted = true;
-            }
-        } catch (IOException e) {
-            logger.warn("Disk cache write failed for {}: {}", key, e.toString());
-        } finally {
-            if (editor != null && !editorCommitted) {
-                try {
-                    editor.abort();
-                } catch (IOException ignored) {
-                    // Best-effort: ignore abort failures
-                }
-            }
-        }
-
-        return explanation;
-    }
 
     // =====================
     // Helpers
@@ -449,6 +385,11 @@ public final class MergeOneFile {
                """;
     }
 
+    /** Accessor for the last per-file CodeAgent instructions persisted to the Workspace (debugging use). */
+    public @Nullable String getCodeAgentInstructions() {
+        return codeAgentInstructions;
+    }
+
     /**
      * Invoke CodeAgent to actually apply the merge edits to the current file. Provide precise instructions for how to
      * resolve the conflicts.
@@ -464,6 +405,18 @@ public final class MergeOneFile {
         instructions +=
                 "\n\nRemember to use the BRK_CONFLICT_BEGIN_[n]..BRK_CONFLICT_END_[n] markers to simplify your SEARCH/REPLACE blocks!"
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
+
+        // Persist instructions to Workspace so Architect can read them later
+        this.codeAgentInstructions = instructions;
+        try {
+            var desc = "Merge instructions for " + file;
+            var fragment =
+                    new ContextFragment.StringFragment(cm, instructions, desc, SyntaxConstants.SYNTAX_STYLE_NONE);
+            cm.addVirtualFragment(fragment);
+        } catch (Exception e) {
+            logger.warn("Failed to persist merge instructions for {}: {}", file, e.toString(), e);
+        }
+
         var agent = new CodeAgent(cm, codeModel, io);
         var result = agent.runSingleFileEdit(file, instructions, requireNonNull(currentSessionMessages));
         this.lastCodeAgentResult = result;

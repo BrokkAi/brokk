@@ -41,15 +41,15 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Bar", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Bar'!"));
-            analyzer.getDefinition("Baz")
+            analyzer.getDefinition("Baz$")
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
-                                assertEquals("Baz", cu.fqName());
+                                assertEquals("Baz$", cu.fqName());
                                 assertEquals("", cu.packageName());
-                                assertEquals("Baz", cu.shortName());
+                                assertEquals("Baz$", cu.shortName());
                             },
-                            () -> fail("Could not find code unit 'Baz'!"));
+                            () -> fail("Could not find code unit 'Baz$'!"));
             analyzer.getDefinition("Color")
                     .ifPresentOrElse(
                             cu -> {
@@ -128,6 +128,9 @@ public class ScalaAnalyzerTest {
                                 trait Bar {
                                   def test2: Unit = {}
                                 }
+                                object Baz {
+                                  def test3: Unit = {}
+                                }
                                 """,
                         "ai/brokk/Foo.scala")
                 .build()) {
@@ -150,6 +153,15 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Bar.test2", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Bar.test2'!"));
+            analyzer.getDefinition("ai.brokk.Baz$.test3")
+                    .ifPresentOrElse(
+                            cu -> {
+                                assertTrue(cu.isFunction());
+                                assertEquals("ai.brokk.Baz$.test3", cu.fqName());
+                                assertEquals("ai.brokk", cu.packageName());
+                                assertEquals("Baz$.test3", cu.shortName());
+                            },
+                            () -> fail("Could not find code unit 'Baz$.test3'!"));
         }
     }
 

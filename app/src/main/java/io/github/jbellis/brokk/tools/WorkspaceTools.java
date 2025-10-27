@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -166,26 +165,6 @@ public class WorkspaceTools {
             ExceptionReporter.tryReportException(e);
             throw new RuntimeException("Unexpected error processing URL " + urlString + ": " + e.getMessage(), e);
         }
-    }
-
-    @Tool(
-            "Add an arbitrary block of text (e.g., notes that are independent of the Plan, a configuration snippet, or something learned from another Agent) to the Workspace as a read-only fragment")
-    public String addTextToWorkspace(
-            @P("The text content to add to the Workspace") String content,
-            @P("A short, descriptive label for this text fragment (e.g., 'User Requirements', 'API Key Snippet')")
-                    String description) {
-        if (content.isBlank()) {
-            return "Content cannot be empty.";
-        }
-        if (description.isBlank()) {
-            return "Description cannot be empty.";
-        }
-
-        var fragment = new ContextFragment.StringFragment(
-                context.getContextManager(), content, description, SyntaxConstants.SYNTAX_STYLE_NONE);
-        context = context.addVirtualFragments(List.of(fragment));
-
-        return "Added text '%s'.".formatted(description);
     }
 
     @Tool(

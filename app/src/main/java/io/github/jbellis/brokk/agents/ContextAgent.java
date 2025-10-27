@@ -8,6 +8,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -67,8 +68,6 @@ public class ContextAgent {
     }
 
     private final ContextManager cm;
-    private final Llm llm;
-    private final Llm filesLlm;
     private final String goal;
     private final IAnalyzer analyzer;
     private final StreamingChatModel model;
@@ -85,19 +84,6 @@ public class ContextAgent {
         this.goal = goal;
         this.model = model;
         this.analyzer = contextManager.getAnalyzer();
-
-        // Files-pruning LLM
-        var options = new Llm.Options(
-                        contextManager.getService().quickestModel(),
-                        "ContextAgent Files (%s): %s".formatted("Deep", goal))
-                .withForceReasoningEcho()
-                .withEcho();
-        this.filesLlm = contextManager.getLlm(options);
-        // Evaluation LLM
-        options = new Llm.Options(model, "ContextAgent (%s): %s".formatted("Deep", goal))
-                .withForceReasoningEcho()
-                .withEcho();
-        this.llm = contextManager.getLlm(options);
 
         // Token budgets
         int outputTokens = model.defaultRequestParameters().maxCompletionTokens();
@@ -236,6 +222,38 @@ public class ContextAgent {
                 .toList();
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
+        // Create Llm instances - only analyzed group streams to UI
+        var filesLlmAnalyzed = cm.getLlm(
+                new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
+                        .withForceReasoningEcho()
+                        .withEcho());
+        var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(
+                cm.getService().quickestModel(), "ContextAgent Files (Unanalyzed): %s".formatted(goal)));
+
+        var llmAnalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
+                .withForceReasoningEcho()
+                .withEcho());
+        var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): %s".formatted(goal)));
+
+        // Show status message based on which groups have work
+        int groupCount = (analyzedFiles.isEmpty() ? 0 : 1) + (unAnalyzedFiles.isEmpty() ? 0 : 1);
+        var io = cm.getIo();
+        switch (groupCount) {
+            case 0 -> {} // No message needed
+            case 1 ->
+                io.llmOutput(
+                        "\nProcessing " + (analyzedFiles.isEmpty() ? "**unanalyzed**" : "**analyzed**") + " files…\n\n",
+                        ChatMessageType.AI,
+                        true,
+                        true);
+            case 2 ->
+                io.llmOutput(
+                        "\nProcessing **analyzed** and **unanalyzed** files in parallel\nAnalyzed files reasoning:\n\n",
+                        ChatMessageType.AI,
+                        true,
+                        true);
+        }
+
         // Process each group in parallel
         LlmRecommendation[] results = new LlmRecommendation[2];
         Throwable[] errors = new Throwable[2];
@@ -248,7 +266,9 @@ public class ContextAgent {
                         allSummaries,
                         workspaceRepresentation,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining);
+                        pruneBudgetRemaining,
+                        filesLlmAnalyzed,
+                        llmAnalyzed);
             } catch (Throwable t) {
                 errors[0] = t;
             }
@@ -262,7 +282,9 @@ public class ContextAgent {
                         Map.of(),
                         workspaceRepresentation,
                         evalBudgetRemaining,
-                        pruneBudgetRemaining);
+                        pruneBudgetRemaining,
+                        filesLlmUnanalyzed,
+                        llmUnanalyzed);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -291,6 +313,12 @@ public class ContextAgent {
         var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
         mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
 
+        // Display unanalyzed reasoning here (if not blank)
+        if (!unAnalyzedRec.reasoning().isBlank()) {
+            io.llmOutput(
+                    "\n\nUnanalyzed files reasoning:\n\n" + unAnalyzedRec.reasoning(), ChatMessageType.AI, false, true);
+        }
+
         var combinedReasoning = Stream.of(analyzedRec.reasoning(), unAnalyzedRec.reasoning())
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
@@ -310,7 +338,9 @@ public class ContextAgent {
             Map<CodeUnit, String> allSummariesForAnalyzed,
             Collection<ChatMessage> workspaceRepresentation,
             int evalBudgetRemaining,
-            int pruneBudgetRemaining)
+            int pruneBudgetRemaining,
+            Llm filesLlm,
+            Llm llm)
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
@@ -342,8 +372,8 @@ public class ContextAgent {
                     initialTokens,
                     evalBudgetRemaining);
             var filenames = workingFiles.stream().map(ProjectFile::toString).toList();
-            var pruneRec =
-                    askLlmDeepPruneFilenamesWithChunking(filenames, workspaceRepresentation, pruneBudgetRemaining);
+            var pruneRec = askLlmDeepPruneFilenamesWithChunking(
+                    filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
             usage = addTokenUsage(usage, pruneRec.tokenUsage());
 
             workingFiles = pruneRec.recommendedFiles().stream().sorted().toList();
@@ -360,7 +390,7 @@ public class ContextAgent {
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
         // If we still get a context-window error, iteratively cut off the least important half.
         LlmRecommendation evalRec =
-                evaluateWithHalving(type, workingFiles, allSummariesForAnalyzed, workspaceRepresentation);
+                evaluateWithHalving(type, workingFiles, allSummariesForAnalyzed, workspaceRepresentation, llm);
         usage = addTokenUsage(usage, evalRec.tokenUsage());
         if (!reasoning.isEmpty()) {
             evalRec = new LlmRecommendation(
@@ -380,7 +410,8 @@ public class ContextAgent {
             GroupType type,
             List<ProjectFile> files,
             Map<CodeUnit, String> allSummariesForAnalyzed,
-            Collection<ChatMessage> workspaceRepresentation)
+            Collection<ChatMessage> workspaceRepresentation,
+            Llm llm)
             throws InterruptedException {
 
         List<ProjectFile> current = new ArrayList<>(files);
@@ -390,7 +421,7 @@ public class ContextAgent {
             Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
 
             try {
-                return askLlmDeepRecommendContext(summaries, contents, workspaceRepresentation);
+                return askLlmDeepRecommendContext(summaries, contents, workspaceRepresentation, llm);
             } catch (ContextTooLargeException e) {
                 if (current.size() <= 1) {
                     logger.debug("{} group still too large with a single file; returning empty.", type);
@@ -480,22 +511,34 @@ public class ContextAgent {
     // --- Files-pruning utilities (budget-capped at 100k) ---
 
     private LlmRecommendation askLlmDeepPruneFilenamesWithChunking(
-            List<String> filenames, Collection<ChatMessage> workspaceRepresentation, int pruningBudgetTokens)
+            List<String> filenames,
+            Collection<ChatMessage> workspaceRepresentation,
+            int pruningBudgetTokens,
+            Llm filesLlm,
+            boolean showBatch1Reasoning)
             throws InterruptedException {
 
         int filenameTokens = Messages.getApproximateTokens(filenames);
         if (pruningBudgetTokens <= 0) {
             // Degenerate case: fall back to coarse chunking
-            return deepPruneFilenamesInChunks(filenames, filenameTokens, workspaceRepresentation, 4096);
+            return deepPruneFilenamesInChunks(
+                    filenames, filenameTokens, workspaceRepresentation, 4096, filesLlm, showBatch1Reasoning);
         }
         if (filenameTokens > pruningBudgetTokens) {
-            return deepPruneFilenamesInChunks(filenames, filenameTokens, workspaceRepresentation, pruningBudgetTokens);
+            return deepPruneFilenamesInChunks(
+                    filenames,
+                    filenameTokens,
+                    workspaceRepresentation,
+                    pruningBudgetTokens,
+                    filesLlm,
+                    showBatch1Reasoning);
         }
-        return askLlmDeepPruneFilenames(filenames, workspaceRepresentation);
+        return askLlmDeepPruneFilenames(filenames, workspaceRepresentation, filesLlm);
     }
 
     private LlmRecommendation askLlmDeepPruneFilenames(
-            List<String> filenames, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
+            List<String> filenames, Collection<ChatMessage> workspaceRepresentation, Llm filesLlm)
+            throws InterruptedException {
 
         var systemPrompt =
                 """
@@ -552,8 +595,10 @@ public class ContextAgent {
                 var left = filenames.subList(0, mid);
                 var right = filenames.subList(mid, filenames.size());
 
-                var rec1 = askLlmDeepPruneFilenamesWithChunking(left, workspaceRepresentation, Integer.MAX_VALUE);
-                var rec2 = askLlmDeepPruneFilenamesWithChunking(right, workspaceRepresentation, Integer.MAX_VALUE);
+                var rec1 = askLlmDeepPruneFilenamesWithChunking(
+                        left, workspaceRepresentation, Integer.MAX_VALUE, filesLlm, false);
+                var rec2 = askLlmDeepPruneFilenamesWithChunking(
+                        right, workspaceRepresentation, Integer.MAX_VALUE, filesLlm, false);
 
                 var mergedFiles = new ArrayList<>(rec1.recommendedFiles());
                 rec2.recommendedFiles().stream()
@@ -591,7 +636,9 @@ public class ContextAgent {
             List<String> filenames,
             int filenameTokens,
             Collection<ChatMessage> workspaceRepresentation,
-            int pruningBudgetTokens)
+            int pruningBudgetTokens,
+            Llm filesLlm,
+            boolean showBatch1Reasoning)
             throws InterruptedException {
 
         logger.debug("Chunking {} filenames for parallel pruning", filenames.size());
@@ -612,13 +659,30 @@ public class ContextAgent {
             return new LlmRecommendation(List.of(), List.of(), "Unable to prune filenames");
         }
 
+        if (showBatch1Reasoning) {
+            cm.getIo()
+                    .llmOutput(
+                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…",
+                            ChatMessageType.AI,
+                            true,
+                            false);
+        }
+
+        Llm filesLlmNoEcho = showBatch1Reasoning
+                ? cm.getLlm(new Llm.Options(
+                                cm.getService().quickestModel(), "ContextAgent Files (batch 2+): %s".formatted(goal))
+                        .withForceReasoningEcho())
+                : filesLlm;
+
         List<Future<LlmRecommendation>> futures;
         try (var executor = AdaptiveExecutor.create(cm.getService(), model, chunks.size())) {
             List<Callable<LlmRecommendation>> tasks = new ArrayList<>(chunks.size());
-            for (var chunk : chunks) {
+            for (int i = 0; i < chunks.size(); i++) {
+                int batchIndex = i;
+                Llm llmForBatch = (showBatch1Reasoning && batchIndex == 0) ? filesLlm : filesLlmNoEcho;
                 tasks.add(() -> {
                     try {
-                        return askLlmDeepPruneFilenames(chunk, workspaceRepresentation);
+                        return askLlmDeepPruneFilenames(chunks.get(batchIndex), workspaceRepresentation, llmForBatch);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException(ie);
@@ -646,6 +710,16 @@ public class ContextAgent {
                 combinedReasoning.append(rec.reasoning()).append('\n');
             combinedUsage = addTokenUsage(combinedUsage, rec.tokenUsage());
         }
+
+        if (showBatch1Reasoning) {
+            cm.getIo()
+                    .llmOutput(
+                            "All batches complete. " + combinedFiles.size() + " files selected.",
+                            ChatMessageType.CUSTOM,
+                            true,
+                            false);
+        }
+
         return new LlmRecommendation(
                 combinedFiles, Set.of(), combinedReasoning.toString().strip(), combinedUsage);
     }
@@ -655,7 +729,8 @@ public class ContextAgent {
     private LlmRecommendation askLlmDeepRecommendContext(
             Map<CodeUnit, String> summaries,
             Map<ProjectFile, String> contentsMap,
-            Collection<ChatMessage> workspaceRepresentation)
+            Collection<ChatMessage> workspaceRepresentation,
+            Llm llm)
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();

@@ -1411,7 +1411,7 @@ public class BlitzForgeDialog extends JDialog {
                             perFileModel,
                             agentInstructions,
                             scope);
-                    postProcessResult = agent.executeWithSearch(scope);
+                    postProcessResult = agent.executeWithSearch();
                 }
                 scope.append(postProcessResult);
             } finally {

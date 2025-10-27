@@ -20,8 +20,9 @@ class FileWatcherHelperTest {
 
     @BeforeEach
     void setUp() {
-        projectRoot = Path.of("/test/project");
-        gitRepoRoot = Path.of("/test/project");
+        // Use toAbsolutePath() to ensure paths are absolute on all platforms (Windows needs drive letter)
+        projectRoot = Path.of("/test/project").toAbsolutePath();
+        gitRepoRoot = Path.of("/test/project").toAbsolutePath();
         helper = new FileWatcherHelper(projectRoot, gitRepoRoot);
     }
 

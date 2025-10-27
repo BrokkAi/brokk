@@ -61,7 +61,6 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -116,12 +115,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private SplitButton historyDropdown;
+    private final ModeBadge modeBadge;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private final JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
-    private @Nullable JLabel modeBadge;
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
 
@@ -321,6 +320,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Synchronize button's selected mode with loaded preference
         actionButton.setSelectedMode(storedAction);
+
+        // Initialize mode badge before mode indicator refresh
+        this.modeBadge = new ModeBadge();
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
+        modeBadge.setFocusable(false);
+        modeBadge.setToolTipText("Current mode");
+
         // Initialize mode indicator
         refreshModeIndicator();
         // Initialize tooltip to reflect the selected mode
@@ -626,28 +632,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildTopBarPanel() {
-        // Replaced history dropdown with compact branch split button in top bar
         var topBarPanel = new JPanel();
         topBarPanel.setLayout(new BoxLayout(topBarPanel, BoxLayout.X_AXIS));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        // Initialize mode badge
-        modeBadge = new JLabel("LUTZ MODE");
-        modeBadge.setOpaque(true);
-        modeBadge.setFont(modeBadge.getFont().deriveFont(Font.BOLD, 10f));
-        modeBadge.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        modeBadge.setHorizontalAlignment(SwingConstants.CENTER);
-        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Left-side icon group: microphone, wand (enhance), history
         micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
 
+        // Ensure focusable for keyboard accessibility
+        micButton.setFocusable(true);
+        wandButton.setFocusable(true);
+
+        // Build a left cluster to measure width for proper center alignment of the badge
+        var leftCluster = new JPanel();
+        leftCluster.setOpaque(false);
+        leftCluster.setLayout(new BoxLayout(leftCluster, BoxLayout.X_AXIS));
+        leftCluster.add(micButton);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP));
+        leftCluster.add(wandButton);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP));
+        leftCluster.add(historyDropdown);
+
+        // Add left cluster
+        topBarPanel.add(leftCluster);
+
+        // Centered mode badge with symmetric spacing:
+        // glue (flex) + modeBadge + glue (flex) + right filler matching left cluster width
+        topBarPanel.add(Box.createHorizontalGlue());
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         topBarPanel.add(modeBadge);
         topBarPanel.add(Box.createHorizontalGlue());
-        topBarPanel.add(historyDropdown);
-        topBarPanel.add(wandButton);
-        topBarPanel.add(micButton);
+
+        // Right filler to balance left cluster width for true centering
+        int leftWidth = leftCluster.getPreferredSize().width;
+        topBarPanel.add(Box.createRigidArea(new Dimension(leftWidth, 0)));
 
         return topBarPanel;
     }
@@ -1596,7 +1616,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
             var result = agent.runTask(input, Set.of());
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
     }
@@ -1624,7 +1643,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var result = executeAskCommand(contextManager, modelToUse, input);
 
             // Persist to history regardless of success/failure
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
     }
@@ -1647,15 +1665,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
 
-        submitAction(ACTION_SEARCH, query, () -> {
+        submitAction(ACTION_SEARCH, query, scope -> {
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
             SearchAgent agent = new SearchAgent(
-                    query, cm, modelToUse, EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
-            var result = agent.execute();
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            return result;
+                    query,
+                    cm,
+                    modelToUse,
+                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
+                    cm.liveContext(),
+                    scope);
+            return agent.execute();
         });
     }
 
@@ -1668,7 +1689,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             case ACTION_ARCHITECT -> "Architect Mode — planning and applying code changes...";
             case ACTION_CODE -> "Applying Code Mode — editing files in your Workspace...";
             case ACTION_SEARCH -> "Running Lutz Mode — agentic search and plan generation...";
-            case ACTION_ASK -> "Answering from Workspace — composing response with your project context...";
+            case ACTION_ASK -> "Answering from existing Context only...";
             default -> "Executing " + action + "...";
         };
     }
@@ -1888,55 +1909,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private void refreshModeIndicator() {
         String mode = actionButton.getSelectedMode();
-        boolean isDark = UIManager.getBoolean("laf.dark");
-        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
 
-        Color badgeBg;
-        Color badgeFg;
-        Color accent;
-        String badgeText;
+        // Let the badge compute its own theme-aware colors based on the active mode
+        modeBadge.setActiveMode(mode);
 
-        try {
-            switch (mode) {
-                case ACTION_CODE -> {
-                    badgeText = "CODE MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
-                }
-                case ACTION_ASK -> {
-                    badgeText = "ASK MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
-                }
-                case ACTION_SEARCH -> {
-                    badgeText = "LUTZ MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
-                }
-                default -> {
-                    badgeText = "LUTZ MODE";
-                    badgeBg = new Color(0xF4C430);
-                    badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
-                    accent = new Color(0xF4C430);
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("Theme color lookup failed; using fallback colors", ex);
-            badgeText = "LUTZ MODE";
-            badgeBg = new Color(0xF4C430);
-            badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
-            accent = new Color(0xF4C430);
-        }
-
-        if (modeBadge != null) {
-            modeBadge.setText(badgeText);
-            modeBadge.setBackground(badgeBg);
-            modeBadge.setForeground(badgeFg);
-            modeBadge.repaint();
-        }
+        // Use the badge's accent for the input pane stripe
+        Color accent = modeBadge.getAccent();
 
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
@@ -2448,8 +2426,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Custom focus traversal policy for InstructionsPanel that defines the tab order: instructionsArea → actionButton →
-     * modeSwitch → codeCheckBox/searchProjectCheckBox → micButton → modelSelector → historyDropdown → branchSplitButton
+     * Custom focus traversal policy for InstructionsPanel.
+     * Tab order: instructionsArea → micButton → modelSelector → actionButton → historyDropdown → next.
      */
     private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
         @Override
@@ -2463,8 +2441,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else if (aComponent == actionButton) {
                 return findHistoryDropdown();
             } else if (aComponent == findHistoryDropdown()) {
-                return findBranchSplitButton();
-            } else if (aComponent == findBranchSplitButton()) {
                 return getNextFocusableComponent();
             }
             return instructionsArea;
@@ -2480,10 +2456,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return modelSelector.getComponent();
             } else if (aComponent == findHistoryDropdown()) {
                 return actionButton;
-            } else if (aComponent == findBranchSplitButton()) {
-                return findHistoryDropdown();
             } else if (aComponent == getNextFocusableComponent()) {
-                return findBranchSplitButton();
+                return findHistoryDropdown();
             }
             return instructionsArea;
         }
@@ -2495,7 +2469,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public Component getLastComponent(Container aContainer) {
-            return findBranchSplitButton();
+            return findHistoryDropdown();
         }
 
         @Override
@@ -2505,13 +2479,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         private Component findHistoryDropdown() {
             return historyDropdown;
-        }
-
-        private Component findBranchSplitButton() {
-            return findComponentInHierarchy(
-                    InstructionsPanel.this,
-                    comp -> comp instanceof SplitButton && comp != historyDropdown,
-                    instructionsArea);
         }
 
         private Component getNextFocusableComponent() {
@@ -2524,27 +2491,138 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
             return instructionsArea;
         }
-
-        private Component findComponentInHierarchy(
-                Container container, Predicate<Component> predicate, Component fallback) {
-            for (Component comp : container.getComponents()) {
-                if (predicate.test(comp)) {
-                    return comp;
-                }
-                if (comp instanceof Container containerComp) {
-                    Component found = findComponentInHierarchy(containerComp, predicate, fallback);
-                    if (found != fallback) {
-                        return found;
-                    }
-                }
-            }
-            return fallback;
-        }
     }
 
     private static class ModelUnavailableException extends RuntimeException {
         public ModelUnavailableException() {
             super("Model is unavailable. Usually this indicates a networking problem.");
+        }
+    }
+
+    /**
+     * Small square badge that displays the current mode.
+     * Uses ThemeColors for background/foreground and accent for the border.
+     * Non-focusable, compact, centered text.
+     */
+    private static class ModeBadge extends JComponent implements ThemeAware {
+        private String text = "";
+        private String modeKind = ACTION_SEARCH; // default
+        private Color accent = new Color(0xF4C430);
+        private Color fg = Color.WHITE;
+        private Color bg = Color.GRAY;
+        private static final int HPAD = 6;
+        private static final int VPAD = 2;
+        private static final float FONT_SIZE = 11f;
+
+        ModeBadge() {
+            setFocusable(false);
+            setOpaque(false);
+            setAlignmentY(Component.CENTER_ALIGNMENT);
+        }
+
+        public void setActiveMode(String modeKind) {
+            this.modeKind = Objects.requireNonNullElse(modeKind, ACTION_SEARCH);
+            updateFromTheme();
+        }
+
+        public Color getAccent() {
+            return accent;
+        }
+
+        private void updateFromTheme() {
+            boolean isDark = UIManager.getBoolean("laf.dark");
+            switch (modeKind) {
+                case ACTION_CODE -> {
+                    this.text = "CODE MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
+                }
+                case ACTION_ASK -> {
+                    this.text = "ASK MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
+                }
+                case ACTION_SEARCH -> {
+                    this.text = "LUTZ MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
+                }
+                default -> {
+                    this.text = "LUTZ MODE";
+                    this.bg = new Color(0xF4C430);
+                    this.fg = isDark ? Color.WHITE : new Color(0x1E1E1E);
+                    this.accent = new Color(0xF4C430);
+                }
+            }
+            revalidate();
+            repaint();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            updateFromTheme();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            updateFromTheme();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            var f = getFont() != null ? getFont() : UIManager.getFont("Label.font");
+            if (f == null) f = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+            var font = f.deriveFont(Font.BOLD, FONT_SIZE);
+            FontMetrics fm = getFontMetrics(font);
+            int w = fm.stringWidth(text);
+            int h = fm.getHeight();
+            return new Dimension(w + 2 * HPAD, h + 2 * VPAD);
+        }
+
+        @Override
+        public Dimension getMinimumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                var f = getFont() != null ? getFont() : UIManager.getFont("Label.font");
+                if (f == null) f = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+                var font = f.deriveFont(Font.BOLD, FONT_SIZE);
+                g2.setFont(font);
+
+                int w = getWidth();
+                int h = getHeight();
+
+                // Solid background (square)
+                g2.setColor(bg);
+                g2.fillRect(0, 0, w, h);
+
+                // Accent border
+                g2.setColor(accent);
+                g2.drawRect(0, 0, w - 1, h - 1);
+
+                // Text centered
+                FontMetrics fm = g2.getFontMetrics();
+                int tw = fm.stringWidth(text);
+                int tx = Math.max(0, (w - tw) / 2);
+                int ty = Math.max(0, (h - fm.getHeight()) / 2 + fm.getAscent());
+                g2.setColor(fg);
+                g2.drawString(text, tx, ty);
+            } finally {
+                g2.dispose();
+            }
         }
     }
 

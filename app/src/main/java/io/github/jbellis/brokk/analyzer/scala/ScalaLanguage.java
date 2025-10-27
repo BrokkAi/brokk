@@ -34,4 +34,9 @@ public class ScalaLanguage implements Language {
     public IAnalyzer loadAnalyzer(IProject project) {
         return createAnalyzer(project);
     }
+
+    @Override
+    public String toString() {
+        return name();
+    }
 }

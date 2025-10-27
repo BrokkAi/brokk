@@ -145,8 +145,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
                     The workspace is consuming %.0f%% of this limit. This is critically high and may lead to errors or degraded performance.
 
                     IMMEDIATE ACTION REQUIRED: Reduce the workspace size. Strategies:
-                    1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`).
-                    2. Add your own commentary on the essential information in a fragment and then drop the original (e.g., using `addTextToWorkspace` then `dropWorkspaceFragments`).
+                    1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`), then `dropWorkspaceFragments` on the originals.
+                    2. Add your own commentary on essential information in fragments that are not immediately necessary using `appendNote`, then `dropWorkspaceFragments` on the originals.
                     3. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
                     4. Operations like replacing a fragment (e.g., a file with its summary) involve an 'add' and a 'drop', which can be performed in parallel.
 
@@ -161,8 +161,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
                     The workspace is consuming %.0f%% of this limit.
 
                     To maintain optimal performance and avoid errors, consider reducing the workspace size. Strategies:
-                    1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`).
-                    2. Add your own commentary on the essential information in a fragment and then drop the original (e.g., using `addTextToWorkspace` then `dropWorkspaceFragments`).
+                    1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`), then `dropWorkspaceFragments` on the originals.
+                    2. Add your own commentary on essential information in fragments that are not immediately necessary using `appendNote`, then `dropWorkspaceFragments` on the originals.
                     3. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
                     4. Operations like replacing a fragment (e.g., a file with its summary) involve an 'add' and a 'drop', which can be performed in parallel.
 

@@ -23,7 +23,7 @@ import org.jspecify.annotations.NullMarked;
  * 3) setup.py: python_requires or REQUIRED_PYTHON
  * 4) tox.ini: envlist entries
  * 5) .github/workflows/*.yml: python-version entries
- * 6) Heuristic: if any source imports distutils, cap at 3.10
+ * 6) Heuristic: if any source imports distutils, cap at 3.11
  *
  * Returns a version like "3.8", or "3.12" as a fallback.
  */
@@ -66,13 +66,14 @@ public class EnvironmentPython {
     public String getPythonVersion() {
         var specWithSource = getRequiresPythonSpecWithSource();
         var explicitVersionsWithSource = getExplicitVersionsWithSource();
-        boolean cap310 = repoImportsDistutils();
+        boolean cap311 = repoImportsDistutils();
 
         // Candidates (newest first)
-        List<String> candidates = List.of("3.13", "3.12", "3.11", "3.10", "3.9", "3.8", "3.7", "3.6");
-        if (cap310) {
+        // (uv only supports 3.7+)
+        List<String> candidates = List.of("3.13", "3.12", "3.11", "3.10", "3.9", "3.8", "3.7");
+        if (cap311) {
             candidates = candidates.stream()
-                    .filter(v -> !v.startsWith("3.1") || v.equals("3.10"))
+                    .filter(v -> compareVersions(v, "3.12") < 0)
                     .toList();
         }
 
@@ -82,7 +83,7 @@ public class EnvironmentPython {
                     .sorted((a, b) -> compareVersions(b.version(), a.version()))
                     .toList()) {
                 String v = versionWithSource.version();
-                if (cap310 && compareVersions(v, "3.10") > 0) continue;
+                if (cap311 && compareVersions(v, "3.11") > 0) continue;
                 if (pythonExecutableExists(v)) {
                     logger.debug(
                             "Selected Python version {} from CI/tox ({})",
@@ -291,7 +292,7 @@ public class EnvironmentPython {
         }
     }
 
-    /** Parse a PEP 440 version spec like ">=3.8,<4" or ">=3.6". */
+    /** Parse a PEP 440 version spec like ">=3.8,<4", ">=3.6", or "~=3.6". */
     private VersionBounds parseSpec(String spec) {
         @Nullable PyVersion lower = null;
         @Nullable PyVersion upper = null;
@@ -330,6 +331,24 @@ public class EnvironmentPython {
                     int min = Integer.parseInt(m.group(2));
                     lower = new PyVersion(maj, min);
                     upper = new PyVersion(maj, min + 1);
+                }
+            } else if (part.startsWith("~=")) {
+                // Compatible release operator (PEP 440)
+                // ~=X.Y     => >=X.Y, <(X+1).0
+                // ~=X.Y.Z   => >=X.Y (patch ignored for interpreter selection), <X.(Y+1)
+                String v = part.substring(2).trim();
+                var nums = Splitter.on('.').trimResults().omitEmptyStrings().splitToList(v);
+                if (!nums.isEmpty()) {
+                    int maj = Integer.parseInt(nums.get(0));
+                    int min = nums.size() >= 2 ? Integer.parseInt(nums.get(1)) : 0;
+                    lower = new PyVersion(maj, min);
+                    if (nums.size() >= 3) {
+                        // ~=X.Y.Z -> upper < X.(Y+1)
+                        upper = new PyVersion(maj, min + 1);
+                    } else {
+                        // ~=X.Y   -> upper < (X+1).0
+                        upper = new PyVersion(maj + 1, 0);
+                    }
                 }
             }
         }

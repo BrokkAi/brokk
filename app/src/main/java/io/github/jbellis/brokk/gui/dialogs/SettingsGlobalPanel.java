@@ -125,6 +125,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton startupOpenAllRadio = new JRadioButton("Reopen all previously open projects");
     private JCheckBox persistPerProjectWindowCheckbox = new JCheckBox("Save window position per project (recommended)");
 
+    // Advanced mode (General tab)
+    private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
@@ -641,6 +644,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(instructionsTabInsertIndentationCheckbox, gbc);
+
+        // Advanced Mode
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Interface:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(advancedModeCheckbox, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -750,10 +767,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Dev-only: Force tool emulation checkbox
         if (Boolean.getBoolean("brokk.devmode")) {
-            forceToolEmulationCheckbox =
-                    new JCheckBox("[Dev Mode] Force tool emulation", Service.GLOBAL_FORCE_TOOL_EMULATION);
+            forceToolEmulationCheckbox = new JCheckBox(
+                    "[Dev Mode] Force tool emulation (also show empty workspace chips)",
+                    Service.GLOBAL_FORCE_TOOL_EMULATION);
             forceToolEmulationCheckbox.setToolTipText(
-                    "Development override: emulate tool calls instead of native function calling.");
+                    "Development override: emulate tool calls. Also forces the UI to show visually-empty workspace chips for debugging and testing only.\n\n"
+                            + "Dev note: When enabled, the UI will also show empty/placeholder workspace chips to aid debugging.");
             gbc.gridx = 1;
             gbc.gridy = row++;
             gbc.weightx = 1.0;
@@ -1243,6 +1262,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // Use defaults if there is any problem reading settings
         }
 
+        // Advanced Mode (General tab)
+        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
         // Service Tab
         brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
@@ -1437,6 +1459,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
         int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
+
+        // General Tab - Advanced Mode
+        GlobalUiSettings.saveAdvancedMode(advancedModeCheckbox.isSelected());
+        try {
+            chrome.applyAdvancedModeVisibility();
+        } catch (Exception ex) {
+            // Non-fatal: hook will be implemented in follow-up tasks
+        }
 
         // General Tab - JVM Memory
         try {

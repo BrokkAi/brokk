@@ -57,12 +57,12 @@ class ContextManagerFileWatchingTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (contextManager != null) {
-            try {
-                contextManager.close();
-            } catch (NullPointerException e) {
-                // Ignore - analyzerWrapper may be null in tests that don't create GUI
-            }
+        // Close the SessionManager to release file handles on Windows.
+        // MainProject creates a SessionManager which scans the .brokk/sessions directory
+        // and opens zip files. On Windows, these file handles prevent @TempDir cleanup
+        // even though the threads are daemon. Explicitly closing ensures proper cleanup.
+        if (project != null) {
+            project.getSessionManager().close();
         }
     }
 

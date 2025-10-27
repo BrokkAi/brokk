@@ -115,6 +115,18 @@ public class CodeAgent {
         }
     }
 
+    TaskResult runTask(Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+        // pause watching for external changes (so they don't get added to activity history while we're still making
+        // changes);
+        // this means that we're responsible for refreshing the analyzer when we make changes
+        contextManager.getAnalyzerWrapper().pause();
+        try {
+            return runTaskInternal(initialContext, prologue, userInput, options);
+        } finally {
+            contextManager.getAnalyzerWrapper().resume();
+        }
+    }
+
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
