@@ -7,8 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class MultiAnalyzer
-        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+public class MultiAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -65,20 +64,6 @@ public class MultiAnalyzer
     @Override
     public IProject getProject() {
         return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphTo(methodName, depth))
-                .orElse(Collections.emptyMap()));
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphFrom(methodName, depth))
-                .orElse(Collections.emptyMap()));
     }
 
     @Override

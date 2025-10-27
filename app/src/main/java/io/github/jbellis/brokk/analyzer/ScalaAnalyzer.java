@@ -58,7 +58,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        final String fqName = classChain.isEmpty() ? effectiveSimpleName : classChain + "." + effectiveSimpleName;
+        final String shortName = classChain.isEmpty() ? effectiveSimpleName : classChain + "." + effectiveSimpleName;
 
         var type =
                 switch (skeletonType) {
@@ -73,7 +73,17 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     }
                 };
 
-        return new CodeUnit(file, type, packageName, fqName);
+        return new CodeUnit(file, type, packageName, shortName);
+    }
+
+    @Override
+    protected String determineClassName(String nodeType, String shortName) {
+        if (OBJECT_DEFINITION.equals(nodeType)) {
+            // Companion objects append '$' on a bytecode level to avoid naming conflicts
+            return shortName + "$";
+        } else {
+            return shortName;
+        }
     }
 
     @Override

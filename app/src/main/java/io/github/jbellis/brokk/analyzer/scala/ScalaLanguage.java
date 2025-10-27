@@ -36,17 +36,7 @@ public class ScalaLanguage implements Language {
     }
 
     @Override
-    public boolean providesSummaries() {
-        return true;
-    }
-
-    @Override
-    public boolean providesSourceCode() {
-        return true;
-    }
-
-    @Override
-    public boolean providesInterproceduralAnalysis() {
-        return true;
+    public String toString() {
+        return name();
     }
 }

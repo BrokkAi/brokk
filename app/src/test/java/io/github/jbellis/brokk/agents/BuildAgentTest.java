@@ -55,4 +55,54 @@ class BuildAgentTest {
 
         assertEquals("go test -run ' TestFoo'", result);
     }
+
+    @Test
+    void testInterpolatePythonVersionVariable() {
+        String template = "python{{pyver}} -m pytest";
+        List<String> empty = List.of();
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+
+        assertEquals("python3.11 -m pytest", result);
+    }
+
+    @Test
+    void testInterpolatePythonVersionWithoutVariable() {
+        String template = "pytest";
+        List<String> empty = List.of();
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", "3.11");
+
+        assertEquals("pytest", result);
+    }
+
+    @Test
+    void testInterpolatePythonVersionEmpty() {
+        String template = "pytest --pyver={{pyver}}";
+        List<String> empty = List.of();
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, empty, "modules", null);
+
+        assertEquals("pytest --pyver=", result);
+    }
+
+    @Test
+    void testInterpolateModulesAndPythonVersion() {
+        String template = "python{{pyver}} tests/runtests.py{{#modules}} {{value}}{{/modules}}";
+        List<String> modules = List.of("tests.unit", "tests.integration");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "3.10");
+
+        assertEquals("python3.10 tests/runtests.py tests.unit tests.integration", result);
+    }
+
+    @Test
+    void testInterpolateEmptyPythonVersion() {
+        String template = "uv run {{#modules}}{{value}}{{/modules}}";
+        List<String> modules = List.of("tests.e2e");
+
+        String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
+
+        assertEquals("uv run tests.e2e", result);
+    }
 }

@@ -296,8 +296,9 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
-                    // Gate formatting to GPT-5 only, and only after the first reasoning chunk
-                    boolean isGpt5 = contextManager.getService().nameOf(model).equals(Service.GPT_5);
+                    // Gate formatting to GPT-5 (and other variants like mini) only, and only after the first reasoning
+                    // chunk
+                    boolean isGpt5 = contextManager.getService().nameOf(model).startsWith(Service.GPT_5);
                     String out = isGpt5 ? addReasoningNewlinesForGpt5(reasoningContent) : reasoningContent;
 
                     accumulatedReasoningBuilder.append(out);

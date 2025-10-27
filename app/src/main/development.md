@@ -329,7 +329,7 @@ Prereleases are marked appropriately in GitHub releases and distribution channel
 Automatic development builds are created by the `jdeploy.yaml` workflow on every commit to the `master` branch. These builds allow developers to test the latest changes without waiting for an official release.
 
 **Accessing Development Builds:**
-- Development builds are available at: https://github.com/BrokkAi/brokk/releases/tag/master
+- Development builds are available at: https://github.com/BrokkAi/brokk/releases/tag/master-snapshot
 - The `master` tag is automatically updated after each commit to `master`
 - Platform-specific installers (macOS, Windows, Linux) are available for download
 

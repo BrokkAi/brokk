@@ -39,6 +39,27 @@ public interface IConsoleIO {
         llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM);
     }
 
+    /**
+     * Stages a new history to be displayed before the next LLM stream begins.
+     * <p>
+     * This is a deferred action. When the first token of the next new message arrives,
+     * the output panel will atomically:
+     * <ol>
+     *     <li>Clear the main output area.</li>
+     *     <li>Display the provided {@code history}.</li>
+     *     <li>Render the new token.</li>
+     * </ol>
+     * This mechanism ensures the conversation view is correctly synchronized before a new
+     * AI response streams in, preventing UI flicker.
+     * <p>
+     * The default implementation is a no-op to preserve source compatibility.
+     *
+     * @param history The task history to display as the new baseline for the next stream.
+     */
+    default void prepareOutputForNextStream(List<TaskEntry> history) {
+        // no-op by default; GUI consoles may override to prepare the Output panel
+    }
+
     enum MessageSubType {
         Run,
         Ask,
@@ -83,7 +104,7 @@ public interface IConsoleIO {
         throw new UnsupportedOperationException();
     }
 
-    default void blockLlmOutput(boolean blocked) {
+    default void setTaskInProgress(boolean progress) {
         // pass
     }
 

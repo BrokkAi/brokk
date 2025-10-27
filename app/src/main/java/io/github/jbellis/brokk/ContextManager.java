@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.tasks.TaskList;
+import io.github.jbellis.brokk.tools.GitTools;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.UiTools;
@@ -89,6 +90,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public static final String DEFAULT_SESSION_NAME = "New Session";
 
     public static boolean isTestFile(ProjectFile file) {
+
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
@@ -99,7 +101,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private LoggingExecutorService createLoggingExecutorService(
             ExecutorService toWrap, Set<Class<? extends Throwable>> ignoredExceptions) {
         return new LoggingExecutorService(toWrap, th -> {
-            var thread = Thread.currentThread();
             if (ignoredExceptions.stream().anyMatch(cls -> cls.isInstance(th))) {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
@@ -111,7 +112,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             logger.error("Uncaught exception in executor", th);
-            String message = "Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
+            var thread = Thread.currentThread();
+            var message = "Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
                     .formatted(thread.getName(), getStackTraceAsString(th));
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         });
@@ -170,10 +172,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private boolean freeTierNotified = false;
 
     // BuildAgent task tracking for cancellation
-    private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
+    private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
 
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
+
+    // Publicly exposed flag for the exact TaskScope window
+    private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -233,8 +238,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.exceptionReporter = new ExceptionReporter(this.service::get);
 
         // set up global tools
-        this.toolRegistry =
-                ToolRegistry.empty().builder().register(new SearchTools(this)).build();
+        this.toolRegistry = ToolRegistry.empty()
+                .builder()
+                .register(new SearchTools(this))
+                .register(new GitTools(this))
+                .build();
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
         // immediately during construction, which means our own reference to it will still be null
@@ -357,7 +365,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener);
+        var fileWatchListener = createFileWatchListener();
+        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, fileWatchListener);
 
         // Load saved context history or create a new one
         var contextTask =
@@ -406,49 +415,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onRepoChange() {
-                logger.debug("AnalyzerListener.onRepoChange fired");
-                try {
-                    var branch = project.getRepo().getCurrentBranch();
-                    logger.debug("AnalyzerListener.onRepoChange current branch: {}", branch);
-                } catch (Exception e) {
-                    logger.debug("AnalyzerListener.onRepoChange: unable to get current branch", e);
-                }
-                project.getRepo().invalidateCaches();
-                io.updateGitRepo();
-
-                // Notify analyzer callbacks
-                for (var callback : analyzerCallbacks) {
-                    submitBackgroundTask("Update for Git changes", callback::onRepoChange);
-                }
+                // NOTE: In Phase 4, this callback is no longer used in GUI mode.
+                // ContextManager.fileWatchListener now handles git changes directly via handleGitMetadataChange().
+                // This method is kept for backward compatibility only (e.g., if createUiNotificationListener is used).
+                logger.debug("AnalyzerListener.onRepoChange fired (backward compatibility path)");
+                handleGitMetadataChange();
             }
 
             @Override
             public void onTrackedFileChange() {
-                submitBackgroundTask("Update for FS changes", () -> {
-                    // we don't need the full onRepoChange but we do need these parts
-                    project.getRepo().invalidateCaches();
-                    project.invalidateAllFiles();
-                    io.updateCommitPanel();
-
-                    // update Workspace
-                    // we can't rely on pushContext's change detection because here we care about the contents and not
-                    // the
-                    // fragment identity
-                    if (processExternalFileChangesIfNeeded()) {
-                        // analyzer refresh will call this too, but it will be delayed
-                        io.updateWorkspace();
-                    }
-
-                    // ProjectTree
-                    for (var fsListener : fileSystemEventListeners) {
-                        fsListener.onTrackedFilesChanged();
-                    }
-                });
-
-                // Notify analyzer callbacks
-                for (var callback : analyzerCallbacks) {
-                    submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
-                }
+                // NOTE: In Phase 4, this callback is no longer used in GUI mode.
+                // ContextManager.fileWatchListener now handles tracked file changes directly via
+                // handleTrackedFileChange().
+                // This method is kept for backward compatibility only (e.g., if createUiNotificationListener is used).
+                logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
+                handleTrackedFileChange(Set.of()); // Empty set since we don't have specific files from this path
             }
 
             @Override
@@ -509,6 +490,134 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
         };
+    }
+
+    /**
+     * Creates a file watch listener that receives raw file system events directly from ProjectWatchService.
+     * This listener handles git metadata changes, tracked file changes, and preview window refreshes.
+     * <p>
+     * This replaces the temporary uiListener created in AnalyzerWrapper (Phase 2), moving file watching
+     * responsibility to ContextManager where it belongs.
+     */
+    IWatchService.Listener createFileWatchListener() {
+        Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
+        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), gitRepoRoot);
+
+        return new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                logger.trace("ContextManager file watch listener received events batch: {}", batch);
+
+                // Classify the changes using helper
+                var trackedFiles = project.getRepo().getTrackedFiles();
+                var classification = helper.classifyChanges(batch, trackedFiles);
+
+                // 1) Handle git metadata changes
+                if (classification.gitMetadataChanged) {
+                    logger.debug("Git metadata changes detected by ContextManager");
+                    handleGitMetadataChange();
+                }
+
+                // 2) Handle tracked file changes
+                if (classification.trackedFilesChanged) {
+                    logger.debug(
+                            "Tracked file changes detected by ContextManager ({} files)",
+                            classification.changedTrackedFiles.size());
+                    handleTrackedFileChange(classification.changedTrackedFiles);
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {
+                // No action needed for "no changes"
+            }
+        };
+    }
+
+    /**
+     * Handles git metadata changes (.git directory modifications).
+     * This includes branch switches, commits, pulls, etc.
+     */
+    void handleGitMetadataChange() {
+        try {
+            var branch = project.getRepo().getCurrentBranch();
+            logger.debug("Git metadata changed, current branch: {}", branch);
+        } catch (Exception e) {
+            logger.debug("Unable to get current branch after git change", e);
+        }
+
+        project.getRepo().invalidateCaches();
+        io.updateGitRepo();
+
+        // Notify analyzer callbacks
+        for (var callback : analyzerCallbacks) {
+            submitBackgroundTask("Update for Git changes", callback::onRepoChange);
+        }
+    }
+
+    /**
+     * Gets the set of ProjectFiles currently in the context.
+     * This includes files from PathFragments (ProjectPathFragment, GitFileFragment, ExternalPathFragment).
+     *
+     * @return Set of ProjectFiles in the current context
+     */
+    Set<ProjectFile> getContextFiles() {
+        return liveContext()
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .map(f -> (ContextFragment.PathFragment) f)
+                .map(ContextFragment.PathFragment::file)
+                .filter(bf -> bf instanceof ProjectFile)
+                .map(bf -> (ProjectFile) bf)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Handles tracked file changes (modifications to files tracked by git).
+     * This refreshes UI components that display file contents.
+     * <p>
+     * Phase 6 optimization: Checks if changed files are in context before refreshing workspace.
+     *
+     * @param changedFiles Set of files that changed (may be empty for backward compatibility)
+     */
+    void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
+        submitBackgroundTask("Update for FS changes", () -> {
+            // Invalidate caches
+            project.getRepo().invalidateCaches();
+            project.invalidateAllFiles();
+            io.updateCommitPanel();
+
+            // Phase 6 optimization: Only check for context file changes if we have specific changed files
+            boolean contextFilesChanged = false;
+            if (!changedFiles.isEmpty()) {
+                Set<ProjectFile> contextFiles = getContextFiles();
+                contextFilesChanged = changedFiles.stream().anyMatch(contextFiles::contains);
+                logger.debug(
+                        "Tracked files changed: {} total, {} in context",
+                        changedFiles.size(),
+                        contextFilesChanged ? "some" : "none");
+            } else {
+                // Backward compatibility path or overflow - assume context may have changed
+                contextFilesChanged = true;
+            }
+
+            // Update workspace only if context files were affected
+            if (contextFilesChanged && processExternalFileChangesIfNeeded()) {
+                // analyzer refresh will call this too, but it will be delayed
+                io.updateWorkspace();
+                logger.debug("Workspace updated due to context file changes");
+            }
+
+            // Notify ProjectTree to refresh
+            for (var fsListener : fileSystemEventListeners) {
+                fsListener.onTrackedFilesChanged();
+            }
+        });
+
+        // Notify analyzer callbacks - they determine their own filtering
+        for (var callback : analyzerCallbacks) {
+            submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
+        }
     }
 
     /** Submits a background task to clean up old LLM session history directories. */
@@ -1323,6 +1432,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return userActions.isLlmTaskInProgress();
     }
 
+    /**
+     * Returns true while a TaskScope is active, i.e. between io.setTaskInProgress(true) and io.setTaskInProgress(false).
+     */
+    public boolean isTaskScopeInProgress() {
+        return taskScopeInProgress.get();
+    }
+
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
         return analyzerWrapper.getNonBlocking() != null;
@@ -1423,7 +1539,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         TaskResult result;
         try (var scope = beginTask(prompt, false)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
-            result = agent.executeWithSearch(scope);
+            result = agent.executeWithSearch();
         } finally {
             // mirror panel behavior
             checkBalanceAndNotify();
@@ -1582,16 +1698,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
 
-    public SummarizeWorker submitSummarizeTaskForConversation(String input) {
+    public CompletableFuture<String> summarizeTaskForConversation(String input) {
+        var future = new CompletableFuture<String>();
+
         var worker = new SummarizeWorker(this, input, 5) {
             @Override
             protected void done() {
-                io.postSummarize();
+                try {
+                    future.complete(get()); // complete successfully
+                } catch (Exception ex) {
+                    future.completeExceptionally(ex);
+                }
             }
         };
 
         worker.execute();
-        return worker;
+        return future;
     }
 
     /**
@@ -1965,13 +2087,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
     public TaskScope beginTask(String input, boolean compressAtCommit) {
-        // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
-        var messages = List.<ChatMessage>of(new UserMessage(input));
-        var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
-        var history = topContext().getTaskHistory();
-        io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
+        TaskScope scope = new TaskScope(compressAtCommit, input);
 
-        return new TaskScope(compressAtCommit);
+        // prepare MOP
+        var history = liveContext().getTaskHistory();
+        var messages = List.<ChatMessage>of(new UserMessage(input));
+        var taskFragment = new ContextFragment.TaskFragment(this, messages, input);
+        io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
+
+        // rename the session if needed
+        var sessionManager = project.getSessionManager();
+        var sessions = sessionManager.listSessions();
+        var currentSession =
+                sessions.stream().filter(s -> s.id().equals(currentSessionId)).findFirst();
+
+        if (currentSession.isPresent()
+                && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+            var actionFuture = summarizeTaskForConversation(input);
+            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
+                if (io instanceof Chrome) {
+                    project.sessionsListChanged();
+                }
+            });
+        }
+
+        return scope;
     }
 
     /**
@@ -1984,61 +2124,68 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final boolean compressResults;
         private boolean closed = false;
 
-        private TaskScope(boolean compressResults) {
-            io.blockLlmOutput(true);
+        private TaskScope(boolean compressResults, String input) {
             this.compressResults = compressResults;
+            io.setTaskInProgress(true);
+            taskScopeInProgress.set(true);
         }
 
-        public void append(TaskResult result) {
+        /**
+         * Appends a TaskResult to the context history and returns updated local context.
+         *
+         * @param result The TaskResult to append.
+         */
+        public Context append(TaskResult result) {
             assert !closed : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                     && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
                 logger.debug("Command cancelled before LLM responded");
-                return;
+                return result.context();
             }
 
             // If there is literally nothing to record (no messages and no context/file changes), skip
             if (result.output().messages().isEmpty()
                     && result.context().freeze().equals(topContext())) {
                 logger.debug("Empty TaskResult");
-                return;
+                return result.context();
             }
 
             var action = result.actionDescription();
             logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
 
-            Future<String> actionFuture = submitSummarizeTaskForConversation(action);
+            var actionFuture = summarizeTaskForConversation(action).thenApply(r -> {
+                io.postSummarize();
+                return r;
+            });
+
+            // push context
+            final Context[] updatedContext = new Context[1];
             pushContext(currentLiveCtx -> {
                 var updated = result.context();
                 TaskEntry entry = updated.createTaskEntry(result);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
-                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
+                updatedContext[0] = updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
+                return updatedContext[0];
             });
 
-            // Auto-rename session if it still has the default name
-            var sessionManager = project.getSessionManager();
-            var sessions = sessionManager.listSessions();
-            var currentSession = sessions.stream()
-                    .filter(s -> s.id().equals(currentSessionId))
-                    .findFirst();
+            // prepare MOP to display new history with the next streamed message
+            // needed because after the last append (before close) the MOP should not update
+            io.prepareOutputForNextStream(updatedContext[0].getTaskHistory());
 
-            if (currentSession.isPresent()
-                    && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-                renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                    if (io instanceof Chrome) {
-                        project.sessionsListChanged();
-                    }
-                });
-            }
+            return updatedContext[0];
         }
 
         @Override
         public void close() {
             if (closed) return;
             closed = true;
-            io.blockLlmOutput(false);
+            SwingUtilities.invokeLater(() -> {
+                // deferred cleanup
+                taskScopeInProgress.set(false);
+                io.setTaskInProgress(false);
+            });
         }
     }
 
@@ -2423,12 +2570,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // we deliberately don't infer style guide or build details here -- if they already exist, great;
         // otherwise we leave them empty
         var mp = project.getMainProject();
-        if (mp.loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+        if (mp.loadBuildDetails().equals(BuildDetails.EMPTY)) {
             mp.setBuildDetails(buildDetails);
         }
 
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, null);
+        // Headless mode doesn't need file watching, so pass null for both listeners
+        this.analyzerWrapper = new AnalyzerWrapper(project, null, null);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

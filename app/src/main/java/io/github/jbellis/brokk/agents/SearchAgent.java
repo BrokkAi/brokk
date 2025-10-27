@@ -73,6 +73,7 @@ public class SearchAgent {
     private final String goal;
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
+    private final @Nullable ContextManager.TaskScope scope;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -85,7 +86,7 @@ public class SearchAgent {
 
     public SearchAgent(
             String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
-        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext());
+        this(goal, contextManager, model, allowedTerminals, contextManager.liveContext(), null);
     }
 
     public SearchAgent(
@@ -94,6 +95,16 @@ public class SearchAgent {
             StreamingChatModel model,
             Set<Terminal> allowedTerminals,
             Context initialContext) {
+        this(goal, contextManager, model, allowedTerminals, initialContext, null);
+    }
+
+    public SearchAgent(
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            Context initialContext,
+            @Nullable ContextManager.TaskScope scope) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
@@ -105,6 +116,7 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
+        this.scope = scope;
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();
@@ -136,9 +148,17 @@ public class SearchAgent {
 
         // Single pruning turn if workspace is not empty
         performInitialPruningTurn(tr);
+        context = wst.getContext();
 
         // Expand Workspace with ContextAgent scan
         addInitialContextToWorkspace();
+
+        // Record initial context gathering as a history entry if scope is available
+        if (scope != null) {
+            var goal = "Find the right context for the task";
+            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
+            context = scope.append(contextAgentResult);
+        }
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -185,7 +205,7 @@ public class SearchAgent {
             var toolSpecs = tr.getTools(allAllowed);
 
             // Decide next action(s)
-            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk Search** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
             if (result.error() != null || result.isEmpty()) {
                 var details =
@@ -279,7 +299,8 @@ public class SearchAgent {
                     } else if (executedWorkspaceResearch && contextChanged) {
                         logger.info("Deferring finalization; workspace changed during this turn.");
                     } else {
-                        return createResult();
+                        io.llmOutput("\n\n**Brokk Search** Context is complete.\n", ChatMessageType.AI, true, false);
+                        return createResult("Brokk Search: " + goal, goal);
                     }
                 }
             }
@@ -304,10 +325,15 @@ public class SearchAgent {
                 """
                 <instructions>
                 You are the Search Agent.
-                Your job:
-                  - find and organize code relevant to the user's question or task,
-                  - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
-                  - never write code yourself.
+                Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
+                  Your responsibilities are:
+                    1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
+                    2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
+                    3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
+
+                  Remember: **You must never write, create, or modify code.**
+                  Your purpose is to *find* existing code, not *create* new code.
+                  The Code Agent is solely responsible for all code generation and modification.
 
                 Critical rules:
                   1) PRUNE FIRST at every turn.
@@ -320,6 +346,12 @@ public class SearchAgent {
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single call when possible.
                   5) Make multiple tool calls at once when searching for different types of code.
+                  6) Your responsibility ends at providing context.
+                     Do not attempt to write the solution or pseudocode for the solution.
+                     Your job is to *gather* the materials; the Code Agent's job is to *use* them.
+                     Where new code is needed, add the *target file* to the workspace using `addFilesToWorkspace`
+                     and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
+                     and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
 
                 Output discipline:
                   - Start each turn by pruning and summarizing before any new exploration.
@@ -412,10 +444,8 @@ public class SearchAgent {
 
         String testsGuidance = "";
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
-            var analyzerWrapper = cm.getAnalyzerWrapper();
-            var toolHint = analyzerWrapper.providesInterproceduralAnalysis()
-                    ? "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods."
-                    : "- To locate tests, use searchSubstrings to find test classes, @Test methods, and references to key symbols.";
+            var toolHint =
+                    "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods.";
             testsGuidance =
                     """
                     Tests:
@@ -499,19 +529,10 @@ public class SearchAgent {
         }
 
         // Fine-grained Analyzer capabilities
-        var analyzerWrapper = cm.getAnalyzerWrapper();
-        if (analyzerWrapper.providesSummaries()) {
-            names.add("getClassSkeletons");
-        }
-        if (analyzerWrapper.providesSourceCode()) {
-            names.add("getClassSources");
-            names.add("getMethodSources");
-        }
-        if (analyzerWrapper.providesInterproceduralAnalysis()) {
-            names.add("getUsages");
-            names.add("getCallGraphTo");
-            names.add("getCallGraphFrom");
-        }
+        names.add("getClassSkeletons");
+        names.add("getClassSources");
+        names.add("getMethodSources");
+        names.add("getUsages");
 
         // Text-based search
         names.add("searchSubstrings");
@@ -527,8 +548,6 @@ public class SearchAgent {
         names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
         names.add("addSymbolUsagesToWorkspace");
-        names.add("addCallGraphInToWorkspace");
-        names.add("addCallGraphOutToWorkspace");
         names.add("appendNote");
         names.add("dropWorkspaceFragments");
 
@@ -655,7 +674,7 @@ public class SearchAgent {
         // Prioritize workspace pruning and adding summaries before deeper exploration.
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "addTextToWorkspace", "appendNote" -> 2;
+            case "appendNote" -> 2;
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
@@ -733,15 +752,11 @@ public class SearchAgent {
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
-        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
+        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
-        if (!recommendation.reasoning().isEmpty()) {
-            io.llmOutput(
-                    "\n\nReasoning for contextual insights: \n" + recommendation.reasoning(), ChatMessageType.CUSTOM);
-        }
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.CUSTOM);
             return;
         }
 
@@ -749,20 +764,20 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            cm.addVirtualFragment(new ContextFragment.StringFragment(
+            context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
                     cm,
                     summaries,
                     "Summary of Scan Results",
                     recommendation.fragments().stream()
                             .findFirst()
                             .orElseThrow()
-                            .syntaxStyle()));
+                            .syntaxStyle())));
         } else {
             logger.debug("Recommended context fits within final budget.");
             addToWorkspace(recommendation);
             io.llmOutput(
-                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.",
-                    ChatMessageType.CUSTOM);
+                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
+                    ChatMessageType.AI);
         }
     }
 
@@ -865,14 +880,12 @@ public class SearchAgent {
     // Finalization and errors
     // =======================
 
-    private TaskResult createResult() {
+    private TaskResult createResult(String action, String goal) {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
             finalMessages = new ArrayList<>(sessionMessages);
         }
-
-        String action = "Search: " + goal;
 
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);

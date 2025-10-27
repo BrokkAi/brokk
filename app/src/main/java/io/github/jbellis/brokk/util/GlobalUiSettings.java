@@ -50,6 +50,7 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_INFO_NOTIFICATIONS = "notifications.info.enabled";
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
+    private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
 
     private static volatile @Nullable Properties cachedProps;
@@ -340,6 +341,15 @@ public final class GlobalUiSettings {
 
     public static void saveShowFreeInternalLLMCostNotifications(boolean show) {
         setBoolean(KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS, show);
+    }
+
+    // Advanced mode preference (default: false = easy mode)
+    public static boolean isAdvancedMode() {
+        return getBoolean(KEY_UI_ADVANCED_MODE, false);
+    }
+
+    public static void saveAdvancedMode(boolean advanced) {
+        setBoolean(KEY_UI_ADVANCED_MODE, advanced);
     }
 
     // Instructions panel preferences

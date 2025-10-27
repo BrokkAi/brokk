@@ -388,7 +388,7 @@ public class BuildAgent {
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             String cmd = details.testAllCommand();
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
-            return cmd;
+            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
 
         // Proceed with workspace-specific test determination (based on the provided Context)
@@ -419,7 +419,8 @@ public class BuildAgent {
                     cm.getProject().getRoot(),
                     summaries,
                     details.buildLintCommand());
-            return details.buildLintCommand();
+            return interpolateCommandWithPythonVersion(
+                    details.buildLintCommand(), cm.getProject().getRoot());
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -646,6 +647,19 @@ public class BuildAgent {
         }
         return Optional.ofNullable(
                 Objects.requireNonNullElse(lastWithInit, absFile).getParent());
+    }
+
+    /**
+     * Interpolate a build/test command with just the Python version variable.
+     * Used when there are no specific files or classes to substitute.
+     * If the template doesn't contain {{pyver}}, returns the original command.
+     */
+    private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
+        if (command == null || command.isEmpty()) {
+            return command;
+        }
+        String pythonVersion = getPythonVersionForProject(projectRoot);
+        return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
     /**

@@ -38,7 +38,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
     private final MOPWebViewHost webHost;
-    private boolean blockClearAndReset = false;
+    private boolean taskInProgress = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
     private @Nullable ContextManager currentContextManager;
@@ -102,12 +102,13 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.setRuntimeTheme(themeName, isDevMode, wordWrap);
     }
 
-    public void setBlocking(boolean blocked) {
-        this.blockClearAndReset = blocked;
+    public void setTaskInProgress(boolean inProgress) {
+        this.taskInProgress = inProgress;
+        webHost.setTaskInProgress(inProgress);
     }
 
-    public boolean isBlocking() {
-        return blockClearAndReset;
+    public boolean taskInProgress() {
+        return taskInProgress;
     }
 
     private String getHistorySignature(List<TaskEntry> entries) {
@@ -128,10 +129,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     private void setMainIfChanged(List<? extends ChatMessage> newMessages) {
-        if (isBlocking() && !messages.isEmpty()) {
-            logger.debug("Ignoring setMainIfChanged() while blocking is enabled and content already exists.");
-            return;
-        }
         if (getRawMessages().equals(newMessages)) {
             logger.debug("Skipping MOP main update, content is unchanged.");
             return;
@@ -156,10 +153,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
      */
     public CompletableFuture<Void> setMainThenHistoryAsync(
             List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
-        if (isBlocking() && !messages.isEmpty()) {
-            logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled and content already exists.");
-            return CompletableFuture.completedFuture(null);
-        }
         setMainIfChanged(mainMessages);
         return flushAsync().thenRun(() -> SwingUtilities.invokeLater(() -> setHistoryIfChanged(history)));
     }
@@ -173,10 +166,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void clear() {
-        if (blockClearAndReset) {
-            logger.debug("Ignoring clear() request while blocking is enabled");
-            return;
-        }
         messages.clear();
         lastHistorySignature = null;
         webHost.clear();
@@ -217,10 +206,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void setText(List<? extends ChatMessage> newMessages) {
-        if (blockClearAndReset && !messages.isEmpty()) {
-            logger.debug("Ignoring setText() while blocking is enabled and panel already has content");
-            return;
-        }
         messages.clear();
         messages.addAll(newMessages);
         webHost.clear();
@@ -260,14 +245,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public void hideSpinner() {
         webHost.hideSpinner();
-    }
-
-    /**
-     * Inform the frontend that a task has started or ended. This is used to drive UI elements like the "drop task"
-     * button and finalize streaming state.
-     */
-    public void setTaskInProgress(boolean inProgress) {
-        webHost.setTaskInProgress(inProgress);
     }
 
     public CompletableFuture<Void> flushAsync() {
