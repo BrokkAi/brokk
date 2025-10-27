@@ -365,27 +365,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Ensure session label under Output is initialized
         updateSessionComboBox();
 
-        // Create header panel with new session button (left), divider, and session label (right)
-        var headerPanel = new JPanel(new BorderLayout(8, 0));
+        // Create header panel with all controls in a simple horizontal layout
+        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         headerPanel.setOpaque(true);
         var titledBorder = BorderFactory.createTitledBorder("Session");
         var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
         headerPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
         
-        headerPanel.add(newSessionButton, BorderLayout.WEST);
-        
-        // Container for separator and label that stay together without stretching
-        var rightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        rightPanel.setOpaque(false);
-        
-        var separator = new JSeparator(JSeparator.VERTICAL);
-        separator.setPreferredSize(new Dimension(1, 20));
-        rightPanel.add(separator);
+        headerPanel.add(newSessionButton);
+        headerPanel.add(new VerticalDivider());
         
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        rightPanel.add(sessionNameLabel);
-        
-        headerPanel.add(rightPanel, BorderLayout.CENTER);
+        headerPanel.add(sessionNameLabel);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         var activityTabs = new JTabbedPane(JTabbedPane.TOP);
@@ -1805,6 +1796,23 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Simple container for notifications
+    private static class VerticalDivider extends JPanel {
+        VerticalDivider() {
+            setOpaque(false);
+            setPreferredSize(new Dimension(2, 32));
+            setMinimumSize(new Dimension(2, 32));
+            setMaximumSize(new Dimension(2, 32));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            int x = (getWidth() - 1) / 2;
+            g.setColor(UIManager.getColor("Label.foreground"));
+            g.drawLine(x, 0, x, getHeight());
+        }
+    }
+
     private static class NotificationEntry {
         final IConsoleIO.NotificationRole role;
         final String message;
