@@ -2209,8 +2209,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         case ACTION_SEARCH -> MODE_TOOLTIP_LUTZ;
                         default -> MODE_TOOLTIP_LUTZ;
                     };
+
+            String toggleLine = "";
+            try {
+                var toggleKs = GlobalUiSettings.getKeybinding(
+                        "instructions.toggleMode",
+                        KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+                if (toggleStr == null || toggleStr.isBlank()) {
+                    toggleStr = "(unbound)";
+                }
+                toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
+            } catch (Exception ignore) {
+                // Defensive: leave toggleLine empty if anything goes wrong
+            }
+
             setToolTipText("<html><body style='width: 350px;'>" + modeTooltip
                     + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>" + baseTooltip
+                    + toggleLine
                     + "</body></html>");
         }
 
