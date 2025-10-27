@@ -62,7 +62,6 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -117,12 +116,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private SplitButton historyDropdown;
+    private final ModeBadge modeBadge;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private final JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
-    private @Nullable JLabel modeBadge;
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
 
@@ -235,6 +234,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         @Override
+        public Dimension getMinimumSize() {
+            Dimension pref = getPreferredSize();
+            return new Dimension(0, pref.height);
+        }
+
+        @Override
         public Dimension getMaximumSize() {
             Dimension pref = getPreferredSize();
             return new Dimension(Integer.MAX_VALUE, pref.height);
@@ -255,6 +260,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
     private JPopupMenu tokenUsageBarPopupMenu;
+
+    private static final int INDENT_WIDTH = 4;
+    private static final String INDENT_STRING = "    "; // 4 spaces
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -313,6 +321,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Synchronize button's selected mode with loaded preference
         actionButton.setSelectedMode(storedAction);
+
+        // Initialize mode badge before mode indicator refresh
+        this.modeBadge = new ModeBadge();
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
+        modeBadge.setFocusable(false);
+        modeBadge.setToolTipText("Current mode");
+
         // Initialize mode indicator
         refreshModeIndicator();
         // Initialize tooltip to reflect the selected mode
@@ -404,6 +419,123 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return instructionsArea;
     }
 
+    /**
+     * Applies or removes indentation from the current line or selected lines.
+     * If a region is selected, operates on all lines that overlap the selection.
+     * If nothing is selected, operates on the current line.
+     *
+     * @param area    The JTextArea to modify.
+     * @param indent  true to indent, false to unindent.
+     */
+    private static void applyIndentation(JTextArea area, boolean indent) {
+        Document doc = area.getDocument();
+        int caretPos = area.getCaretPosition();
+        int selectionStart = area.getSelectionStart();
+        int selectionEnd = area.getSelectionEnd();
+
+        boolean hasSelection = selectionStart != selectionEnd;
+        int startLine;
+        int endLine;
+
+        try {
+            Element root = doc.getDefaultRootElement();
+            if (hasSelection) {
+                // Multiple lines selected; process all lines that overlap the selection
+                startLine = root.getElementIndex(selectionStart);
+                endLine = root.getElementIndex(selectionEnd);
+                // If selection ends at the start of a line, don't include that line
+                if (selectionEnd > 0) {
+                    Element lastLineElem = root.getElement(endLine);
+                    if (lastLineElem.getStartOffset() == selectionEnd) {
+                        endLine = Math.max(startLine, endLine - 1);
+                    }
+                }
+            } else {
+                // No selection; indent/unindent current line only
+                startLine = root.getElementIndex(caretPos);
+                endLine = startLine;
+            }
+
+            // Collect the indentation changes
+            StringBuilder editText = new StringBuilder();
+            int totalInserted = 0;
+
+            for (int lineIdx = startLine; lineIdx <= endLine; lineIdx++) {
+                Element lineElem = root.getElement(lineIdx);
+                int lineStart = lineElem.getStartOffset();
+                int lineEnd = lineElem.getEndOffset();
+
+                String lineText = doc.getText(lineStart, lineEnd - lineStart);
+
+                String newLineText;
+                if (indent) {
+                    // Insert indentation at the start of the line
+                    newLineText = INDENT_STRING + lineText;
+                    totalInserted += INDENT_STRING.length();
+                } else {
+                    // Remove indentation if present
+                    newLineText = unindentLine(lineText);
+                    totalInserted -= (lineText.length() - newLineText.length());
+                }
+
+                editText.append(newLineText);
+            }
+
+            // Replace the entire range with the edited text
+            int rangeStart = doc.getDefaultRootElement().getElement(startLine).getStartOffset();
+            int rangeEnd =
+                    doc.getDefaultRootElement().getElement(endLine).getEndOffset() - 1; // -1 to exclude final newline
+            doc.remove(rangeStart, rangeEnd - rangeStart);
+            doc.insertString(rangeStart, editText.toString(), null);
+
+            // Restore selection or caret position
+            if (hasSelection) {
+                int newSelectionStart = selectionStart + (indent ? INDENT_STRING.length() : 0);
+                int newSelectionEnd = selectionEnd + totalInserted;
+                area.setSelectionStart(newSelectionStart);
+                area.setSelectionEnd(newSelectionEnd);
+            } else {
+                int newCaretPos = caretPos + (indent ? INDENT_STRING.length() : 0);
+                area.setCaretPosition(Math.max(0, Math.min(newCaretPos, doc.getLength())));
+            }
+        } catch (BadLocationException ex) {
+            logger.debug("BadLocationException during indentation", ex);
+        }
+    }
+
+    /**
+     * Removes leading indentation from a line. Removes up to 4 spaces or a single leading tab.
+     *
+     * @param lineText The line text (may include trailing newline).
+     * @return The line text with leading indentation removed if present.
+     */
+    private static String unindentLine(String lineText) {
+        if (lineText.isEmpty()) {
+            return lineText;
+        }
+
+        // Check for leading tab
+        if (lineText.charAt(0) == '\t') {
+            return lineText.substring(1);
+        }
+
+        // Check for leading spaces (up to INDENT_WIDTH)
+        int spacesToRemove = 0;
+        for (int i = 0; i < Math.min(INDENT_WIDTH, lineText.length()); i++) {
+            if (lineText.charAt(i) == ' ') {
+                spacesToRemove++;
+            } else {
+                break;
+            }
+        }
+
+        if (spacesToRemove > 0) {
+            return lineText.substring(spacesToRemove);
+        }
+
+        return lineText;
+    }
+
     private JTextArea buildCommandInputField() {
         var area = new JTextArea(3, 40);
         // The BorderUtils will now handle the border, including focus behavior and padding.
@@ -469,23 +601,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Override Tab key to shift focus instead of inserting tab character
+        // Smart Tab handling: check preference at runtime
         var tabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
-        area.getInputMap().put(tabKeyStroke, "transferFocus");
-        area.getActionMap().put("transferFocus", new AbstractAction() {
+        area.getInputMap().put(tabKeyStroke, "smartTab");
+        area.getActionMap().put("smartTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                area.transferFocus();
+                if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    applyIndentation(area, true);
+                } else {
+                    area.transferFocus();
+                }
             }
         });
 
-        // Override Shift+Tab key to shift focus backward
+        // Smart Shift+Tab handling: check preference at runtime
         var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK);
-        area.getInputMap().put(shiftTabKeyStroke, "transferFocusBackward");
-        area.getActionMap().put("transferFocusBackward", new AbstractAction() {
+        area.getInputMap().put(shiftTabKeyStroke, "smartShiftTab");
+        area.getActionMap().put("smartShiftTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                area.transferFocusBackward();
+                if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    applyIndentation(area, false);
+                } else {
+                    area.transferFocusBackward();
+                }
             }
         });
 
@@ -493,28 +633,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildTopBarPanel() {
-        // Replaced history dropdown with compact branch split button in top bar
         var topBarPanel = new JPanel();
         topBarPanel.setLayout(new BoxLayout(topBarPanel, BoxLayout.X_AXIS));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        // Initialize mode badge
-        modeBadge = new JLabel("LUTZ MODE");
-        modeBadge.setOpaque(true);
-        modeBadge.setFont(modeBadge.getFont().deriveFont(Font.BOLD, 10f));
-        modeBadge.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        modeBadge.setHorizontalAlignment(SwingConstants.CENTER);
-        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Left-side icon group: microphone, wand (enhance), history
         micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
 
+        // Ensure focusable for keyboard accessibility
+        micButton.setFocusable(true);
+        wandButton.setFocusable(true);
+
+        // Build a left cluster to measure width for proper center alignment of the badge
+        var leftCluster = new JPanel();
+        leftCluster.setOpaque(false);
+        leftCluster.setLayout(new BoxLayout(leftCluster, BoxLayout.X_AXIS));
+        leftCluster.add(micButton);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP));
+        leftCluster.add(wandButton);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP));
+        leftCluster.add(historyDropdown);
+
+        // Add left cluster
+        topBarPanel.add(leftCluster);
+
+        // Centered mode badge with symmetric spacing:
+        // glue (flex) + modeBadge + glue (flex) + right filler matching left cluster width
+        topBarPanel.add(Box.createHorizontalGlue());
+        modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         topBarPanel.add(modeBadge);
         topBarPanel.add(Box.createHorizontalGlue());
-        topBarPanel.add(historyDropdown);
-        topBarPanel.add(wandButton);
-        topBarPanel.add(micButton);
+
+        // Right filler to balance left cluster width for true centering
+        int leftWidth = leftCluster.getPreferredSize().width;
+        topBarPanel.add(Box.createRigidArea(new Dimension(leftWidth, 0)));
 
         return topBarPanel;
     }
@@ -1463,7 +1617,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
             var result = agent.runTask(input, Set.of());
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
     }
@@ -1491,7 +1644,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var result = executeAskCommand(contextManager, modelToUse, input);
 
             // Persist to history regardless of success/failure
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
     }
@@ -1514,7 +1666,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
 
-        submitAction(ACTION_SEARCH, query, () -> {
+        submitAction(ACTION_SEARCH, query, scope -> {
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
@@ -1524,12 +1676,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
                     SearchMetrics.noOp(),
-                    cm.liveContext());
-            agent.scanInitialContext();
-            var result = agent.execute();
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            return result;
+                    cm.liveContext(),
+                    scope);
+            try {
+                agent.scanInitialContext();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new TaskResult(
+                        cm,
+                        "Search: " + query,
+                        cm.getIo().getLlmRawMessages(),
+                        cm.liveContext(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            }
+            return agent.execute();
         });
+    }
+
+    /**
+     * Returns a concise, user-friendly spinner message for the given action.
+     * Playful but not too long, clear about what's happening.
+     */
+    private static String spinnerTextFor(String action) {
+        return switch (action) {
+            case ACTION_ARCHITECT -> "Architect Mode — planning and applying code changes...";
+            case ACTION_CODE -> "Applying Code Mode — editing files in your Workspace...";
+            case ACTION_SEARCH -> "Running Lutz Mode — agentic search and plan generation...";
+            case ACTION_ASK -> "Answering from existing Context only...";
+            default -> "Executing " + action + "...";
+        };
     }
 
     /**
@@ -1538,24 +1713,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public void submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
-        // Map some actions to a more user-friendly display string for the spinner.
-        // We keep the original `action` (used for LLM output / history) unchanged to avoid
-        // affecting other subsystems that detect action by name, but present a clearer label
-        // to the user while the operation runs.
-        String displayAction;
-        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
-            displayAction = "Code With Plan";
-        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Ask with Search";
-        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Ask";
-        } else {
-            displayAction = action;
-        }
+        String spinnerText = spinnerTextFor(action);
 
         cm.submitLlmAction(() -> {
             try {
-                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                chrome.showOutputSpinner(spinnerText);
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
                     scope.append(result);
@@ -1575,24 +1737,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public CompletableFuture<Void> submitAction(
             String action, String input, Function<ContextManager.TaskScope, TaskResult> task) {
         var cm = chrome.getContextManager();
-        // Map some actions to a more user-friendly display string for the spinner.
-        // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
-        // affecting other subsystems that detect action by name, but present a clearer label
-        // to the user while the operation runs.
-        String displayAction;
-        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
-            displayAction = "Code With Plan";
-        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Ask with Search";
-        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Ask";
-        } else {
-            displayAction = action;
-        }
+        String spinnerText = spinnerTextFor(action);
 
         return cm.submitLlmAction(() -> {
             try {
-                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                chrome.showOutputSpinner(spinnerText);
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.apply(scope);
                     scope.append(result);
@@ -1773,55 +1922,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private void refreshModeIndicator() {
         String mode = actionButton.getSelectedMode();
-        boolean isDark = UIManager.getBoolean("laf.dark");
-        boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
 
-        Color badgeBg;
-        Color badgeFg;
-        Color accent;
-        String badgeText;
+        // Let the badge compute its own theme-aware colors based on the active mode
+        modeBadge.setActiveMode(mode);
 
-        try {
-            switch (mode) {
-                case ACTION_CODE -> {
-                    badgeText = "CODE MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
-                }
-                case ACTION_ASK -> {
-                    badgeText = "ASK MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
-                }
-                case ACTION_SEARCH -> {
-                    badgeText = "LUTZ MODE";
-                    badgeBg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
-                    badgeFg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
-                    accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
-                }
-                default -> {
-                    badgeText = "LUTZ MODE";
-                    badgeBg = new Color(0xF4C430);
-                    badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
-                    accent = new Color(0xF4C430);
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("Theme color lookup failed; using fallback colors", ex);
-            badgeText = "LUTZ MODE";
-            badgeBg = new Color(0xF4C430);
-            badgeFg = isDark ? Color.WHITE : new Color(0xF57F17);
-            accent = new Color(0xF4C430);
-        }
-
-        if (modeBadge != null) {
-            modeBadge.setText(badgeText);
-            modeBadge.setBackground(badgeBg);
-            modeBadge.setForeground(badgeFg);
-            modeBadge.repaint();
-        }
+        // Use the badge's accent for the input pane stripe
+        Color accent = modeBadge.getAccent();
 
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
@@ -2014,11 +2120,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.dropdownIcon = null;
 
             // Build base tooltip with keybinding info
-            KeyStroke submitKs = GlobalUiSettings.getKeybinding(
-                    "instructions.submit",
-                    KeyStroke.getKeyStroke(
-                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-            this.baseTooltip = "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")";
+            KeyStroke submitKs =
+                    GlobalUiSettings.getKeybinding("instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+            this.baseTooltip = "Run the selected action (Enter)";
 
             updateButtonText();
             updateTooltip();
@@ -2335,8 +2439,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Custom focus traversal policy for InstructionsPanel that defines the tab order: instructionsArea → actionButton →
-     * modeSwitch → codeCheckBox/searchProjectCheckBox → micButton → modelSelector → historyDropdown → branchSplitButton
+     * Custom focus traversal policy for InstructionsPanel.
+     * Tab order: instructionsArea → micButton → modelSelector → actionButton → historyDropdown → next.
      */
     private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
         @Override
@@ -2350,8 +2454,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else if (aComponent == actionButton) {
                 return findHistoryDropdown();
             } else if (aComponent == findHistoryDropdown()) {
-                return findBranchSplitButton();
-            } else if (aComponent == findBranchSplitButton()) {
                 return getNextFocusableComponent();
             }
             return instructionsArea;
@@ -2367,10 +2469,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return modelSelector.getComponent();
             } else if (aComponent == findHistoryDropdown()) {
                 return actionButton;
-            } else if (aComponent == findBranchSplitButton()) {
-                return findHistoryDropdown();
             } else if (aComponent == getNextFocusableComponent()) {
-                return findBranchSplitButton();
+                return findHistoryDropdown();
             }
             return instructionsArea;
         }
@@ -2382,7 +2482,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public Component getLastComponent(Container aContainer) {
-            return findBranchSplitButton();
+            return findHistoryDropdown();
         }
 
         @Override
@@ -2392,13 +2492,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         private Component findHistoryDropdown() {
             return historyDropdown;
-        }
-
-        private Component findBranchSplitButton() {
-            return findComponentInHierarchy(
-                    InstructionsPanel.this,
-                    comp -> comp instanceof SplitButton && comp != historyDropdown,
-                    instructionsArea);
         }
 
         private Component getNextFocusableComponent() {
@@ -2411,27 +2504,138 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
             return instructionsArea;
         }
-
-        private Component findComponentInHierarchy(
-                Container container, Predicate<Component> predicate, Component fallback) {
-            for (Component comp : container.getComponents()) {
-                if (predicate.test(comp)) {
-                    return comp;
-                }
-                if (comp instanceof Container containerComp) {
-                    Component found = findComponentInHierarchy(containerComp, predicate, fallback);
-                    if (found != fallback) {
-                        return found;
-                    }
-                }
-            }
-            return fallback;
-        }
     }
 
     private static class ModelUnavailableException extends RuntimeException {
         public ModelUnavailableException() {
             super("Model is unavailable. Usually this indicates a networking problem.");
+        }
+    }
+
+    /**
+     * Small square badge that displays the current mode.
+     * Uses ThemeColors for background/foreground and accent for the border.
+     * Non-focusable, compact, centered text.
+     */
+    private static class ModeBadge extends JComponent implements ThemeAware {
+        private String text = "";
+        private String modeKind = ACTION_SEARCH; // default
+        private Color accent = new Color(0xF4C430);
+        private Color fg = Color.WHITE;
+        private Color bg = Color.GRAY;
+        private static final int HPAD = 6;
+        private static final int VPAD = 2;
+        private static final float FONT_SIZE = 11f;
+
+        ModeBadge() {
+            setFocusable(false);
+            setOpaque(false);
+            setAlignmentY(Component.CENTER_ALIGNMENT);
+        }
+
+        public void setActiveMode(String modeKind) {
+            this.modeKind = Objects.requireNonNullElse(modeKind, ACTION_SEARCH);
+            updateFromTheme();
+        }
+
+        public Color getAccent() {
+            return accent;
+        }
+
+        private void updateFromTheme() {
+            boolean isDark = UIManager.getBoolean("laf.dark");
+            switch (modeKind) {
+                case ACTION_CODE -> {
+                    this.text = "CODE MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_CODE_ACCENT);
+                }
+                case ACTION_ASK -> {
+                    this.text = "ASK MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
+                }
+                case ACTION_SEARCH -> {
+                    this.text = "LUTZ MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_LUTZ_ACCENT);
+                }
+                default -> {
+                    this.text = "LUTZ MODE";
+                    this.bg = new Color(0xF4C430);
+                    this.fg = isDark ? Color.WHITE : new Color(0x1E1E1E);
+                    this.accent = new Color(0xF4C430);
+                }
+            }
+            revalidate();
+            repaint();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            updateFromTheme();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            updateFromTheme();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            var f = getFont() != null ? getFont() : UIManager.getFont("Label.font");
+            if (f == null) f = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+            var font = f.deriveFont(Font.BOLD, FONT_SIZE);
+            FontMetrics fm = getFontMetrics(font);
+            int w = fm.stringWidth(text);
+            int h = fm.getHeight();
+            return new Dimension(w + 2 * HPAD, h + 2 * VPAD);
+        }
+
+        @Override
+        public Dimension getMinimumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                var f = getFont() != null ? getFont() : UIManager.getFont("Label.font");
+                if (f == null) f = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+                var font = f.deriveFont(Font.BOLD, FONT_SIZE);
+                g2.setFont(font);
+
+                int w = getWidth();
+                int h = getHeight();
+
+                // Solid background (square)
+                g2.setColor(bg);
+                g2.fillRect(0, 0, w, h);
+
+                // Accent border
+                g2.setColor(accent);
+                g2.drawRect(0, 0, w - 1, h - 1);
+
+                // Text centered
+                FontMetrics fm = g2.getFontMetrics();
+                int tw = fm.stringWidth(text);
+                int tx = Math.max(0, (w - tw) / 2);
+                int ty = Math.max(0, (h - fm.getHeight()) / 2 + fm.getAscent());
+                g2.setColor(fg);
+                g2.drawString(text, tx, ty);
+            } finally {
+                g2.dispose();
+            }
         }
     }
 

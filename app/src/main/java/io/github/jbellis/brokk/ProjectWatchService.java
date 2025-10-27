@@ -5,6 +5,7 @@ import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -29,15 +30,29 @@ public class ProjectWatchService implements IWatchService {
     @Nullable
     private final Path gitMetaDir;
 
-    private final Listener listener;
+    private final List<Listener> listeners;
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
 
+    /**
+     * Create a ProjectWatchService with a single listener.
+     * @deprecated Use {@link #ProjectWatchService(Path, Path, List)} for multiple listeners
+     */
+    @Deprecated
+    @SuppressWarnings("InlineMeSuggester")
     public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, Listener listener) {
+        this(root, gitRepoRoot, List.of(listener));
+    }
+
+    /**
+     * Create a ProjectWatchService with multiple listeners.
+     * All registered listeners will be notified of file system events.
+     */
+    public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, List<Listener> listeners) {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;
-        this.listener = listener;
+        this.listeners = new ArrayList<>(listeners);
         this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
     }
 
@@ -89,7 +104,7 @@ public class ProjectWatchService implements IWatchService {
 
                 // No event arrived within the poll window
                 if (key == null) {
-                    listener.onNoFilesChangedDuringPollInterval();
+                    notifyNoFilesChanged();
                     continue;
                 }
 
@@ -107,7 +122,7 @@ public class ProjectWatchService implements IWatchService {
                 }
 
                 // Process the batch
-                listener.onFilesChanged(batch);
+                notifyFilesChanged(batch);
             }
         } catch (IOException e) {
             logger.error("Error setting up watch service", e);
@@ -274,5 +289,37 @@ public class ProjectWatchService implements IWatchService {
         var focusedWindow =
                 KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
         return focusedWindow != null;
+    }
+
+    /**
+     * Notify all registered listeners that files have changed.
+     */
+    private void notifyFilesChanged(EventBatch batch) {
+        for (Listener listener : listeners) {
+            try {
+                listener.onFilesChanged(batch);
+            } catch (Exception e) {
+                logger.error(
+                        "Error notifying listener {} of file changes",
+                        listener.getClass().getSimpleName(),
+                        e);
+            }
+        }
+    }
+
+    /**
+     * Notify all registered listeners that no files changed during the poll interval.
+     */
+    private void notifyNoFilesChanged() {
+        for (Listener listener : listeners) {
+            try {
+                listener.onNoFilesChangedDuringPollInterval();
+            } catch (Exception e) {
+                logger.error(
+                        "Error notifying listener {} of no file changes",
+                        listener.getClass().getSimpleName(),
+                        e);
+            }
+        }
     }
 }

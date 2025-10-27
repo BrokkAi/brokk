@@ -55,6 +55,18 @@ public class SessionsDialog extends JDialog {
     private final Chrome chrome;
     private final ContextManager contextManager;
 
+    // Column index constants
+    // Sessions table model: [Active, Session Name, Date, SessionInfo]
+    private static final int COL_ACTIVE = 0;
+    private static final int COL_NAME = 1;
+    private static final int COL_DATE = 2;
+    private static final int COL_INFO = 3; // hidden SessionInfo column
+
+    // Activity table model: [Icon, Action, Context]
+    private static final int ACT_COL_ICON = 0;
+    private static final int ACT_COL_ACTION = 1;
+    private static final int ACT_COL_CONTEXT = 2; // hidden Context column
+
     // Sessions table components
     private JTable sessionsTable;
     private DefaultTableModel sessionsTableModel;
@@ -107,7 +119,7 @@ public class SessionsDialog extends JDialog {
                 Point p = event.getPoint();
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
-                    SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, 3);
+                    SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, COL_INFO);
                     return "Last modified: "
                             + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
                                     .withZone(ZoneId.systemDefault())
@@ -120,7 +132,7 @@ public class SessionsDialog extends JDialog {
         sessionsTable.setTableHeader(null);
 
         // Set up column renderers for sessions table
-        sessionsTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+        sessionsTable.getColumnModel().getColumn(COL_ACTIVE).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -146,17 +158,23 @@ public class SessionsDialog extends JDialog {
         activityTable.setTableHeader(null);
 
         // Set up custom renderers for activity table columns
-        activityTable.getColumnModel().getColumn(0).setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
-        activityTable.getColumnModel().getColumn(1).setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
+        activityTable
+                .getColumnModel()
+                .getColumn(ACT_COL_ICON)
+                .setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
+        activityTable
+                .getColumnModel()
+                .getColumn(ACT_COL_ACTION)
+                .setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
 
         // Adjust activity table column widths
-        activityTable.getColumnModel().getColumn(0).setPreferredWidth(30);
-        activityTable.getColumnModel().getColumn(0).setMinWidth(30);
-        activityTable.getColumnModel().getColumn(0).setMaxWidth(30);
-        activityTable.getColumnModel().getColumn(1).setPreferredWidth(250);
-        activityTable.getColumnModel().getColumn(2).setMinWidth(0);
-        activityTable.getColumnModel().getColumn(2).setMaxWidth(0);
-        activityTable.getColumnModel().getColumn(2).setWidth(0);
+        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setPreferredWidth(30);
+        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setMinWidth(30);
+        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setMaxWidth(30);
+        activityTable.getColumnModel().getColumn(ACT_COL_ACTION).setPreferredWidth(250);
+        activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setMinWidth(0);
+        activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setMaxWidth(0);
+        activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setWidth(0);
 
         // Initialize workspace panel for preview (copy-only menu)
         workspacePanel = new WorkspacePanel(chrome, contextManager, WorkspacePanel.PopupMenuMode.COPY_ONLY);
@@ -251,7 +269,7 @@ public class SessionsDialog extends JDialog {
             }
             int[] selected = sessionsTable.getSelectedRows();
             if (selected.length == 1) {
-                var info = (SessionInfo) sessionsTableModel.getValueAt(selected[0], 3);
+                var info = (SessionInfo) sessionsTableModel.getValueAt(selected[0], COL_INFO);
                 loadSessionHistory(info.id());
             } else { // multi-select: clear preview panels
                 activityTableModel.setRowCount(0);
@@ -264,7 +282,7 @@ public class SessionsDialog extends JDialog {
             if (!e.getValueIsAdjusting()) {
                 int row = activityTable.getSelectedRow();
                 if (row >= 0 && row < activityTable.getRowCount()) {
-                    selectedActivityContext = (Context) activityTableModel.getValueAt(row, 2);
+                    selectedActivityContext = (Context) activityTableModel.getValueAt(row, ACT_COL_CONTEXT);
                     updatePreviewPanels(selectedActivityContext);
                 } else {
                     clearPreviewPanels();
@@ -293,7 +311,7 @@ public class SessionsDialog extends JDialog {
                 if (e.getClickCount() == 2) {
                     int row = sessionsTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
-                        SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(row, 2);
+                        SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(row, COL_INFO);
                         renameSession(sessionInfo);
                     }
                 }
@@ -389,7 +407,7 @@ public class SessionsDialog extends JDialog {
             if (activityTableModel.getRowCount() > 0) {
                 int lastRow = activityTableModel.getRowCount() - 1;
                 activityTable.setRowSelectionInterval(lastRow, lastRow);
-                activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, 0, true));
+                activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, ACT_COL_ICON, true));
             }
         });
     }
@@ -446,20 +464,20 @@ public class SessionsDialog extends JDialog {
         }
 
         // Hide the "SessionInfo" column
-        sessionsTable.getColumnModel().getColumn(3).setMinWidth(0);
-        sessionsTable.getColumnModel().getColumn(3).setMaxWidth(0);
-        sessionsTable.getColumnModel().getColumn(3).setWidth(0);
+        sessionsTable.getColumnModel().getColumn(COL_INFO).setMinWidth(0);
+        sessionsTable.getColumnModel().getColumn(COL_INFO).setMaxWidth(0);
+        sessionsTable.getColumnModel().getColumn(COL_INFO).setWidth(0);
 
         // Set column widths for sessions table
-        sessionsTable.getColumnModel().getColumn(0).setPreferredWidth(20);
-        sessionsTable.getColumnModel().getColumn(0).setMaxWidth(20);
-        sessionsTable.getColumnModel().getColumn(1).setPreferredWidth(200);
-        sessionsTable.getColumnModel().getColumn(2).setPreferredWidth(110);
-        sessionsTable.getColumnModel().getColumn(2).setMaxWidth(110);
+        sessionsTable.getColumnModel().getColumn(COL_ACTIVE).setPreferredWidth(20);
+        sessionsTable.getColumnModel().getColumn(COL_ACTIVE).setMaxWidth(20);
+        sessionsTable.getColumnModel().getColumn(COL_NAME).setPreferredWidth(200);
+        sessionsTable.getColumnModel().getColumn(COL_DATE).setPreferredWidth(110);
+        sessionsTable.getColumnModel().getColumn(COL_DATE).setMaxWidth(110);
 
         // Select current session and load its history
         for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
-            SessionInfo rowInfo = (SessionInfo) sessionsTableModel.getValueAt(i, 3);
+            SessionInfo rowInfo = (SessionInfo) sessionsTableModel.getValueAt(i, COL_INFO);
             if (rowInfo.id().equals(currentSessionId)) {
                 sessionsTable.setRowSelectionInterval(i, i);
                 loadSessionHistory(rowInfo.id()); // Load history for current session
@@ -479,7 +497,7 @@ public class SessionsDialog extends JDialog {
 
         int[] selectedRows = sessionsTable.getSelectedRows();
         var selectedSessions = Arrays.stream(selectedRows)
-                .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 3))
+                .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, COL_INFO))
                 .toList();
 
         JPopupMenu popup = new JPopupMenu();
@@ -641,7 +659,7 @@ public class SessionsDialog extends JDialog {
 
             Map<UUID, Integer> contextIdToRow = new HashMap<>();
             for (int i = 0; i < model.getRowCount(); i++) {
-                Context ctx = (Context) model.getValueAt(i, 2);
+                Context ctx = (Context) model.getValueAt(i, ACT_COL_CONTEXT);
                 if (ctx != null) {
                     contextIdToRow.put(ctx.id(), i);
                 }
@@ -653,8 +671,8 @@ public class SessionsDialog extends JDialog {
                 Integer sourceRow = contextIdToRow.get(edge.sourceId());
                 Integer targetRow = contextIdToRow.get(edge.targetId());
                 if (sourceRow != null && targetRow != null) {
-                    var sourceRect = table.getCellRect(sourceRow, 0, true);
-                    var targetRect = table.getCellRect(targetRow, 0, true);
+                    var sourceRect = table.getCellRect(sourceRow, ACT_COL_ICON, true);
+                    var targetRect = table.getCellRect(targetRow, ACT_COL_ICON, true);
                     int y1 = sourceRect.y + sourceRect.height / 2;
                     int y2 = targetRect.y + targetRect.height / 2;
                     arrows.add(new Arrow(edge, sourceRow, targetRow, Math.abs(y1 - y2)));
@@ -683,8 +701,8 @@ public class SessionsDialog extends JDialog {
         }
 
         private void drawArrow(Graphics2D g2, JComponent c, int sourceRow, int targetRow) {
-            Rectangle sourceRect = table.getCellRect(sourceRow, 0, true);
-            Rectangle targetRect = table.getCellRect(targetRow, 0, true);
+            Rectangle sourceRect = table.getCellRect(sourceRow, ACT_COL_ICON, true);
+            Rectangle targetRect = table.getCellRect(targetRow, ACT_COL_ICON, true);
 
             // Convert cell rectangles to the JLayer's coordinate system
             Point sourcePoint = SwingUtilities.convertPoint(
@@ -703,7 +721,7 @@ public class SessionsDialog extends JDialog {
                 }
             }
 
-            int iconColWidth = table.getColumnModel().getColumn(0).getWidth();
+            int iconColWidth = table.getColumnModel().getColumn(ACT_COL_ICON).getWidth();
             int arrowHeadLength = 5;
             int arrowLeadIn = 1; // length of the line segment before the arrowhead
             int arrowRightMargin = -2; // margin from the right edge of the column

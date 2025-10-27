@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
-import io.github.jbellis.brokk.util.Environment;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -41,34 +40,6 @@ public interface Language {
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
                 .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
-    }
-
-    /** Whether this language's analyzer provides compact symbol summaries. */
-    boolean providesSummaries();
-
-    /** Whether this language's analyzer can fetch or reconstruct source code for code units. */
-    boolean providesSourceCode();
-
-    /** Whether this language's analyzer supports interprocedural analysis such as call graphs across files. */
-    boolean providesInterproceduralAnalysis();
-
-    default boolean shouldDisableLsp() {
-        if (Environment.isWindows()) {
-            return true;
-        }
-        var raw = System.getenv("BRK_NO_LSP");
-        if (raw == null) return false;
-        var value = raw.trim().toLowerCase(Locale.ROOT);
-        if (value.isEmpty()) return true;
-        return switch (value) {
-            case "1", "true", "t", "yes", "y", "on" -> true;
-            case "0", "false", "f", "no", "n", "off" -> false;
-            default -> {
-                logger.warn("Environment variable BRK_NO_LSP='" + raw
-                        + "' is not a recognized boolean; defaulting to disabling LSP.");
-                yield true;
-            }
-        };
     }
 
     default List<Path> getDependencyCandidates(IProject project) {
@@ -216,21 +187,6 @@ public interface Language {
                 }
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
-        }
-
-        @Override
-        public boolean providesSummaries() {
-            return languages.stream().anyMatch(Language::providesSummaries);
-        }
-
-        @Override
-        public boolean providesSourceCode() {
-            return languages.stream().anyMatch(Language::providesSourceCode);
-        }
-
-        @Override
-        public boolean providesInterproceduralAnalysis() {
-            return languages.stream().anyMatch(Language::providesInterproceduralAnalysis);
         }
 
         @Override

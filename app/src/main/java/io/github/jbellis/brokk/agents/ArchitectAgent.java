@@ -146,19 +146,18 @@ public class ArchitectAgent {
 
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
-        io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true, false);
+        io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
-        var result = agent.runTaskInternal(context, List.of(), instructions, opts);
+        var result = agent.runTask(context, List.of(), instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        scope.append(result);
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
-        context = result.context();
+        context = scope.append(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
             var resultString = "CodeAgent finished! Details are in the Workspace messages.";
@@ -196,8 +195,7 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-
-        scope.append(resultWithMessages(StopReason.SUCCESS));
+        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
     }
 
     @Tool(
@@ -235,15 +233,14 @@ public class ArchitectAgent {
         LAST_SEARCH_RESULT.remove();
 
         // Instantiate and run SearchAgent
-        io.llmOutput("Search Agent engaged: " + query, ChatMessageType.CUSTOM);
+        io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
         var searchAgent = new SearchAgent(
                 query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), context);
         searchAgent.scanInitialContext();
         var result = searchAgent.execute();
-        scope.append(result);
-        LAST_SEARCH_RESULT.set(result);
         // Update local context from SearchAgent result
-        context = result.context();
+        context = scope.append(result);
+        LAST_SEARCH_RESULT.set(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
@@ -287,26 +284,20 @@ public class ArchitectAgent {
         // Run Search first using the scan model (fast, token-friendly)
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(
-                goal,
-                cm,
-                scanModel,
-                EnumSet.of(SearchAgent.Terminal.WORKSPACE),
-                SearchMetrics.noOp(),
-                cm.liveContext());
-        io.llmOutput("Search Agent engaged: " + goal, ChatMessageType.CUSTOM);
+                goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), context, scope);
         searchAgent.scanInitialContext();
+        io.llmOutput("**Search Agent** engaged: " + goal, ChatMessageType.AI);
         var searchResult = searchAgent.execute();
-        scope.append(searchResult);
+        // Synchronize local context with search results before continuing
+        context = scope.append(searchResult);
+
         if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             return searchResult;
         }
 
-        // Synchronize local context with search results before continuing
-        context = searchResult.context();
-
         // Run Architect proper and append its result to scope
         var archResult = this.execute();
-        scope.append(archResult);
+        context = scope.append(archResult);
         return archResult;
     }
 
@@ -330,7 +321,7 @@ public class ArchitectAgent {
         var modelsService = cm.getService();
 
         while (true) {
-            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk Architect** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatModel>();
@@ -377,7 +368,7 @@ public class ArchitectAgent {
                 allowed.add("abortProject");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("addFileSummariesToWorkspace");
-                allowed.add("addTextToWorkspace");
+                allowed.add("appendNote");
                 allowed.add("addFilesToWorkspace");
                 if (io instanceof Chrome) {
                     allowed.add("askHuman");
@@ -386,12 +377,13 @@ public class ArchitectAgent {
                 toolSpecs.addAll(tr.getTools(allowed));
             } else {
                 // Default tool population logic
-                var allowed = new ArrayList<>(List.of(
-                        "addFilesToWorkspace",
-                        "addFileSummariesToWorkspace",
-                        "addUrlContentsToWorkspace",
-                        "addTextToWorkspace",
-                        "dropWorkspaceFragments"));
+                var allowed = new ArrayList<String>();
+                allowed.add("addFilesToWorkspace");
+                allowed.add("addFileSummariesToWorkspace");
+                allowed.add("addUrlContentsToWorkspace");
+                allowed.add("appendNote");
+                allowed.add("dropWorkspaceFragments");
+                allowed.add("explainCommit");
 
                 if (io instanceof Chrome) {
                     allowed.add("askHuman");
@@ -591,19 +583,29 @@ public class ArchitectAgent {
 
     private @NotNull TaskResult codeAgentSuccessResult() {
         // we've already added the code agent's result to history and we don't have anything extra to add to that here
-        return new TaskResult(cm, "Architect: " + goal, List.of(), context, new StopDetails(StopReason.SUCCESS));
+        return new TaskResult(
+                cm,
+                "Architect finished work for: " + goal,
+                io.getLlmRawMessages(),
+                context,
+                new StopDetails(StopReason.SUCCESS));
+    }
+
+    private TaskResult resultWithMessages(StopReason reason, String message) {
+        // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
+        return new TaskResult(cm, message, io.getLlmRawMessages(), context, new StopDetails(reason));
     }
 
     private TaskResult resultWithMessages(StopReason reason) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
-        return new TaskResult(cm, "Architect: " + goal, io.getLlmRawMessages(), context, new StopDetails(reason));
+        return resultWithMessages(reason, "Architect: " + goal);
     }
 
     /** Helper method to get priority rank for tool names. Lower number means higher priority. */
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "addTextToWorkspace", "askHuman" -> 2;
+            case "appendNote", "askHuman" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;

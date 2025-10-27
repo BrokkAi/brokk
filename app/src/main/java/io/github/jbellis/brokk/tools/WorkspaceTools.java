@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -166,26 +165,6 @@ public class WorkspaceTools {
             ExceptionReporter.tryReportException(e);
             throw new RuntimeException("Unexpected error processing URL " + urlString + ": " + e.getMessage(), e);
         }
-    }
-
-    @Tool(
-            "Add an arbitrary block of text (e.g., notes that are independent of the Plan, a configuration snippet, or something learned from another Agent) to the Workspace as a read-only fragment")
-    public String addTextToWorkspace(
-            @P("The text content to add to the Workspace") String content,
-            @P("A short, descriptive label for this text fragment (e.g., 'User Requirements', 'API Key Snippet')")
-                    String description) {
-        if (content.isBlank()) {
-            return "Content cannot be empty.";
-        }
-        if (description.isBlank()) {
-            return "Description cannot be empty.";
-        }
-
-        var fragment = new ContextFragment.StringFragment(
-                context.getContextManager(), content, description, SyntaxConstants.SYNTAX_STYLE_NONE);
-        context = context.addVirtualFragments(List.of(fragment));
-
-        return "Added text '%s'.".formatted(description);
     }
 
     @Tool(
@@ -436,56 +415,6 @@ public class WorkspaceTools {
         }
 
         return resultMessage;
-    }
-
-    @Tool(
-            """
-                  Generates a call graph showing methods that call the specified target method (callers) up to a certain depth, and adds it to the Workspace.
-                  The single line of the call sites (but not full method sources) are included
-                  """)
-    public String addCallGraphInToWorkspace(
-            @P("Fully qualified target method name (e.g., 'com.example.MyClass.targetMethod') to find callers for.")
-                    String methodName,
-            @P("Maximum depth of the call graph to retrieve (e.g., 3 or 5). Higher depths can be large.")
-                    int depth // Added depth parameter
-            ) {
-        assert (getAnalyzer() instanceof CallGraphProvider) : "Cannot add call graph: CPG analyzer is not available.";
-        if (methodName.isBlank()) {
-            return "Cannot add call graph: method name is empty";
-        }
-        if (depth <= 0) {
-            return "Cannot add call graph: depth must be positive";
-        }
-
-        var fragment = new ContextFragment.CallGraphFragment(context.getContextManager(), methodName, depth, false);
-        context = context.addVirtualFragments(List.of(fragment));
-
-        return "Added call graph (callers) for '%s' (depth %d).".formatted(methodName, depth);
-    }
-
-    @Tool(
-            """
-                  Generates a call graph showing methods called by the specified source method (callees) up to a certain depth, and adds it to the workspace
-                  The single line of the call sites (but not full method sources) are included
-                  """)
-    public String addCallGraphOutToWorkspace(
-            @P("Fully qualified source method name (e.g., 'com.example.MyClass.sourceMethod') to find callees for.")
-                    String methodName,
-            @P("Maximum depth of the call graph to retrieve (e.g., 3 or 5). Higher depths can be large.")
-                    int depth // Added depth parameter
-            ) {
-        assert (getAnalyzer() instanceof CallGraphProvider) : "Cannot add call graph: CPG analyzer is not available.";
-        if (methodName.isBlank()) {
-            return "Cannot add call graph: method name is empty";
-        }
-        if (depth <= 0) {
-            return "Cannot add call graph: depth must be positive";
-        }
-
-        var fragment = new ContextFragment.CallGraphFragment(context.getContextManager(), methodName, depth, true);
-        context = context.addVirtualFragments(List.of(fragment));
-
-        return "Added call graph (callees) for '%s' (depth %d).".formatted(methodName, depth);
     }
 
     @Tool(

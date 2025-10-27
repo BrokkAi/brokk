@@ -61,21 +61,6 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public boolean providesSummaries() {
-        return true;
-    }
-
-    @Override
-    public boolean providesSourceCode() {
-        return true;
-    }
-
-    @Override
-    public boolean providesInterproceduralAnalysis() {
-        return false;
-    }
-
-    @Override
     public ImportSupport getDependencyImportSupport() {
         return ImportSupport.BASIC;
     }

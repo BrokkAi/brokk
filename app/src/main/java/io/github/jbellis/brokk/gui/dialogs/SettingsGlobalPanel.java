@@ -116,11 +116,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton memoryManualRadio = new JRadioButton("Manual:");
     private JSpinner memorySpinner = new JSpinner();
 
+    private JCheckBox instructionsTabInsertIndentationCheckbox =
+            new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
+
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
     private JRadioButton startupOpenAllRadio = new JRadioButton("Reopen all previously open projects");
     private JCheckBox persistPerProjectWindowCheckbox = new JCheckBox("Save window position per project (recommended)");
+
+    // Advanced mode (General tab)
+    private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -296,7 +302,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         RowAdder adder = new RowAdder();
         // Instructions panel
-        adder.add("instructions.submit", "Submit (Ctrl/Cmd+Enter)");
+        adder.add("instructions.submit", "Submit (Enter)");
         adder.add("instructions.toggleMode", "Toggle Code/Ask");
 
         // Global text editing
@@ -482,7 +488,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     /** Gets a human-readable display name for a keybinding ID. */
     private static String getKeybindingDisplayName(String id) {
         return switch (id) {
-            case "instructions.submit" -> "Submit (Ctrl/Cmd+Enter)";
+            case "instructions.submit" -> "Submit (Enter)";
             case "instructions.toggleMode" -> "Toggle Code/Ask";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
@@ -625,6 +631,35 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         panel.add(restartLabel, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
+        // Instructions panel behavior
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Instructions Input:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(instructionsTabInsertIndentationCheckbox, gbc);
+
+        // Advanced Mode
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Interface:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(advancedModeCheckbox, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5);
+
         // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -732,10 +767,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Dev-only: Force tool emulation checkbox
         if (Boolean.getBoolean("brokk.devmode")) {
-            forceToolEmulationCheckbox =
-                    new JCheckBox("[Dev Mode] Force tool emulation", Service.GLOBAL_FORCE_TOOL_EMULATION);
+            forceToolEmulationCheckbox = new JCheckBox(
+                    "[Dev Mode] Force tool emulation (also show empty workspace chips)",
+                    Service.GLOBAL_FORCE_TOOL_EMULATION);
             forceToolEmulationCheckbox.setToolTipText(
-                    "Development override: emulate tool calls instead of native function calling.");
+                    "Development override: emulate tool calls. Also forces the UI to show visually-empty workspace chips for debugging and testing only.\n\n"
+                            + "Dev note: When enabled, the UI will also show empty/placeholder workspace chips to aid debugging.");
             gbc.gridx = 1;
             gbc.gridy = row++;
             gbc.weightx = 1.0;
@@ -1225,6 +1262,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // Use defaults if there is any problem reading settings
         }
 
+        // Advanced Mode (General tab)
+        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
         // Service Tab
         brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
@@ -1309,6 +1349,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         // Persist per-project main window position (default true)
         persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
+
+        // Instructions panel behavior
+        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
 
         // Quick Models Tab
         var loadedFavorites = MainProject.loadFavoriteModels();
@@ -1417,6 +1460,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
 
+        // General Tab - Advanced Mode
+        GlobalUiSettings.saveAdvancedMode(advancedModeCheckbox.isSelected());
+        try {
+            chrome.applyAdvancedModeVisibility();
+        } catch (Exception ex) {
+            // Non-fatal: hook will be implemented in follow-up tasks
+        }
+
         // General Tab - JVM Memory
         try {
             boolean automatic = memoryAutoRadio.isSelected();
@@ -1511,6 +1562,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         // Save preference for per-project main window bounds persistence
         GlobalUiSettings.savePersistPerProjectBounds(persistPerProjectWindowCheckbox.isSelected());
+
+        // Instructions panel behavior
+        GlobalUiSettings.saveInstructionsTabInsertIndentation(instructionsTabInsertIndentationCheckbox.isSelected());
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {
@@ -3207,9 +3261,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private static KeyStroke defaultFor(String id) {
         return switch (id) {
             // Instructions panel
-            case "instructions.submit" ->
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            case "instructions.submit" -> KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
             case "instructions.toggleMode" -> defaultToggleMode();
 
             // Global text editing

@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -48,15 +49,48 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     private final LoggingExecutorService analyzerExecutor;
     private volatile @Nullable Thread analyzerExecutorThread;
 
+    /**
+     * Creates an AnalyzerWrapper with an AnalyzerListener.
+     * Creates a temporary UI listener internally for backward compatibility.
+     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService.Listener)} instead
+     */
+    @Deprecated
+    @SuppressWarnings("InlineMeSuggester")
     public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener) {
+        this(project, listener, null);
+    }
+
+    /**
+     * Creates an AnalyzerWrapper with separate listeners for analyzer and file system events.
+     * @param project The project to analyze
+     * @param analyzerListener Listener for analyzer lifecycle events (can be null)
+     * @param fileWatchListener Additional file watch listener (e.g., from ContextManager). If null, creates temporary uiListener.
+     */
+    public AnalyzerWrapper(
+            IProject project,
+            @Nullable AnalyzerListener analyzerListener,
+            @Nullable IWatchService.Listener fileWatchListener) {
         this.project = project;
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        this.listener = listener;
-        if (listener == null) {
+        this.listener = analyzerListener;
+
+        if (analyzerListener == null) {
             this.watchService = new IWatchService() {};
         } else {
-            this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
+            // Build list of listeners
+            var listeners = new ArrayList<IWatchService.Listener>();
+            listeners.add(this); // Analyzer listener
+
+            // Add file watch listener (from ContextManager if provided, otherwise create temporary one)
+            if (fileWatchListener != null) {
+                listeners.add(fileWatchListener);
+            } else {
+                // Backward compatibility: create temporary uiListener
+                listeners.add(createUiNotificationListener());
+            }
+
+            this.watchService = new ProjectWatchService(root, gitRepoRoot, listeners);
         }
 
         // Create a single-threaded executor for analyzer refresh tasks (wrapped with logging).
@@ -104,47 +138,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     @Override
     public void onFilesChanged(EventBatch batch) {
-        logger.trace("Events batch: {}", batch);
+        logger.trace("AnalyzerWrapper received events batch: {}", batch);
 
-        // Instrumentation: identify whether .git paths are included and whether we are watching .git at all
-        Path gitMetaRel = (gitRepoRoot != null) ? root.relativize(gitRepoRoot.resolve(".git")) : null;
-        boolean dueToGitMeta = gitMetaRel != null
-                && batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaRel));
-        boolean watchingGitMeta = gitRepoRoot != null;
+        // AnalyzerWrapper now focuses only on analyzer-relevant changes.
+        // Git metadata and tracked file change notifications are handled by ContextManager's listener.
 
-        int repoChangeCallbacks = 0;
-        int trackedFileChangeCallbacks = 0;
-
-        logger.debug(
-                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, watchingGitMeta={}, gitMetaDir={}",
-                batch.files.size(),
-                batch.isOverflowed,
-                dueToGitMeta,
-                watchingGitMeta,
-                (gitMetaRel != null ? gitMetaRel : "(none)"));
-
-        // 1) Possibly refresh Git
-        if (gitRepoRoot != null) {
-            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            boolean gitMetaTouched =
-                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-            if (batch.isOverflowed || gitMetaTouched) {
-                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
-                if (listener != null) {
-                    listener.onRepoChange();
-                    repoChangeCallbacks++;
-                    listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-                    trackedFileChangeCallbacks++;
-                }
-            }
-        }
-
-        // 2) If overflowed, assume something changed
+        // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed) {
-            if (listener != null) {
-                listener.onTrackedFileChange();
-                trackedFileChangeCallbacks++;
-            }
+            logger.debug("Event batch overflowed, triggering full analyzer rebuild");
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
                 IAnalyzer result = prev.update();
@@ -153,56 +154,36 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                         "Library ingestion: {} analyzer refresh completed in {}ms", getLanguageDescription(), duration);
                 return result;
             });
+            return; // No need to process individual files after full rebuild
         }
 
-        // 3) We have an exact files list to check
+        // 2) Filter for analyzer-relevant files
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = project.getAnalyzerLanguages();
 
-        var changedTrackedFiles =
-                batch.files.stream().filter(trackedFiles::contains).collect(Collectors.toSet());
-
-        if (!changedTrackedFiles.isEmpty()) {
-            // call listener (refreshes git panel)
-            logger.debug("Changes in tracked files detected ({} files)", changedTrackedFiles.size());
-            if (listener != null) {
-                listener.onTrackedFileChange();
-                trackedFileChangeCallbacks++;
-            }
-        }
-
-        var relevantFiles = changedTrackedFiles.stream()
+        // Only consider tracked files that match our analyzer's language extensions
+        var relevantFiles = batch.files.stream()
+                .filter(trackedFiles::contains) // Must be tracked by git
                 .filter(pf -> projectLanguages.stream()
                         .anyMatch(L -> L.getExtensions().contains(pf.extension())))
                 .collect(Collectors.toSet());
 
+        // 3) Update analyzer for relevant files
         if (!relevantFiles.isEmpty()) {
             logger.debug(
-                    "Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
+                    "Rebuilding analyzer due to changes in {} files relevant to configured languages: {}",
+                    relevantFiles.size(),
                     relevantFiles.stream()
-                            .filter(pf -> {
-                                Language lang = Languages.fromExtension(pf.extension());
-                                return projectLanguages.contains(lang);
-                            })
-                            .distinct()
+                            .limit(10) // Log first 10 files to avoid excessive logging
                             .map(ProjectFile::toString)
                             .collect(Collectors.joining(", ")));
 
             updateFiles(relevantFiles);
         } else {
             logger.trace(
-                    "No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
+                    "No analyzer-relevant files changed (batch contained {} files); skipping analyzer rebuild",
+                    batch.files.size());
         }
-
-        // 4) Summary instrumentation helps verify whether only onTrackedFileChange() fires for e.g. CLI branch switches
-        logger.debug(
-                "Callbacks summary for batch: repoChangeCalls={}, trackedFileChangeCalls={}, overflow={}, dueToGitMeta={}, watchingGitMeta={}, changedTrackedFiles={}",
-                repoChangeCallbacks,
-                trackedFileChangeCallbacks,
-                batch.isOverflowed,
-                dueToGitMeta,
-                watchingGitMeta,
-                changedTrackedFiles.size());
     }
 
     @Override
@@ -330,21 +311,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
         logger.debug("Analyzer load complete!");
         return analyzer;
-    }
-
-    @Override
-    public boolean providesInterproceduralAnalysis() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesInterproceduralAnalysis);
-    }
-
-    @Override
-    public boolean providesSummaries() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSummaries);
-    }
-
-    @Override
-    public boolean providesSourceCode() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSourceCode);
     }
 
     /** Convenience overload that infers the language set from {@link #project}. */
@@ -499,6 +465,57 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     @Override
     public void requestRebuild() {
         externalRebuildRequested = true;
+    }
+
+    /**
+     * Creates a listener that handles UI-related file change notifications.
+     * This listener detects git metadata changes and tracked file changes,
+     * and notifies the AnalyzerListener accordingly.
+     * <p>
+     * This is a temporary solution for Phase 2. In Phase 4, ContextManager
+     * will have its own IWatchService.Listener and this can be removed.
+     */
+    private IWatchService.Listener createUiNotificationListener() {
+        return new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(EventBatch batch) {
+                if (listener == null) {
+                    return; // No listener to notify
+                }
+
+                logger.trace("UI notification listener received events batch: {}", batch);
+
+                // 1) Check for git metadata changes
+                if (gitRepoRoot != null) {
+                    Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
+                    boolean gitMetaTouched =
+                            batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+
+                    if (batch.isOverflowed || gitMetaTouched) {
+                        logger.debug("Git metadata changes detected, notifying listener");
+                        listener.onRepoChange();
+                        listener.onTrackedFileChange(); // Tracked files can change with git ops
+                        return; // Already notified, no need to check tracked files again
+                    }
+                }
+
+                // 2) Check for tracked file changes (non-git-metadata)
+                var trackedFiles = project.getRepo().getTrackedFiles();
+                var changedTrackedFiles =
+                        batch.files.stream().filter(trackedFiles::contains).collect(Collectors.toSet());
+
+                if (!changedTrackedFiles.isEmpty() || batch.isOverflowed) {
+                    logger.debug(
+                            "Tracked file changes detected ({} files), notifying listener", changedTrackedFiles.size());
+                    listener.onTrackedFileChange();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {
+                // No UI updates needed for "no changes"
+            }
+        };
     }
 
     /** Pause the file watching service. */

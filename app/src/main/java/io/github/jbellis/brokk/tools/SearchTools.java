@@ -6,7 +6,6 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.analyzer.CallGraphProvider;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -21,7 +20,6 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -371,62 +369,6 @@ public class SearchTools {
         }
 
         return result.toString();
-    }
-
-    @Tool(
-            """
-                    Returns the call graph to a depth of 3 showing which methods call the given method and one line of source code for each invocation.
-                    Use this to understand method dependencies and how code flows into a method.
-                    """)
-    public String getCallGraphTo(
-            @P("Fully qualified method name (package name, class name, method name) to find callers for")
-                    String methodName) {
-        final var analyzer = getAnalyzer();
-        assert analyzer.as(CallGraphProvider.class).isPresent()
-                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        // Sanitize methodName: remove potential `(params)` suffix from LLM.
-        final var cleanMethodName = stripParams(methodName);
-        if (cleanMethodName.isBlank()) {
-            throw new IllegalArgumentException("Cannot get call graph: method name is empty");
-        }
-
-        var graph = analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphTo(cleanMethodName, 3))
-                .orElse(Collections.emptyMap());
-        String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, true);
-        if (result.isEmpty()) {
-            return "No callers found of method: " + cleanMethodName;
-        }
-        return result;
-    }
-
-    @Tool(
-            """
-                    Returns the call graph to a depth of 3 showing which methods are called by the given method and one line of source code for each invocation.
-                    Use this to understand how a method's logic flows to other parts of the codebase.
-                    """)
-    public String getCallGraphFrom(
-            @P("Fully qualified method name (package name, class name, method name) to find callees for")
-                    String methodName) {
-        final var analyzer = getAnalyzer();
-        assert analyzer.as(CallGraphProvider.class).isPresent()
-                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        assert (analyzer instanceof CallGraphProvider)
-                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
-        // Sanitize methodName: remove potential `(params)` suffix from LLM.
-        final var cleanMethodName = stripParams(methodName);
-        if (cleanMethodName.isBlank()) {
-            throw new IllegalArgumentException("Cannot get call graph: method name is empty");
-        }
-
-        var graph = analyzer.as(CallGraphProvider.class)
-                .map(cgp -> cgp.getCallgraphFrom(cleanMethodName, 3))
-                .orElse(Collections.emptyMap());
-        String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, false);
-        if (result.isEmpty()) {
-            return "No calls out made by method: " + cleanMethodName;
-        }
-        return result;
     }
 
     @Tool(

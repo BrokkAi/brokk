@@ -38,7 +38,8 @@ DEBUG_PORT="${BROKK_DEBUG_PORT:-5005}"
 DEBUG_SUSPEND="${BROKK_DEBUG_SUSPEND:-n}"
 # Environment override for debug behavior
 if [[ -n "${BROKK_DEBUG:-}" ]]; then
-  case "${BROKK_DEBUG,,}" in
+  brokk_debug_lc="$(printf '%s' "${BROKK_DEBUG}" | tr '[:upper:]' '[:lower:]')"
+  case "${brokk_debug_lc}" in
     false|0|no|off)
       DEBUG_ENABLED=false
       ;;
