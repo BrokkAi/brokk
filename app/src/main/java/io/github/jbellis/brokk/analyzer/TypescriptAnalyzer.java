@@ -80,12 +80,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             "type_parameters", // Standard field name for type parameters in TS
             // captureConfiguration - using unified naming convention
             Map.of(
-                    CaptureNames.TYPE_DEFINITION, SkeletonType.CLASS_LIKE, // Classes, interfaces, enums, namespaces
-                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE, // Functions, methods
-                    CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE, // Variables, fields, constants
-                    CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE, // Type aliases
-                    CaptureNames.DECORATOR_DEFINITION, SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
-                    "keyword.modifier", SkeletonType.UNSUPPORTED),
+                    CaptureNames.TYPE_DEFINITION,
+                    SkeletonType.CLASS_LIKE, // Classes, interfaces, enums, namespaces
+                    CaptureNames.FUNCTION_DEFINITION,
+                    SkeletonType.FUNCTION_LIKE, // Functions, methods
+                    CaptureNames.VALUE_DEFINITION,
+                    SkeletonType.FIELD_LIKE, // Variables, fields, constants
+                    CaptureNames.TYPEALIAS_DEFINITION,
+                    SkeletonType.ALIAS_LIKE, // Type aliases
+                    CaptureNames.DECORATOR_DEFINITION,
+                    SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
+                    "keyword.modifier",
+                    SkeletonType.UNSUPPORTED),
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
             // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.

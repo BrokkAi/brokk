@@ -32,7 +32,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.TRAIT_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
-                    CaptureNames.ATTRIBUTE_DEFINITION, SkeletonType.UNSUPPORTED // Attributes are handled by getPrecedingDecorators
+                    CaptureNames.ATTRIBUTE_DEFINITION,
+                            SkeletonType.UNSUPPORTED // Attributes are handled by getPrecedingDecorators
                     ),
             "", // asyncKeywordNodeType (PHP has no async/await keywords for functions)
             Set.of(

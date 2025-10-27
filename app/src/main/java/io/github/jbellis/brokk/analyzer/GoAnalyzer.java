@@ -32,13 +32,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
             "type_parameters", // typeParametersFieldName (Go generics)
             Map.of(
-                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.TYPE_DEFINITION, SkeletonType.CLASS_LIKE,
-                    CaptureNames.VARIABLE_DEFINITION, SkeletonType.FIELD_LIKE,
-                    CaptureNames.CONSTANT_DEFINITION, SkeletonType.FIELD_LIKE,
-                    "struct.field.definition", SkeletonType.FIELD_LIKE,
-                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    "interface.method.definition", SkeletonType.FUNCTION_LIKE // Added for interface methods
+                    CaptureNames.FUNCTION_DEFINITION,
+                    SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.TYPE_DEFINITION,
+                    SkeletonType.CLASS_LIKE,
+                    CaptureNames.VARIABLE_DEFINITION,
+                    SkeletonType.FIELD_LIKE,
+                    CaptureNames.CONSTANT_DEFINITION,
+                    SkeletonType.FIELD_LIKE,
+                    "struct.field.definition",
+                    SkeletonType.FIELD_LIKE,
+                    CaptureNames.METHOD_DEFINITION,
+                    SkeletonType.FUNCTION_LIKE,
+                    "interface.method.definition",
+                    SkeletonType.FUNCTION_LIKE // Added for interface methods
                     ), // captureConfiguration
             "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)

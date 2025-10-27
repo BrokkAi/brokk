@@ -173,7 +173,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             // "class.definition" is for struct, trait, enum.
             // "impl.definition" is for impl blocks. Both create class-like CodeUnits.
             // simpleName for "impl.definition" will be the type being implemented (e.g., "Point").
-            case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION -> CodeUnit.cls(file, packageName, simpleName);
+            case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION ->
+                CodeUnit.cls(file, packageName, simpleName);
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
                 // For free functions, classChain will be empty.

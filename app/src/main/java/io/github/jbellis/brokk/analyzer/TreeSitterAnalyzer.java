@@ -1101,15 +1101,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private void addTopLevelCodeUnit(
             CodeUnit cu,
             List<CodeUnit> localTopLevelCUs,
-            Set<String> seenTopLevelFqNames,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
             ProjectFile file) {
 
-        if (!seenTopLevelFqNames.contains(cu.fqName())) {
+        boolean alreadyExists =
+                localTopLevelCUs.stream().anyMatch(existing -> existing.fqName().equals(cu.fqName()));
+
+        if (!alreadyExists) {
             localTopLevelCUs.add(cu);
-            seenTopLevelFqNames.add(cu.fqName());
         } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass() || cu.isFunction())) {
             // Python duplicate - replace previous with this one (last assignment wins)
             // This matches Python's runtime behavior where duplicate definitions replace earlier ones
@@ -1140,11 +1141,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } else {
             // Unexpected duplicate for other languages/types
             log.error(
-                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={}, existing in set={})",
+                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={})",
                     file.getFileName(),
                     cu.fqName(),
-                    cu.kind(),
-                    seenTopLevelFqNames.contains(cu.fqName()));
+                    cu.kind());
         }
     }
 
@@ -1249,7 +1249,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
-        Set<String> seenTopLevelFqNames = new HashSet<>(); // For O(1) duplicate detection (performance optimization)
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -1647,14 +1646,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
                     // Top-level CU - use helper to handle duplicates appropriately
-                    addTopLevelCodeUnit(
-                            cu,
-                            localTopLevelCUs,
-                            seenTopLevelFqNames,
-                            localChildren,
-                            localSignatures,
-                            localSourceRanges,
-                            file);
+                    addTopLevelCodeUnit(cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu, classChain);
@@ -1670,13 +1662,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 classChain);
                         // Fallback: add as top-level, but use helper to handle duplicates
                         addTopLevelCodeUnit(
-                                cu,
-                                localTopLevelCUs,
-                                seenTopLevelFqNames,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                file);
+                                cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
                     }
                 }
             }
