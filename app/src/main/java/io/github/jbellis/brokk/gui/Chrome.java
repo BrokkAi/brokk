@@ -2348,17 +2348,8 @@ public class Chrome
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
 
-        // Restore Workspace collapsed/expanded state: prefer per-project, fallback to global default
-        try {
-            Boolean projCollapsed = readProjectWorkspaceCollapsed();
-            boolean collapsed = (projCollapsed != null) ? projCollapsed : readGlobalWorkspaceCollapsed();
-            // Only apply if different from current to avoid redundant relayout
-            if (collapsed != this.workspaceCollapsed) {
-                setWorkspaceCollapsed(collapsed);
-            }
-        } catch (Exception ignored) {
-            // Defensive: do not let preference errors interrupt UI construction
-        }
+        // Always start with workspace collapsed on every session
+        setWorkspaceCollapsed(true);
     }
 
     /**
