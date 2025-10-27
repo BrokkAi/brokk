@@ -95,7 +95,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JList<SessionInfo> sessionsList;
 
     private final SplitButton sessionNameLabel;
-    private final SplitButton newSessionButton;
+    private final MaterialButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
     @Nullable
@@ -235,8 +235,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         this.notificationAreaPanel = buildNotificationAreaPanel();
 
         // Initialize new session button early (used by buildCaptureOutputPanel)
-        this.newSessionButton = new SplitButton("");
-        // Primary click → empty session
+        this.newSessionButton = new MaterialButton();
         this.newSessionButton.addActionListener(e -> {
             contextManager
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
@@ -337,147 +336,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             popup.add(scroll);
             chrome.themeManager.registerPopupMenu(popup);
-            return popup;
-        });
-        // Provide a popup menu supplier for the new session button that mirrors the
-        // BranchSelectorButton behavior: top-level actions followed by a scrollable
-        // list of sessions rendered with SessionInfoRenderer.
-        // Note: the supplier is invoked lazily when the split-button dropdown is opened (via showPopupMenuInternal()).
-        // This occurs after Chrome.initializeThemeManager() has run during startup, so chrome.themeManager
-        // is available when the popup is constructed and registered.
-        this.newSessionButton.setMenuSupplier(() -> {
-            var popup = new JPopupMenu();
-
-            // Top-level actions ------------------------------------------------
-            var newFromWorkspaceItem = new JMenuItem("New + Copy Workspace");
-            newFromWorkspaceItem.addActionListener(evt -> {
-                try {
-                    var ctx = contextManager.topContext();
-                    contextManager
-                            .createSessionFromContextAsync(ctx, ContextManager.DEFAULT_SESSION_NAME)
-                            .thenRun(() -> updateSessionComboBox())
-                            .exceptionally(ex -> {
-                                chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
-                                return null;
-                            });
-                } catch (Throwable t) {
-                    chrome.toolError("Failed to create new session from workspace: " + t.getMessage());
-                }
-            });
-            popup.add(newFromWorkspaceItem);
-
-            var manageSessionsItem = new JMenuItem("Manage Sessions...");
-            manageSessionsItem.addActionListener(evt -> {
-                // Show the SessionsDialog as a managed dialog
-                try {
-                    var dlg = new SessionsDialog(chrome, contextManager);
-                    dlg.setLocationRelativeTo(chrome.getFrame());
-                    dlg.setVisible(true);
-                } catch (Throwable t) {
-                    chrome.toolError("Failed to open Sessions dialog: " + t.getMessage());
-                }
-            });
-            popup.add(manageSessionsItem);
-
-            // Separator before the session list ---------------------------------
-            popup.addSeparator();
-
-            // Build the sessions list model and list UI -------------------------
-            var model = new DefaultListModel<SessionInfo>();
-            var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
-            for (var s : sessions) model.addElement(s);
-
-            var list = new JList<SessionInfo>(model);
-            list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
-            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-            list.setCellRenderer(new SessionInfoRenderer());
-
-            // Keep a reference so other code can update it
-            sessionsList = list;
-
-            // Select current session in the list (if present)
-            var currentSessionId = contextManager.getCurrentSessionId();
-            for (int i = 0; i < model.getSize(); i++) {
-                if (model.getElementAt(i).id().equals(currentSessionId)) {
-                    list.setSelectedIndex(i);
-                    break;
-                }
-            }
-
-            // Mouse click: switch session and close popup
-            list.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    var sel = list.getSelectedValue();
-                    if (sel == null) return;
-                    UUID current = contextManager.getCurrentSessionId();
-                    if (!sel.id().equals(current)) {
-                        contextManager
-                                .switchSessionAsync(sel.id())
-                                .thenRun(() -> updateSessionComboBox())
-                                .exceptionally(ex -> {
-                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
-                                    return null;
-                                });
-                    }
-                    // Close enclosing popup if present
-                    Component c = list;
-                    while (c != null && !(c instanceof JPopupMenu)) {
-                        c = c.getParent();
-                    }
-                    if (c instanceof JPopupMenu popupOwner) {
-                        popupOwner.setVisible(false);
-                    }
-                }
-            });
-
-            // Enter key: switch session and close popup
-            list.addKeyListener(new java.awt.event.KeyAdapter() {
-                @Override
-                public void keyPressed(KeyEvent e) {
-                    if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                        var sel = list.getSelectedValue();
-                        if (sel == null) return;
-                        UUID current = contextManager.getCurrentSessionId();
-                        if (!sel.id().equals(current)) {
-                            contextManager
-                                    .switchSessionAsync(sel.id())
-                                    .thenRun(() -> updateSessionComboBox())
-                                    .exceptionally(ex -> {
-                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
-                                        return null;
-                                    });
-                        }
-                        Component c = list;
-                        while (c != null && !(c instanceof JPopupMenu)) {
-                            c = c.getParent();
-                        }
-                        if (c instanceof JPopupMenu popupOwner) {
-                            popupOwner.setVisible(false);
-                        }
-                    }
-                }
-            });
-
-            // Wrap the list to make it scrollable
-            var scroll = new JScrollPane(list);
-            scroll.setBorder(BorderFactory.createEmptyBorder());
-            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-            // Limit preferred size so the popup doesn't grow excessively.
-            // Cap popup height to the available space below the newSessionButton so it doesn't extend off-screen.
-            int prefWidth = 360;
-            int rowHeight = list.getFont().getSize() + 6;
-            int prefHeight = Math.min(list.getVisibleRowCount() * rowHeight, 8 * rowHeight);
-            int available = getAvailableSpaceBelow(newSessionButton);
-            int cappedHeight = Math.min(prefHeight, available);
-            scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
-
-            popup.add(scroll);
-
-            // Allow theme manager to style the popup consistently
-            chrome.themeManager.registerPopupMenu(popup);
-
             return popup;
         });
 
