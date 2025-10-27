@@ -241,64 +241,69 @@ public class SearchAgent {
             // Final tools are executed only when they are the sole requested action in a turn.
             // This ensures research results are evaluated by the LLM before finalization.
 
-            // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
-            var sortedCalls = next.stream()
-                    .sorted(Comparator.comparingInt(req -> priority(req.name())))
-                    .toList();
-            var contextAtTurnStart = context;
-            boolean executedWorkspaceResearch = false;
-            boolean executedNonWorkspaceResearch = false;
             String executedFinalTool = null;
             String executedFinalText = "";
-            for (var req : sortedCalls) {
-                // Record tool call
-                metrics.recordToolCall(req.name());
+            boolean executedWorkspaceResearch = false;
+            boolean executedNonWorkspaceResearch = false;
+            Context contextAtTurnStart = context;
 
-                ToolExecutionResult exec;
-                try {
-                    exec = tr.executeTool(req);
-                    context = wst.getContext();
-                } catch (Exception e) {
-                    logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-                    exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
-                }
+            try {
+                // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
+                var sortedCalls = next.stream()
+                        .sorted(Comparator.comparingInt(req -> priority(req.name())))
+                        .toList();
 
-                // Summarize large results
-                var display = exec.resultText();
-                boolean summarize = exec.status() == ToolExecutionResult.Status.SUCCESS
-                        && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
-                        && shouldSummarize(req.name());
-                if (summarize) {
-                    var reasoning =
-                            getArgumentsMap(req).getOrDefault("reasoning", "").toString();
-                    display = summarizeResult(goal, req, display, reasoning);
-                }
+                for (var req : sortedCalls) {
+                    // Record tool call
+                    metrics.recordToolCall(req.name());
 
-                // Write to visible transcript and to Context history
-                sessionMessages.add(ToolExecutionResultMessage.from(req, display));
+                    ToolExecutionResult exec;
+                    try {
+                        exec = tr.executeTool(req);
+                        context = wst.getContext();
+                    } catch (Exception e) {
+                        logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
+                        exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
+                    }
 
-                // Track research categories to decide later if finalization is permitted
-                var category = categorizeTool(req.name());
-                if (category == ToolCategory.RESEARCH) {
-                    if (isWorkspaceTool(req, tr)) {
-                        executedWorkspaceResearch = true;
-                    } else {
-                        executedNonWorkspaceResearch = true;
+                    // Summarize large results
+                    var display = exec.resultText();
+                    boolean summarize = exec.status() == ToolExecutionResult.Status.SUCCESS
+                            && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
+                            && shouldSummarize(req.name());
+                    if (summarize) {
+                        var reasoning = getArgumentsMap(req)
+                                .getOrDefault("reasoning", "")
+                                .toString();
+                        display = summarizeResult(goal, req, display, reasoning);
+                    }
+
+                    // Write to visible transcript and to Context history
+                    sessionMessages.add(ToolExecutionResultMessage.from(req, display));
+
+                    // Track research categories to decide later if finalization is permitted
+                    var category = categorizeTool(req.name());
+                    if (category == ToolCategory.RESEARCH) {
+                        if (isWorkspaceTool(req, tr)) {
+                            executedWorkspaceResearch = true;
+                        } else {
+                            executedNonWorkspaceResearch = true;
+                        }
+                    }
+
+                    // Track if we executed a final tool; finalize after the loop
+                    if (req.name().equals("answer")
+                            || req.name().equals("createTaskList")
+                            || req.name().equals("workspaceComplete")
+                            || req.name().equals("abortSearch")) {
+                        executedFinalTool = req.name();
+                        executedFinalText = display;
                     }
                 }
-
-                // Track if we executed a final tool; finalize after the loop
-                if (req.name().equals("answer")
-                        || req.name().equals("createTaskList")
-                        || req.name().equals("workspaceComplete")
-                        || req.name().equals("abortSearch")) {
-                    executedFinalTool = req.name();
-                    executedFinalText = display;
-                }
+            } finally {
+                // End turn tracking after tool execution - always called even on exceptions
+                endTurnAndRecordFileChanges(filesBeforeSet);
             }
-
-            // End turn tracking after tool execution
-            endTurnAndRecordFileChanges(filesBeforeSet);
 
             // If we executed a final tool, finalize appropriately
             if (executedFinalTool != null) {
@@ -939,7 +944,7 @@ public class SearchAgent {
 
         // Record final metrics
         recordFinalWorkspaceState();
-        metrics.recordFailure(stopDetails.reason(), getWorkspaceFileSet().size());
+        metrics.recordOutcome(stopDetails.reason(), getWorkspaceFileSet().size());
 
         return new TaskResult(action, fragment, context, stopDetails);
     }
@@ -956,7 +961,7 @@ public class SearchAgent {
 
         // Record final metrics
         recordFinalWorkspaceState();
-        metrics.recordFailure(details.reason(), getWorkspaceFileSet().size());
+        metrics.recordOutcome(details.reason(), getWorkspaceFileSet().size());
 
         return new TaskResult(action, fragment, context, details);
     }
@@ -997,7 +1002,10 @@ public class SearchAgent {
                         f.getType().toString(),
                         f.id(),
                         f.description(),
-                        f.files().stream().map(Object::toString).sorted().toList()))
+                        f.files().stream()
+                                .map(pf -> pf.getRelPath().toString())
+                                .sorted()
+                                .toList()))
                 .toList();
     }
 

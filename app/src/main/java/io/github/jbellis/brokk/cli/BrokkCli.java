@@ -29,7 +29,6 @@ import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.metrics.SearchMetrics;
 import io.github.jbellis.brokk.tasks.TaskList;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -398,15 +397,16 @@ public final class BrokkCli implements Callable<Integer> {
                 String errorMessage = th.getMessage() != null
                         ? th.getMessage()
                         : th.getClass().getName();
-                var errorResult = new SearchErrorResult(searchWorkspace, "", -1, elapsedTime, false, errorMessage);
+                var errorResult = new SearchErrorResult(
+                        searchWorkspace, List.of(), -1, elapsedTime, false, "fatal_error", errorMessage);
                 try {
                     var json = AbstractProject.objectMapper.writeValueAsString(errorResult);
                     System.out.println(json);
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    // Fallback to minimal JSON if serialization fails
-                    System.out.println("{\"query\": \"error\", \"found_file\": \"\", \"turns\": -1, \"elapsed_ms\": "
+                    // Fallback to minimal JSON if serialization fails (schema-consistent)
+                    System.out.println("{\"query\": \"error\", \"found_files\": [], \"turns\": -1, \"elapsed_ms\": "
                             + elapsedTime
-                            + ", \"success\": false}");
+                            + ", \"success\": false, \"failure_type\": \"fatal_error\"}");
                 }
                 return 2;
             }
@@ -423,8 +423,6 @@ public final class BrokkCli implements Callable<Integer> {
 
             return success ? 0 : 1;
         }
-
-        var workspaceTools = new WorkspaceTools(cm.liveContext());
 
         // --- Name Resolution and Context Building ---
 
@@ -896,7 +894,14 @@ public final class BrokkCli implements Callable<Integer> {
 
     /**
      * Error result for search-workspace mode failures.
+     * Schema matches SearchMetrics.SearchResult for consistency.
      */
     private record SearchErrorResult(
-            String query, String found_file, int turns, long elapsed_ms, boolean success, String error) {}
+            String query,
+            List<String> found_files,
+            int turns,
+            long elapsed_ms,
+            boolean success,
+            String failure_type,
+            String error) {}
 }

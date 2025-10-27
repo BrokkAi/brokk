@@ -53,7 +53,7 @@ public interface SearchMetrics {
      */
     void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn);
 
-    void recordFailure(TaskResult.StopReason reason, int workspaceSize);
+    void recordOutcome(TaskResult.StopReason reason, int workspaceSize);
 
     /**
      * Record the final snapshot of repo-backed files present in the Workspace at task completion.
@@ -124,7 +124,7 @@ public interface SearchMetrics {
         public void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {}
 
         @Override
-        public void recordFailure(TaskResult.StopReason reason, int workspaceSize) {}
+        public void recordOutcome(TaskResult.StopReason reason, int workspaceSize) {}
 
         @Override
         public void recordFinalWorkspaceFiles(Set<String> finalFiles) {}
@@ -168,9 +168,6 @@ public interface SearchMetrics {
 
         // Final workspace fragments information
         private @Nullable List<FragmentInfo> finalWorkspaceFragments = null;
-
-        // LLM history directory path
-        private @Nullable String llmHistoryPath = null;
 
         @Override
         public synchronized void recordContextScan(
@@ -228,7 +225,7 @@ public interface SearchMetrics {
         }
 
         @Override
-        public synchronized void recordFailure(TaskResult.StopReason reason, int workspaceSize) {
+        public synchronized void recordOutcome(TaskResult.StopReason reason, int workspaceSize) {
             this.stopReason = reason.toString();
             this.finalWorkspaceSize = workspaceSize;
 
@@ -273,13 +270,13 @@ public interface SearchMetrics {
         @Override
         public synchronized String toJson(String query, int turns, long elapsedMs, boolean success) {
             // Build found_files from context scan + all turn additions
-            logger.info(
+            logger.debug(
                     "Building found_files: contextScanFilesAddedPaths size={}, paths={}",
                     contextScanFilesAddedPaths.size(),
                     contextScanFilesAddedPaths);
             Set<String> allFoundFiles = new HashSet<>(contextScanFilesAddedPaths);
             for (TurnMetrics turn : this.turns) {
-                logger.info(
+                logger.debug(
                         "Turn {}: adding {} files: {}",
                         turn.getTurn(),
                         turn.getFiles_added_paths().size(),
@@ -287,7 +284,7 @@ public interface SearchMetrics {
                 allFoundFiles.addAll(turn.getFiles_added_paths());
             }
             List<String> foundFiles = allFoundFiles.stream().sorted().toList();
-            logger.info("Final found_files size={}, files={}", foundFiles.size(), foundFiles);
+            logger.debug("Final found_files size={}, files={}", foundFiles.size(), foundFiles);
 
             var contextScan = new ContextScanInfo(
                     contextScanFilesAdded,
@@ -312,8 +309,7 @@ public interface SearchMetrics {
                     stopReason,
                     finalWorkspaceSize,
                     finalWorkspaceFilesList,
-                    finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null,
-                    llmHistoryPath);
+                    finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null);
 
             try {
                 return io.github.jbellis.brokk.AbstractProject.objectMapper
@@ -337,8 +333,7 @@ public interface SearchMetrics {
                 @Nullable String stop_reason,
                 int final_workspace_size,
                 @Nullable List<String> final_workspace_files,
-                @Nullable List<FragmentInfo> final_workspace_fragments,
-                @Nullable String llm_history_path) {}
+                @Nullable List<FragmentInfo> final_workspace_fragments) {}
 
         /** Context scan metrics. */
         public record ContextScanInfo(
