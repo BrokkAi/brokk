@@ -93,6 +93,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
     private final int initialFileIndex;
+    private final boolean multiFileOnlyMode;
 
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
@@ -156,6 +157,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.initialFileIndex = builder.initialFileIndex;
+        this.multiFileOnlyMode = builder.multiFileOnlyMode;
 
         // Initialize blame service if we have a git repo
         if (contextManager.getProject().getRepo() instanceof GitRepo gitRepo) {
