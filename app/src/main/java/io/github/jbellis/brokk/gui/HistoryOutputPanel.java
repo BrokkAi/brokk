@@ -975,7 +975,8 @@ public class HistoryOutputPanel extends JPanel {
                 if (expanded) {
                     for (var child : children) {
                         String childText = "   " + child.getAction();
-                        historyModel.addRow(new Object[] {null, childText, child});
+                        Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
+                        historyModel.addRow(new Object[] {childIcon, childText, child});
                         if (child.equals(contextToSelect)) {
                             rowToSelect = currentRow;
                         }
