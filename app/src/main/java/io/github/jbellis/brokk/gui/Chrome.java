@@ -588,8 +588,20 @@ public class Chrome
         rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
 
         // Use the container (with header) as the sole bottom component; WorkspacePanel is hidden.
+        // Configure the top component as an invisible, zero-height panel so the split pane divider is hidden
+        var zeroHeightTop = new JPanel();
+        Dimension zeroDim = new Dimension(0, 0);
+        zeroHeightTop.setMinimumSize(zeroDim);
+        zeroHeightTop.setPreferredSize(zeroDim);
+        zeroHeightTop.setMaximumSize(zeroDim);
+        zeroHeightTop.setOpaque(false);
+        workspaceInstructionsSplit.setTopComponent(zeroHeightTop);
+
         workspaceInstructionsSplit.setBottomComponent(rightTabbedContainer);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+        // Hide the divider and force top to 0 height
+        workspaceInstructionsSplit.setDividerSize(0);
+        workspaceInstructionsSplit.setDividerLocation(0);
         // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
         workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
 
