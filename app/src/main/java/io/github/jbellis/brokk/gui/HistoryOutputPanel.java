@@ -518,12 +518,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        // Configure and add session name label at the top
+        // Create header panel with button (west) and session label (east)
+        var sessionHeaderPanel = new JPanel(new BorderLayout(5, 0));
+        sessionHeaderPanel.setOpaque(false);
+        sessionHeaderPanel.setBorder(new EmptyBorder(2, 8, 4, 8));
+        
+        // Add button to the west
+        newSessionButton.setMinimumSize(newSessionButton.getPreferredSize());
+        sessionHeaderPanel.add(newSessionButton, BorderLayout.WEST);
+        
+        // Configure and add session name label to the center/east
         sessionNameLabel.setOpaque(false);
         sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
-        sessionNameLabel.setBorder(new EmptyBorder(2, 8, 4, 8));
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        sessionPanel.add(sessionNameLabel, BorderLayout.NORTH);
+        sessionHeaderPanel.add(sessionNameLabel, BorderLayout.CENTER);
+        
+        sessionPanel.add(sessionHeaderPanel, BorderLayout.NORTH);
 
         // Add tabs to the session panel
         sessionPanel.add(tabs, BorderLayout.CENTER);
@@ -1214,11 +1224,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
-        // Add New Session button to the east side
-        JPanel eastPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        eastPanel.setOpaque(false);
-        eastPanel.add(newSessionButton);
-        panel.add(eastPanel, BorderLayout.EAST);
 
         var popupListener = new MouseAdapter() {
             private void showPopupMenu(MouseEvent e) {
