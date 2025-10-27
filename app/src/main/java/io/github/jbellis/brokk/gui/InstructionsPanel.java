@@ -1671,12 +1671,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             var cm = chrome.getContextManager();
             SearchAgent agent = new SearchAgent(
+                    cm.liveContext(),
                     query,
-                    cm,
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
                     SearchMetrics.noOp(),
-                    cm.liveContext(),
                     scope);
             try {
                 agent.scanInitialContext();

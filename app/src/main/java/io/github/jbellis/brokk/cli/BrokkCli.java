@@ -382,7 +382,7 @@ public final class BrokkCli implements Callable<Integer> {
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 var agent = new SearchAgent(
-                        searchWorkspace, cm, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics, cm.liveContext());
+                        cm.liveContext(), searchWorkspace, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics, scope);
                 if (disableContextScan) {
                     metrics.recordContextScan(0, 0, true, Set.of());
                 } else {
@@ -616,12 +616,12 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new SearchAgent(
+                            cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
-                            cm,
                             planModel,
                             EnumSet.of(Terminal.ANSWER),
                             SearchMetrics.noOp(),
-                            cm.liveContext());
+                            scope);
                     agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
@@ -668,12 +668,12 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new SearchAgent(
+                            cm.liveContext(),
                             requireNonNull(lutzPrompt),
-                            cm,
                             planModel,
                             EnumSet.of(Terminal.TASK_LIST),
                             SearchMetrics.noOp(),
-                            cm.liveContext());
+                            scope);
                     agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);

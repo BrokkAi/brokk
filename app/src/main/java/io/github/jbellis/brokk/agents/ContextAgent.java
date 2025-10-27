@@ -14,7 +14,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -67,7 +66,7 @@ public class ContextAgent {
         UNANALYZED
     }
 
-    private final ContextManager cm;
+    private final IContextManager cm;
     private final String goal;
     private final IAnalyzer analyzer;
     private final StreamingChatModel model;
@@ -78,7 +77,7 @@ public class ContextAgent {
     /** Budget for the files-pruning stage (evaluationBudget capped at 100k). */
     private final int filesPruningBudget;
 
-    public ContextAgent(ContextManager contextManager, StreamingChatModel model, String goal)
+    public ContextAgent(IContextManager contextManager, StreamingChatModel model, String goal)
             throws InterruptedException {
         this.cm = contextManager;
         this.goal = goal;

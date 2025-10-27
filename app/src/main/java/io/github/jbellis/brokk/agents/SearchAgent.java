@@ -19,6 +19,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
@@ -67,7 +68,7 @@ public class SearchAgent {
     private static final int SUMMARIZE_THRESHOLD = 1_000; // ~120 LOC equivalent
     private static final double WORKSPACE_CRITICAL = 0.80; // 90% of input limit
 
-    private final ContextManager cm;
+    private final IContextManager cm;
     private final StreamingChatModel model;
     private final Llm llm;
     private final Llm summarizer;
@@ -76,7 +77,7 @@ public class SearchAgent {
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
-    private final @Nullable ContextManager.TaskScope scope;
+    private final ContextManager.TaskScope scope;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -88,36 +89,20 @@ public class SearchAgent {
     private boolean beastMode;
 
     public SearchAgent(
-            String goal, ContextManager contextManager, StreamingChatModel model, Set<Terminal> allowedTerminals) {
-        this(goal, contextManager, model, allowedTerminals, SearchMetrics.noOp(), contextManager.liveContext(), null);
-    }
-
-    public SearchAgent(
-            String goal,
-            ContextManager contextManager,
-            StreamingChatModel model,
-            Set<Terminal> allowedTerminals,
-            SearchMetrics metrics,
-            Context initialContext) {
-        this(goal, contextManager, model, allowedTerminals, metrics, initialContext, null);
-    }
-
-    public SearchAgent(
-            String goal,
-            ContextManager contextManager,
-            StreamingChatModel model,
-            Set<Terminal> allowedTerminals,
-            SearchMetrics metrics,
             Context initialContext,
-            @Nullable ContextManager.TaskScope scope) {
+            String goal,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            SearchMetrics metrics,
+            ContextManager.TaskScope scope) {
         this.goal = goal;
-        this.cm = contextManager;
+        this.cm = initialContext.getContextManager();
         this.model = model;
 
-        this.io = contextManager.getIo();
-        this.llm = contextManager.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
+        this.io = cm.getIo();
+        this.llm = cm.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
         this.llm.setOutput(io);
-        this.summarizer = contextManager.getLlm(cm.getService().getScanModel(), "Summarizer: " + goal);
+        this.summarizer = cm.getLlm(cm.getService().getScanModel(), "Summarizer: " + goal);
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
@@ -155,13 +140,6 @@ public class SearchAgent {
         // Single pruning turn if workspace is not empty
         performInitialPruningTurn(tr);
         context = wst.getContext();
-
-        // Record initial context gathering as a history entry if scope is available
-        if (scope != null) {
-            var goal = "Find the right context for the task";
-            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-            context = scope.append(contextAgentResult);
-        }
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -458,7 +436,7 @@ public class SearchAgent {
         finals.add(
                 "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
 
-        String finalsStr = finals.stream().collect(Collectors.joining("\n"));
+        String finalsStr = String.join("\n", finals);
 
         String testsGuidance = "";
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
@@ -804,6 +782,7 @@ public class SearchAgent {
             metrics.recordContextScan(0, scanTime, false, Set.of());
             return;
         }
+        scope.append(new TaskResult(cm, "Context Engine", List.of(), context, TaskResult.StopReason.SUCCESS));
 
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
