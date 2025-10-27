@@ -193,6 +193,9 @@ public class HistoryOutputPanel extends JPanel {
     private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
     private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
+    @Nullable
+    private CumulativeChanges lastCumulativeChanges;
+
     /**
      * Constructs a new HistoryOutputPane.
      *
@@ -1071,6 +1074,9 @@ public class HistoryOutputPanel extends JPanel {
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
+
+            // Recompute cumulative changes summary for the Changes tab in the background
+            refreshCumulativeChangesAsync();
         });
     }
 
@@ -2610,6 +2616,108 @@ public class HistoryOutputPanel extends JPanel {
         var panel = builder.build();
         panel.showInFrame("Diff: " + ctx.getAction());
     }
+
+    // Compute the cumulative changes across the entire session history in the background,
+    // reusing cached diffs where possible. Updates the "Changes" tab title on the EDT.
+    private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
+        return contextManager
+                .submitBackgroundTask("Aggregate session changes", () -> {
+                    var contexts = contextManager.getContextHistoryList();
+                    var prevMapSnapshot = new HashMap<>(previousContextMap);
+
+                    int totalAdded = 0;
+                    int totalDeleted = 0;
+                    Map<String, PerFileChange> perFileMap = new HashMap<>();
+
+                    for (var ctx : contexts) {
+                        var prev = prevMapSnapshot.get(ctx.id());
+                        if (prev == null) {
+                            continue;
+                        }
+
+                        var diffs = diffCache.get(ctx.id());
+                        if (diffs == null) {
+                            // Compute once and cache for reuse elsewhere
+                            diffs = ctx.getDiff(prev);
+                            diffCache.put(ctx.id(), diffs);
+                        }
+
+                        for (var de : diffs) {
+                            String key;
+                            try {
+                                var files = de.fragment().files();
+                                if (!files.isEmpty()) {
+                                    var pf = files.iterator().next();
+                                    key = pf.getRelPath().toString();
+                                } else {
+                                    key = de.fragment().shortDescription();
+                                }
+                            } catch (Throwable t) {
+                                key = de.fragment().shortDescription();
+                            }
+
+                            // Earliest old stays from the first occurrence; latest new is updated each time
+                            var existing = perFileMap.get(key);
+                            String earliestOld = (existing == null) ? (de.oldContent() == null ? "" : de.oldContent()) : existing.earliestOld();
+                            String latestNew = safeFragmentText(de);
+
+                            perFileMap.put(key, new PerFileChange(earliestOld, latestNew));
+
+                            totalAdded += de.linesAdded();
+                            totalDeleted += de.linesDeleted();
+                        }
+                    }
+
+                    return new CumulativeChanges(perFileMap.size(), totalAdded, totalDeleted, Map.copyOf(perFileMap));
+                })
+                .thenApply(result -> {
+                    // Update UI on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        lastCumulativeChanges = result;
+
+                        var tabs = outputTabs;
+                        if (tabs != null) {
+                            int idx = -1;
+                            if (changesTabPlaceholder != null) {
+                                idx = tabs.indexOfComponent(changesTabPlaceholder);
+                            }
+                            if (idx < 0 && tabs.getTabCount() >= 2) {
+                                // Fallback: assume second tab is "Changes"
+                                idx = 1;
+                            }
+                            if (idx >= 0) {
+                                String title = String.format(
+                                        "Changes (%d, +%d/-%d)",
+                                        result.filesChanged(), result.totalAdded(), result.totalDeleted());
+                                tabs.setTitleAt(idx, title);
+                                String tooltip = "Cumulative changes: "
+                                        + result.filesChanged()
+                                        + " files, +" + result.totalAdded()
+                                        + "/-" + result.totalDeleted();
+                                try {
+                                    tabs.setToolTipTextAt(idx, tooltip);
+                                } catch (IndexOutOfBoundsException ignore) {
+                                    // Tab disappeared or index changed; ignore
+                                }
+                            }
+                        }
+                    });
+                    return result;
+                });
+    }
+
+    private static String safeFragmentText(Context.DiffEntry de) {
+        try {
+            return de.fragment().text();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static record PerFileChange(String earliestOld, String latestNew) {}
+
+    private static record CumulativeChanges(
+            int filesChanged, int totalAdded, int totalDeleted, Map<String, PerFileChange> perFileMap) {}
 
     /** A LayerUI that paints reset-from-history arrows over the history table. */
     private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
