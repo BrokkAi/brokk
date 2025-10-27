@@ -3505,97 +3505,26 @@ public class Chrome
                 return;
             }
 
-            if (collapsed) {
-                // Also save as a proportion for robust restore after resizes
-                try {
-                    int t = Math.max(0, topSplitPane.getHeight());
-                    if (t > 0) {
-                        double p = (double) Math.max(0, topSplitPane.getDividerLocation()) / (double) t;
-                        // Clamp to avoid pathological values
-                        savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
-                    }
-                } catch (Exception ex) {
-                    // Non-fatal: we'll use default proportion on restore
-                    logger.debug("Failed to save top split proportion; using defaults on restore", ex);
-                }
-
-                // Measure the current on-screen height of the Instructions area so we can keep it EXACT
-                int instructionsHeightPx = 0;
-                try {
-                    // Bottom of the topSplitPane is the Instructions container when expanded
-                    Component bottom = topSplitPane.getBottomComponent();
-                    if (bottom != null) {
-                        instructionsHeightPx = Math.max(0, bottom.getHeight());
-                    }
-                    // Fallback estimate if height not realized yet
-                    if (instructionsHeightPx == 0) {
-                        int tsTotal = Math.max(0, topSplitPane.getHeight());
-                        int tsDivider = topSplitPane.getDividerSize();
-                        int maxFromTop = Math.max(0, tsTotal - tsDivider);
-                        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                        instructionsHeightPx =
-                                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
-                    }
-                } catch (Exception ex) {
-                    // Defensive; we'll clamp during restore regardless
-                    logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
-                }
-                // Pin the measured Instructions height for exact restore later
-                pinnedInstructionsHeightPx = instructionsHeightPx;
-
-                // Swap to Instructions-only in the bottom (now using the rightTabbedContainer directly)
-                mainVerticalSplitPane.setBottomComponent(rightTabbedContainer);
-
-                // Revalidate layout, then set the main divider so bottom == pinned Instructions height
-                mainVerticalSplitPane.revalidate();
-                SwingUtilities.invokeLater(
-                        () -> applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx)));
-
-                this.workspaceCollapsed = true;
-            } else {
-                // Ensure the workspace split bottom points to the instructions area (rightTabbedContainer), then
-                // restore it
-                // as bottom
-                try {
-                    topSplitPane.setBottomComponent(rightTabbedContainer);
-                } catch (Exception ex) {
-                    // If it's already set due to prior operations, ignore but record for diagnostics
-                    logger.debug("topSplitPane.setBottomComponent() failed (likely already set)", ex);
-                }
-                mainVerticalSplitPane.setBottomComponent(topSplitPane);
-
-                // Revalidate the top split, then restore Workspace and bottom height exactly
-                topSplitPane.revalidate();
-                SwingUtilities.invokeLater(() -> {
-                    // Choose saved proportion; fall back to DEFAULT if missing
-                    double p = (savedTopSplitProportion > 0.0 && savedTopSplitProportion < 1.0)
-                            ? savedTopSplitProportion
-                            : DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT;
-                    // Clamp proportion
-                    p = Math.max(0.05, Math.min(0.95, p));
-
-                    // Compute the target bottom height so that Instructions stays at pinnedInstructionsHeightPx
-                    // For a vertical JSplitPane: bottomHeight = (1 - p) * T - dividerSize  =>  T = (pinned +
-                    // dividerSize) / (1 - p)
-                    int dividerSizeTS = topSplitPane.getDividerSize();
-                    int pinned = Math.max(0, pinnedInstructionsHeightPx);
-                    int desiredBottom = (int) Math.round((pinned + dividerSizeTS) / Math.max(0.05, (1.0 - p)));
-
-                    // Set the main Output↔Bottom divider so bottom == desiredBottom (clamped)
-                    applyMainDividerForExactBottomHeight(desiredBottom);
-
-                    // Finally set the top split divider by proportion to restore Workspace share
-                    try {
-                        topSplitPane.setDividerLocation(p);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to set topSplitPane divider by proportion; will rely on layout", ex);
-                    }
-                });
-
-                this.workspaceCollapsed = false;
+            // Keep the top split hidden and pointing at the right tabbed container
+            try {
+                topSplitPane.setDividerSize(0);
+                topSplitPane.setDividerLocation(0);
+                topSplitPane.setBottomComponent(rightTabbedContainer);
+            } catch (Exception ex) {
+                logger.debug("Ensuring topSplitPane hidden configuration failed (non-fatal)", ex);
             }
 
-            // Refresh layout/paint
+            // Always keep the bottom of the main split as the rightTabbedContainer
+            try {
+                mainVerticalSplitPane.setBottomComponent(rightTabbedContainer);
+            } catch (Exception ex) {
+                logger.debug("Setting mainVerticalSplitPane bottom component failed (non-fatal)", ex);
+            }
+
+            // Update state (for persistence and any logic that inspects this flag)
+            this.workspaceCollapsed = collapsed;
+
+            // Refresh layout without changing divider positions to avoid any visible change
             mainVerticalSplitPane.revalidate();
             mainVerticalSplitPane.repaint();
 
