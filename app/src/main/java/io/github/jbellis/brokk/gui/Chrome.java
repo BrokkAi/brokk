@@ -283,6 +283,7 @@ public class Chrome
 
         // Panel to hold both labels
         var statusPanel = new JPanel(new BorderLayout());
+        statusPanel.add(getAnalyzerStatusStrip(), BorderLayout.WEST);
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
 
         var statusLabels = (JComponent) statusPanel;
@@ -309,8 +310,6 @@ public class Chrome
         // Create shared analyzer rebuild status strip (hidden by default)
         this.analyzerStatusStrip = new AnalyzerStatusStrip();
         this.analyzerStatusStrip.setVisible(false);
-        // Embed the shared strip next to the model selector in the Instructions bottom toolbar
-        instructionsPanel.setStatusStrip(getAnalyzerStatusStrip());
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
         var rootPath = getProject().getRoot();
