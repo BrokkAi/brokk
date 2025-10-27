@@ -1084,22 +1084,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.refreshBranchUi(branchName);
     }
 
-    /**
-     * Format a KeyStroke into a human-readable short string such as "Ctrl+M" or "Meta+Enter". Falls back to
-     * KeyStroke.toString() on error.
-     */
-    private static String formatKeyStroke(KeyStroke ks) {
-        try {
-            int modifiers = ks.getModifiers();
-            int keyCode = ks.getKeyCode();
-            String modText = InputEvent.getModifiersExText(modifiers);
-            String keyText = KeyEvent.getKeyText(keyCode);
-            if (modText == null || modText.isBlank()) return keyText;
-            return modText + "+" + keyText;
-        } catch (Exception e) {
-            return ks.toString();
-        }
-    }
 
     private JPanel buildBottomPanel() {
         JPanel bottomPanel = new JPanel();
@@ -2202,6 +2186,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         public void updateTooltip() {
+            setToolTipText(buildTooltipHtml());
+        }
+
+        private String buildTooltipHtml() {
             String modeTooltip =
                     switch (selectedMode) {
                         case ACTION_CODE -> MODE_TOOLTIP_CODE;
@@ -2224,10 +2212,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Defensive: leave toggleLine empty if anything goes wrong
             }
 
-            setToolTipText("<html><body style='width: 350px;'>" + modeTooltip
+            return "<html><body style='width: 350px;'>" + modeTooltip
                     + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>" + baseTooltip
                     + toggleLine
-                    + "</body></html>");
+                    + "</body></html>";
+        }
+
+        @Override
+        public String getToolTipText(MouseEvent event) {
+            // Always compute fresh so keybinding changes in Settings are immediately reflected
+            return buildTooltipHtml();
         }
 
         public void showStopMode() {
@@ -2587,6 +2581,50 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         public Color getAccent() {
             return accent;
+        }
+
+        @Override
+        public String getToolTipText(MouseEvent event) {
+            try {
+                String title;
+                String desc;
+                switch (modeKind) {
+                    case ACTION_CODE -> {
+                        title = "Code Mode";
+                        desc = "Code: Applies changes directly to the files currently in your Workspace context based on your instructions.";
+                    }
+                    case ACTION_ASK -> {
+                        title = "Ask Mode";
+                        desc = "Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.";
+                    }
+                    case ACTION_SEARCH -> {
+                        title = "Lutz Mode";
+                        desc = "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
+                    }
+                    default -> {
+                        title = "Lutz Mode";
+                        desc = "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
+                    }
+                }
+
+                var toggleKs = GlobalUiSettings.getKeybinding(
+                        "instructions.toggleMode",
+                        KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+                if (toggleStr == null || toggleStr.isBlank()) {
+                    toggleStr = "(unbound)";
+                }
+
+                StringBuilder body = new StringBuilder();
+                body.append("<div><b>").append(htmlEscape(title)).append("</b></div>");
+                body.append("<div style='margin-top: 4px;'>").append(htmlEscape(desc)).append("</div>");
+                body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
+                body.append("<div>Toggle mode: ").append(htmlEscape(toggleStr)).append("</div>");
+
+                return wrapTooltipHtml(body.toString(), 320);
+            } catch (Exception e) {
+                return super.getToolTipText(event);
+            }
         }
 
         private void updateFromTheme() {
