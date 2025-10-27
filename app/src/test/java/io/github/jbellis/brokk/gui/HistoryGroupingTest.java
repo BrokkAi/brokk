@@ -44,13 +44,13 @@ public class HistoryGroupingTest {
   }
 
   @Test
-  public void twoUngrouped_sameAction_becomesActionGroup() {
+  public void twoUngrouped_contiguous_becomesLegacyGroup() {
     var c1 = ctx("Compile module A");
     var c2 = ctx("Compile module A");
 
     var groups = discover(List.of(c1, c2), c -> false);
 
-    assertEquals(1, groups.size(), "Two identical actions should be grouped into one legacy action group");
+    assertEquals(1, groups.size(), "Two contiguous ungrouped contexts should be grouped into one legacy action group");
     var g = groups.getFirst();
     assertEquals(GroupType.GROUP_BY_ACTION, g.type());
     assertTrue(g.shouldShowHeader(), "Legacy action group should show header");
@@ -95,25 +95,31 @@ public class HistoryGroupingTest {
   @Test
   public void boundaryBreaksGroups() {
     var a1 = ctx("A action");
-    var boundary = ctx("A action"); // mark this as boundary via predicate
-    var a2 = ctx("A action");
+    var boundary = ctx("B boundary"); // mark this as boundary via predicate
+    var a2 = ctx("C action");
 
     Predicate<Context> isBoundary = c -> c == boundary;
 
     var groups = discover(List.of(a1, boundary, a2), isBoundary);
 
-    // Expect three singletons with no headers; boundary is not merged with neighbors
-    assertEquals(3, groups.size(), "Boundary should prevent grouping across it");
+    // Expect three groups: [a1] singleton, [boundary] singleton, then [a2] singleton
+    assertEquals(3, groups.size(), "Boundary should terminate prior group, and boundary (ungrouped) is its own singleton");
 
-    for (int i = 0; i < groups.size(); i++) {
-      var g = groups.get(i);
-      assertFalse(g.shouldShowHeader(), "All should be singleton descriptors without header");
-      assertEquals(1, g.children().size());
-    }
+    var g0 = groups.get(0);
+    assertFalse(g0.shouldShowHeader(), "First should be singleton without header");
+    assertEquals(1, g0.children().size());
+    assertEquals(a1.id(), g0.children().getFirst().id());
 
-    assertEquals(a1.id(), groups.get(0).children().getFirst().id());
-    assertEquals(boundary.id(), groups.get(1).children().getFirst().id());
-    assertEquals(a2.id(), groups.get(2).children().getFirst().id());
+    var g1 = groups.get(1);
+    assertEquals(GroupType.GROUP_BY_ACTION, g1.type(), "Boundary without groupId should be a legacy singleton");
+    assertFalse(g1.shouldShowHeader(), "Ungrouped boundary should not show a header");
+    assertEquals(1, g1.children().size());
+    assertEquals(boundary.id(), g1.children().get(0).id());
+
+    var g2 = groups.get(2);
+    assertFalse(g2.shouldShowHeader(), "Trailing ungrouped after boundary should be singleton without header");
+    assertEquals(1, g2.children().size());
+    assertEquals(a2.id(), g2.children().get(0).id());
   }
 
   @Test
@@ -150,5 +156,92 @@ public class HistoryGroupingTest {
 
     assertEquals(oldKey, found.key(), "Group key should remain the same");
     assertTrue(Boolean.TRUE.equals(expandedMap.get(oldKeyUuid)), "Seeded expansion state should remain valid with same key");
+  }
+
+  @Test
+  public void ungroupedDifferentActions_groupedTogetherUntilBoundary() {
+    var a = ctx("Edit file");
+    var b = ctx("Run tests");
+
+    var groups = discover(List.of(a, b), c -> false);
+
+    assertEquals(1, groups.size(), "Contiguous ungrouped contexts should form one legacy group");
+    var g = groups.getFirst();
+    assertEquals(GroupType.GROUP_BY_ACTION, g.type());
+    assertTrue(g.shouldShowHeader());
+    assertEquals(2, g.children().size());
+    assertEquals(a.id(), g.children().get(0).id());
+    assertEquals(b.id(), g.children().get(1).id());
+  }
+
+  @Test
+  public void boundaryWithGroupId_startsNewGroupById() {
+    var gid = UUID.randomUUID();
+    var a1 = ctx("Prep");
+    var boundary = ctxWithGroup("Phase start", gid, "Batch L");
+    var a2 = ctxWithGroup("Phase continue", gid, "Batch L");
+
+    Predicate<Context> isBoundary = c -> c == boundary;
+
+    var groups = discover(List.of(a1, boundary, a2), isBoundary);
+
+    assertEquals(2, groups.size(), "Expected singleton followed by a group-by-id group starting at boundary");
+
+    var g0 = groups.get(0);
+    assertFalse(g0.shouldShowHeader());
+    assertEquals(1, g0.children().size());
+    assertEquals(a1.id(), g0.children().getFirst().id());
+
+    var g1 = groups.get(1);
+    assertEquals(GroupType.GROUP_BY_ID, g1.type());
+    assertTrue(g1.shouldShowHeader());
+    assertEquals(gid.toString(), g1.key());
+    assertEquals("Batch L", g1.label());
+    assertEquals(2, g1.children().size());
+    assertEquals(boundary.id(), g1.children().get(0).id());
+    assertEquals(a2.id(), g1.children().get(1).id());
+  }
+
+  @Test
+  public void mixedLegacyUngroupedAndGroupId() {
+    var gid = UUID.randomUUID();
+
+    var a = ctx("Edit");
+    var b = ctx("Run");
+
+    var g1 = ctxWithGroup("Start", gid, "Batch");
+    var g2 = ctxWithGroup("Continue", gid, "Batch");
+
+    var c = ctx("Format");
+
+    Predicate<Context> isBoundary = c0 -> c0 == g1; // g1 acts as a boundary; also starts its group
+
+    var groups = discover(List.of(a, b, g1, g2, c), isBoundary);
+
+    assertEquals(3, groups.size(), "Expected legacy group, then group-by-id, then singleton");
+
+    // Legacy group [a, b]
+    var gg0 = groups.get(0);
+    assertEquals(GroupType.GROUP_BY_ACTION, gg0.type());
+    assertTrue(gg0.shouldShowHeader());
+    assertEquals(2, gg0.children().size());
+    assertEquals(a.id(), gg0.children().get(0).id());
+    assertEquals(b.id(), gg0.children().get(1).id());
+
+    // Group-by-id [g1, g2]
+    var gg1 = groups.get(1);
+    assertEquals(GroupType.GROUP_BY_ID, gg1.type());
+    assertTrue(gg1.shouldShowHeader());
+    assertEquals(2, gg1.children().size());
+    assertEquals(gid.toString(), gg1.key());
+    assertEquals("Batch", gg1.label());
+    assertEquals(g1.id(), gg1.children().get(0).id());
+    assertEquals(g2.id(), gg1.children().get(1).id());
+
+    // Singleton [c]
+    var gg2 = groups.get(2);
+    assertFalse(gg2.shouldShowHeader());
+    assertEquals(1, gg2.children().size());
+    assertEquals(c.id(), gg2.children().getFirst().id());
   }
 }

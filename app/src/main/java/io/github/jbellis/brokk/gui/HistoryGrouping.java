@@ -23,14 +23,12 @@ import org.jetbrains.annotations.Nullable;
  *
  * Rules implemented:
  * 1) Groups are contiguous runs bounded by boundaries (isBoundary.test(ctx) == true).
- *    Boundaries terminate any ongoing group and are always returned as singleton groups
- *    without a header row.
+ *    Boundaries terminate the preceding group but can themselves be the first item of a new group.
  * 2) If a context has a non-null getGroupId(), it belongs to a group identified by that UUID.
- *    Group-by-id groups always form a group, even if the group size is 1. Headers are shown
- *    only when the group has 2+ children.
- * 3) Legacy action-based grouping: when getGroupId() is null, contiguous runs of identical actions
- *    may be grouped. Only create a legacy group when the run length is >= 2. Otherwise, return
- *    the context as a singleton without a header.
+ *    Group-by-id groups always form a group, even if the group size is 1, and always show a header.
+ * 3) Legacy grouping: when getGroupId() is null, contiguous runs of ungrouped contexts up to a
+ *    boundary may be grouped. Only create a legacy group when the run length is >= 2. Otherwise,
+ *    return the context as a singleton without a header.
  * 4) Preserve original order; return descriptors covering all contexts.
  *
  * Stable keys:
@@ -97,109 +95,23 @@ public final class HistoryGrouping {
         return List.of();
       }
 
-      List<GroupDescriptor> out = new ArrayList<>();
       final int n = contexts.size();
+      List<GroupDescriptor> out = new ArrayList<>();
 
-      int i = 0;
-      while (i < n) {
-        Context ctx = contexts.get(i);
-
-        // Boundaries are always singleton groups without a header
-        if (isBoundary.test(ctx)) {
-          List<Context> single = List.of(ctx);
-          GroupDescriptor gd = new GroupDescriptor(
-              GroupType.GROUP_BY_ACTION,
-              ctx.id().toString(),          // stable key for singleton
-              "",                           // no header
-              single,
-              false,                        // no header for singleton
-              false                         // provisional; will patch isLastGroup below
-          );
-          out.add(gd);
-          i += 1;
-          continue;
-        }
-
-        UUID groupId = ctx.getGroupId();
-
-        // Group-by-id: contiguous run sharing the same id, terminated by boundary
-        if (groupId != null) {
-          int j = i;
-          while (j < n) {
-            Context c = contexts.get(j);
-            if (isBoundary.test(c)) break;
-            if (!groupId.equals(c.getGroupId())) break;
-            j++;
-          }
-          List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-          // Group-by-id groups always show a header, even for singletons.
-          boolean showHeader = true;
-
-          // Prefer an explicit groupLabel; otherwise compute a fallback label.
-          String preferredLabel = children.stream()
-              .map(Context::getGroupLabel)
-              .filter(s -> s != null && !s.isBlank())
-              .findFirst()
-              .orElse(null);
-
-          String label = computeLabelForGroup(preferredLabel, children);
-          GroupDescriptor gd = new GroupDescriptor(
-              GroupType.GROUP_BY_ID,
-              groupId.toString(),
-              label,
-              children,
-              showHeader,
-              false // provisional
-          );
-          out.add(gd);
-          i = j;
-          continue;
-        }
-
-        // Legacy action-based grouping for contexts without a groupId
-        String action = ctx.getAction();
-        int j = i + 1;
-        while (j < n) {
-          Context c = contexts.get(j);
-          if (isBoundary.test(c)) break;
-          if (c.getGroupId() != null) break; // stop at any explicit group
-          if (!Objects.equals(action, c.getAction())) break;
-          j++;
-        }
-
-        int len = j - i;
-        if (len >= 2) {
-          List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-          boolean showHeader = true;
-          String label = computeHeaderLabelFor(children);
-          String key = children.get(0).id().toString(); // stable key for legacy group
-          GroupDescriptor gd = new GroupDescriptor(
-              GroupType.GROUP_BY_ACTION,
-              key,
-              label,
-              children,
-              showHeader,
-              false // provisional
-          );
-          out.add(gd);
-          i = j;
-        } else {
-          // Singleton without groupId: top-level, no header
-          List<Context> single = List.of(ctx);
-          GroupDescriptor gd = new GroupDescriptor(
-              GroupType.GROUP_BY_ACTION,
-              ctx.id().toString(),
-              "",
-              single,
-              false,
-              false // provisional
-          );
-          out.add(gd);
-          i += 1;
+      // 1) Pre-split into boundary-separated segments.
+      // A boundary means "there is a cut before this item," so it starts a new segment.
+      int segStart = 0;
+      for (int i = 1; i < n; i++) {
+        if (isBoundary.test(contexts.get(i))) {
+          // emit [segStart, i)
+          emitSegment(contexts, segStart, i, out, isBoundary);
+          segStart = i;
         }
       }
+      // emit final segment [segStart, n)
+      emitSegment(contexts, segStart, n, out, isBoundary);
 
-      // Patch isLastGroup flag
+      // 2) Mark last descriptor, if any
       if (!out.isEmpty()) {
         int last = out.size() - 1;
         GroupDescriptor tail = out.get(last);
@@ -213,6 +125,93 @@ public final class HistoryGrouping {
       }
 
       return List.copyOf(out);
+    }
+
+    /**
+     * Emit group descriptors for a boundary-free segment [start, end).
+     * Within a segment, produce maximal runs of:
+     * - same non-null groupId (GROUP_BY_ID, header always shown)
+     * - contiguous null groupId (legacy), header shown only when length >= 2
+     */
+    private static void emitSegment(
+        List<Context> contexts, int start, int end, List<GroupDescriptor> out, java.util.function.Predicate<Context> isBoundary) {
+      int i = start;
+      while (i < end) {
+        Context ctx = contexts.get(i);
+        UUID groupId = ctx.getGroupId();
+
+        if (groupId != null) {
+          int j = i + 1;
+          while (j < end && groupId.equals(contexts.get(j).getGroupId())) {
+            j++;
+          }
+          List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
+          // Header always shown for id-groups, including size 1
+          String preferredLabel = children.stream()
+              .map(Context::getGroupLabel)
+              .filter(s -> s != null && !s.isBlank())
+              .findFirst()
+              .orElse(null);
+          String label = computeLabelForGroup(preferredLabel, children);
+
+          out.add(new GroupDescriptor(
+              GroupType.GROUP_BY_ID,
+              groupId.toString(),
+              label,
+              children,
+              true,
+              false
+          ));
+          i = j;
+        } else {
+          // If this item is a boundary and ungrouped, it must not be absorbed into a legacy run.
+          if (isBoundary.test(ctx)) {
+            List<Context> single = List.of(ctx);
+            out.add(new GroupDescriptor(
+                GroupType.GROUP_BY_ACTION,
+                ctx.id().toString(),
+                "",
+                single,
+                false,
+                false
+            ));
+            i = i + 1;
+            continue;
+          }
+
+          // Legacy run: contiguous ungrouped items that are not boundaries
+          int j = i + 1;
+          while (j < end && contexts.get(j).getGroupId() == null && !isBoundary.test(contexts.get(j))) {
+            j++;
+          }
+          int len = j - i;
+          if (len >= 2) {
+            List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
+            String label = computeHeaderLabelFor(children);
+            String key = children.get(0).id().toString();
+            out.add(new GroupDescriptor(
+                GroupType.GROUP_BY_ACTION,
+                key,
+                label,
+                children,
+                true,
+                false
+            ));
+          } else {
+            // Singleton legacy (no header)
+            List<Context> single = List.of(ctx);
+            out.add(new GroupDescriptor(
+                GroupType.GROUP_BY_ACTION,
+                ctx.id().toString(),
+                "",
+                single,
+                false,
+                false
+            ));
+          }
+          i = j;
+        }
+      }
     }
 
     private static String computeLabelForGroup(@Nullable String groupLabel, List<Context> children) {
@@ -251,7 +250,8 @@ public final class HistoryGrouping {
   /**
    * Build a mapping from Context.id to the visible row index in the given JTable.
    * Visible children map to their own row; children of collapsed groups map to the group's header row.
-   * Returns an empty map if descriptors or table are null/empty.
+   * If the table is null, returns an empty map. If descriptors are null or empty, maps only currently
+   * visible Context rows (collapsed children cannot be resolved to headers without descriptors).
    */
   public static java.util.Map<java.util.UUID, Integer> buildContextToRowMap(
       java.util.List<GroupDescriptor> descriptors, javax.swing.JTable table) {

@@ -939,10 +939,8 @@ public class HistoryOutputPanel extends JPanel {
             for (var c : contexts) {
                 scheduleDiffComputation(c);
             }
-            boolean lastIsNotBoundary = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
-
             var descriptors =
-                    io.github.jbellis.brokk.gui.HistoryGrouping.GroupingBuilder.discoverGroups(
+                    HistoryGrouping.GroupingBuilder.discoverGroups(
                             contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -964,7 +962,7 @@ public class HistoryOutputPanel extends JPanel {
 
                 // Render group header + (optional) children if expanded
                 var uuidKey = UUID.fromString(descriptor.key());
-                boolean expandedDefault = descriptor.isLastGroup() && lastIsNotBoundary;
+                boolean expandedDefault = descriptor.isLastGroup();
                 boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
 
                 boolean containsClearHistory = children.stream()
@@ -2789,8 +2787,10 @@ public class HistoryOutputPanel extends JPanel {
 
     private boolean isGroupingBoundary(Context ctx) {
         // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result, or an explicit "dropped all context" separator.
-        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
+        // Boundary when this is an AI result WITHOUT a groupId, or an explicit "dropped all context" separator.
+        // Note: AI results that carry a groupId are NOT boundaries and may merge into a single GROUP_BY_ID run.
+        return (ctx.isAiResult() && ctx.getGroupId() == null)
+                || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
     }
 
 
