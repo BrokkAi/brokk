@@ -46,7 +46,7 @@ public final class HistoryIo {
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
 
-    private static final int CURRENT_FORMAT_VERSION = 3;
+    private static final int CURRENT_FORMAT_VERSION = 4;
 
     private HistoryIo() {}
 
@@ -80,11 +80,13 @@ public final class HistoryIo {
     }
 
     private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
-        // TODO: [Migration4] Handle during migration
-        return readZipV3(zip, mgr);
+        return readZipWithFragmentsFile(zip, mgr, V3_FRAGMENTS_FILENAME);
+        // TODO [Migration 4] replace above with below
+        //        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
     }
 
-    private static ContextHistory readZipV3(Path zip, IContextManager mgr) throws IOException {
+    private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
+            throws IOException {
         AllFragmentsDto allFragmentsDto = null;
         var compactContextDtoLines = new ArrayList<String>();
         var imageBytesMap = new HashMap<String, byte[]>();
@@ -98,44 +100,49 @@ public final class HistoryIo {
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                switch (entry.getName()) {
-                    case V3_FRAGMENTS_FILENAME ->
-                        allFragmentsDto = objectMapper.readValue(zis.readAllBytes(), AllFragmentsDto.class);
-                    case CONTENT_FILENAME -> {
-                        var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
-                        contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
-                    }
-                    case CONTEXTS_FILENAME -> {
-                        var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
-                        content.lines().filter(line -> !line.trim().isEmpty()).forEach(compactContextDtoLines::add);
-                    }
-                    case RESET_EDGES_FILENAME -> {
-                        record EdgeDto(String sourceId, String targetId) {}
-                        var list = List.of(objectMapper.readValue(zis.readAllBytes(), EdgeDto[].class));
-                        list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
-                                UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
-                    }
-                    case GIT_STATES_FILENAME -> {
-                        var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {};
-                        rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
-                    }
-                    case ENTRY_INFOS_FILENAME -> {
-                        byte[] bytes = zis.readAllBytes();
-                        var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
-                        Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
-                        entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
-                    }
-                    default -> {
-                        if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
-                            String name = entry.getName().substring(IMAGES_DIR_PREFIX.length());
-                            int dotIndex = name.lastIndexOf('.');
-                            String fragmentIdHash = (dotIndex > 0) ? name.substring(0, dotIndex) : name;
-                            imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
-                        } else if (entry.getName().startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
-                            String contentId = entry.getName()
-                                    .substring(CONTENT_DIR_PREFIX.length())
-                                    .replaceFirst("\\.txt$", "");
-                            contentBytesMap.put(contentId, zis.readAllBytes());
+                var entryName = entry.getName();
+                if (entryName.equals(fragmentsFilename)) {
+                    allFragmentsDto = objectMapper.readValue(zis.readAllBytes(), AllFragmentsDto.class);
+                } else {
+                    switch (entryName) {
+                        case CONTENT_FILENAME -> {
+                            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+                            contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
+                        }
+                        case CONTEXTS_FILENAME -> {
+                            var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
+                            content.lines()
+                                    .filter(line -> !line.trim().isEmpty())
+                                    .forEach(compactContextDtoLines::add);
+                        }
+                        case RESET_EDGES_FILENAME -> {
+                            record EdgeDto(String sourceId, String targetId) {}
+                            var list = List.of(objectMapper.readValue(zis.readAllBytes(), EdgeDto[].class));
+                            list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
+                                    UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
+                        }
+                        case GIT_STATES_FILENAME -> {
+                            var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {};
+                            rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
+                        }
+                        case ENTRY_INFOS_FILENAME -> {
+                            byte[] bytes = zis.readAllBytes();
+                            var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
+                            Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
+                            entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
+                        }
+                        default -> {
+                            if (entryName.startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
+                                String name = entryName.substring(IMAGES_DIR_PREFIX.length());
+                                int dotIndex = name.lastIndexOf('.');
+                                String fragmentIdHash = (dotIndex > 0) ? name.substring(0, dotIndex) : name;
+                                imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
+                            } else if (entryName.startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
+                                String contentId = entryName
+                                        .substring(CONTENT_DIR_PREFIX.length())
+                                        .replaceFirst("\\.txt$", "");
+                                contentBytesMap.put(contentId, zis.readAllBytes());
+                            }
                         }
                     }
                 }
@@ -335,6 +342,8 @@ public final class HistoryIo {
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
                 zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
+                // TODO [Migration 4] replace above with below
+                //                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 
