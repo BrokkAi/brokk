@@ -322,6 +322,7 @@ public class Chrome
 
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
+        workspacePanel.setVisible(false);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, this.testRunnerPanel);
         dependenciesPanel = new DependenciesPanel(this);
 
@@ -481,7 +482,7 @@ public class Chrome
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
         workspaceTopContainer = new JPanel(new BorderLayout());
-        workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
+        // Intentionally do not add workspacePanel to any container to keep it hidden
 
         // Create right-side tabbed panel with Instructions as first tab (with icons)
         rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
@@ -586,9 +587,7 @@ public class Chrome
         // No right-side drawer; the rightTabbedContainer occupies full right side
         rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
 
-        // Attach the combined components as the bottom component
-        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        // Use the container (with header) as the bottom component so the header sits just north of the tabs.
+        // Use the container (with header) as the sole bottom component; WorkspacePanel is hidden.
         workspaceInstructionsSplit.setBottomComponent(rightTabbedContainer);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
         // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
@@ -600,7 +599,8 @@ public class Chrome
         // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
         JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         outputStackSplit.setTopComponent(historyOutputPanel);
-        outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
+        // Directly use the rightTabbedContainer for visible UI; workspace split remains unmounted.
+        outputStackSplit.setBottomComponent(rightTabbedContainer);
         outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
 
         // Keep reference so existing persistence logic still works
