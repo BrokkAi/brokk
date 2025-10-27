@@ -19,9 +19,9 @@
   )
 )
 
-; Decorated method definition (any decorator type: attribute, identifier, or call)
-; Single pattern avoids duplicate matches when methods have mixed decorator types.
-; Property setters are filtered in PythonAnalyzer.shouldSkipNode() to avoid duplicates.
+; Decorated method definition (function_definition directly inside a class's body block, with decorators)
+; The decorated_definition node itself is captured as @function.definition for consistency,
+; and its inner function_definition's name is @function.name.
 (class_definition
   body: (block
     (decorated_definition

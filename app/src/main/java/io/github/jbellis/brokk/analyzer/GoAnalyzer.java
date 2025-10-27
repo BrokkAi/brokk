@@ -32,12 +32,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
             "type_parameters", // typeParametersFieldName (Go generics)
             Map.of(
-                    "function.definition", SkeletonType.FUNCTION_LIKE,
-                    "type.definition", SkeletonType.CLASS_LIKE,
-                    "variable.definition", SkeletonType.FIELD_LIKE,
-                    "constant.definition", SkeletonType.FIELD_LIKE,
+                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.TYPE_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.VARIABLE_DEFINITION, SkeletonType.FIELD_LIKE,
+                    CaptureNames.CONSTANT_DEFINITION, SkeletonType.FIELD_LIKE,
                     "struct.field.definition", SkeletonType.FIELD_LIKE,
-                    "method.definition", SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     "interface.method.definition", SkeletonType.FUNCTION_LIKE // Added for interface methods
                     ), // captureConfiguration
             "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
@@ -152,7 +152,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 classChain);
 
         return switch (captureName) {
-            case "function.definition" -> {
+            case CaptureNames.FUNCTION_DEFINITION -> {
                 log.trace(
                         "Creating FN CodeUnit for Go function: File='{}', Pkg='{}', Name='{}'",
                         file.getFileName(),
@@ -160,7 +160,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                         simpleName);
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
-            case "type.definition" -> { // Covers struct_type and interface_type
+            case CaptureNames.TYPE_DEFINITION -> { // Covers struct_type and interface_type
                 log.trace(
                         "Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'",
                         file.getFileName(),
@@ -168,7 +168,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                         simpleName);
                 yield CodeUnit.cls(file, packageName, simpleName);
             }
-            case "variable.definition", "constant.definition" -> {
+            case CaptureNames.VARIABLE_DEFINITION, CaptureNames.CONSTANT_DEFINITION -> {
                 // For package-level variables/constants, classChain should be empty.
                 // We adopt a convention like "_module_.simpleName" for the short name's member part.
                 if (!classChain.isEmpty()) {
@@ -186,7 +186,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                         fieldShortName);
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
-            case "method.definition" -> {
+            case CaptureNames.METHOD_DEFINITION -> {
                 // simpleName is now expected to be ReceiverType.MethodName due to adjustments in TreeSitterAnalyzer
                 // classChain is now expected to be ReceiverType
                 log.trace(

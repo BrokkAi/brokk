@@ -37,9 +37,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             "return_type", // returnTypeFieldName
             "", // typeParametersFieldName (Python doesn't have explicit type parameters)
             Map.of( // captureConfiguration
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "function.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
             );
@@ -80,7 +80,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
 
         return switch (captureName) {
-            case "class.definition" -> {
+            case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
                         "Creating class: simpleName='{}', classChain='{}', packageName='{}'",
                         simpleName,
@@ -105,7 +105,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 }
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
-            case "function.definition" -> {
+            case CaptureNames.FUNCTION_DEFINITION -> {
                 // Methods use dot notation throughout, even for function-local classes
                 // Example: method in function-local class has FQN "test_function.LocalClass.method"
                 // (The parent class itself uses $: "test_function$LocalClass")
@@ -113,7 +113,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
-            case "field.definition" -> { // For class attributes or top-level variables
+            case CaptureNames.FIELD_DEFINITION -> { // For class attributes or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
                     // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of
@@ -145,7 +145,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
         // Skip property setters to avoid duplicates with property getters
-        if ("function.definition".equals(captureName) && "decorated_definition".equals(node.getType())) {
+        if (CaptureNames.FUNCTION_DEFINITION.equals(captureName) && "decorated_definition".equals(node.getType())) {
             // Check if this is a property setter by looking at decorators
             for (int i = 0; i < node.getNamedChildCount(); i++) {
                 TSNode child = node.getNamedChild(i);

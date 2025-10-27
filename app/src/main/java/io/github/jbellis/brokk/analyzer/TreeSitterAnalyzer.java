@@ -1065,10 +1065,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Builds the parent FQName from class chain for parent-child relationship lookup. Override this
      * method to apply language-specific FQName correction logic.
-     *
-     * @param cu The CodeUnit being attached to its parent (provides access to file, packageName, etc.)
-     * @param classChain The class chain indicating the parent hierarchy
-     * @return The fully qualified name to use for parent lookup
      */
     protected String buildParentFqName(CodeUnit cu, String classChain) {
         return Stream.of(cu.packageName(), classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
@@ -1092,10 +1088,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Checks if a node should be skipped for top-level processing.
      * Default implementation returns false (no skipping).
      * Language-specific analyzers can override this to filter out certain nodes.
-     *
-     * @param node the AST node to check
-     * @param captureName the capture name from the query
-     * @param srcBytes the source file bytes (for extracting node text if needed)
      */
     protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
         return false;
@@ -1105,14 +1097,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * For Python, applies "last wins" semantics for fields, classes, and functions (matching runtime behavior).
      * For other languages, logs an error for unexpected duplicates.
-     *
-     * @param cu the CodeUnit to add
-     * @param localTopLevelCUs the list of top-level CodeUnits
-     * @param seenTopLevelFqNames set tracking FQNs already seen
-     * @param localChildren map of parent-child relationships (cleaned up for Python duplicates)
-     * @param localSignatures map of CodeUnit signatures (cleaned up for Python duplicates)
-     * @param localSourceRanges map of CodeUnit source ranges (cleaned up for Python duplicates)
-     * @param file the file being analyzed
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1129,7 +1113,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass() || cu.isFunction())) {
             // Python duplicate - replace previous with this one (last assignment wins)
             // This matches Python's runtime behavior where duplicate definitions replace earlier ones
-            // Find and remove the old CodeUnit from both top-level list and all related maps
             CodeUnit oldCu = localTopLevelCUs.stream()
                     .filter(existing -> existing.fqName().equals(cu.fqName()))
                     .findFirst()
@@ -1566,22 +1549,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     signature.isBlank()
                             ? "BLANK"
                             : signature.lines().findFirst().orElse("EMPTY"));
-
-            if (file.getFileName().equals("vars.py") && primaryCaptureName.equals("field.definition")) {
-                log.trace(
-                        "[vars.py DEBUG] Processing entry for vars.py field: Node Type='{}', SimpleName='{}', CaptureName='{}', PackageName='{}', ClassChain='{}'",
-                        node.getType(),
-                        simpleName,
-                        primaryCaptureName,
-                        packageName,
-                        classChain);
-                log.trace(
-                        "[vars.py DEBUG] CU created: {}, Signature: [{}]",
-                        cu,
-                        signature.isBlank()
-                                ? "BLANK_SIG"
-                                : signature.lines().findFirst().orElse("EMPTY_SIG"));
-            }
 
             if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual
