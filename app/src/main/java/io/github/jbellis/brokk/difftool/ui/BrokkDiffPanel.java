@@ -179,9 +179,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         fileTreePanel = new FileTreePanel(
                 this.fileComparisons, contextManager.getProject().getRoot(), builder.rootTitle);
 
-        // Create split pane with file tree on left and tabs on right (only if multiple files)
+        // Create split pane with file tree on left and tabs on right (if multiple files or multi-file-only mode)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        if (fileComparisons.size() > 1) {
+        if (multiFileOnlyMode || fileComparisons.size() > 1) {
             fileTreePanel.setMinimumSize(new Dimension(200, 0)); // Prevent file tree from becoming too small
             mainSplitPane.setLeftComponent(fileTreePanel);
             mainSplitPane.setRightComponent(tabbedPane);
@@ -195,8 +195,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             mainSplitPane.setEnabled(false); // Disable resizing
         }
 
-        // Set up tree selection listener (only if multiple files)
-        if (fileComparisons.size() > 1) {
+        // Set up tree selection listener (if multiple files or multi-file-only mode)
+        if (multiFileOnlyMode || fileComparisons.size() > 1) {
             fileTreePanel.setSelectionListener(this::switchToFile);
         }
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
