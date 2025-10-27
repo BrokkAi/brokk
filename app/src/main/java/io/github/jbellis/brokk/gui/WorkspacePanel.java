@@ -2223,7 +2223,11 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
-    /** Shows the analyzer rebuild notification via shared Chrome status strip. */
+    /**
+     * DEPRECATED: Use Chrome.showAnalyzerRebuildStatus() instead.
+     * This remains as an EDT-safe forwarder for backward compatibility.
+     */
+    @Deprecated(forRemoval = false, since = "2025-10")
     public void showAnalyzerRebuildSpinner() {
         SwingUtilities.invokeLater(() -> {
             chrome.showAnalyzerRebuildStatus();
@@ -2232,7 +2236,11 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
-    /** Hides the analyzer rebuild notification via shared Chrome status strip. */
+    /**
+     * DEPRECATED: Use Chrome.hideAnalyzerRebuildStatus() instead.
+     * This remains as an EDT-safe forwarder for backward compatibility.
+     */
+    @Deprecated(forRemoval = false, since = "2025-10")
     public void hideAnalyzerRebuildSpinner() {
         SwingUtilities.invokeLater(() -> {
             chrome.hideAnalyzerRebuildStatus();
