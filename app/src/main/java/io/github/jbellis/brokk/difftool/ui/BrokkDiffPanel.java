@@ -205,7 +205,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             public void ancestorAdded(AncestorEvent event) {
                 start();
                 // Initialize file tree after panel is added to UI
-                if (fileComparisons.size() > 1) {
+                if (multiFileOnlyMode || fileComparisons.size() > 1) {
                     fileTreePanel.initializeTree();
                 }
             }
