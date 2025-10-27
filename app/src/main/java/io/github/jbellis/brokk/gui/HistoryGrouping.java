@@ -1,23 +1,14 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.context.Context;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+
+import java.util.*;
 import java.util.function.Predicate;
-import javax.swing.JTable;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Unified grouping model for context history rendering.
  *
  * This file provides:
- * - GroupDescriptor: immutable description of a logical group of contexts,
- *   with enough metadata for the UI to render headers and child rows.
  * - GroupingBuilder.discoverGroups: a deterministic algorithm that discovers
  *   contiguous groups given a list of Context and a boundary predicate.
  *
@@ -34,12 +25,6 @@ import org.jetbrains.annotations.Nullable;
  * Stable keys:
  * - For GROUP_BY_ID: key = groupId.toString()
  * - For GROUP_BY_ACTION (legacy): key = first child's context id as String
- *
- * UI note:
- * - HistoryOutputPanel stores expand/collapse state keyed by UUID today; callers can convert
- *   GroupDescriptor.key into UUID for id-based groups or derive a stable UUID from the first
- *   child id for legacy groups if desired. Using the first child context id matches the current
- *   legacy logic.
  */
 public final class HistoryGrouping {
 
@@ -152,12 +137,11 @@ public final class HistoryGrouping {
               .filter(s -> s != null && !s.isBlank())
               .findFirst()
               .orElse(null);
-          String label = computeLabelForGroup(preferredLabel, children);
 
-          out.add(new GroupDescriptor(
+            out.add(new GroupDescriptor(
               GroupType.GROUP_BY_ID,
               groupId.toString(),
-              label,
+                    preferredLabel,
               children,
               true,
               false
@@ -212,20 +196,6 @@ public final class HistoryGrouping {
           i = j;
         }
       }
-    }
-
-    private static String computeLabelForGroup(@Nullable String groupLabel, List<Context> children) {
-      if (groupLabel != null && !groupLabel.isBlank()) {
-        return groupLabel;
-      }
-      int size = children.size();
-      if (size == 1) {
-        var only = children.getFirst();
-        var action = only.getAction();
-        return action == null ? "" : action;
-      }
-      // size >= 2 falls back to the existing rules
-      return computeHeaderLabelFor(children);
     }
 
     private static String computeHeaderLabelFor(List<Context> children) {

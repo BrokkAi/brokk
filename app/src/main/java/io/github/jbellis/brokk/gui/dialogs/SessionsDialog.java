@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.HistoryGrouping;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -658,7 +659,7 @@ public class SessionsDialog extends JDialog {
             }
 
             Map<UUID, Integer> contextIdToRow =
-                    io.github.jbellis.brokk.gui.HistoryGrouping.buildContextToRowMap(java.util.List.of(), table);
+                    HistoryGrouping.buildContextToRowMap(java.util.List.of(), table);
 
             // 1. Build list of all possible arrows with their geometry
             List<Arrow> arrows = new ArrayList<>();
