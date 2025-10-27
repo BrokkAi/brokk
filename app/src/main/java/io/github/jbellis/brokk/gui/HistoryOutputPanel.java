@@ -2358,6 +2358,9 @@ public class HistoryOutputPanel extends JPanel {
                 if (comp instanceof JLabel lbl) {
                     lbl.setVerticalAlignment(JLabel.TOP);
                 }
+                if (comp instanceof JComponent jc) {
+                    jc.setToolTipText(actionText); // Show full header text on hover
+                }
                 return adjustRowHeight(table, row, column, comp);
             }
 
@@ -2385,6 +2388,8 @@ public class HistoryOutputPanel extends JPanel {
             int indentPx = indentLevel * Constants.H_GAP;
             panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
             panel.add(actionComp, BorderLayout.NORTH);
+            // Ensure tooltip is visible even though we return a composite panel
+            panel.setToolTipText(actionText);
 
             // If we have cached diff entries, add a summary panel; otherwise, action-only
             if (cached != null && !cached.isEmpty()) {
