@@ -2796,16 +2796,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         panel.showInFrame("Diff: " + ctx.getAction());
     }
 
-    // Compute the cumulative changes across the entire session history in the background,
+    // Compute the net changes across the entire session history in the background,
     // reusing cached diffs where possible. Updates the "Changes" tab title and content on the EDT.
+    // Net changes = earliest version -> latest version for each file (matches the unified diff visual).
     private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
                 .submitBackgroundTask("Aggregate session changes", () -> {
                     var contexts = contextManager.getContextHistoryList();
                     var prevMapSnapshot = new HashMap<>(previousContextMap);
 
-                    int totalAdded = 0;
-                    int totalDeleted = 0;
                     Map<String, PerFileChange> perFileMap = new HashMap<>();
 
                     for (var ctx : contexts) {
@@ -2835,16 +2834,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 key = de.fragment().shortDescription();
                             }
 
-                            // Earliest old stays from the first occurrence; latest new is updated each time
+                            // Track earliest old and latest new across all changes for this file
                             var existing = perFileMap.get(key);
                             String earliestOld = (existing == null) ? (de.oldContent() == null ? "" : de.oldContent()) : existing.earliestOld();
                             String latestNew = safeFragmentText(de);
 
                             perFileMap.put(key, new PerFileChange(earliestOld, latestNew));
-
-                            totalAdded += de.linesAdded();
-                            totalDeleted += de.linesDeleted();
                         }
+                    }
+
+                    // Compute net changes: count actual added/deleted lines between earliest and latest versions
+                    int totalAdded = 0;
+                    int totalDeleted = 0;
+                    for (var change : perFileMap.values()) {
+                        int[] netCounts = computeNetLineCounts(change.earliestOld(), change.latestNew());
+                        totalAdded += netCounts[0];
+                        totalDeleted += netCounts[1];
                     }
 
                     return new CumulativeChanges(perFileMap.size(), totalAdded, totalDeleted, Map.copyOf(perFileMap));
@@ -2994,6 +2999,33 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         wrapper.add(diffPanel, BorderLayout.CENTER);
         return wrapper;
+    }
+
+    // Compute the net added/deleted line counts between two versions of a file.
+    // Returns [added, deleted] counts that represent the actual net change.
+    private static int[] computeNetLineCounts(String earliestOld, String latestNew) {
+        var oldLines = (earliestOld == null || earliestOld.isEmpty()) ? List.<String>of() : List.of(earliestOld.split("\n", -1));
+        var newLines = (latestNew == null || latestNew.isEmpty()) ? List.<String>of() : List.of(latestNew.split("\n", -1));
+
+        // Simple line-by-line diff: count lines that are only in new (added) or only in old (deleted)
+        Set<String> oldSet = new HashSet<>(oldLines);
+        Set<String> newSet = new HashSet<>(newLines);
+
+        int added = 0;
+        for (var line : newSet) {
+            if (!oldSet.contains(line)) {
+                added++;
+            }
+        }
+
+        int deleted = 0;
+        for (var line : oldSet) {
+            if (!newSet.contains(line)) {
+                deleted++;
+            }
+        }
+
+        return new int[] {added, deleted};
     }
 
     private static String safeFragmentText(Context.DiffEntry de) {
