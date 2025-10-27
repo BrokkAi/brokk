@@ -108,6 +108,14 @@ public class HistoryOutputPanel extends JPanel {
     private final MarkdownOutputPanel llmStreamArea;
     private final JScrollPane llmScrollPane;
 
+    // Output tabs
+    @Nullable
+    private JTabbedPane outputTabs;
+    @Nullable
+    private JPanel changesTabPlaceholder;
+    @Nullable
+    private JPanel outputTabContent;
+
     @Nullable
     private JTextArea captureDescriptionArea;
 
@@ -460,10 +468,12 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, MaterialButton copyButton) {
+        assert SwingUtilities.isEventDispatchThread() : "buildCombinedOutputInstructionsPanel must be called on EDT";
+
         // Build capture output panel (copyButton is passed in)
         var capturePanel = buildCaptureOutputPanel(copyButton);
 
-        // Output panel with LLM stream
+        // Build the content for the Output tab (existing UI)
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -482,9 +492,25 @@ public class HistoryOutputPanel extends JPanel {
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
+        // Save as the output tab content wrapper
+        this.outputTabContent = outputPanel;
+
+        // Placeholder for the Changes tab
+        var placeholder = new JPanel(new BorderLayout());
+        var placeholderLabel = new JLabel("Changes will appear here", SwingConstants.CENTER);
+        placeholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
+        placeholder.add(placeholderLabel, BorderLayout.CENTER);
+        this.changesTabPlaceholder = placeholder;
+
+        // Create the tabbed pane and add both tabs
+        var tabs = new JTabbedPane();
+        tabs.addTab("Output", outputPanel);
+        tabs.addTab("Changes", placeholder);
+        this.outputTabs = tabs;
+
         // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(outputPanel, BorderLayout.CENTER);
+        centerContainer.add(tabs, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
 
         return centerContainer;
