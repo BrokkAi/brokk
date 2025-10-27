@@ -113,13 +113,18 @@ public class FileComparisonHelper {
     }
 
     // Heuristic to identify commit-like identifiers to avoid resolving arbitrary human labels
+    /**
+     * Returns true if the given ref looks like a commit-ish identifier we should try to resolve:
+     * - HEAD, HEAD^, HEAD^N
+     * - hex SHA-1 (7-40 chars), optionally with ^N suffix
+     */
     private static boolean isCommitLike(String ref) {
         var t = ref.trim();
         if (t.isEmpty()) return false;
         if ("HEAD".equals(t)) return true;
-        if (t.matches("HEAD(?:\\^\\d*|~\\d*)?")) return true;
-        // SHA-1 short or full (7-40 hex), optional ^N or ~N
-        return t.matches("(?i)[0-9a-f]{7,40}(?:\\^\\d*|~\\d*)?");
+        if (t.matches("HEAD(?:\\^\\d*)?")) return true;
+        // SHA-1 short or full (7-40 hex), optional ^N
+        return t.matches("(?i)[0-9a-f]{7,40}(?:\\^\\d*)?");
     }
 
     /**
