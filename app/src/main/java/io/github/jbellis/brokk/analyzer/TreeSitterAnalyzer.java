@@ -1126,6 +1126,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
+        
+        // Check if file is binary early and skip processing if so
+        if (BrokkFile.isBinary(src)) {
+            log.debug("Skipping binary file: {}", file);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
+        }
+        
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();

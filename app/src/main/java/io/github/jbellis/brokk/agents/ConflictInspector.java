@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.io.IOException;
@@ -186,8 +187,8 @@ public final class ConflictInspector {
             boolean theirsGitlink = stage3Mode != null && FileMode.GITLINK.equals(stage3Mode);
 
             // Binary detection
-            boolean oursBinary = ourContent != null && isBinary(ourContent);
-            boolean theirsBinary = theirContent != null && isBinary(theirContent);
+            boolean oursBinary = ourContent != null && BrokkFile.isBinary(ourContent);
+            boolean theirsBinary = theirContent != null && BrokkFile.isBinary(theirContent);
 
             // Heuristic classification
             NonTextType type = NonTextType.NONE;
@@ -583,15 +584,6 @@ public final class ConflictInspector {
         } catch (IOException e) {
             throw new RuntimeException("Failed to check path prefix in commit: " + pathPrefix + " @ " + commitId, e);
         }
-    }
-
-    /** Heuristic binary detection: presence of NUL within the first few KB. */
-    private static boolean isBinary(String content) {
-        int limit = Math.min(content.length(), 8192);
-        for (int i = 0; i < limit; i++) {
-            if (content.charAt(i) == '\0') return true;
-        }
-        return false;
     }
 
     /**
