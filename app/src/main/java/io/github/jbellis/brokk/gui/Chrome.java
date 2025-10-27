@@ -281,6 +281,10 @@ public class Chrome
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
         backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
 
+        // Initialize shared analyzer rebuild status strip before first use
+        this.analyzerStatusStrip = new AnalyzerStatusStrip();
+        this.analyzerStatusStrip.setVisible(false);
+
         // Panel to hold both labels
         var statusPanel = new JPanel(new BorderLayout());
         statusPanel.add(getAnalyzerStatusStrip(), BorderLayout.WEST);
@@ -307,9 +311,6 @@ public class Chrome
         this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
         initializeThemeManager();
-        // Create shared analyzer rebuild status strip (hidden by default)
-        this.analyzerStatusStrip = new AnalyzerStatusStrip();
-        this.analyzerStatusStrip.setVisible(false);
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
         var rootPath = getProject().getRoot();
