@@ -2932,10 +2932,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
             BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
             builder.addComparison(left, right);
-        }
-
-        var diffPanel = builder.build();
-        aggregatedChangesPanel = diffPanel;
+            }
+            
+            if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+            var diffPanel = builder.build();
+            aggregatedChangesPanel = diffPanel;
         // Ensure the embedded diff reflects the current theme immediately
         diffPanel.applyTheme(chrome.getTheme());
 
