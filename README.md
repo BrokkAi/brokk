@@ -3,6 +3,7 @@
 </p>
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Running Brokk](#running-brokk)
 - [Documentation](#documentation)
