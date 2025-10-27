@@ -25,7 +25,6 @@ import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
-import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
@@ -236,6 +235,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Initialize new session button early (used by buildCaptureOutputPanel)
         this.newSessionButton = new MaterialButton();
+        this.newSessionButton.setToolTipText("Create a new session");
         this.newSessionButton.addActionListener(e -> {
             contextManager
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
@@ -243,13 +243,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
-        
+
         // Session selector split button (dropdown only)
         this.sessionNameLabel = new SplitButton("");
         this.sessionNameLabel.setUnifiedHover(true);
         this.sessionNameLabel.setMenuSupplier(() -> {
             var popup = new JPopupMenu();
-            
+
             // Build the sessions list model
             var model = new DefaultListModel<SessionInfo>();
             var sessions = contextManager.getProject().getSessionManager().listSessions();
@@ -372,10 +372,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var titledBorder = BorderFactory.createTitledBorder("Session");
         var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
         headerPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
-        
+
         headerPanel.add(newSessionButton);
         headerPanel.add(new VerticalDivider());
-        
+
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         headerPanel.add(sessionNameLabel);
 
@@ -384,12 +384,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         activityTabs.addTab("Activity", activityPanel);
         activityTabs.setMinimumSize(new Dimension(230, 0));
         activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
-        
+
         // Create center container with both tab panels
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(centerPanel, BorderLayout.CENTER);
         centerContainer.add(activityTabs, BorderLayout.EAST);
-        
+
         // Main layout: header at top, center container in center
         add(headerPanel, BorderLayout.NORTH);
         add(centerContainer, BorderLayout.CENTER);
@@ -1132,7 +1132,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
-
 
         var popupListener = new MouseAdapter() {
             private void showPopupMenu(MouseEvent e) {
