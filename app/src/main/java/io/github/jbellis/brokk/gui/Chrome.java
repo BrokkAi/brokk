@@ -3349,28 +3349,6 @@ public class Chrome
     }
 
     /**
-     * Updates the git tab badge with the current number of modified files. Should be called whenever the git status
-     * changes. This version fetches the count itself and should only be used when the count is not already available.
-     */
-    public void updateGitTabBadge() {
-        if (gitTabBadgedIcon == null) {
-            return; // No git support
-        }
-
-        // Fetch the modified count off-EDT to avoid blocking UI
-        contextManager.submitBackgroundTask("Updating git badge", () -> {
-            try {
-                int modifiedCount = (gitCommitTab == null) ? 0 : gitCommitTab.getThreadSafeCachedModifiedFileCount();
-                SwingUtilities.invokeLater(() -> updateGitTabBadge(modifiedCount));
-            } catch (Exception e) {
-                logger.warn("Error getting modified file count for badge: {}", e.getMessage());
-                SwingUtilities.invokeLater(() -> updateGitTabBadge(0));
-            }
-            return null;
-        });
-    }
-
-    /**
      * Refresh the branch selector UI hosted in Chrome. Safe to call from any thread.
      *
      * @param branchName the branch name to display (may be null/blank)
@@ -3619,6 +3597,18 @@ public class Chrome
 
         int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
         mainVerticalSplitPane.setDividerLocation(safeDivider);
+    }
+
+    /**
+     * Get the list of uncommitted modified files from GCT's cache.
+     * No repo call needed—uses the already-computed list from GitCommitTab.
+     * Safe to call from any thread.
+     */
+    public List<ProjectFile> getModifiedFiles() {
+        if (gitCommitTab == null) {
+            return List.of();
+        }
+        return gitCommitTab.getModifiedFiles();
     }
 
     @Override

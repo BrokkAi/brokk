@@ -9,7 +9,10 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
@@ -232,7 +235,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         runItem.addActionListener(e -> {
             int[] sel = list.getSelectedIndices();
             if (sel.length > 0) {
-                runArchitectOnIndices(sel);
+                startRunWithCommitGate(sel);
             }
         });
         popup.add(runItem);
@@ -892,7 +895,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        runArchitectOnIndices(selected);
+        startRunWithCommitGate(selected);
     }
 
     private void runArchitectOnAll() {
@@ -907,7 +910,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         list.setSelectionInterval(0, model.getSize() - 1);
-        runArchitectOnIndices(allIndices);
+        startRunWithCommitGate(allIndices);
     }
 
     private void runArchitectOnIndices(int[] selected) {
@@ -999,6 +1002,98 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var cm = chrome.getContextManager();
 
         runArchitectOnTaskAsync(idx, cm);
+    }
+
+    private void startRunWithCommitGate(int[] indices) {
+        assert indices.length > 0 : "indices array must not be empty";
+        ensureCleanOrCommitThen(() -> runArchitectOnIndices(indices));
+    }
+
+    private void ensureCleanOrCommitThen(Runnable action) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Check for dirty files using GCT's cached count (fast, no repo call)
+        var dirtyFiles = chrome.getModifiedFiles();
+        if (dirtyFiles.isEmpty()) {
+            action.run();
+            return;
+        }
+
+        var owner = SwingUtilities.getWindowAncestor(this);
+        var dialog = new JDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
+
+        var content = new JPanel(new BorderLayout(8, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        String message =
+                "Your working tree has %d uncommitted change(s).\nWould you like to commit before running tasks?"
+                        .formatted(dirtyFiles.size());
+        var msgArea = new JTextArea(message);
+        msgArea.setEditable(false);
+        msgArea.setOpaque(false);
+        msgArea.setLineWrap(true);
+        msgArea.setWrapStyleWord(true);
+        content.add(msgArea, BorderLayout.CENTER);
+
+        var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        var commitFirstBtn = new MaterialButton("Commit First");
+        SwingUtil.applyPrimaryButtonStyle(commitFirstBtn);
+        var continueBtn = new MaterialButton("Continue without Commit");
+        var cancelBtn = new MaterialButton("Cancel");
+        buttons.add(commitFirstBtn);
+        buttons.add(continueBtn);
+        buttons.add(cancelBtn);
+        content.add(buttons, BorderLayout.SOUTH);
+
+        final int[] choice = new int[] {-1}; // 0 = commit, 1 = continue, 2 = cancel
+        commitFirstBtn.addActionListener(e -> {
+            choice[0] = 0;
+            dialog.dispose();
+        });
+        continueBtn.addActionListener(e -> {
+            choice[0] = 1;
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> {
+            choice[0] = 2;
+            dialog.dispose();
+        });
+
+        dialog.setContentPane(content);
+        dialog.getRootPane().setDefaultButton(commitFirstBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+
+        if (choice[0] == 0) {
+            // Commit first, then proceed on success
+            var workflow = new GitWorkflow(chrome.getContextManager());
+            var commitDialog = new CommitDialog(
+                    chrome.getFrame(), chrome, chrome.getContextManager(), workflow, dirtyFiles, commitResult -> {
+                        try {
+                            var repo = (GitRepo)
+                                    chrome.getContextManager().getProject().getRepo();
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Committed "
+                                            + repo.shortHash(commitResult.commitId())
+                                            + ": "
+                                            + commitResult.firstLine());
+                            chrome.updateCommitPanel();
+                            chrome.updateLogTab();
+                            chrome.selectCurrentBranchInLogTab();
+                        } finally {
+                            // Proceed to run tasks after committing
+                            SwingUtilities.invokeLater(action);
+                        }
+                    });
+            commitDialog.setVisible(true);
+        } else if (choice[0] == 1) {
+            // Continue without committing
+            action.run();
+        } else {
+            // Cancel: do nothing
+        }
     }
 
     void runArchitectOnTaskAsync(int idx, ContextManager cm) {
@@ -1329,30 +1424,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } else {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
-    }
-
-    /**
-     * Public entry point that triggers a "play all" run of the task list.
-     *
-     * Safe to call from any thread. Execution is dispatched to the EDT, and the method
-     * guards against starting when tasks are currently loading or when a queue is already active.
-     *
-     * This delegates to the existing internal runArchitectOnAll() flow which manages queue state and UI updates.
-     */
-    public void playAllTasks() {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Do not start if tasks are still loading or a queue is already active
-                if (isLoadingTasks) return;
-                if (queueActive) return;
-
-                // Start the same flow as the existing "Play all" UI action
-                runArchitectOnAll();
-            } catch (Exception ex) {
-                // Non-fatal; log for diagnostics
-                logger.debug("playAllTasks: error starting runAll", ex);
-            }
-        });
     }
 
     /**
