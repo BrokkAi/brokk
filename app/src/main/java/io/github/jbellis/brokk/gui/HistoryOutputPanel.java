@@ -2907,12 +2907,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
-        // Header summary
-        String headerText = String.format("%d files changed, +%d/-%d", res.filesChanged(), res.totalAdded(), res.totalDeleted());
-        var header = new JLabel(headerText);
-        header.setBorder(new EmptyBorder(6, 8, 6, 8));
-        header.setFont(header.getFont().deriveFont(Font.PLAIN, Math.max(11f, header.getFont().getSize2D() - 1f)));
-        wrapper.add(header, BorderLayout.NORTH);
+        // Use a titled border for the content area to label it "Changes in session"
+        wrapper.setBorder(new CompoundBorder(
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createEtchedBorder(),
+                        "Changes in Session",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        new Font(Font.DIALOG, Font.BOLD, 12)),
+                new EmptyBorder(6, 6, 6, 6)));
 
         // Build BrokkDiffPanel with string sources
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
@@ -2942,11 +2945,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         diffPanel.applyTheme(chrome.getTheme());
 
         wrapper.add(diffPanel, BorderLayout.CENTER);
-        // Add a visible border around the aggregated diff to separate it from the sidebar (theme-aware)
-        wrapper.setBorder(new CompoundBorder(
-                new LineBorder(UIManager.getColor("Separator.foreground"), 1),
-                new EmptyBorder(6, 6, 6, 6)
-        ));
         return wrapper;
     }
 
