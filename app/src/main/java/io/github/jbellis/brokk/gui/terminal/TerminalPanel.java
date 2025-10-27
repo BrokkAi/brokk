@@ -169,7 +169,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         widget = new BrokkJediTermWidget(terminalSettings);
         add(widget, BorderLayout.CENTER);
 
-
         // Apply initial theme to terminal based on current UI theme
         boolean dark = false;
         if (console instanceof Chrome c) {
@@ -407,7 +406,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             w.requestFocusInWindow();
         }
     }
-
 
     public void pasteText(String text) {
         var c = connector;
