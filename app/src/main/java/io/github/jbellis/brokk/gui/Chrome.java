@@ -282,6 +282,7 @@ public class Chrome
         backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
 
         // Initialize shared analyzer rebuild status strip before first use
+        // MUST be initialized before being added to statusPanel to avoid NullPointerException.
         this.analyzerStatusStrip = new AnalyzerStatusStrip();
         this.analyzerStatusStrip.setVisible(false);
 
