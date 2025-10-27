@@ -282,18 +282,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             });
             popup.add(manageSessionsItem);
 
-            var renameCurrentItem = new JMenuItem("Rename Current Session");
-            renameCurrentItem.addActionListener(evt -> {
-                SessionsDialog.renameCurrentSession(chrome.getFrame(), chrome, contextManager);
-            });
-            popup.add(renameCurrentItem);
-
-            var deleteCurrentItem = new JMenuItem("Delete Current Session");
-            deleteCurrentItem.addActionListener(evt -> {
-                SessionsDialog.deleteCurrentSession(chrome.getFrame(), chrome, contextManager);
-            });
-            popup.add(deleteCurrentItem);
-
             // Separator before the session list ---------------------------------
             popup.addSeparator();
 

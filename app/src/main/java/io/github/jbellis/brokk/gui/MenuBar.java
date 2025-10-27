@@ -201,6 +201,20 @@ public class MenuBar {
         });
         sessionMenu.add(manageSessionsItem);
 
+        sessionMenu.addSeparator();
+
+        var renameSessionItem = new JMenuItem("Rename Session");
+        renameSessionItem.addActionListener(e -> {
+            SessionsDialog.renameCurrentSession(chrome.getFrame(), chrome, chrome.getContextManager());
+        });
+        sessionMenu.add(renameSessionItem);
+
+        var deleteSessionItem = new JMenuItem("Delete Session");
+        deleteSessionItem.addActionListener(e -> {
+            SessionsDialog.deleteCurrentSession(chrome.getFrame(), chrome, chrome.getContextManager());
+        });
+        sessionMenu.add(deleteSessionItem);
+
         menuBar.add(sessionMenu);
 
         // Context menu
