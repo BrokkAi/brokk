@@ -192,6 +192,18 @@ public class MenuBar {
         }));
         sessionMenu.add(newSessionCopyWorkspaceItem);
 
+        var renameSessionItem = new JMenuItem("Rename Session");
+        renameSessionItem.addActionListener(e -> {
+            SessionsDialog.renameCurrentSession(chrome.frame, chrome, chrome.getContextManager());
+        });
+        sessionMenu.add(renameSessionItem);
+
+        var deleteSessionItem = new JMenuItem("Delete Session");
+        deleteSessionItem.addActionListener(e -> {
+            SessionsDialog.deleteCurrentSession(chrome.frame, chrome, chrome.getContextManager());
+        });
+        sessionMenu.add(deleteSessionItem);
+
         sessionMenu.addSeparator();
 
         var manageSessionsItem = new JMenuItem("Manage Sessions...");

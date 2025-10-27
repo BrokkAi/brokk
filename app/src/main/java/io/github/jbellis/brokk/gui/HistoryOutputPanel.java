@@ -94,7 +94,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private JList<SessionInfo> sessionsList;
 
-    private final JLabel sessionNameLabel;
+    private final SplitButton sessionNameLabel;
     private final SplitButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
@@ -233,7 +233,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
-        this.sessionNameLabel = new JLabel();
 
         // Initialize new session button early (used by buildCaptureOutputPanel)
         this.newSessionButton = new SplitButton("");
@@ -245,6 +244,101 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
+        
+        // Session selector split button (dropdown only)
+        this.sessionNameLabel = new SplitButton("");
+        this.sessionNameLabel.setUnifiedHover(true);
+        this.sessionNameLabel.setMenuSupplier(() -> {
+            var popup = new JPopupMenu();
+            
+            // Build the sessions list model
+            var model = new DefaultListModel<SessionInfo>();
+            var sessions = contextManager.getProject().getSessionManager().listSessions();
+            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
+            for (var s : sessions) model.addElement(s);
+
+            var list = new JList<SessionInfo>(model);
+            list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setCellRenderer(new SessionInfoRenderer());
+
+            // Select current session in the list
+            var currentSessionId = contextManager.getCurrentSessionId();
+            for (int i = 0; i < model.getSize(); i++) {
+                if (model.getElementAt(i).id().equals(currentSessionId)) {
+                    list.setSelectedIndex(i);
+                    break;
+                }
+            }
+
+            // Mouse click: switch session and close popup
+            list.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    var sel = list.getSelectedValue();
+                    if (sel == null) return;
+                    UUID current = contextManager.getCurrentSessionId();
+                    if (!sel.id().equals(current)) {
+                        contextManager
+                                .switchSessionAsync(sel.id())
+                                .thenRun(() -> updateSessionComboBox())
+                                .exceptionally(ex -> {
+                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                    return null;
+                                });
+                    }
+                    Component c = list;
+                    while (c != null && !(c instanceof JPopupMenu)) {
+                        c = c.getParent();
+                    }
+                    if (c instanceof JPopupMenu popupOwner) {
+                        popupOwner.setVisible(false);
+                    }
+                }
+            });
+
+            // Enter key: switch session and close popup
+            list.addKeyListener(new java.awt.event.KeyAdapter() {
+                @Override
+                public void keyPressed(KeyEvent e) {
+                    if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                        var sel = list.getSelectedValue();
+                        if (sel == null) return;
+                        UUID current = contextManager.getCurrentSessionId();
+                        if (!sel.id().equals(current)) {
+                            contextManager
+                                    .switchSessionAsync(sel.id())
+                                    .thenRun(() -> updateSessionComboBox())
+                                    .exceptionally(ex -> {
+                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                        return null;
+                                    });
+                        }
+                        Component c = list;
+                        while (c != null && !(c instanceof JPopupMenu)) {
+                            c = c.getParent();
+                        }
+                        if (c instanceof JPopupMenu popupOwner) {
+                            popupOwner.setVisible(false);
+                        }
+                    }
+                }
+            });
+
+            var scroll = new JScrollPane(list);
+            scroll.setBorder(BorderFactory.createEmptyBorder());
+            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            int prefWidth = 360;
+            int rowHeight = list.getFont().getSize() + 6;
+            int prefHeight = Math.min(list.getVisibleRowCount() * rowHeight, 8 * rowHeight);
+            int available = getAvailableSpaceBelow(sessionNameLabel);
+            int cappedHeight = Math.min(prefHeight, available);
+            scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
+
+            popup.add(scroll);
+            chrome.themeManager.registerPopupMenu(popup);
+            return popup;
+        });
         // Provide a popup menu supplier for the new session button that mirrors the
         // BranchSelectorButton behavior: top-level actions followed by a scrollable
         // list of sessions rendered with SessionInfoRenderer.
@@ -284,18 +378,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
             });
             popup.add(manageSessionsItem);
-
-            var renameCurrentItem = new JMenuItem("Rename Current Session");
-            renameCurrentItem.addActionListener(evt -> {
-                SessionsDialog.renameCurrentSession(chrome.getFrame(), chrome, contextManager);
-            });
-            popup.add(renameCurrentItem);
-
-            var deleteCurrentItem = new JMenuItem("Delete Current Session");
-            deleteCurrentItem.addActionListener(evt -> {
-                SessionsDialog.deleteCurrentSession(chrome.getFrame(), chrome, contextManager);
-            });
-            popup.add(deleteCurrentItem);
 
             // Separator before the session list ---------------------------------
             popup.addSeparator();
@@ -425,19 +507,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Ensure session label under Output is initialized
         updateSessionComboBox();
 
-        // Create header panel with session label (left) and new session button (right)
+        // Create header panel with new session button (left), divider, and session label (right)
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(true);
         var titledBorder = BorderFactory.createTitledBorder("Session");
         var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
         headerPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
         
-        sessionNameLabel.setOpaque(false);
-        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
-        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        headerPanel.add(sessionNameLabel, BorderLayout.WEST);
+        headerPanel.add(newSessionButton, BorderLayout.WEST);
         
-        headerPanel.add(newSessionButton, BorderLayout.EAST);
+        // Container for separator and label that stay together without stretching
+        var rightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        rightPanel.setOpaque(false);
+        
+        var separator = new JSeparator(JSeparator.VERTICAL);
+        separator.setPreferredSize(new Dimension(1, 20));
+        rightPanel.add(separator);
+        
+        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        rightPanel.add(sessionNameLabel);
+        
+        headerPanel.add(rightPanel, BorderLayout.CENTER);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         var activityTabs = new JTabbedPane(JTabbedPane.TOP);
