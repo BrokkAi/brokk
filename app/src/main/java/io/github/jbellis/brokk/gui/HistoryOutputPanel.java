@@ -69,7 +69,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
+import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -2938,6 +2940,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         diffPanel.applyTheme(chrome.getTheme());
 
         wrapper.add(diffPanel, BorderLayout.CENTER);
+        // Add a visible border around the aggregated diff to separate it from the sidebar (theme-aware)
+        wrapper.setBorder(new CompoundBorder(
+                new LineBorder(UIManager.getColor("Separator.foreground"), 1),
+                new EmptyBorder(6, 6, 6, 6)
+        ));
         return wrapper;
     }
 
