@@ -65,6 +65,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -94,7 +95,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private JList<SessionInfo> sessionsList;
 
-    private final JLabel sessionNameLabel;
+    private final SplitButton sessionNameLabel;
     private final SplitButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
@@ -230,7 +231,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
-        this.sessionNameLabel = new JLabel();
+        this.sessionNameLabel = new SplitButton("");
 
         // Initialize new session button early (used by buildCaptureOutputPanel)
         this.newSessionButton = new SplitButton("");
@@ -242,13 +243,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
         SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
-        // Provide a popup menu supplier for the new session button that mirrors the
-        // BranchSelectorButton behavior: top-level actions followed by a scrollable
-        // list of sessions rendered with SessionInfoRenderer.
-        // Note: the supplier is invoked lazily when the split-button dropdown is opened (via showPopupMenuInternal()).
-        // This occurs after Chrome.initializeThemeManager() has run during startup, so chrome.themeManager
-        // is available when the popup is constructed and registered.
-        this.newSessionButton.setMenuSupplier(() -> {
+        // Create a menu supplier for the sessions popup (used by both newSessionButton and sessionNameLabel)
+        Supplier<JPopupMenu> sessionsMenuSupplier = () -> {
             var popup = new JPopupMenu();
 
             // Top-level actions ------------------------------------------------
@@ -382,7 +378,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             chrome.themeManager.registerPopupMenu(popup);
 
             return popup;
-        });
+        };
+
+        // Apply the menu supplier to both buttons
+        this.newSessionButton.setMenuSupplier(sessionsMenuSupplier);
+        this.sessionNameLabel.setMenuSupplier(sessionsMenuSupplier);
 
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
@@ -515,10 +515,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         newSessionButton.setMinimumSize(newSessionButton.getPreferredSize());
         sessionHeaderPanel.add(newSessionButton, BorderLayout.WEST);
         
-        // Configure and add session name label to the center/east
-        sessionNameLabel.setOpaque(false);
-        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        // Configure and add session name split button to the center/east
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        sessionNameLabel.setMinimumSize(new Dimension(0, 0)); // Allow flexible sizing
         sessionHeaderPanel.add(sessionNameLabel, BorderLayout.CENTER);
         
         sessionPanel.add(sessionHeaderPanel, BorderLayout.NORTH);
@@ -655,6 +654,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionNameLabel.setText(fullName);
             sessionNameLabel.setToolTipText(fullName);
             sessionNameLabel.revalidate();
+            sessionNameLabel.repaint();
             // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
             SwingUtilities.invokeLater(() -> {
                 if (sessionsList != null) {
