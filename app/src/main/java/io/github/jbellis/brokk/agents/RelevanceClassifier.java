@@ -175,20 +175,26 @@ public final class RelevanceClassifier {
             Llm llm, List<RelevanceTask> tasks, ExecutorService executor) throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
-        var results = new HashMap<RelevanceTask, Double>();
+        var tempResults = new HashMap<RelevanceTask, Double>();
         var recommendationTasks = getRecommendationTasks(llm, tasks);
         var futures = executor.invokeAll(recommendationTasks);
 
         for (var future : futures) {
             try {
                 var result = future.get();
-                results.put(result.task(), result.score());
+                tempResults.put(result.task(), result.score());
             } catch (ExecutionException e) {
                 logger.error("Execution of a task failed while waiting for result", e);
             }
         }
 
-        return Map.copyOf(results);
+        var orderedResults = new LinkedHashMap<RelevanceTask, Double>(tasks.size());
+        for (var task : tasks) {
+            if (tempResults.containsKey(task)) {
+                orderedResults.put(task, tempResults.get(task));
+            }
+        }
+        return Map.copyOf(orderedResults);
     }
 
     private static List<Callable<RelevanceResult>> getRecommendationTasks(Llm llm, List<RelevanceTask> tasks) {
@@ -219,20 +225,26 @@ public final class RelevanceClassifier {
             Llm llm, List<RelevanceTask> tasks, ExecutorService executor) throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
-        var results = new HashMap<RelevanceTask, Boolean>();
+        var tempResults = new HashMap<RelevanceTask, Boolean>();
         var booleanTasks = getBooleanTasks(llm, tasks);
         var futures = executor.invokeAll(booleanTasks);
 
         for (var future : futures) {
             try {
                 var result = future.get();
-                results.put(result.task(), result.relevant());
+                tempResults.put(result.task(), result.relevant());
             } catch (ExecutionException e) {
                 logger.error("Execution of a boolean task failed while waiting for result", e);
             }
         }
 
-        return Map.copyOf(results);
+        var orderedResults = new LinkedHashMap<RelevanceTask, Boolean>(tasks.size());
+        for (var task : tasks) {
+            if (tempResults.containsKey(task)) {
+                orderedResults.put(task, tempResults.get(task));
+            }
+        }
+        return Map.copyOf(orderedResults);
     }
 
     private static List<Callable<BoolRelevanceResult>> getBooleanTasks(Llm llm, List<RelevanceTask> tasks) {
