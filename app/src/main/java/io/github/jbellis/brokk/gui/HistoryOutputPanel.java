@@ -428,12 +428,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create header panel with session label (left) and new session button (right)
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(true);
-        headerPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Session",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
         
         sessionNameLabel.setOpaque(false);
         sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
@@ -445,7 +440,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Main layout: header at top, center panel in center, activity panel on right
         add(headerPanel, BorderLayout.NORTH);
         add(centerPanel, BorderLayout.CENTER);
-        add(activityPanel, BorderLayout.EAST);
+        
+        // Wrap activity panel in a tabbed pane with single "Activity" tab
+        var activityTabs = new JTabbedPane(JTabbedPane.TOP);
+        activityTabs.addTab("Activity", activityPanel);
+        activityTabs.setMinimumSize(new Dimension(230, 0));
+        activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
+        add(activityTabs, BorderLayout.EAST);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
@@ -666,12 +667,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildActivityPanel(JTable historyTable, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Activity",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         historyTable.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         historyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
