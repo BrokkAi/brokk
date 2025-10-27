@@ -234,8 +234,7 @@ public class ArchitectAgent {
 
         // Instantiate and run SearchAgent
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
-        var searchAgent = new SearchAgent(
-                query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), context);
+        var searchAgent = new SearchAgent(query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
         searchAgent.scanInitialContext();
         var result = searchAgent.execute();
         // Update local context from SearchAgent result
@@ -280,11 +279,17 @@ public class ArchitectAgent {
      *
      * <p>Returns the search result if it fails, otherwise returns the Architect result.
      */
-    public TaskResult executeWithSearch(ContextManager.TaskScope scope) throws InterruptedException {
+    public TaskResult executeWithSearch() throws InterruptedException {
         // Run Search first using the scan model (fast, token-friendly)
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(
-                goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), context, scope);
+                goal,
+                cm,
+                scanModel,
+                EnumSet.of(SearchAgent.Terminal.WORKSPACE),
+                SearchMetrics.noOp(),
+                context,
+                this.scope);
         searchAgent.scanInitialContext();
         io.llmOutput("**Search Agent** engaged: " + goal, ChatMessageType.AI);
         var searchResult = searchAgent.execute();

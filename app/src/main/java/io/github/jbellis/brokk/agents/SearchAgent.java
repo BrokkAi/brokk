@@ -984,9 +984,18 @@ public class SearchAgent {
         metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
     }
 
+    /**
+     * Returns true if the fragment represents a workspace file (PROJECT_PATH or SKELETON).
+     * These are the fragment types that contribute actual files to the workspace for editing/viewing.
+     */
+    private static boolean isWorkspaceFileFragment(ContextFragment f) {
+        return f.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                || f.getType() == ContextFragment.FragmentType.SKELETON;
+    }
+
     private Set<ProjectFile> getWorkspaceFileSet() {
         return context.allFragments()
-                .filter(ContextAgent::isWorkspaceFileFragment)
+                .filter(SearchAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
     }
@@ -997,7 +1006,7 @@ public class SearchAgent {
 
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         return context.allFragments()
-                .filter(ContextAgent::isWorkspaceFileFragment)
+                .filter(SearchAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),

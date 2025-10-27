@@ -69,8 +69,7 @@ Search results are output to stdout with this structure:
       "description": "AuthManager.java",
       "files": ["src/main/java/auth/AuthManager.java"]
     }
-  ],
-  "llm_history_path": "/path/to/.brokk/llm-history/2025-10-21-15-23-45"
+  ]
 }
 ```
 

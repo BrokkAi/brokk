@@ -143,7 +143,6 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
     }
 }
 
-
 buildConfig {
     buildConfigField("String", "version", "\"$actualVersion\"")
     packageName("io.github.jbellis.brokk")
