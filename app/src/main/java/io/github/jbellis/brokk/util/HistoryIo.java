@@ -37,8 +37,7 @@ public final class HistoryIo {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
-    // TODO: [Migration4] Change to v4 when migrating
-    private static final String V4_FRAGMENTS_FILENAME = "fragments-v3.json";
+    private static final String V4_FRAGMENTS_FILENAME = "fragments-v4.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
     private static final String CONTENT_FILENAME = "content_metadata.json";
     private static final String CONTENT_DIR_PREFIX = "content/";
@@ -61,8 +60,13 @@ public final class HistoryIo {
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) isV3 = true;
-                if (entry.getName().equals(V4_FRAGMENTS_FILENAME)) isV4 = true;
+                if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) {
+                    isV3 = true;
+                    break;
+                } else if (entry.getName().equals(V4_FRAGMENTS_FILENAME)) {
+                    isV4 = true;
+                    break;
+                }
             }
         }
 
@@ -330,7 +334,7 @@ public final class HistoryIo {
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
-                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
+                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 
