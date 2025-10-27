@@ -179,6 +179,7 @@ public class SessionsDialog extends JDialog {
         // Initialize workspace panel for preview (copy-only menu)
         workspacePanel = new WorkspacePanel(chrome, contextManager, WorkspacePanel.PopupMenuMode.COPY_ONLY);
         workspacePanel.setWorkspaceEditable(false); // Make workspace read-only in manage dialog
+        workspacePanel.setVisible(false); // Keep constructed but not shown in this dialog
 
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
@@ -219,10 +220,6 @@ public class SessionsDialog extends JDialog {
         activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
         activityPanel.add(layer, BorderLayout.CENTER);
 
-        // Create workspace panel without additional border (workspacePanel already has its own border)
-        JPanel workspacePanelContainer = new JPanel(new BorderLayout());
-        workspacePanelContainer.add(workspacePanel, BorderLayout.CENTER);
-
         // Create MOP panel
         JPanel mopPanel = new JPanel(new BorderLayout());
         mopPanel.setBorder(BorderFactory.createTitledBorder("Output"));
@@ -247,9 +244,8 @@ public class SessionsDialog extends JDialog {
             }
         });
 
-        // Create main vertical split with top row and workspace below
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSecondSplit, workspacePanelContainer);
-        mainSplit.setResizeWeight(0.75); // Top gets 75%, workspace gets 25%
+        // Use the top row as the main content (no workspace panel below)
+        var mainContent = topSecondSplit;
 
         // Create button panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -257,7 +253,7 @@ public class SessionsDialog extends JDialog {
         buttonPanel.add(closeButton);
 
         // Add components to dialog
-        add(mainSplit, BorderLayout.CENTER);
+        add(mainContent, BorderLayout.CENTER);
         add(buttonPanel, BorderLayout.SOUTH);
     }
 
