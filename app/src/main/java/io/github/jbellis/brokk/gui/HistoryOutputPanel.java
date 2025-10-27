@@ -1078,6 +1078,45 @@ public class HistoryOutputPanel extends JPanel {
             arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
 
+            // Put the Changes tab into a loading state before aggregation
+            var tabs = outputTabs;
+            if (tabs != null) {
+                int idx = -1;
+                if (changesTabPlaceholder != null) {
+                    idx = tabs.indexOfComponent(changesTabPlaceholder);
+                }
+                if (idx < 0 && tabs.getTabCount() >= 2) {
+                    idx = 1; // Fallback: assume second tab is "Changes"
+                }
+                if (idx >= 0) {
+                    try {
+                        tabs.setTitleAt(idx, "Changes (...)");
+                        tabs.setToolTipTextAt(idx, "Computing cumulative changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Tab might have changed; ignore safely
+                    }
+                }
+
+                // Replace content with a spinner while loading
+                if (changesTabPlaceholder != null) {
+                    var container = changesTabPlaceholder;
+                    container.removeAll();
+                    container.setLayout(new BorderLayout());
+
+                    var spinnerLabel = new JLabel("Computing cumulative changes...", SwingConstants.CENTER);
+                    var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+                    if (spinnerIcon != null) {
+                        spinnerLabel.setIcon(spinnerIcon);
+                        spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                        spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+                    }
+
+                    container.add(spinnerLabel, BorderLayout.CENTER);
+                    container.revalidate();
+                    container.repaint();
+                }
+            }
+
             // Recompute cumulative changes summary for the Changes tab in the background
             refreshCumulativeChangesAsync();
         });
