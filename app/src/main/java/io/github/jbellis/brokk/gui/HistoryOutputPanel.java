@@ -2819,18 +2819,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 idx = 1;
                             }
                             if (idx >= 0) {
-                                String title = String.format(
-                                        "Changes (%d, +%d/-%d)",
-                                        result.filesChanged(), result.totalAdded(), result.totalDeleted());
-                                tabs.setTitleAt(idx, title);
-                                String tooltip = "Cumulative changes: "
-                                        + result.filesChanged()
-                                        + " files, +" + result.totalAdded()
-                                        + "/-" + result.totalDeleted();
-                                try {
-                                    tabs.setToolTipTextAt(idx, tooltip);
-                                } catch (IndexOutOfBoundsException ignore) {
-                                    // Tab disappeared or index changed; ignore
+                                if (result.filesChanged() == 0) {
+                                    try {
+                                        tabs.setTitleAt(idx, "Changes (0)");
+                                        tabs.setToolTipTextAt(idx, "No changes in this session.");
+                                    } catch (IndexOutOfBoundsException ignore) {
+                                        // Tab disappeared or index changed; ignore
+                                    }
+                                } else {
+                                    String title = String.format(
+                                            "Changes (%d, +%d/-%d)",
+                                            result.filesChanged(), result.totalAdded(), result.totalDeleted());
+                                    try {
+                                        tabs.setTitleAt(idx, title);
+                                        String tooltip = "Cumulative changes: "
+                                                + result.filesChanged()
+                                                + " files, +" + result.totalAdded()
+                                                + "/-" + result.totalDeleted();
+                                        tabs.setToolTipTextAt(idx, tooltip);
+                                    } catch (IndexOutOfBoundsException ignore) {
+                                        // Tab disappeared or index changed; ignore
+                                    }
                                 }
                             }
                         }
