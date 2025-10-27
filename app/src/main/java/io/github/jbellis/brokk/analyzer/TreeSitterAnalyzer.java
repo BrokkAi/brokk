@@ -1126,13 +1126,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
-        
+
         // Check if file is binary early and skip processing if so
         if (BrokkFile.isBinary(src)) {
             log.debug("Skipping binary file: {}", file);
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
         }
-        
+
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
@@ -1307,6 +1307,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 .toList();
 
         TSNode currentRootNode = tree.getRootNode(); // Used for namespace and class chain extraction
+        String filePackageName = determinePackageName(file, currentRootNode, currentRootNode, src);
 
         for (var entry : sortedDeclarationEntries) {
             TSNode node = entry.getKey(); // This is the definitionNode for this entry
@@ -1333,7 +1334,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     primaryCaptureName,
                     node.getType());
 
-            String packageName = determinePackageName(file, node, currentRootNode, src);
+            String packageName = filePackageName;
             List<String> enclosingClassNames = new ArrayList<>();
             TSNode tempParent = node.getParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
@@ -1576,7 +1577,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 file,
                 localImportStatements,
                 rootNode,
-                determinePackageName(file, rootNode, rootNode, src),
+                filePackageName,
                 localCuByFqName,
                 localTopLevelCUs,
                 localSignatures,
