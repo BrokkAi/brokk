@@ -40,8 +40,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -143,7 +141,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
     private final @Nullable BrokkJediTermWidget widget;
     private final @Nullable MutableSettingsProvider terminalSettings;
     private final CompletableFuture<TerminalPanel> readyFuture = new CompletableFuture<>();
-    private final JPanel bottomToolbar;
 
     /**
      * New constructor that optionally omits the built-in header and sets initial working directory.
@@ -172,13 +169,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         widget = new BrokkJediTermWidget(terminalSettings);
         add(widget, BorderLayout.CENTER);
 
-        // Bottom toolbar container (initially empty)
-        bottomToolbar = new JPanel();
-        bottomToolbar.setLayout(new BoxLayout(bottomToolbar, BoxLayout.LINE_AXIS));
-        bottomToolbar.setOpaque(true);
-        bottomToolbar.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-        bottomToolbar.setBackground(UIManager.getColor("Panel.background"));
-        add(bottomToolbar, BorderLayout.SOUTH);
 
         // Apply initial theme to terminal based on current UI theme
         boolean dark = false;
@@ -418,18 +408,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Places the given component into the bottom toolbar container. The previous content is removed.
-     * Runs on the EDT for Swing thread-safety.
-     */
-    public void setBottomToolbarComponent(@NotNull JComponent comp) {
-        SwingUtilities.invokeLater(() -> {
-            bottomToolbar.removeAll();
-            bottomToolbar.add(comp);
-            bottomToolbar.revalidate();
-            bottomToolbar.repaint();
-        });
-    }
 
     public void pasteText(String text) {
         var c = connector;
@@ -456,9 +434,6 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         if (widget != null) {
             applyTerminalColors(dark);
         }
-        // Apply basic theme background to the bottom toolbar for consistency
-        bottomToolbar.setBackground(UIManager.getColor("Panel.background"));
-        bottomToolbar.repaint();
     }
 
     private void applyTerminalColors(boolean dark) {
