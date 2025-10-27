@@ -952,7 +952,8 @@ public class HistoryOutputPanel extends JPanel {
                     assert children.size() == 1 : "Descriptor without header must be singleton";
                     var ctx = children.getFirst();
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
+                    var actionVal = new ActionText(ctx.getAction(), 0);
+                    historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
                         rowToSelect = currentRow;
                     }
@@ -974,9 +975,9 @@ public class HistoryOutputPanel extends JPanel {
 
                 if (expanded) {
                     for (var child : children) {
-                        String childText = "   " + child.getAction();
+                        var childAction = new ActionText(child.getAction(), 1);
                         Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                        historyModel.addRow(new Object[] {childIcon, childText, child});
+                        historyModel.addRow(new Object[] {childIcon, childAction, child});
                         if (child.equals(contextToSelect)) {
                             rowToSelect = currentRow;
                         }
@@ -2332,9 +2333,19 @@ public class HistoryOutputPanel extends JPanel {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            // Extract action text and structural indent level (Option A)
+            int indentLevel = 0;
+            String actionText;
+            if (value instanceof ActionText at) {
+                actionText = at.text();
+                indentLevel = Math.max(0, at.indentLevel());
+            } else {
+                actionText = value != null ? value.toString() : "";
+            }
+
             // Separator handling delegates to existing painter
-            if (ActivityTableRenderers.isSeparatorAction(value)) {
-                var comp = fallback.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (ActivityTableRenderers.isSeparatorAction(actionText)) {
+                var comp = fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
                 return adjustRowHeight(table, row, column, comp);
             }
 
@@ -2343,7 +2354,7 @@ public class HistoryOutputPanel extends JPanel {
 
             // If not a Context row, render a normal label (top-aligned)
             if (!(ctxVal instanceof Context ctx)) {
-                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                var comp = super.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
                 if (comp instanceof JLabel lbl) {
                     lbl.setVerticalAlignment(JLabel.TOP);
                 }
@@ -2353,81 +2364,75 @@ public class HistoryOutputPanel extends JPanel {
             // Decide whether to render a diff panel or just the label
             var cached = diffCache.get(ctx.id());
 
-            // Not yet cached → kick off background computation; show a compact label for now
+            // Kick off background computation if needed
             if (cached == null) {
                 scheduleDiffComputation(ctx);
-                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (comp instanceof JLabel lbl) {
-                    lbl.setVerticalAlignment(JLabel.TOP);
-                }
-                return adjustRowHeight(table, row, column, comp);
             }
 
-            // Cached but empty → no changes; compact label
-            if (cached.isEmpty()) {
-                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (comp instanceof JLabel lbl) {
-                    lbl.setVerticalAlignment(JLabel.TOP);
-                }
-                return adjustRowHeight(table, row, column, comp);
+            // Build action component using LAF-consistent renderer, but make it non-opaque
+            var actionComp =
+                    fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
+            if (actionComp instanceof JComponent jc) {
+                jc.setOpaque(false);
             }
 
-            // Cached with entries → build diff summary panel
-            boolean isDark = chrome.getTheme().isDarkTheme();
-
-            // Container for per-file rows with an inset on the left
-            var diffPanel = new JPanel();
-            diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
-            diffPanel.setOpaque(false);
-            diffPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
-
-            for (var de : cached) {
-                String bareName;
-                try {
-                    var files = de.fragment().files();
-                    if (!files.isEmpty()) {
-                        var pf = files.iterator().next();
-                        bareName = pf.getRelPath().getFileName().toString();
-                    } else {
-                        bareName = de.fragment().shortDescription();
-                    }
-                } catch (Exception ex) {
-                    bareName = de.fragment().shortDescription();
-                }
-
-                var nameLabel = new JLabel(bareName + " ");
-                nameLabel.setFont(smallFont);
-                nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-
-                var plus = new JLabel("+" + de.linesAdded());
-                plus.setFont(smallFont);
-                plus.setForeground(ThemeColors.getDiffAdded(!isDark));
-
-                var minus = new JLabel("-" + de.linesDeleted());
-                minus.setFont(smallFont);
-                minus.setForeground(ThemeColors.getDiffDeleted(!isDark));
-
-                var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-                rowPanel.setOpaque(false);
-                rowPanel.add(nameLabel);
-                rowPanel.add(plus);
-                rowPanel.add(minus);
-
-                diffPanel.add(rowPanel);
-            }
-
-            // Build composite panel (action text on top, diff below)
+            // Composite panel that applies structural indent to the entire cell
             var panel = new JPanel(new BorderLayout());
             panel.setOpaque(true);
             panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
             panel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
 
-            var actionLabel = new JLabel(value != null ? value.toString() : "");
-            actionLabel.setOpaque(false);
-            actionLabel.setFont(table.getFont());
-            actionLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-            panel.add(actionLabel, BorderLayout.NORTH);
-            panel.add(diffPanel, BorderLayout.CENTER);
+            int indentPx = indentLevel * Constants.H_GAP;
+            panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
+            panel.add(actionComp, BorderLayout.NORTH);
+
+            // If we have cached diff entries, add a summary panel; otherwise, action-only
+            if (cached != null && !cached.isEmpty()) {
+                boolean isDark = chrome.getTheme().isDarkTheme();
+
+                var diffPanel = new JPanel();
+                diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
+                diffPanel.setOpaque(false);
+                // No extra left inset; the outer panel border provides the indent alignment
+                diffPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
+
+                for (var de : cached) {
+                    String bareName;
+                    try {
+                        var files = de.fragment().files();
+                        if (!files.isEmpty()) {
+                            var pf = files.iterator().next();
+                            bareName = pf.getRelPath().getFileName().toString();
+                        } else {
+                            bareName = de.fragment().shortDescription();
+                        }
+                    } catch (Exception ex) {
+                        bareName = de.fragment().shortDescription();
+                    }
+
+                    var nameLabel = new JLabel(bareName + " ");
+                    nameLabel.setFont(smallFont);
+                    nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+
+                    var plus = new JLabel("+" + de.linesAdded());
+                    plus.setFont(smallFont);
+                    plus.setForeground(ThemeColors.getDiffAdded(!isDark));
+
+                    var minus = new JLabel("-" + de.linesDeleted());
+                    minus.setFont(smallFont);
+                    minus.setForeground(ThemeColors.getDiffDeleted(!isDark));
+
+                    var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+                    rowPanel.setOpaque(false);
+                    rowPanel.add(nameLabel);
+                    rowPanel.add(plus);
+                    rowPanel.add(minus);
+
+                    diffPanel.add(rowPanel);
+                }
+
+                panel.add(diffPanel, BorderLayout.CENTER);
+            }
 
             return adjustRowHeight(table, row, column, panel);
         }
@@ -2720,6 +2725,9 @@ public class HistoryOutputPanel extends JPanel {
     // --- Tree-like grouping support types and helpers ---
 
     public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
+
+    // Structural action text + indent data for column 1 (Option A)
+    private static record ActionText(String text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
