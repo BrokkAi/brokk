@@ -425,19 +425,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Ensure session label under Output is initialized
         updateSessionComboBox();
 
-        // Create wrapper panel with titled border containing output and activity
-        var sessionPanel = new JPanel(new BorderLayout());
-        sessionPanel.setBorder(BorderFactory.createTitledBorder(
+        // Create header panel with session label (left) and new session button (right)
+        var headerPanel = new JPanel(new BorderLayout(8, 0));
+        headerPanel.setOpaque(true);
+        headerPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "Session",
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
+        
+        sessionNameLabel.setOpaque(false);
+        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        headerPanel.add(sessionNameLabel, BorderLayout.WEST);
+        
+        headerPanel.add(newSessionButton, BorderLayout.EAST);
 
-        sessionPanel.add(centerPanel, BorderLayout.CENTER);
-        sessionPanel.add(activityPanel, BorderLayout.EAST);
-
-        add(sessionPanel, BorderLayout.CENTER);
+        // Main layout: header at top, center panel in center, activity panel on right
+        add(headerPanel, BorderLayout.NORTH);
+        add(centerPanel, BorderLayout.CENTER);
+        add(activityPanel, BorderLayout.EAST);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
@@ -492,13 +500,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Build the content for the Output tab (existing UI)
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
-
-        // Add session name label just under the titled border
-        sessionNameLabel.setOpaque(false);
-        sessionNameLabel.setHorizontalAlignment(SwingConstants.LEFT);
-        sessionNameLabel.setBorder(new EmptyBorder(2, 8, 4, 8));
-        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        outputPanel.add(sessionNameLabel, BorderLayout.NORTH);
 
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
@@ -1191,11 +1192,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
-        // Add New Session button to the east side
-        JPanel eastPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        eastPanel.setOpaque(false);
-        eastPanel.add(newSessionButton);
-        panel.add(eastPanel, BorderLayout.EAST);
 
         var popupListener = new MouseAdapter() {
             private void showPopupMenu(MouseEvent e) {
