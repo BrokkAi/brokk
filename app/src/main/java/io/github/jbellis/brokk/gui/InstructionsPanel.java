@@ -353,8 +353,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setVisible(false);
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
-        // Click toggles Workspace collapse/expand
-        tokenUsageBar.setOnClick(() -> chrome.toggleWorkspaceCollapsed());
+        // Disable click behavior on the TokenUsageBar and ensure default cursor
+        tokenUsageBar.setCursor(Cursor.getDefaultCursor());
 
         // Initialize TokenUsageBar popup menu
         tokenUsageBarPopupMenu = new JPopupMenu();

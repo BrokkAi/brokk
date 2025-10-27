@@ -323,6 +323,8 @@ public class Chrome
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
         workspacePanel.setVisible(false);
+        // Sanity check: ensure WorkspacePanel is not in the visible hierarchy
+        assert workspacePanel.getParent() == null : "WorkspacePanel must not be part of UI hierarchy";
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, this.testRunnerPanel);
         dependenciesPanel = new DependenciesPanel(this);
 
