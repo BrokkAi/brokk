@@ -485,12 +485,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Build the content for the Output tab (existing UI)
         var outputPanel = new JPanel(new BorderLayout());
-        outputPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Output",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
         // Add session name label just under the titled border
         sessionNameLabel.setOpaque(false);
@@ -2960,14 +2955,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
-        // Use a titled border for the content area to label it "Changes in session"
+        // Use a compound border: line border for separation + padding
         wrapper.setBorder(new CompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createEtchedBorder(),
-                        "Changes in Session",
-                        TitledBorder.DEFAULT_JUSTIFICATION,
-                        TitledBorder.DEFAULT_POSITION,
-                        new Font(Font.DIALOG, Font.BOLD, 12)),
+                new LineBorder(UIManager.getColor("Separator.foreground"), 1),
                 new EmptyBorder(6, 6, 6, 6)));
 
         // Build BrokkDiffPanel with string sources
