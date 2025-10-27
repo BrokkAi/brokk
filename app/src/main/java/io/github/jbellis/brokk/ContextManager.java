@@ -435,7 +435,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void beforeEachBuild() {
                 if (io instanceof Chrome chrome) {
-                    chrome.getContextPanel().showAnalyzerRebuildSpinner();
+                    chrome.showAnalyzerRebuildStatus();
                 }
 
                 // Notify analyzer callbacks
@@ -448,7 +448,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void afterEachBuild(boolean externalRequest) {
                 submitBackgroundTask("Code Intelligence post-build", () -> {
                     if (io instanceof Chrome chrome) {
-                        chrome.getContextPanel().hideAnalyzerRebuildSpinner();
+                        chrome.hideAnalyzerRebuildStatus();
                     }
 
                     // Wait for context load to finish, with a timeout

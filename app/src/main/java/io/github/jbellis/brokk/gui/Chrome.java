@@ -31,6 +31,7 @@ import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
+import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
@@ -305,6 +306,9 @@ public class Chrome
         this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
         initializeThemeManager();
+        // Create shared analyzer rebuild status strip (hidden by default)
+        this.analyzerStatusStrip = new AnalyzerStatusStrip();
+        this.analyzerStatusStrip.setVisible(false);
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
         var rootPath = getProject().getRoot();
@@ -933,6 +937,9 @@ public class Chrome
 
     // Theme manager and constants
     GuiTheme themeManager;
+
+    // Shared analyzer rebuild status strip
+    private final AnalyzerStatusStrip analyzerStatusStrip;
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
@@ -3315,6 +3322,47 @@ public class Chrome
     }
 
     /**
+     * Shared "Rebuilding Code Intelligence" status strip with spinner and text.
+     * Hidden by default. Other panels can embed this component via getAnalyzerStatusStrip().
+     * The spinner icon is refreshed against the current theme whenever it is shown or a theme is applied.
+     */
+    private class AnalyzerStatusStrip extends JPanel implements ThemeAware {
+        private final JLabel label;
+
+        private AnalyzerStatusStrip() {
+            super();
+            setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
+            setBorder(new EmptyBorder(2, 6, 2, 6));
+            label = new JLabel("Rebuilding Code Intelligence...");
+            label.setIcon(null); // set on show to ensure theme-correct icon
+            label.setAlignmentY(Component.CENTER_ALIGNMENT);
+            add(label);
+            setOpaque(true);
+            // Start hidden by default. Visibility controlled by Chrome methods.
+            setVisible(false);
+        }
+
+        void refreshSpinnerIcon() {
+            // Must be called on EDT; SpinnerIconUtil asserts EDT
+            Icon icon = SpinnerIconUtil.getSpinner(Chrome.this, true);
+            label.setIcon(icon);
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            // Keep basic colors in sync with theme; refresh spinner icon if visible
+            Color bg = UIManager.getColor("Panel.background");
+            Color fg = UIManager.getColor("Label.foreground");
+            setBackground(bg != null ? bg : getBackground());
+            label.setForeground(fg != null ? fg : label.getForeground());
+            if (isVisible()) {
+                refreshSpinnerIcon();
+            }
+            SwingUtilities.updateComponentTreeUI(this);
+        }
+    }
+
+    /**
      * Updates the git tab badge with the current number of modified files. Should be called whenever the git status
      * changes
      */
@@ -3619,6 +3667,38 @@ public class Chrome
 
         int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
         mainVerticalSplitPane.setDividerLocation(safeDivider);
+    }
+
+    /**
+     * Shows the shared analyzer rebuild status strip. Safe to call from any thread.
+     */
+    public void showAnalyzerRebuildStatus() {
+        SwingUtil.runOnEdt(() -> {
+            analyzerStatusStrip.refreshSpinnerIcon();
+            analyzerStatusStrip.setVisible(true);
+            analyzerStatusStrip.revalidate();
+            analyzerStatusStrip.repaint();
+        });
+    }
+
+    /**
+     * Hides the shared analyzer rebuild status strip. Safe to call from any thread.
+     */
+    public void hideAnalyzerRebuildStatus() {
+        SwingUtil.runOnEdt(() -> {
+            analyzerStatusStrip.setVisible(false);
+            analyzerStatusStrip.revalidate();
+            analyzerStatusStrip.repaint();
+        });
+    }
+
+    /**
+     * Returns the shared analyzer rebuild status strip so other panels can embed it.
+     * Note: Swing components can have only one parent; callers should remove it from
+     * a previous parent before adding it elsewhere.
+     */
+    public JComponent getAnalyzerStatusStrip() {
+        return analyzerStatusStrip;
     }
 
     @Override
