@@ -278,6 +278,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         private final List<FileComparisonInfo> fileComparisons;
         private boolean isMultipleCommitsContext = false;
         private int initialFileIndex = 0;
+        private boolean multiFileOnlyMode = false;
 
         @Nullable
         private String rootTitle;
@@ -326,6 +327,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         public Builder setInitialFileIndex(int initialFileIndex) {
             this.initialFileIndex = initialFileIndex;
+            return this;
+        }
+
+        public Builder setMultiFileOnlyMode(boolean multiFileOnlyMode) {
+            this.multiFileOnlyMode = multiFileOnlyMode;
             return this;
         }
 
