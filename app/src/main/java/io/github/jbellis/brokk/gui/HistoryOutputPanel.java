@@ -2333,7 +2333,7 @@ public class HistoryOutputPanel extends JPanel {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            // Extract action text and structural indent level (Option A)
+            // Extract action text and structural indent level
             int indentLevel = 0;
             String actionText;
             if (value instanceof ActionText at) {
@@ -2385,7 +2385,7 @@ public class HistoryOutputPanel extends JPanel {
             panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
             panel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
 
-            int indentPx = indentLevel * Constants.H_GAP;
+            int indentPx = indentLevel * Constants.H_GAP * 3;
             panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
             panel.add(actionComp, BorderLayout.NORTH);
             // Ensure tooltip is visible even though we return a composite panel

@@ -2095,7 +2095,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
     public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
-        TaskScope scope = new TaskScope(compressAtCommit, groupLabel != null ? groupLabel + ": " + input : input);
+        TaskScope scope = new TaskScope(compressAtCommit, groupLabel != null ? groupLabel + ": " + input : null);
 
         // prepare MOP
         var history = liveContext().getTaskHistory();
