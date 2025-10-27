@@ -2882,9 +2882,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        var aggregatedPanel = buildAggregatedChangesPanel(res);
-        container.setLayout(new BorderLayout());
-        container.add(aggregatedPanel, BorderLayout.CENTER);
+        try {
+            var aggregatedPanel = buildAggregatedChangesPanel(res);
+            container.setLayout(new BorderLayout());
+            container.add(aggregatedPanel, BorderLayout.CENTER);
+        } catch (Throwable t) {
+            logger.warn("Failed to build aggregated Changes panel", t);
+            container.setLayout(new BorderLayout());
+            var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
+            err.setBorder(new EmptyBorder(20, 0, 20, 0));
+            container.removeAll();
+            container.add(err, BorderLayout.CENTER);
+            aggregatedChangesPanel = null;
+        }
         container.revalidate();
         container.repaint();
     }
