@@ -2748,6 +2748,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
         }
 
+        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
         var panel = builder.build();
         panel.showInFrame("Diff: " + ctx.getAction());
     }
