@@ -393,13 +393,14 @@ public class HistoryOutputPanel extends JPanel {
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
 
-        var sessionControlsPanel = buildSessionControlsPanel(this.sessionNameLabel, this.newSessionButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
-        // Create main history panel with session controls above activity
+        // Create main history panel (Activity only; Sessions panel removed)
         var historyPanel = new JPanel(new BorderLayout());
-        historyPanel.add(sessionControlsPanel, BorderLayout.NORTH);
         historyPanel.add(activityPanel, BorderLayout.CENTER);
+
+        // Ensure session label under Output is initialized
+        updateSessionComboBox();
 
         // Calculate preferred width to match old panel size
         int preferredWidth = 230;
