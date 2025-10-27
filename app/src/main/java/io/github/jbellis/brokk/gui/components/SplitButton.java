@@ -199,7 +199,7 @@ public class SplitButton extends JComponent {
         this.popupMenu = null; // reset cache
     }
 
-    void showPopupMenuInternal() {
+    public void showPopupMenuInternal() {
         if (!isEnabled()) {
             return;
         }

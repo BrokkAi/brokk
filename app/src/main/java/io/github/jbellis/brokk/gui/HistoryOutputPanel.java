@@ -338,6 +338,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             chrome.themeManager.registerPopupMenu(popup);
             return popup;
         });
+        this.sessionNameLabel.addActionListener(e -> this.sessionNameLabel.showPopupMenuInternal());
 
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
 
