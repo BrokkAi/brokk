@@ -5,6 +5,9 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskMeta;
+import ai.brokk.ModelSpec;
+import ai.brokk.TaskType;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -65,14 +68,25 @@ public class DtoMapper {
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
+                    // Build TaskMeta if present and valid (ModelSpec requires non-null name)
+                    TaskMeta meta = null;
+                    boolean anyMetaPresent = taskRefDto.taskType() != null
+                            || taskRefDto.primaryModelName() != null
+                            || taskRefDto.primaryModelReasoning() != null;
+                    if (anyMetaPresent && taskRefDto.primaryModelName() != null) {
+                        var type = TaskType.safeParse(taskRefDto.taskType()).orElse(TaskType.NONE);
+                        var pm = new ModelSpec(taskRefDto.primaryModelName(), taskRefDto.primaryModelReasoning());
+                        meta = new TaskMeta(type, pm);
+                    }
+
                     if (taskRefDto.logId() != null) {
                         var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
                         if (logFragment != null) {
-                            return new TaskEntry(taskRefDto.sequence(), logFragment, null);
+                            return new TaskEntry(taskRefDto.sequence(), logFragment, null, meta);
                         }
                     } else if (taskRefDto.summaryContentId() != null) {
                         String summary = contentReader.readContent(taskRefDto.summaryContentId());
-                        return TaskEntry.fromCompressed(taskRefDto.sequence(), summary);
+                        return new TaskEntry(taskRefDto.sequence(), null, summary, meta);
                     }
                     return null;
                 })
