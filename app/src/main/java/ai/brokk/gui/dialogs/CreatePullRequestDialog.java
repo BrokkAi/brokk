@@ -728,7 +728,7 @@ public class CreatePullRequestDialog extends JDialog {
                 builder.addComparison(sources.left(), sources.right());
             }
             SwingUtilities.invokeLater(() -> builder.build().showInFrame("Pull Request Diff"));
-        } catch (Exception ex) {
+        } catch (GitAPIException ex) {
             logger.error("Unable to open PR diff viewer", ex);
             chrome.toolError("Unable to open diff: " + ex.getMessage(), "Diff Error");
         }
@@ -753,7 +753,7 @@ public class CreatePullRequestDialog extends JDialog {
             return;
         }
 
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Computing Diff", () -> {
             buildAndShowDiffPanel(orderedFiles, currentMergeBase, currentSourceBranch);
             return null;
         });

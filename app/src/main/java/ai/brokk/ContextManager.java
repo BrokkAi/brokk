@@ -2209,20 +2209,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             // push context
-            final Context[] updatedContext = new Context[1];
-            pushContext(currentLiveCtx -> {
+            var updatedContext = pushContext(currentLiveCtx -> {
                 var updated = result.context().withGroup(groupId, groupLabel);
                 TaskEntry entry = updated.createTaskEntry(result);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
-                updatedContext[0] = updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
-                return updatedContext[0];
+                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
             });
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
-            io.prepareOutputForNextStream(updatedContext[0].getTaskHistory());
+            io.prepareOutputForNextStream(updatedContext.getTaskHistory());
 
-            return updatedContext[0];
+            return updatedContext;
         }
 
         @Override

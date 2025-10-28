@@ -74,7 +74,7 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
-    private static final ThreadLocal<TaskResult> LAST_SEARCH_RESULT = new ThreadLocal<>();
+    private static final ThreadLocal<TaskResult> threadlocalSearchResult = new ThreadLocal<>();
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -229,7 +229,6 @@ public class ArchitectAgent {
             throws FatalLlmException, InterruptedException {
         addPlanningToHistory();
         logger.debug("callSearchAgent invoked with query: {}", query);
-        LAST_SEARCH_RESULT.remove();
 
         // Instantiate and run SearchAgent
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
@@ -237,9 +236,8 @@ public class ArchitectAgent {
                 context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), scope);
         searchAgent.scanInitialContext();
         var result = searchAgent.execute();
-        // Update local context from SearchAgent result
-        context = scope.append(result);
-        LAST_SEARCH_RESULT.set(result);
+        // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
+        threadlocalSearchResult.set(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
@@ -507,9 +505,9 @@ public class ArchitectAgent {
             for (var req : searchAgentReqs) {
                 Callable<SearchTaskResult> task = () -> {
                     // Ensure a clean slate for this thread before invoking the tool
-                    LAST_SEARCH_RESULT.remove();
+                    threadlocalSearchResult.remove();
                     var toolResult = tr.executeTool(req);
-                    var saResult = requireNonNull(LAST_SEARCH_RESULT.get());
+                    var saResult = requireNonNull(threadlocalSearchResult.get());
                     logger.debug("Finished SearchAgent task for request: {}", req.name());
                     return new SearchTaskResult(toolResult, saResult.context());
                 };

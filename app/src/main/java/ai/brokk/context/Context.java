@@ -934,13 +934,7 @@ public class Context {
      * is no build failure recorded.
      */
     public String getBuildError() {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        return virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
-                .filter(sf -> desc.equals(sf.description()))
-                .map(ContextFragment.VirtualFragment::text)
-                .findFirst()
-                .orElse("");
+        return getBuildFragment().map(ContextFragment.VirtualFragment::text).orElse("");
     }
 
     public Optional<ContextFragment.StringFragment> getBuildFragment() {
