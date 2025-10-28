@@ -232,6 +232,134 @@ class ProjectWatchServiceTest {
     }
 
     /**
+     * Test that pause prevents event processing.
+     */
+    @Test
+    void testPausePreventsEventProcessing() throws Exception {
+        TestListener listener = new TestListener("Listener");
+        testListeners.add(listener);
+
+        watchService = new ProjectWatchService(tempDir, null, List.of(listener));
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Give watcher time to initialize
+        Thread.sleep(500);
+
+        // Verify watcher is working - create first file
+        Path testFile1 = tempDir.resolve("test1.txt");
+        Files.writeString(testFile1, "test content 1");
+        assertTrue(listener.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener should receive first event");
+        assertEquals(1, listener.filesChangedCount.get(), "Should have received 1 event");
+
+        // Now pause
+        watchService.pause();
+        assertTrue(watchService.isPaused(), "Watch service should be paused");
+
+        // Create another file while paused
+        Path testFile2 = tempDir.resolve("test2.txt");
+        Files.writeString(testFile2, "test content 2");
+
+        // Wait a reasonable time - events should NOT be processed while paused
+        Thread.sleep(2000);
+
+        // Count should still be 1 (no new events processed)
+        assertEquals(1, listener.filesChangedCount.get(), "Should not receive new events while paused");
+
+        // Resume
+        watchService.resume();
+        assertFalse(watchService.isPaused(), "Watch service should not be paused after resume");
+
+        // Create listener for second event (after resume)
+        TestListener listener2 = new TestListener("Listener2");
+        testListeners.add(listener2);
+        watchService.addListener(listener2);
+
+        // Create a third file - this should be processed
+        Path testFile3 = tempDir.resolve("test3.txt");
+        Files.writeString(testFile3, "test content 3");
+
+        // New listener should receive event after resume
+        assertTrue(listener2.filesChangedLatch.await(5, TimeUnit.SECONDS), "Should receive events after resume");
+    }
+
+    /**
+     * Test that isPaused returns correct state.
+     */
+    @Test
+    void testIsPausedReflectsState() throws Exception {
+        watchService = new ProjectWatchService(tempDir, null, List.of());
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Initially not paused
+        assertFalse(watchService.isPaused(), "Should not be paused initially");
+
+        // Pause once
+        watchService.pause();
+        assertTrue(watchService.isPaused(), "Should be paused after pause()");
+
+        // Resume
+        watchService.resume();
+        assertFalse(watchService.isPaused(), "Should not be paused after resume()");
+    }
+
+    /**
+     * Test multiple pause/resume cycles.
+     */
+    @Test
+    void testMultiplePauseResumeCycles() throws Exception {
+        watchService = new ProjectWatchService(tempDir, null, List.of());
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Test nested pause/resume (pause count)
+        assertFalse(watchService.isPaused(), "Should not be paused initially");
+
+        watchService.pause();
+        assertTrue(watchService.isPaused(), "Should be paused after first pause()");
+
+        watchService.pause(); // Nested pause
+        assertTrue(watchService.isPaused(), "Should still be paused after second pause()");
+
+        watchService.resume(); // First resume
+        assertTrue(watchService.isPaused(), "Should still be paused after first resume() (nested)");
+
+        watchService.resume(); // Second resume
+        assertFalse(watchService.isPaused(), "Should not be paused after second resume()");
+
+        // Test multiple cycles
+        for (int i = 0; i < 3; i++) {
+            watchService.pause();
+            assertTrue(watchService.isPaused(), "Cycle " + i + ": should be paused");
+            watchService.resume();
+            assertFalse(watchService.isPaused(), "Cycle " + i + ": should not be paused");
+        }
+    }
+
+    /**
+     * Test that resume without pause doesn't cause errors.
+     */
+    @Test
+    void testResumeWithoutPause() throws Exception {
+        watchService = new ProjectWatchService(tempDir, null, List.of());
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        assertFalse(watchService.isPaused(), "Should not be paused initially");
+
+        // Resume when not paused - should be safe
+        assertDoesNotThrow(() -> watchService.resume(), "Resume without pause should not throw");
+
+        // Still not paused
+        assertFalse(watchService.isPaused(), "Should still not be paused");
+
+        // Multiple resumes should be safe
+        assertDoesNotThrow(() -> {
+            watchService.resume();
+            watchService.resume();
+        }, "Multiple resumes should not throw");
+
+        assertFalse(watchService.isPaused(), "Should still not be paused");
+    }
+
+    /**
      * Test that empty listener list doesn't cause errors.
      */
     @Test

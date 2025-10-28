@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -162,6 +164,67 @@ class FileListenersIntegrationTest {
     }
 
     /**
+     * Test pause/resume from external component doesn't break AnalyzerWrapper.
+     *
+     * This test is disabled by default because it depends on file system timing which can be
+     * unreliable in CI environments. The pause/resume functionality is covered by unit tests
+     * in ProjectWatchServiceTest.
+     *
+     * To run this test manually:
+     * ./gradlew test --tests FileListenersIntegrationTest.testExternalPauseResumeDoesNotBreakAnalyzer
+     */
+    @Test
+    @Disabled("File system timing dependent - run manually for verification. See issue #1618")
+    void testExternalPauseResumeDoesNotBreakAnalyzer() throws Exception {
+        // Setup
+        var projectRoot = tempDir.resolve("project");
+        Files.createDirectories(projectRoot);
+        Files.writeString(projectRoot.resolve("Test.java"), "public class Test {}");
+        var project = new TestProject(projectRoot, Languages.JAVA);
+
+        // Create watch service and AnalyzerWrapper
+        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        // Pass null for analyzerListener to avoid git repo access in tests
+        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+
+        // Add external listener with improved synchronization
+        var externalListener = new TestExternalListenerWithResumeFlag();
+        watchService.addListener(externalListener);
+
+        // Start watching
+        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        Thread.sleep(500);
+
+        // External component pauses via getWatchService()
+        analyzerWrapper.getWatchService().pause();
+        assertTrue(analyzerWrapper.getWatchService().isPaused(), "Should be paused");
+
+        // Create a file while paused
+        Files.writeString(projectRoot.resolve("Paused.java"), "public class Paused {}");
+
+        // Wait to ensure file system has registered the change
+        Thread.sleep(1000);
+
+        // Verify still paused and no events received yet
+        assertTrue(analyzerWrapper.getWatchService().isPaused(), "Should still be paused");
+        assertFalse(externalListener.receivedEventAfterResume.get(), "Should not have received event while paused");
+
+        // External component resumes
+        externalListener.markResumed();
+        analyzerWrapper.getWatchService().resume();
+        assertFalse(analyzerWrapper.getWatchService().isPaused(), "Should not be paused");
+
+        // Events should now be processed (increased timeout for reliability)
+        assertTrue(
+                externalListener.eventAfterResumeLatch.await(5, TimeUnit.SECONDS),
+                "Events should be processed after resume");
+
+        assertTrue(
+                externalListener.receivedEventAfterResume.get(),
+                "Should have received event after resume");
+    }
+
+    /**
      * Test that multiple components can access watch service via getWatchService().
      */
     @Test
@@ -212,6 +275,30 @@ class FileListenersIntegrationTest {
         public void onFilesChanged(EventBatch batch) {
             filesChangedCount.incrementAndGet();
             filesChangedLatch.countDown();
+        }
+
+        @Override
+        public void onNoFilesChangedDuringPollInterval() {}
+    }
+
+    /**
+     * Test helper for pause/resume test that tracks events after resume.
+     */
+    private static class TestExternalListenerWithResumeFlag implements Listener {
+        private final AtomicBoolean resumeOccurred = new AtomicBoolean(false);
+        private final AtomicBoolean receivedEventAfterResume = new AtomicBoolean(false);
+        private final CountDownLatch eventAfterResumeLatch = new CountDownLatch(1);
+
+        void markResumed() {
+            resumeOccurred.set(true);
+        }
+
+        @Override
+        public void onFilesChanged(EventBatch batch) {
+            if (resumeOccurred.get() && !batch.files.isEmpty()) {
+                receivedEventAfterResume.set(true);
+                eventAfterResumeLatch.countDown();
+            }
         }
 
         @Override
