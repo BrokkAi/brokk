@@ -13,7 +13,7 @@ plugins {
     alias(libs.plugins.node)
 }
 
-group = "io.github.jbellis"
+group = "ai.brokk"
 
 java {
     toolchain {
@@ -22,7 +22,7 @@ java {
 }
 
 application {
-    mainClass.set("io.github.jbellis.brokk.Brokk")
+    mainClass.set("ai.brokk.Brokk")
     applicationDefaultJvmArgs = listOf(
         // enable feature flags; JavaExec baseline supplies other args
         "-Dbrokk.servicetiers=true",
@@ -145,7 +145,7 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
 
 buildConfig {
     buildConfigField("String", "version", "\"$actualVersion\"")
-    packageName("io.github.jbellis.brokk")
+    packageName("ai.brokk")
     className("BuildInfo")
 }
 
@@ -302,7 +302,7 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         enable("RedundantNullCheck")
 
         // Core NullAway options
-        option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
+        option("NullAway:AnnotatedPackages", "ai.brokk")
         option("NullAway:ExcludedFieldAnnotations",
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
         option("NullAway:ExcludedClassAnnotations",
@@ -464,7 +464,7 @@ tasks.withType<Test> {
 tasks.register<JavaExec>("runCli") {
     group = "application"
     description = "Runs the Brokk CLI"
-    mainClass.set("io.github.jbellis.brokk.cli.BrokkCli")
+    mainClass.set("ai.brokk.cli.BrokkCli")
     classpath = sourceSets.main.get().runtimeClasspath
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
@@ -474,7 +474,7 @@ tasks.register<JavaExec>("runCli") {
 tasks.register<JavaExec>("runSkeletonPrinter") {
     group = "application"
     description = "Runs the SkeletonPrinter tool"
-    mainClass.set("io.github.jbellis.brokk.tools.SkeletonPrinter")
+    mainClass.set("ai.brokk.tools.SkeletonPrinter")
     classpath = sourceSets.test.get().runtimeClasspath
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
@@ -484,7 +484,7 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
 tasks.register<JavaExec>("generateThemeCss") {
     group = "application"
     description = "Generates theme CSS variables from ThemeColors"
-    mainClass.set("io.github.jbellis.brokk.tools.GenerateThemeCss")
+    mainClass.set("ai.brokk.tools.GenerateThemeCss")
     classpath = sourceSets.main.get().runtimeClasspath
     args = listOf("${project.rootDir}/frontend-mop/src/styles/theme-colors.generated.scss")
 }
@@ -492,7 +492,7 @@ tasks.register<JavaExec>("generateThemeCss") {
 tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     group = "application"
     description = "Runs the TreeSitterRepoRunner tool for TreeSitter performance analysis"
-    mainClass.set("io.github.jbellis.brokk.tools.TreeSitterRepoRunner")
+    mainClass.set("ai.brokk.tools.TreeSitterRepoRunner")
     classpath = sourceSets.test.get().runtimeClasspath
     // Additional JVM args specific to repository runner; baseline adds -ea and -Dbrokk.devmode=true
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {
@@ -523,7 +523,7 @@ tasks.shadowJar {
     exclude("META-INF/MANIFEST.MF")
 
     manifest {
-        attributes["Main-Class"] = "io.github.jbellis.brokk.Brokk"
+        attributes["Main-Class"] = "ai.brokk.Brokk"
     }
 }
 
