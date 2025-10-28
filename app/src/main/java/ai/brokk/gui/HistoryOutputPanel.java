@@ -2442,6 +2442,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    // Centralized icon mapping for task types; future-proofed for differentiation.
+    private javax.swing.Icon iconFor(ai.brokk.TaskType type) {
+        return Icons.CHAT_BUBBLE;
+    }
+
     /** Icon renderer that mirrors the Action column's indentation for nested rows. */
     private class IndentedIconRenderer extends ActivityTableRenderers.IconCellRenderer {
         @Override
@@ -2462,6 +2467,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             int indentLevel = (actionVal instanceof ActionText at) ? Math.max(0, at.indentLevel()) : 0;
             Component comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
+            // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry
+            try {
+                Object ctxVal = table.getModel().getValueAt(row, 2);
+                if (ctxVal instanceof ai.brokk.context.Context ctx) {
+                    var history = ctx.getTaskHistory();
+                    if (!history.isEmpty()) {
+                        var last = history.getLast();
+                        var meta = last.meta();
+                        if (meta != null) {
+                            var chosen = iconFor(meta.type());
+                            if (comp instanceof JLabel lbl && chosen != null) {
+                                lbl.setIcon(chosen);
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                // Best-effort icon override only; fall back silently on any errors
+            }
 
             // Apply inset: top-level rows get a base margin; nested rows align exactly with action indent
             if (comp instanceof JComponent jc) {
