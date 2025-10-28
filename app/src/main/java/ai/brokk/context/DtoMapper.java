@@ -77,6 +77,17 @@ public class DtoMapper {
                         var type = TaskType.safeParse(taskRefDto.taskType()).orElse(TaskType.NONE);
                         var pm = new ModelSpec(taskRefDto.primaryModelName(), taskRefDto.primaryModelReasoning());
                         meta = new TaskMeta(type, pm);
+                        logger.debug("Reconstructed TaskMeta for sequence {}: type={}, model={}",
+                                taskRefDto.sequence(),
+                                meta.type(),
+                                meta.primaryModel().name());
+                    } else if (anyMetaPresent) {
+                        // Incomplete meta present (e.g., older sessions missing model name) - ignore gracefully
+                        logger.debug("Ignoring incomplete TaskMeta fields for sequence {} (taskType={}, modelName={}, reasoning={})",
+                                taskRefDto.sequence(),
+                                taskRefDto.taskType(),
+                                taskRefDto.primaryModelName(),
+                                taskRefDto.primaryModelReasoning());
                     }
 
                     if (taskRefDto.logId() != null) {
