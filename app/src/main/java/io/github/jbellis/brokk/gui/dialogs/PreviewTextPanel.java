@@ -309,22 +309,21 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     // Font size methods delegated to EditorFontSizeControl interface
 
     /**
-     * Implementation of {@link ThemeAware}. Uses font-preserving theme application to maintain
-     * explicit font sizes during theme changes.
+     * Implementation of {@link ThemeAware}. Updates the entire panel's UI components while
+     * preserving font sizes, and explicitly themes the text area.
      */
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        if (hasExplicitFontSize()) {
-            guiTheme.applyThemePreservingFont(textArea);
-            // Re-apply font to ensure syntax scheme is updated after theme change
-            applyEditorFontSize(textArea);
-        } else {
-            guiTheme.applyCurrentThemeToComponent(textArea);
-        }
+        // Update panel UI components (buttons, borders, search bar, etc.)
+        guiTheme.updateComponentTreeUIPreservingFonts(this);
+        // Explicitly theme the text area (updateComponentTreeUIPreservingFonts doesn't recurse into ThemeAware children)
+        textArea.applyTheme(guiTheme);
+        revalidate();
+        repaint();
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
-    public class PreviewTextArea extends RSyntaxTextArea {
+    public class PreviewTextArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
         public PreviewTextArea(String content, @Nullable String syntaxStyle, boolean isEditable) {
             setSyntaxEditingStyle(syntaxStyle != null ? syntaxStyle : SyntaxConstants.SYNTAX_STYLE_NONE);
             setCodeFoldingEnabled(true);
@@ -332,6 +331,33 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             setHighlightCurrentLine(false);
             setEditable(isEditable);
             setText(content);
+        }
+
+        // FontSizeAware implementation - delegate to parent PreviewTextPanel
+        @Override
+        public boolean hasExplicitFontSize() {
+            return PreviewTextPanel.this.hasExplicitFontSize();
+        }
+
+        @Override
+        public float getExplicitFontSize() {
+            return PreviewTextPanel.this.getExplicitFontSize();
+        }
+
+        @Override
+        public void setExplicitFontSize(float size) {
+            PreviewTextPanel.this.setExplicitFontSize(size);
+        }
+
+        // ThemeAware implementation - handle font preservation during theme changes
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            // Use font-preserving theme application when font is explicitly set
+            if (hasExplicitFontSize()) {
+                guiTheme.applyThemePreservingFont(this);
+            } else {
+                guiTheme.applyCurrentThemeToComponent(this);
+            }
         }
 
         @Override
