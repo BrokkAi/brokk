@@ -423,9 +423,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
 
-    // FontSizeAware implementation
-    private boolean explicitFontSizeSet = false;
-
     @Override
     public int getCurrentFontIndex() {
         return currentFontIndex;
@@ -434,10 +431,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     @Override
     public void setCurrentFontIndex(int index) {
         this.currentFontIndex = index;
-        // Mark that we have an explicit font size when index is set
-        if (index >= 0) {
-            explicitFontSizeSet = true;
-        }
     }
 
     private final MaterialButton btnNext = new MaterialButton();
@@ -1383,12 +1376,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
-        // Ensure currentFontIndex is initialized (lazily) from the visible editor before applying it.
-        // This probes the panel's editor for a realistic starting font size (fallback handled internally).
-        ensureEditorFontSizeInitialized(cachedPanel);
+        // Ensure currentFontIndex is initialized from saved font size or default
+        ensureFontIndexInitialized();
         // Apply current editor font size to the panel so theme application doesn't override it
-        if (currentFontIndex >= 0) {
-            applySizeToSinglePanel(cachedPanel, FONT_SIZES[currentFontIndex]);
+        if (getCurrentFontIndex() >= 0) {
+            applySizeToSinglePanel(cachedPanel, FONT_SIZES[getCurrentFontIndex()]);
         }
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
@@ -1896,45 +1888,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Lazily initialize the currentFontIndex from saved font size, then from a panel or component if not saved.
-     */
-    private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
-        if (getCurrentFontIndex() >= 0) return;
-
-        // Try to load from saved font size first
-        float savedFontSize = GlobalUiSettings.getDiffFontSize();
-        if (savedFontSize > 0) {
-            setCurrentFontIndex(findClosestFontIndex(savedFontSize));
-            return;
-        }
-
-        float size = DEFAULT_FALLBACK_FONT_SIZE;
-
-        Component comp = null;
-        try {
-            if (panelOrComponent instanceof IDiffPanel idp) {
-                comp = idp.getComponent();
-            } else if (panelOrComponent instanceof Component c) {
-                comp = c;
-            }
-            if (comp != null) {
-                var editorOpt = findEditorInComponent(comp);
-                if (editorOpt.isPresent()) {
-                    try {
-                        size = editorOpt.get().getFont().getSize2D();
-                    } catch (Exception ignored) {
-                        // ignore and use fallback
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to derive editor font size from component", e);
-        }
-
-        setCurrentFontIndex(findClosestFontIndex(size));
-    }
-
-    /**
      * Apply a specific font size to a single panel's editors and gutters. Handles UnifiedDiffPanel, BufferDiffPanel,
      * and generic panels with comprehensive logic.
      *
@@ -1998,7 +1951,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         if (getCurrentFontIndex() < 0) return;
 
         float fontSize = FONT_SIZES[getCurrentFontIndex()];
-        GlobalUiSettings.saveDiffFontSize(fontSize);
+        GlobalUiSettings.saveEditorFontSize(fontSize);
 
         // Apply to cached panels
         for (var p : panelCache.nonNullValues()) {
@@ -2026,24 +1979,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Increase font size using interface method, then apply to all panels. */
     public void increaseEditorFont() {
-        var panel = getCurrentContentPanel();
-        ensureEditorFontSizeInitialized(panel);
         EditorFontSizeControl.super.increaseEditorFont();
         applyAllEditorFontSizes();
     }
 
     /** Decrease font size using interface method, then apply to all panels. */
     public void decreaseEditorFont() {
-        var panel = getCurrentContentPanel();
-        ensureEditorFontSizeInitialized(panel);
         EditorFontSizeControl.super.decreaseEditorFont();
         applyAllEditorFontSizes();
     }
 
     /** Reset font size using interface method, then apply to all panels. */
     public void resetEditorFont() {
-        var panel = getCurrentContentPanel();
-        ensureEditorFontSizeInitialized(panel);
         EditorFontSizeControl.super.resetEditorFont();
         applyAllEditorFontSizes();
     }
@@ -2657,21 +2604,5 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         loadFileOnDemand(currentFileIndex, true);
     }
 
-    // FontSizeAware implementation
-    @Override
-    public boolean hasExplicitFontSize() {
-        return explicitFontSizeSet;
-    }
-
-    @Override
-    public float getExplicitFontSize() {
-        return currentFontIndex >= 0 ? FONT_SIZES[currentFontIndex] : -1;
-    }
-
-    @Override
-    public void setExplicitFontSize(float size) {
-        explicitFontSizeSet = true;
-        // Apply to all current panels
-        applyAllEditorFontSizes();
-    }
+    // FontSizeAware implementation uses default methods from interface
 }

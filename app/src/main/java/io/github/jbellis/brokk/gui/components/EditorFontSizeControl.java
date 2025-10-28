@@ -54,7 +54,7 @@ public interface EditorFontSizeControl {
      */
     default void ensureFontIndexInitialized() {
         if (getCurrentFontIndex() == -1) {
-            float saved = GlobalUiSettings.getDiffFontSize();
+            float saved = GlobalUiSettings.getEditorFontSize();
             if (saved > 0f) {
                 setCurrentFontIndex(findClosestFontIndex(saved));
             } else {
@@ -101,7 +101,7 @@ public interface EditorFontSizeControl {
         float fontSize = FONT_SIZES[idx];
 
         // Persist chosen font size
-        GlobalUiSettings.saveDiffFontSize(fontSize);
+        GlobalUiSettings.saveEditorFontSize(fontSize);
 
         // Apply to editor
         setEditorFont(editor, fontSize);
