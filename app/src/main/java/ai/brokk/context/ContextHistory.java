@@ -57,6 +57,18 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
+    public ContextHistory(List<Context> contexts) {
+        this(contexts, List.of(), Map.of(), Map.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
+        this(contexts, resetEdges, Map.of(), Map.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
+        this(contexts, resetEdges, gitStates, Map.of());
+    }
+
     public ContextHistory(
             List<Context> contexts,
             List<ResetEdge> resetEdges,
