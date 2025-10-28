@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
 import io.github.jbellis.brokk.analyzer.CallSite;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -150,11 +151,15 @@ public class CallGraphDialog extends JDialog {
 
         final Map<String, List<CallSite>> callGraph = new HashMap<>();
         try {
-            if (isCallerGraph) {
-                callGraph.putAll(AnalyzerUtil.getCallgraphTo(analyzer, methodName, depth));
-            } else {
-                callGraph.putAll(AnalyzerUtil.getCallgraphFrom(analyzer, methodName, depth));
-            }
+            analyzer.as(CallGraphProvider.class).ifPresent(cgp -> {
+                analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).ifPresent(methodCu -> {
+                    if (isCallerGraph) {
+                        callGraph.putAll(cgp.getCallgraphTo(methodCu, depth));
+                    } else {
+                        callGraph.putAll(cgp.getCallgraphFrom(methodCu, depth));
+                    }
+                });
+            });
 
             // Count total call sites
             int totalCallSites =

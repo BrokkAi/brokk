@@ -259,16 +259,9 @@ public class SearchTools {
             throw new IllegalArgumentException("Cannot get skeletons: class names list is empty");
         }
 
-        var analyzer = getAnalyzer();
-        var skeletonProvider = (SkeletonProvider) analyzer;
-
         var result = classNames.stream()
                 .distinct()
-                .map(fqcn -> analyzer.getDefinition(fqcn))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .filter(cu -> cu.isClass()) // Only get skeletons for actual classes
-                .map(cu -> skeletonProvider.getSkeleton(cu))
+                .map(fqcn -> AnalyzerUtil.getSkeleton(getAnalyzer(), fqcn))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .collect(Collectors.joining("\n\n"));

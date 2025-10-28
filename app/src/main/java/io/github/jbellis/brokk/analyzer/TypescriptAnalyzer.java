@@ -532,22 +532,28 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return Optional.ofNullable(skeleton);
     }
 
+    /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
     private CodeUnit findTopLevelParent(CodeUnit cu) {
-        // Walk up parent chain to find top-level declaration
+        // Build parent chain without caching
         CodeUnit current = cu;
-        while (true) {
-            String fqn = current.fqName();
-            int lastSep = Math.max(fqn.lastIndexOf('.'), Math.max(fqn.lastIndexOf('$'), fqn.lastIndexOf("::")));
-            if (lastSep == -1) {
-                return current; // Already at top level
-            }
-            String parentFqn = fqn.substring(0, lastSep);
-            Optional<CodeUnit> parentOpt = getDefinition(parentFqn);
-            if (parentOpt.isEmpty()) {
-                return current; // Parent not found, current is top level
-            }
-            current = parentOpt.get();
+        CodeUnit parent = findDirectParent(current);
+        while (parent != null) {
+            current = parent;
+            parent = findDirectParent(current);
         }
+        return current;
+    }
+
+    /** Find direct parent of a CodeUnit by looking in childrenByParent map */
+    private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
+        for (var entry : withCodeUnitProperties(Map::entrySet)) {
+            CodeUnit parent = entry.getKey();
+            List<CodeUnit> children = entry.getValue().children();
+            if (children.contains(cu)) {
+                return parent;
+            }
+        }
+        return null;
     }
 
     @Override

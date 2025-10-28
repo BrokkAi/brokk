@@ -201,10 +201,6 @@ public class AnalyzerUtil {
     /**
      * Extract the class/module/type name from a method/member reference.
      * This is a heuristic method that uses language-specific parsing.
-     *
-     * @param analyzer The analyzer instance
-     * @param reference The reference string (e.g., "MyClass.myMethod", "std::vector::push")
-     * @return Optional containing the extracted class name, empty if none found
      */
     public static Optional<String> extractClassName(IAnalyzer analyzer, String reference) {
         return analyzer.extractClassName(reference);
