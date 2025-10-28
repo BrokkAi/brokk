@@ -1307,7 +1307,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 .toList();
 
         TSNode currentRootNode = tree.getRootNode(); // Used for namespace and class chain extraction
-        String filePackageName = determinePackageName(file, currentRootNode, currentRootNode, src);
 
         for (var entry : sortedDeclarationEntries) {
             TSNode node = entry.getKey(); // This is the definitionNode for this entry
@@ -1334,7 +1333,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     primaryCaptureName,
                     node.getType());
 
-            String packageName = filePackageName;
+            String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
             TSNode tempParent = node.getParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
@@ -1577,7 +1576,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 file,
                 localImportStatements,
                 rootNode,
-                filePackageName,
+                determinePackageName(file, rootNode, rootNode, src),
                 localCuByFqName,
                 localTopLevelCUs,
                 localSignatures,
