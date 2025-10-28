@@ -1044,8 +1044,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
         return submitExclusiveAction(() -> {
             try {
-                String actionMessage =
-                        "Copy context from historical state: " + contextDescription(fragmentsToKeep);
+                String actionMessage = "Copy context from historical state: " + contextDescription(fragmentsToKeep);
 
                 // Calculate new history
                 List<TaskEntry> finalHistory = new ArrayList<>(liveContext().getTaskHistory());

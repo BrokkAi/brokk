@@ -1,6 +1,7 @@
 package ai.brokk.tools;
 
 import ai.brokk.AbstractProject;
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.analyzer.*;
@@ -13,7 +14,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
-import ai.brokk.AnalyzerUtil;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;

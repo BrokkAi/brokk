@@ -4,7 +4,6 @@ import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
