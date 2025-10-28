@@ -93,7 +93,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
     private final int initialFileIndex;
-    private final boolean multiFileOnlyMode;
+    private final boolean forceFileTree;
 
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
@@ -157,7 +157,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.initialFileIndex = builder.initialFileIndex;
-        this.multiFileOnlyMode = builder.multiFileOnlyMode;
+        this.forceFileTree = builder.forceFileTree;
 
         // Initialize blame service if we have a git repo
         if (contextManager.getProject().getRepo() instanceof GitRepo gitRepo) {
@@ -181,7 +181,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Create split pane with file tree on left and tabs on right (if multiple files or multi-file-only mode)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        if (multiFileOnlyMode || fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.setMinimumSize(new Dimension(200, 0)); // Prevent file tree from becoming too small
             mainSplitPane.setLeftComponent(fileTreePanel);
             mainSplitPane.setRightComponent(tabbedPane);
@@ -196,7 +196,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         // Set up tree selection listener (if multiple files or multi-file-only mode)
-        if (multiFileOnlyMode || fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.setSelectionListener(this::switchToFile);
         }
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
@@ -205,7 +205,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             public void ancestorAdded(AncestorEvent event) {
                 start();
                 // Initialize file tree after panel is added to UI
-                if (multiFileOnlyMode || fileComparisons.size() > 1) {
+                if (showFileTree()) {
                     fileTreePanel.initializeTree();
                 }
             }
@@ -273,6 +273,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         revalidate();
     }
 
+    private boolean showFileTree() {
+        return forceFileTree || fileComparisons.size() > 1;
+    }
+
     // Builder Class
     public static class Builder {
         private final GuiTheme theme;
@@ -280,7 +284,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         private final List<FileComparisonInfo> fileComparisons;
         private boolean isMultipleCommitsContext = false;
         private int initialFileIndex = 0;
-        private boolean multiFileOnlyMode = false;
+        private boolean forceFileTree = false;
 
         @Nullable
         private String rootTitle;
@@ -332,8 +336,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return this;
         }
 
-        public Builder setMultiFileOnlyMode(boolean multiFileOnlyMode) {
-            this.multiFileOnlyMode = multiFileOnlyMode;
+        public Builder setForceFileTree(boolean forceFileTree) {
+            this.forceFileTree = forceFileTree;
             return this;
         }
 
@@ -985,7 +989,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
 
         // Update per-file dirty indicators in the file tree (only when multiple files are shown)
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             var dirty = new HashSet<Integer>();
 
             // Current (visible) file (only if it's a BufferDiffPanel)
@@ -1253,7 +1257,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         loadFileOnDemand(currentFileIndex);
 
         // Select the initial file in the tree (only if multiple files)
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.selectFile(currentFileIndex);
         }
     }
@@ -1675,7 +1679,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         // Apply theme to file tree panel (only if multiple files)
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.applyTheme(guiTheme);
         }
 

@@ -2889,7 +2889,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .setMultipleCommitsContext(false)
                 .setRootTitle(projectName)
                 .setInitialFileIndex(0)
-                .setMultiFileOnlyMode(true);
+                .setForceFileTree(true);
 
         // Stable order by path key
         var keys = new ArrayList<>(res.perFileMap().keySet());
