@@ -18,12 +18,14 @@ import io.github.jbellis.brokk.gui.components.EditorFontSizeControl;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
+import io.github.jbellis.brokk.gui.theme.FontSizeAware;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -60,7 +62,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Supports editing {@link ProjectFile} content and capturing revisions.
  */
-public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSizeControl {
+public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
@@ -80,6 +82,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private MaterialButton btnIncreaseFont;
 
     private final ContextManager cm;
+
+    // FontSizeAware implementation
+    private boolean explicitFontSizeSet = false;
 
     // Nullable
     @Nullable
@@ -112,6 +117,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     @Override
     public void setCurrentFontIndex(int index) {
         this.currentFontIndex = index;
+        this.explicitFontSizeSet = true;
+    }
+
+    @Override
+    public void ensureFontIndexInitialized() {
+        if (currentFontIndex == -1) {
+            float saved = GlobalUiSettings.getPreviewFontSize();
+            if (saved > 0) {
+                int savedIndex = findClosestFontIndex(saved);
+                setCurrentFontIndex(savedIndex);
+            } else {
+                setCurrentFontIndex(DEFAULT_FONT_INDEX);
+            }
+        }
     }
 
     public PreviewTextPanel(
@@ -246,12 +265,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
-        // Apply the current theme to the text area
-        guiTheme.applyCurrentThemeToComponent(textArea);
-
-        // Initialize and apply persisted font size using interface methods
+        // Initialize font index and mark explicit font if we have a saved font
+        // This must happen BEFORE theme application (which Chrome.java will do after construction)
+        // so the theme preserves the font when applyTheme() is called
         ensureFontIndexInitialized();
-        applyEditorFontSize(textArea);
+        if (getCurrentFontIndex() >= 0) {
+            explicitFontSizeSet = true;
+        }
 
         // Add top panel (search + edit) + text area to this panel
         add(topPanel, BorderLayout.NORTH);
@@ -309,14 +329,83 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     // Font size methods delegated to EditorFontSizeControl interface
     // (no additional implementation needed beyond interface defaults)
+    // We override the interface defaults here to add System.out debugging traces
+    @Override
+    public void applyEditorFontSize(RSyntaxTextArea editor) {
+        if (getCurrentFontIndex() < 0) return;
+
+        // Ensure index in-range
+        int idx = Math.max(0, Math.min(getCurrentFontIndex(), FONT_SIZES.length - 1));
+        float fontSize = FONT_SIZES[idx];
+
+        // Persist chosen font size
+        GlobalUiSettings.savePreviewFontSize(fontSize);
+
+        // Apply to editor
+        setEditorFont(editor, fontSize);
+    }
+
+    @Override
+    public void setEditorFont(RSyntaxTextArea editor, float size) {
+        try {
+            // Create a new font with the requested size while preserving the font family
+            Font currentFont = editor.getFont();
+            Font newFont;
+            if (currentFont != null) {
+                newFont = currentFont.deriveFont(size);
+            } else {
+                // Fallback: use default font with requested size
+                newFont = editor.getFont().deriveFont(size);
+            }
+            editor.setFont(newFont);
+
+            // Update syntax scheme fonts to match
+            updateSyntaxSchemeFonts(editor, newFont);
+
+            // Revalidate and repaint to ensure visual update
+            editor.revalidate();
+            editor.repaint();
+        } catch (Exception e) {
+            // Log error but don't crash - font setting is not critical
+            logger.debug("Failed to set editor font", e);
+        }
+    }
+
+    @Override
+    public void updateSyntaxSchemeFonts(RSyntaxTextArea editor, Font newFont) {
+        try {
+            var scheme = editor.getSyntaxScheme();
+            if (scheme == null) {
+                return;
+            }
+
+            // Update font for each token type style while preserving colors
+            for (int i = 0; i < scheme.getStyleCount(); i++) {
+                var style = scheme.getStyle(i);
+                if (style != null && style.font != null) {
+                    // Preserve font style (bold, italic) but use new size
+                    int fontStyle = style.font.getStyle();
+                    style.font = newFont.deriveFont(fontStyle);
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Could not update syntax scheme fonts", ex);
+        }
+    }
 
     /**
-     * Implementation of {@link ThemeAware}. Delegates the actual work to {@link GuiTheme#applyCurrentThemeToComponent}.
+     * Implementation of {@link ThemeAware}. Uses font-preserving theme application to maintain
+     * explicit font sizes during theme changes.
      */
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        SwingUtilities.updateComponentTreeUI(this);
-        guiTheme.applyCurrentThemeToComponent(textArea);
+        if (explicitFontSizeSet && currentFontIndex >= 0) {
+            guiTheme.applyThemePreservingFont(textArea);
+            // Re-apply font to ensure syntax scheme is updated after theme change
+            applyEditorFontSize(textArea);
+        } else {
+            guiTheme.applyCurrentThemeToComponent(textArea);
+        }
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
@@ -1253,6 +1342,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     /**
+     * Gets the text area for font operations.
+     *
+     * @return The RSyntaxTextArea instance
+     */
+    public RSyntaxTextArea getTextArea() {
+        return textArea;
+    }
+
+    /**
      * Refreshes the content from disk if the file has changed. Preserves caret position and viewport position when
      * possible. Does not refresh if there are unsaved changes.
      */
@@ -1399,5 +1497,22 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 }
             }
         }
+    }
+
+    // FontSizeAware implementation
+    @Override
+    public boolean hasExplicitFontSize() {
+        return explicitFontSizeSet;
+    }
+
+    @Override
+    public float getExplicitFontSize() {
+        return explicitFontSizeSet && currentFontIndex >= 0 ? FONT_SIZES[currentFontIndex] : -1;
+    }
+
+    @Override
+    public void setExplicitFontSize(float size) {
+        explicitFontSizeSet = true;
+        applyEditorFontSize(textArea);
     }
 }

@@ -1761,6 +1761,11 @@ public class Chrome
         // Add content component (for both new and reused windows)
         previewFrame.add(contentComponent, BorderLayout.CENTER);
 
+        // Apply theme to ThemeAware components after they're added to the window
+        if (contentComponent instanceof ThemeAware themeAware) {
+            themeAware.applyTheme(themeManager);
+        }
+
         // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
         // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
         if (contentComponent instanceof PreviewTextPanel) {

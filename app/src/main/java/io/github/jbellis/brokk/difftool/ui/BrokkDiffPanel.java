@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.EditorFontSizeControl;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.theme.FontSizeAware;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
@@ -66,7 +67,7 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSizeControl {
+public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -422,6 +423,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
 
+    // FontSizeAware implementation
+    private boolean explicitFontSizeSet = false;
+
     @Override
     public int getCurrentFontIndex() {
         return currentFontIndex;
@@ -430,6 +434,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     @Override
     public void setCurrentFontIndex(int index) {
         this.currentFontIndex = index;
+        // Mark that we have an explicit font size when index is set
+        if (index >= 0) {
+            explicitFontSizeSet = true;
+        }
     }
 
     private final MaterialButton btnNext = new MaterialButton();
@@ -1644,8 +1652,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             fileTreePanel.applyTheme(guiTheme);
         }
 
-        // Update all child components including toolbar buttons and labels
-        SwingUtilities.updateComponentTreeUI(this);
+        // Update all child components including toolbar buttons and labels while preserving fonts
+        guiTheme.updateComponentTreeUIPreservingFonts(this);
         revalidate();
         repaint();
     }
@@ -1940,6 +1948,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // Special-case UnifiedDiffPanel: use its public getters for reliable access
         if (panel instanceof UnifiedDiffPanel up) {
             try {
+                // Apply theme preserving font before setting size
+                if (theme != null) {
+                    theme.applyThemePreservingFont(up.getTextArea());
+                }
                 setEditorFont(up.getTextArea(), size);
             } catch (Exception e) {
                 logger.debug("Unified text area update failed", e);
@@ -2643,5 +2655,23 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Refresh the current file with the new view mode (skip loading UI since we already have the data)
         loadFileOnDemand(currentFileIndex, true);
+    }
+
+    // FontSizeAware implementation
+    @Override
+    public boolean hasExplicitFontSize() {
+        return explicitFontSizeSet;
+    }
+
+    @Override
+    public float getExplicitFontSize() {
+        return currentFontIndex >= 0 ? FONT_SIZES[currentFontIndex] : -1;
+    }
+
+    @Override
+    public void setExplicitFontSize(float size) {
+        explicitFontSizeSet = true;
+        // Apply to all current panels
+        applyAllEditorFontSizes();
     }
 }
