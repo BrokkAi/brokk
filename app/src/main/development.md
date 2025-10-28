@@ -37,7 +37,8 @@ Dependencies:
 ## Essential Gradle Tasks for New Developers
 
 ### Quick Start
-- `./gradlew run` - Run the application (from app)
+- `./gradlew run` - Run the application (from app) without debugging
+- `./gradlew run -PenableDebug=true` - Run with debugging enabled on port 5005
 - `./gradlew build` - Full build (compile, test, check) - all modules + frontend
 - `./gradlew assemble` - Build without tests - all modules + frontend
 
@@ -97,7 +98,7 @@ pnpm run preview
 - `./gradlew test --tests "*AnalyzerTest"` - Run all analyzer tests (includes TreeSitter)
 - `./gradlew test --tests "*.EditBlockTest"` - Run specific test class
 - `./gradlew test --tests "*EditBlock*"` - Run tests matching pattern
-- `./gradlew test --tests "io.github.jbellis.brokk.git.*"` - Run tests in package
+- `./gradlew test --tests "ai.brokk.git.*"` - Run tests in package
 - `./gradlew test --tests "*TypescriptAnalyzerTest"` - Run TreeSitter analyzer tests
 
 #### Project-Specific Test Patterns
@@ -204,6 +205,29 @@ The build system uses aggressive multi-level caching for optimal performance:
 - Compiler uses 2GB heap with G1GC for faster compilation
 - File system watching enabled for better incremental builds
 - Frontend build uses Gradle cache and incremental compilation for faster rebuilds
+
+### Debugging Configuration
+
+Debugging is disabled by default and must be explicitly enabled when needed. This prevents conflicts with IDE debuggers.
+
+#### Debugging Options
+- **Default**: `./gradlew run` - Run without debugging
+- **Enable debugging**: `./gradlew run -PenableDebug=true` - Enable JDWP debugging on port 5005
+- **Custom port**: `./gradlew run -PenableDebug=true -PdebugPort=8000` - Use different debug port
+- **IntelliJ integration**: Debug normally from IntelliJ - no conflicts with Gradle
+
+#### Multiple Instances
+To run multiple instances simultaneously, enable debugging only on specific instances:
+```bash
+# Instance 1 without debugging
+./gradlew run
+
+# Instance 2 with debugging on port 5005
+./gradlew run -PenableDebug=true
+
+# Instance 3 with debugging on custom port
+./gradlew run -PenableDebug=true -PdebugPort=5006
+```
 
 ### JAR Creation
 - **Development builds** (`build`, `assemble`) skip JAR creation for speed
@@ -329,7 +353,7 @@ Prereleases are marked appropriately in GitHub releases and distribution channel
 Automatic development builds are created by the `jdeploy.yaml` workflow on every commit to the `master` branch. These builds allow developers to test the latest changes without waiting for an official release.
 
 **Accessing Development Builds:**
-- Development builds are available at: https://github.com/BrokkAi/brokk/releases/tag/master
+- Development builds are available at: https://github.com/BrokkAi/brokk/releases/tag/master-snapshot
 - The `master` tag is automatically updated after each commit to `master`
 - Platform-specific installers (macOS, Windows, Linux) are available for download
 
@@ -359,8 +383,8 @@ scripts/run-treesitter-repos.sh openjdk-java --max-files 500
 ## Icon Browser
 
 To explore available Look and Feel icons for UI development:
-- GUI browser: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil icons"`
-- Console list: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil"`
+- GUI browser: `./gradlew run --args="ai.brokk.gui.SwingIconUtil icons"`
+- Console list: `./gradlew run --args="ai.brokk.gui.SwingIconUtil"`
 
 Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
 
@@ -428,11 +452,11 @@ Behavior:
 
 APIs:
 - Java:
-  - io.github.jbellis.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
-  - io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
-  - Existing io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
+  - ai.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
+  - ai.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
+  - Existing ai.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
 - Prompting:
-  - io.github.jbellis.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
+  - ai.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
 
 Examples:
 ```bash
