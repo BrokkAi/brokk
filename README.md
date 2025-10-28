@@ -2,6 +2,13 @@
   <img src="docs/brokk.png" alt="Brokk – the forge god" width="600">
 </p>
 
+## Table of Contents
+- [Overview](#overview)
+- [Running Brokk](#running-brokk)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Increasing JVM heap when running via Gradle](#increasing-jvm-heap-when-running-via-gradle)
+
 # Overview
 
 Brokk (the [Norse god of the forge](https://en.wikipedia.org/wiki/Brokkr))

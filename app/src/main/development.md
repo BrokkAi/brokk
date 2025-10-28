@@ -98,7 +98,7 @@ pnpm run preview
 - `./gradlew test --tests "*AnalyzerTest"` - Run all analyzer tests (includes TreeSitter)
 - `./gradlew test --tests "*.EditBlockTest"` - Run specific test class
 - `./gradlew test --tests "*EditBlock*"` - Run tests matching pattern
-- `./gradlew test --tests "io.github.jbellis.brokk.git.*"` - Run tests in package
+- `./gradlew test --tests "ai.brokk.git.*"` - Run tests in package
 - `./gradlew test --tests "*TypescriptAnalyzerTest"` - Run TreeSitter analyzer tests
 
 #### Project-Specific Test Patterns
@@ -383,8 +383,8 @@ scripts/run-treesitter-repos.sh openjdk-java --max-files 500
 ## Icon Browser
 
 To explore available Look and Feel icons for UI development:
-- GUI browser: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil icons"`
-- Console list: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil"`
+- GUI browser: `./gradlew run --args="ai.brokk.gui.SwingIconUtil icons"`
+- Console list: `./gradlew run --args="ai.brokk.gui.SwingIconUtil"`
 
 Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
 
@@ -452,11 +452,11 @@ Behavior:
 
 APIs:
 - Java:
-  - io.github.jbellis.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
-  - io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
-  - Existing io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
+  - ai.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
+  - ai.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
+  - Existing ai.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
 - Prompting:
-  - io.github.jbellis.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
+  - ai.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
 
 Examples:
 ```bash

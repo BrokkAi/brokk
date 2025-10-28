@@ -90,7 +90,7 @@ dependencyAnalysis {
 }
 
 allprojects {
-    group = "io.github.jbellis"
+    group = "ai.brokk"
     version = getVersionFromGit()
 
     repositories {
