@@ -11,23 +11,13 @@
   const suggestions: Suggestion[] = [
     {
       icon: "mdi:playlist-check",
-      title: 'Use Code mode with "Plan First" enabled',
-      desc: "Let Brokk outline a plan, then implement step-by-step (agentic coding).",
-    },
-    {
-      icon: "mdi:magnify-scan",
-      title: 'Use Answer mode with "Search first"',
-      desc: "Searches your codebase to ground answers in your project.",
+      title: 'Use Lutz Mode',
+      desc: "Brokk will search for relevant context, then break down your instructions into tasks.",
     },
     {
       icon: "mdi:content-paste",
       title: "Paste errors, exceptions, images, URLs, or code snippets",
       desc: "Adding context in the workspace yields better, faster answers.",
-    },
-    {
-      icon: "mdi:file-plus-outline",
-      title: "Add files as editable, read-only, or summaries",
-      desc: "Attach from the file tree or accept blue-badge suggestions.",
     },
   ];
 
