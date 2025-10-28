@@ -768,6 +768,8 @@
       "diff_added": "#003300",
       "diff_changed": "#000080",
       "diff_deleted": "#330000",
+      "diff_added_fg": "#00E61F",
+      "diff_deleted_fg": "#FF3633",
 
       "search_highlight": "#FFD333",
       "search_current": "#F58231",

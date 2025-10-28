@@ -123,5 +123,5 @@ fi
 exec java \
      "${EFFECTIVE_JVM_ARGS[@]}" \
      -cp "$CLASSPATH" \
-     io.github.jbellis.brokk.cli.BrokkCli \
+     ai.brokk.cli.BrokkCli \
      "${APP_ARGS[@]-}"
