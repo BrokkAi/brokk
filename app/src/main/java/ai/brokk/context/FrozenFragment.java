@@ -351,8 +351,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             var meta = new HashMap<String, String>();
             switch (liveFragment) {
                 case ProjectPathFragment pf -> {
-                    meta.put("repoRoot", pf.file().getRoot().toString());
-                    meta.put("relPath", pf.file().getRelPath().toString());
+                    ProjectFile pfile = pf.file();
+                    meta.put("repoRoot", pfile.getRoot().toString());
+                    meta.put("relPath", pfile.getRelPath().toString());
                 }
                 case ExternalPathFragment ef ->
                     meta.put("absPath", ef.file().absPath().toString());

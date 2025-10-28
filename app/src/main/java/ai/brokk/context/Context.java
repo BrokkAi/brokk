@@ -221,18 +221,12 @@ public class Context {
                 .toList();
 
         for (var fragment : toAdd) {
-            // Deduplicate among existing virtual fragments only
-            boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                    ? existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                            || newFragments.stream()
-                                    .filter(f -> f.getType().isVirtual())
-                                    .map(f -> (ContextFragment.VirtualFragment) f)
-                                    .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                    : existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()))
-                            || newFragments.stream()
-                                    .filter(f -> f.getType().isVirtual())
-                                    .map(f -> (ContextFragment.VirtualFragment) f)
-                                    .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+            // Deduplicate using hasSameSource for semantic equivalence
+            boolean isDuplicate = existingVirtuals.stream().anyMatch(vf -> vf.hasSameSource(fragment))
+                    || newFragments.stream()
+                            .filter(f -> f.getType().isVirtual())
+                            .map(f -> (ContextFragment.VirtualFragment) f)
+                            .anyMatch(vf -> vf.hasSameSource(fragment));
 
             if (!isDuplicate) {
                 newFragments.add(fragment);

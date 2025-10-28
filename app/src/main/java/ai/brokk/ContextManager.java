@@ -751,7 +751,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public Context liveContext() {
-        return contextHistory.getLiveContext();
+        return contextHistory.topContext();
     }
 
     public Path getRoot() {
@@ -850,9 +850,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Drop fragments by their IDs. */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        var ids = fragments.stream()
-                .map(f -> contextHistory.mapToLiveFragment(f).id())
-                .toList();
+        var ids = fragments.stream().map(ContextFragment::id).toList();
         pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
         String message = "Remove " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -999,7 +997,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var newLive = Context.createFrom(
                         targetFrozenContext, liveContext(), liveContext().getTaskHistory());
                 var fr = newLive.freezeAndCleanup();
-                contextHistory.pushLiveAndFrozen(fr.liveContext(), fr.frozenContext());
+                contextHistory.pushLive(fr.frozenContext());
                 contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
                 SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1020,7 +1018,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var newLive =
                         Context.createFrom(targetFrozenContext, liveContext(), targetFrozenContext.getTaskHistory());
                 var fr = newLive.freezeAndCleanup();
-                contextHistory.pushLiveAndFrozen(fr.liveContext(), fr.frozenContext());
+                contextHistory.pushLive(fr.frozenContext());
                 contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
                 SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1647,12 +1645,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return true if context has changed, false otherwise
      */
     private boolean processExternalFileChangesIfNeeded() {
-        var newFrozenContext = contextHistory.processExternalFileChangesIfNeeded();
-        if (newFrozenContext != null) {
-            contextPushed(newFrozenContext);
-            return true;
-        }
-        return false;
+        return contextHistory.processExternalFileChangesIfNeeded(Set.of()) != null;
     }
 
     /**

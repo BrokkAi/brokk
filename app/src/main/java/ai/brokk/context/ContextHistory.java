@@ -404,11 +404,11 @@ public class ContextHistory {
      */
     private void ensureFilesSnapshot(Context ctx, Duration timeout) {
         for (var fragment : ctx.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.DynamicPathFragment df) {
-                df.computedDescription().await(timeout);
-                df.computedSyntaxStyle().await(timeout);
-                df.computedText().await(timeout);
-                var imgCv = df.computedImageBytes();
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                cf.computedDescription().await(timeout);
+                cf.computedSyntaxStyle().await(timeout);
+                cf.computedText().await(timeout);
+                var imgCv = cf.computedImageBytes();
                 if (imgCv != null) {
                     imgCv.await(timeout);
                 }

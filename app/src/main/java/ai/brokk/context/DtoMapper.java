@@ -111,6 +111,9 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
+        // Ensure ID continuity for numeric IDs
+        ContextFragment.setMinimumId(parseNumericId(idToResolve));
+
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
             if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
@@ -142,18 +145,32 @@ public class DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
     }
 
+    private static int parseNumericId(String id) {
+        try {
+            return Integer.parseInt(id);
+        } catch (NumberFormatException e) {
+            return 0; // Non-numeric IDs (hash-based) don't affect nextId
+        }
+    }
+
     private static ContextFragment _buildReferencedFragment(
             ReferencedFragmentDto dto,
             IContextManager mgr,
             @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
         return switch (dto) {
-            case ProjectFileDto pfd ->
-                ContextFragment.ProjectPathFragment.withId(
+            case ProjectFileDto pfd -> {
+                ContextFragment.setMinimumId(parseNumericId(pfd.id()));
+                yield ContextFragment.ProjectPathFragment.withId(
                         new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
-            case ExternalFileDto efd ->
-                ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+            }
+            case ExternalFileDto efd -> {
+                ContextFragment.setMinimumId(parseNumericId(efd.id()));
+                yield ContextFragment.ExternalPathFragment.withId(
+                        new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+            }
             case ImageFileDto ifd -> {
+                ContextFragment.setMinimumId(parseNumericId(ifd.id()));
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
                 yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
@@ -201,6 +218,8 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto == null) return null;
+        // Ensure ID continuity for numeric IDs
+        ContextFragment.setMinimumId(parseNumericId(dto.id()));
         return switch (dto) {
             case FrozenFragmentDto ffd -> {
                 if (isDeprecatedBuildFragment(ffd)) {
@@ -357,20 +376,30 @@ public class DtoMapper {
                 var fileKey =
                         file.getRoot().toString() + ":" + file.getRelPath().toString();
                 String contentId = writer.writeContent(gf.content(), fileKey);
+                var pf = (ProjectFile) gf.file();
                 yield new GitFileFragmentDto(
-                        gf.id(), file.getRoot().toString(), file.getRelPath().toString(), gf.revision(), contentId);
+                        gf.id(), pf.getRoot().toString(), pf.getRelPath().toString(), gf.revision(), contentId);
             }
-            case ContextFragment.ExternalPathFragment ef ->
-                new ExternalFileDto(ef.id(), ef.file().getPath().toString());
+            case ContextFragment.ExternalPathFragment ef -> {
+                ExternalFile extFile = (ExternalFile) ef.file();
+                yield new ExternalFileDto(ef.id(), extFile.absPath().toString());
+            }
             case ContextFragment.ImageFileFragment imf -> {
-                var file = imf.file();
-                String absPath = file.absPath().toString();
+                BrokkFile file = imf.file();
                 String fileName = file.getFileName().toLowerCase(Locale.ROOT);
                 String mediaType = null;
                 if (fileName.endsWith(".png")) mediaType = "image/png";
                 else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
                 else if (fileName.endsWith(".gif")) mediaType = "image/gif";
-                yield new ImageFileDto(imf.id(), absPath, mediaType);
+
+                // Determine if this is a ProjectFile or ExternalFile to build appropriate DTO
+                String fileId;
+                if (file instanceof ProjectFile pf) {
+                    fileId = pf.getRoot().toString() + ":" + pf.getRelPath().toString();
+                } else {
+                    fileId = file.absPath().toString();
+                }
+                yield new ImageFileDto(imf.id(), fileId, mediaType);
             }
             default ->
                 throw new IllegalArgumentException(
@@ -393,7 +422,7 @@ public class DtoMapper {
     }
 
     private static ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment) {
-        var file = fragment.file();
+        ProjectFile file = fragment.file();
         return new ProjectFileDto(
                 fragment.id(), file.getRoot().toString(), file.getRelPath().toString());
     }
