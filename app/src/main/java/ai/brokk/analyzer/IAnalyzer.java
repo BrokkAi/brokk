@@ -100,10 +100,11 @@ public interface IAnalyzer {
 
     /**
      * Finds a single CodeUnit definition matching the exact symbol name.
+     * For overloaded methods, returns a single CodeUnit representing all overloads.
      *
      * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
      *     order, so if you have a field and a method with the same name, the method will be returned.
-     * @return An Optional containing the CodeUnit if exactly one match is found, otherwise empty.
+     * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
      */
     default Optional<CodeUnit> getDefinition(String fqName) {
         throw new UnsupportedOperationException();

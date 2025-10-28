@@ -13,6 +13,7 @@ public interface CallGraphProvider extends CapabilityProvider {
 
     /**
      * Get call graph showing what calls the given method.
+     * For overloaded methods, operates on all overloads together.
      *
      * @param method the method to analyze
      * @param depth how many levels deep to traverse
@@ -22,6 +23,7 @@ public interface CallGraphProvider extends CapabilityProvider {
 
     /**
      * Get call graph showing what the given method calls.
+     * For overloaded methods, operates on all overloads together.
      *
      * @param method the method to analyze
      * @param depth how many levels deep to traverse
