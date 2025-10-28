@@ -1202,4 +1202,40 @@ class ProjectFilteringGitRepoTest {
 
         project.close();
     }
+
+    @Test
+    void getAllFiles_skips_gitignore_when_project_outside_repo(@TempDir Path tempDir) throws Exception {
+        // Create git repo in parent directory
+        var gitRepoDir = tempDir.resolve("git-repo");
+        Files.createDirectories(gitRepoDir);
+        initGitRepo(gitRepoDir);
+
+        // Create .gitignore in git repo root
+        Files.writeString(gitRepoDir.resolve(".gitignore"), "*.log\n");
+
+        // Create project directory OUTSIDE the git repo
+        var projectDir = tempDir.resolve("separate-project");
+        Files.createDirectories(projectDir);
+
+        // Create files in project directory
+        createFile(projectDir, "src/Main.java", "class Main {}");
+        createFile(projectDir, "debug.log", "debug output");
+
+        // Note: We don't track files in git because the project is outside the git repo
+        // The project will detect this is not a git repo and skip gitignore filtering
+
+        var project = new MainProject(projectDir);
+        var allFiles = project.getAllFiles();
+
+        // Since project is not in a git repo, gitignore filtering should be skipped
+        // All files should be included
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                "Should include src/Main.java when project is not in git repo");
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("debug.log")),
+                "Should include debug.log when project is not in git repo (no gitignore filtering)");
+
+        project.close();
+    }
 }

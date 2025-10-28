@@ -614,15 +614,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
         Path gitTopLevel = gitRepo.getGitTopLevel();
         Path projectAbsPath = root.resolve(projectRelPath);
-        try {
-            Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
-            return gitRelPath.toString().replace('\\', '/');
-        } catch (IllegalArgumentException e) {
-            // Path is not under gitTopLevel (e.g., monorepo edge case where project root
-            // is outside the git repo). Fall back to using just the filename.
-            logger.debug("Path {} is not under git top level {}, using filename fallback", projectAbsPath, gitTopLevel);
-            return projectAbsPath.getFileName().toString();
-        }
+        Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
+        return gitRelPath.toString().replace('\\', '/');
     }
 
     /**
@@ -921,6 +914,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             // Precompute fixed gitignore pairs once for all files (performance optimization)
             var gitTopLevel = gitRepo.getGitTopLevel();
+
+            // Check if project root is under git top level
+            if (!root.startsWith(gitTopLevel)) {
+                logger.warn("Project root {} is outside git repository {}; gitignore filtering skipped",
+                           root, gitTopLevel);
+                return files;  // Return all files unfiltered
+            }
+
             var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
 
             var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
