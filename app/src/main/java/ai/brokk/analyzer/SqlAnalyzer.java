@@ -269,7 +269,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         }
 
         // Filter to only SQL files
-        var analyzableSet = project.getAnalyzableFiles(Languages.SQL).stream().collect(Collectors.toSet());
+        var analyzableSet = project.getAnalyzableFiles(Languages.SQL);
         var relevantFiles =
                 changedFiles.stream().filter(analyzableSet::contains).collect(Collectors.toSet());
 
@@ -303,7 +303,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         Set<ProjectFile> changedFiles = new HashSet<>();
 
         // Check for modified or deleted files
-        var sqlFiles = project.getAnalyzableFiles(Languages.SQL).stream().collect(Collectors.toSet());
+        var sqlFiles = project.getAnalyzableFiles(Languages.SQL);
 
         for (var file : sqlFiles) {
             if (!Files.exists(file.absPath())) {

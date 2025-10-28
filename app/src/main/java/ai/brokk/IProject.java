@@ -61,13 +61,13 @@ public interface IProject extends AutoCloseable {
      * excluding files that are ignored by .gitignore or baseline exclusions.
      *
      * @param language The language to get analyzable files for
-     * @return List of ProjectFile objects that are analyzable for the given language
+     * @return Set of ProjectFile objects that are analyzable for the given language
      */
-    default List<ProjectFile> getAnalyzableFiles(Language language) {
+    default Set<ProjectFile> getAnalyzableFiles(Language language) {
         var extensions = language.getExtensions();
         return getAllFiles().stream()
                 .filter(pf -> extensions.contains(pf.extension()))
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
     }
 
     default void invalidateAllFiles() {}

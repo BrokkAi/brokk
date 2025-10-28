@@ -244,7 +244,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var failedFiles = new AtomicInteger(0);
 
         // Collect files to process using gitignore-filtered analyzable files
-        List<ProjectFile> filesToProcess = project.getAnalyzableFiles(language);
+        Set<ProjectFile> filesToProcess = project.getAnalyzableFiles(language);
 
         var timing = ConstructionTiming.create();
         // Local mutable maps to accumulate analysis results, then snapshotted into immutable PMaps

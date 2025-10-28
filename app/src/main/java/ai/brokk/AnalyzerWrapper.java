@@ -341,7 +341,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                 continue;
             }
             // Filter tracked files relevant to this language
-            List<ProjectFile> tracked = project.getAnalyzableFiles(lang);
+            Set<ProjectFile> tracked = project.getAnalyzableFiles(lang);
             if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 
@@ -420,7 +420,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      *
      * <p>The caller guarantees that {@code analyzerPath} is non-null and exists.
      */
-    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles) {
+    private boolean isStale(Language lang, Path analyzerPath, Set<ProjectFile> trackedFiles) {
         // An explicit external rebuild request always wins.
         if (externalRebuildRequested) {
             return true;
