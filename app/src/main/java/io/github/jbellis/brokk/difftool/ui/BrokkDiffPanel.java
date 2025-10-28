@@ -385,6 +385,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 this, zoomOutKeyStroke, "decreaseFontSize", this::decreaseEditorFont);
         KeyboardShortcutUtil.registerGlobalShortcut(this, resetZoomKeyStroke, "resetFontSize", this::resetEditorFont);
 
+        // Initialize font index from saved settings BEFORE creating panels
+        // This ensures hasExplicitFontSize() returns true when panels apply themes
+        ensureFontIndexInitialized();
+
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);

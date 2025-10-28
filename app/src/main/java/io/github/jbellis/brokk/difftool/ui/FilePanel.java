@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.difftool.search.SearchHits;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
+import io.github.jbellis.brokk.gui.theme.FontSizeAware;
 import io.github.jbellis.brokk.gui.theme.GuiTheme;
 import io.github.jbellis.brokk.gui.theme.ThemeAware;
 import java.awt.*;
@@ -49,6 +50,33 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     @Nullable
     private BufferDocumentIF bufferDocument;
+
+    /** Custom RSyntaxTextArea that preserves font sizes during theme changes */
+    private class FileEditorArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
+        @Override
+        public boolean hasExplicitFontSize() {
+            return diffPanel.getMainPanel().hasExplicitFontSize();
+        }
+
+        @Override
+        public float getExplicitFontSize() {
+            return diffPanel.getMainPanel().getExplicitFontSize();
+        }
+
+        @Override
+        public void setExplicitFontSize(float size) {
+            diffPanel.getMainPanel().setExplicitFontSize(size);
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            if (hasExplicitFontSize()) {
+                guiTheme.applyThemePreservingFont(this);
+            } else {
+                guiTheme.applyCurrentThemeToComponent(this);
+            }
+        }
+    }
 
     /* ------------- mirroring PlainDocument <-> RSyntaxDocument ------------- */
     @Nullable
@@ -117,8 +145,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         statusPanel.add(statusLabel);
         statusPanel.setVisible(false); // Hidden by default
 
-        // Initialize RSyntaxTextArea with composite highlighter
-        editor = new RSyntaxTextArea();
+        // Initialize RSyntaxTextArea with composite highlighter (using custom class for font preservation)
+        editor = new FileEditorArea();
         jmHighlighter = new JMHighlighter();
 
         // Create CompositeHighlighter with JMHighlighter.
@@ -184,6 +212,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         });
         typingStateTimer.setRepeats(false);
         // Apply syntax theme but don't trigger reDisplay yet (no diff data available)
+        // Editor is ThemeAware but we can apply theme directly since no font size is set yet during init
         String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(editor));
     }
@@ -766,7 +795,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Apply theme to the gutter component
             gutterComponent.setDarkTheme(guiTheme.isDarkTheme());
 
-            theme.apply(editor);
+            // Let ThemeAware editor handle theme application with font preservation
+            if (editor instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
+            } else {
+                theme.apply(editor);
+            }
             reDisplay();
         });
     }

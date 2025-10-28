@@ -316,7 +316,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     public void applyTheme(GuiTheme guiTheme) {
         // Update panel UI components (buttons, borders, search bar, etc.)
         guiTheme.updateComponentTreeUIPreservingFonts(this);
-        // Explicitly theme the text area (updateComponentTreeUIPreservingFonts doesn't recurse into ThemeAware children)
+        // Explicitly theme the text area (updateComponentTreeUIPreservingFonts doesn't recurse into ThemeAware
+        // children)
         textArea.applyTheme(guiTheme);
         revalidate();
         repaint();
