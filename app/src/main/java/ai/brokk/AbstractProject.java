@@ -917,9 +917,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
             // Check if project root is under git top level
             if (!root.startsWith(gitTopLevel)) {
-                logger.warn("Project root {} is outside git repository {}; gitignore filtering skipped",
-                           root, gitTopLevel);
-                return files;  // Return all files unfiltered
+                logger.warn(
+                        "Project root {} is outside git repository {}; gitignore filtering skipped", root, gitTopLevel);
+                return files; // Return all files unfiltered
             }
 
             var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
@@ -955,6 +955,37 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
         ignoreNodeCache.clear();
+    }
+
+    /**
+     * Checks if a directory is ignored by gitignore rules.
+     * This is used by BuildAgent to identify excluded directories for LLM context.
+     * Uses explicit gitignore validation with isDirectory=true rather than inferring from absence.
+     *
+     * @param directoryRelPath Path relative to project root
+     * @return true if the directory is ignored by gitignore rules, false otherwise
+     */
+    public boolean isDirectoryIgnored(Path directoryRelPath) {
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return false; // No git repo = nothing is ignored
+        }
+
+        try {
+            var gitTopLevel = gitRepo.getGitTopLevel();
+
+            // Check if project root is under git top level
+            if (!root.startsWith(gitTopLevel)) {
+                return false; // Project outside repo = no gitignore filtering
+            }
+
+            var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+
+            // Check if directory is ignored (isPathIgnored will use Files.isDirectory internally)
+            return isPathIgnored(gitRepo, directoryRelPath, fixedGitignorePairs);
+        } catch (Exception e) {
+            logger.warn("Error checking if directory {} is ignored: {}", directoryRelPath, e.getMessage());
+            return false; // On error, assume not ignored (conservative)
+        }
     }
 
     /**

@@ -124,20 +124,13 @@ public class BuildAgent {
                 this.currentExcludedDirectories);
 
         // Add directory exclusions based on gitignore filtering
-        // Instead of parsing .gitignore directly, we analyze which directories are missing
-        // from the filtered file list to infer ignored directories
+        // Walk the directory tree and explicitly validate each directory using gitignore semantics.
+        // This is correct: validates actual gitignore rules rather than inferring from file absence,
+        // which prevents false positives (empty directories, directories with only non-code files).
         var addedFromGitignore = new ArrayList<String>();
         if (project.hasGit()) {
             try {
-                // Get all potential directories vs. actually included directories
-                var allFiles = project.getAllFiles();
-                var includedDirectories = allFiles.stream()
-                        .map(pf -> pf.getRelPath().getParent())
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.toSet());
-
-                // Look for directories that exist but are not in the filtered list
-                // Walk the full directory tree to find nested ignored directories.
+                // Walk the full directory tree to find gitignored directories.
                 // Note: This full tree walk is acceptable here because it's a one-time operation
                 // at agent startup, not in the hot filtering path. For frequent file filtering
                 // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
@@ -148,7 +141,11 @@ public class BuildAgent {
                             .filter(path -> !path.equals(project.getRoot())) // Skip root
                             .map(path -> project.getRoot().relativize(path))
                             .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
-                            .filter(relPath -> !includedDirectories.contains(relPath))
+                            .filter(relPath -> {
+                                // Explicitly check if directory is gitignored using proper gitignore semantics
+                                // This prevents false positives from empty or non-code directories
+                                return project.isDirectoryIgnored(relPath);
+                            })
                             .forEach(relPath -> {
                                 var dirName = relPath.toString();
                                 this.currentExcludedDirectories.add(dirName);

@@ -386,15 +386,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var projectRoot = project.getRoot();
             if (!projectRoot.startsWith(gitTopLevel)) {
                 String message = String.format(
-                    "This project is outside the git repository.%n%n" +
-                    "Project: %s%n" +
-                    "Git repository: %s%n%n" +
-                    "Gitignore filtering cannot be applied correctly and will be disabled.%n" +
-                    "Files that should be ignored may appear in the project.%n%n" +
-                    "To fix this, open the project from within the git repository root.",
-                    projectRoot, gitTopLevel
-                );
-                this.io.systemNotify(message, "Gitignore Configuration Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
+                        "This project is outside the git repository.%n%n" + "Project: %s%n"
+                                + "Git repository: %s%n%n"
+                                + "Gitignore filtering cannot be applied correctly and will be disabled.%n"
+                                + "Files that should be ignored may appear in the project.%n%n"
+                                + "To fix this, open the project from within the git repository root.",
+                        projectRoot, gitTopLevel);
+                this.io.systemNotify(
+                        message, "Gitignore Configuration Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
             }
         }
 

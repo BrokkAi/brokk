@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.MainProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -177,6 +178,63 @@ class BuildAgentTest {
         // Verify negation patterns were NOT extracted
         assertFalse(
                 extractedDirectories.stream().anyMatch(d -> d.startsWith("!")), "Should not extract negation patterns");
+    }
+
+    @Test
+    void testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories(@TempDir Path tempDir) throws Exception {
+        // Initialize git repo
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            // Create .gitignore that only excludes build/
+            Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
+
+            // Create empty directory (should NOT be ignored)
+            Files.createDirectories(tempDir.resolve("tests/fixtures"));
+
+            // Create directory with only non-code files (should NOT be ignored)
+            var docsDir = tempDir.resolve("docs/images");
+            Files.createDirectories(docsDir);
+            Files.writeString(docsDir.resolve("diagram.png"), "fake image data");
+
+            // Create directory with code that should be included
+            Files.createDirectories(tempDir.resolve("src"));
+            Files.writeString(tempDir.resolve("src/Main.java"), "class Main {}");
+
+            // Create actually gitignored directory (SHOULD be ignored)
+            Files.createDirectories(tempDir.resolve("build/output"));
+            Files.writeString(tempDir.resolve("build/output/Generated.java"), "class Generated {}");
+
+            // Commit files
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("Initial commit").call();
+        }
+
+        // Create project and test isDirectoryIgnored method
+        var project = new MainProject(tempDir);
+
+        // Verify empty directory is NOT ignored
+        assertFalse(project.isDirectoryIgnored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
+        assertFalse(project.isDirectoryIgnored(Path.of("tests")), "Parent of empty directory should NOT be ignored");
+
+        // Verify directory with only non-code files is NOT ignored
+        assertFalse(
+                project.isDirectoryIgnored(Path.of("docs/images")),
+                "Directory with only non-code files should NOT be ignored");
+        assertFalse(project.isDirectoryIgnored(Path.of("docs")), "Parent of non-code directory should NOT be ignored");
+
+        // Verify directory with code is NOT ignored
+        assertFalse(project.isDirectoryIgnored(Path.of("src")), "Directory with code should NOT be ignored");
+
+        // Verify actually gitignored directory IS ignored
+        assertTrue(project.isDirectoryIgnored(Path.of("build")), "Gitignored directory SHOULD be ignored");
+        assertTrue(
+                project.isDirectoryIgnored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
+
+        project.close();
     }
 
     void testInterpolatePythonVersionVariable() {

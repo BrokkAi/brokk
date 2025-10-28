@@ -73,6 +73,18 @@ public interface IProject extends AutoCloseable {
     default void invalidateAllFiles() {}
 
     /**
+     * Checks if a directory is ignored by gitignore rules.
+     * This is used by BuildAgent to identify excluded directories for LLM context.
+     * Uses explicit gitignore validation with isDirectory=true rather than inferring from absence.
+     *
+     * @param directoryRelPath Path relative to project root
+     * @return true if the directory is ignored by gitignore rules, false otherwise
+     */
+    default boolean isDirectoryIgnored(Path directoryRelPath) {
+        return false; // Conservative default: assume not ignored
+    }
+
+    /**
      * Gets the structured build details inferred by the BuildAgent.
      *
      * This should only called directly by awaitBuildDetails and CM::createHeadless!
