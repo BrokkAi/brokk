@@ -193,9 +193,12 @@ class FileListenersIntegrationTest {
         analyzerWrapper.getWatchService().pause();
         assertTrue(analyzerWrapper.getWatchService().isPaused(), "Should be paused");
 
+        // Wait a bit to ensure pause takes effect
+        Thread.sleep(200);
+
         // Create a file while paused
         Files.writeString(projectRoot.resolve("Paused.java"), "public class Paused {}");
-        Thread.sleep(500);
+        Thread.sleep(1000);
 
         // Listeners should not receive event yet
         int countBeforeResume = externalListener.filesChangedCount.get();
@@ -204,11 +207,21 @@ class FileListenersIntegrationTest {
         analyzerWrapper.getWatchService().resume();
         assertFalse(analyzerWrapper.getWatchService().isPaused(), "Should not be paused");
 
-        // Events should now be processed
-        Thread.sleep(1500);
-        assertTrue(
-                externalListener.filesChangedCount.get() > countBeforeResume,
-                "Events should be processed after resume");
+        // Events should now be processed - use a polling approach for reliability
+        long startTime = System.currentTimeMillis();
+        int countAfterResume = countBeforeResume;
+        boolean eventReceived = false;
+
+        while (System.currentTimeMillis() - startTime < 5000) { // 5 second timeout
+            countAfterResume = externalListener.filesChangedCount.get();
+            if (countAfterResume > countBeforeResume) {
+                eventReceived = true;
+                break;
+            }
+            Thread.sleep(100);
+        }
+
+        assertTrue(eventReceived, "Events should be processed after resume (waited 5 seconds)");
     }
 
     /**

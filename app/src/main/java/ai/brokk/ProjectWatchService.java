@@ -92,25 +92,29 @@ public class ProjectWatchService implements IWatchService {
             }
 
             // Watch for events, debounce them, and handle them
-            while (running) {
-                // Wait if paused
-                while (pauseCount > 0) {
-                    Thread.onSpinWait();
-                }
+            EventBatch pendingBatch = new EventBatch();
+            boolean hasPendingEvents = false;
 
+            while (running) {
                 // Choose a short or long poll depending on focus
                 long pollTimeout = isApplicationFocused() ? POLL_TIMEOUT_FOCUSED_MS : POLL_TIMEOUT_UNFOCUSED_MS;
                 WatchKey key = watchService.poll(pollTimeout, TimeUnit.MILLISECONDS);
 
                 // No event arrived within the poll window
                 if (key == null) {
-                    notifyNoFilesChanged();
+                    // If we're not paused and have no pending events, notify listeners of no changes
+                    if (pauseCount == 0 && !hasPendingEvents) {
+                        notifyNoFilesChanged();
+                    }
                     continue;
                 }
 
                 // We got an event, collect it and any others within the debounce window
-                var batch = new EventBatch();
-                collectEventsFromKey(key, watchService, batch);
+                if (!hasPendingEvents) {
+                    pendingBatch = new EventBatch();
+                }
+                collectEventsFromKey(key, watchService, pendingBatch);
+                hasPendingEvents = true;
 
                 long deadline = System.currentTimeMillis() + DEBOUNCE_DELAY_MS;
                 while (true) {
@@ -118,11 +122,15 @@ public class ProjectWatchService implements IWatchService {
                     if (remaining <= 0) break;
                     WatchKey nextKey = watchService.poll(remaining, TimeUnit.MILLISECONDS);
                     if (nextKey == null) break;
-                    collectEventsFromKey(nextKey, watchService, batch);
+                    collectEventsFromKey(nextKey, watchService, pendingBatch);
                 }
 
-                // Process the batch
-                notifyFilesChanged(batch);
+                // Process the batch if not paused
+                if (pauseCount == 0 && hasPendingEvents) {
+                    notifyFilesChanged(pendingBatch);
+                    hasPendingEvents = false;
+                    pendingBatch = new EventBatch();
+                }
             }
         } catch (IOException e) {
             logger.error("Error setting up watch service", e);
