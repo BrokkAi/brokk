@@ -46,6 +46,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.swing.*;
@@ -115,13 +116,51 @@ public class MenuBar {
             openDialogs.put(key, dialog);
 
             // Add window listener for cleanup and callback
+            final AtomicBoolean cleanupInvoked = new AtomicBoolean(false);
             dialog.addWindowListener(new WindowAdapter() {
+                private void runCleanup() {
+                    if (!cleanupInvoked.compareAndSet(false, true)) {
+                        return;
+                    }
+
+                    // Always remove from the open map to avoid duplicate-key leaks
+                    try {
+                        openDialogs.remove(key);
+                    } catch (Throwable ignored) {
+                    }
+
+                    // If an explicit onClose handler was provided (e.g. to dispose resources like TerminalPanel),
+                    // run it. Otherwise best-effort cleanup for known resource-holding panels.
+                    if (onClose != null) {
+                        try {
+                            onClose.run();
+                        } catch (Throwable ignored) {
+                        }
+                        return;
+                    }
+
+                    // Best-effort cleanup for known dialog-backed panels that manage OS resources.
+                    // Avoid calling generic dispose/close on arbitrary components to prevent
+                    // accidentally closing shared/reused components owned elsewhere.
+                    try {
+                        if (content instanceof TerminalPanel) {
+                            try {
+                                ((TerminalPanel) content).dispose();
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    runCleanup();
+                }
+
                 @Override
                 public void windowClosed(WindowEvent e) {
-                    openDialogs.remove(key);
-                    if (onClose != null) {
-                        onClose.run();
-                    }
+                    runCleanup();
                 }
             });
 
