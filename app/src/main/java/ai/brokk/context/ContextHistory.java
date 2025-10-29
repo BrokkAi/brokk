@@ -483,7 +483,6 @@ public class ContextHistory {
             logger.warn("Attempted to apply null context to workspace");
             return;
         }
-        assert !snapshot.containsDynamicFragments();
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
@@ -491,7 +490,12 @@ public class ContextHistory {
 
                     var pf = fragment.files().iterator().next();
                     try {
-                        var newContent = fragment.text();
+                        String newContent;
+                        if (fragment instanceof ContextFragment.ComputedFragment df) {
+                            newContent = df.computedText().tryGet().orElse(fragment.text());
+                        } else {
+                            newContent = fragment.text();
+                        }
                         var currentContent = pf.exists() ? pf.read().orElse("") : "";
 
                         if (!newContent.equals(currentContent)) {
