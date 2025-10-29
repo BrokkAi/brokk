@@ -62,6 +62,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     // Maps gitignore file path to parsed IgnoreNode
     private final Map<Path, IgnoreNode> ignoreNodeCache = new ConcurrentHashMap<>();
 
+    // Cache for gitignore chains per directory to avoid repeated discovery
+    // Maps directory path to list of (gitignoreDir, gitignoreFile) pairs
+    // This dramatically reduces the number of Files.exists() calls during filtering
+    private final Map<Path, List<Map.Entry<Path, Path>>> gitignoreChainCache = new ConcurrentHashMap<>();
+
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
@@ -773,6 +778,21 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      */
     private List<Map.Entry<Path, Path>> collectGitignorePairs(
             Path gitTopLevel, Path gitRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
+
+        // Get the directory for this path (use empty path for files at root)
+        Path directory = gitRelPath.getParent();
+        if (directory == null) {
+            directory = Path.of("");
+        }
+
+        // Check cache first - significant performance optimization
+        // Avoids repeated Files.exists() calls for files in the same directory
+        var cached = gitignoreChainCache.get(directory);
+        if (cached != null) {
+            return cached;
+        }
+
+        // Cache miss - compute the gitignore chain for this directory
         var gitignorePairs = new ArrayList<Map.Entry<Path, Path>>();
 
         // Add precomputed fixed pairs (global, .git/info/exclude, root .gitignore)
@@ -781,7 +801,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         // Add nested .gitignore files for each directory in the path
         // Collect from farthest ancestor down to immediate parent to maintain correct precedence
         var nestedGitignores = new ArrayList<Map.Entry<Path, Path>>();
-        Path currentDir = gitRelPath.getParent();
+        Path currentDir = directory;
         while (currentDir != null && !currentDir.toString().isEmpty()) {
             var nestedGitignore = gitTopLevel.resolve(currentDir).resolve(".gitignore");
             if (Files.exists(nestedGitignore)) {
@@ -793,6 +813,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         // and closest parent is added last (highest precedence)
         Collections.reverse(nestedGitignores);
         gitignorePairs.addAll(nestedGitignores);
+
+        // Store in cache for future files in the same directory
+        gitignoreChainCache.put(directory, gitignorePairs);
 
         return gitignorePairs;
     }
@@ -983,6 +1006,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
         ignoreNodeCache.clear();
+        gitignoreChainCache.clear();
     }
 
     /**

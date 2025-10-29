@@ -30,10 +30,8 @@ class GitignorePathNormalizationTest {
     /**
      * Helper to invoke private static method normalizePathForGitignore via reflection.
      */
-    private static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize)
-            throws Exception {
-        Method method = AbstractProject.class.getDeclaredMethod(
-                "normalizePathForGitignore", Path.class, Path.class);
+    private static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize) throws Exception {
+        Method method = AbstractProject.class.getDeclaredMethod("normalizePathForGitignore", Path.class, Path.class);
         method.setAccessible(true);
         return (String) method.invoke(null, gitignoreDir, pathToNormalize);
     }
