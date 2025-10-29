@@ -464,6 +464,21 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean shouldUnwrapExportStatements() {
+        return true;
+    }
+
+    @Override
+    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
+        return skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE;
+    }
+
+    @Override
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return true;
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         // Classes, interfaces, enums, modules/namespaces all use '}'
         if (cu.isClass()) { // isClass is true for all CLASS_LIKE CUs

@@ -113,6 +113,21 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean shouldUnwrapExportStatements() {
+        return true;
+    }
+
+    @Override
+    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
+        return skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE;
+    }
+
+    @Override
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return true;
+    }
+
+    @Override
     protected SkeletonType getSkeletonTypeForCapture(String captureName) {
         // The primaryCaptureName from the query is expected to be "class.definition"
         // or "function.definition" for relevant skeleton-producing captures.

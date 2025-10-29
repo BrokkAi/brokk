@@ -3,7 +3,9 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -354,6 +356,47 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String bodyPlaceholder() {
         return "...";
+    }
+
+    @Override
+    protected Optional<String> extractReceiverType(TSNode node, String primaryCaptureName, byte[] fileBytes) {
+        if (!"method.definition".equals(primaryCaptureName)) {
+            return Optional.empty();
+        }
+
+        // Re-query the node to extract the receiver type from captures
+        TSQueryCursor cursor = new TSQueryCursor();
+        TSQuery currentThreadQuery = getThreadLocalQuery();
+        cursor.exec(currentThreadQuery, node);
+        TSQueryMatch match = new TSQueryMatch();
+        Map<String, TSNode> localCaptures = new HashMap<>();
+
+        if (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String capName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
+                localCaptures.put(capName, capture.getNode());
+            }
+        }
+
+        TSNode receiverNode = localCaptures.get("method.receiver.type");
+        if (receiverNode != null && !receiverNode.isNull()) {
+            String receiverTypeText = textSlice(receiverNode, fileBytes).trim();
+            // Remove leading * for pointer receivers
+            if (receiverTypeText.startsWith("*")) {
+                receiverTypeText = receiverTypeText.substring(1).trim();
+            }
+            if (!receiverTypeText.isEmpty()) {
+                return Optional.of(receiverTypeText);
+            } else {
+                log.warn(
+                        "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
+                        textSlice(receiverNode, fileBytes));
+            }
+        } else {
+            log.warn("Go method: Could not find capture for @method.receiver.type. FQN might be incorrect.");
+        }
+
+        return Optional.empty();
     }
 
     @Override

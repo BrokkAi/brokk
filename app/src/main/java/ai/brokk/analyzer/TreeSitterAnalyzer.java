@@ -94,6 +94,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     });
     private final ThreadLocal<TSQuery> query;
 
+    /**
+     * Gets the thread-local query for use in subclass overrides.
+     * @return the thread-local query instance
+     */
+    protected TSQuery getThreadLocalQuery() {
+        return query.get();
+    }
+
     // transferable snapshot of analyzer state
     private volatile AnalyzerState state;
 
@@ -1120,6 +1128,52 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines whether export statements should be unwrapped to access the inner declaration.
+     * JavaScript/TypeScript wrap exported declarations in export_statement nodes.
+     *
+     * @return true if this language uses export statement wrappers that need unwrapping
+     */
+    protected boolean shouldUnwrapExportStatements() {
+        return false;
+    }
+
+    /**
+     * Determines whether variable declarations need unwrapping to find specific declarators.
+     * JavaScript/TypeScript use lexical_declaration (const/let) and variable_declaration (var)
+     * which contain variable_declarator nodes that might hold arrow functions or const values.
+     *
+     * @param node the node to check
+     * @param skeletonType the expected skeleton type
+     * @return true if unwrapping is needed
+     */
+    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
+        return false;
+    }
+
+    /**
+     * Determines whether multiple signatures with the same FQN should be merged.
+     * JavaScript/TypeScript allow function overloads and prefer exported versions.
+     *
+     * @return true if signatures should be merged when FQNs match
+     */
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return false;
+    }
+
+    /**
+     * Extracts receiver type for method definitions in languages that support receivers.
+     * Examples: Go methods, Rust impl blocks, C++ member functions.
+     *
+     * @param node the method definition node
+     * @param primaryCaptureName the primary capture name (e.g., "method.definition")
+     * @param fileBytes source code bytes
+     * @return the receiver type name (with leading * removed for pointers), or empty if no receiver
+     */
+    protected Optional<String> extractReceiverType(TSNode node, String primaryCaptureName, byte[] fileBytes) {
+        return Optional.empty();
+    }
+
+    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      */
@@ -1477,60 +1531,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String classChain = String.join(".", enclosingClassNames);
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
-            // Adjust simpleName and classChain for Go methods to correctly include the receiver type
-            if (language == Languages.GO && "method.definition".equals(primaryCaptureName)) {
-                // The SCM query for Go methods captures `@method.receiver.type` and `@method.identifier`
-                // `simpleName` at this point is from `@method.identifier` (e.g., "MyMethod")
-                // We need to find the receiver type from the original captures for this match
-                // The `capturedNodes` map (re-populated per match earlier in the loop) is not directly available here.
-                // We need to re-access the specific captures for the current `match` associated with `node`.
-                // This requires finding the original TSQueryMatch or passing its relevant parts.
-                // For now, let's assume `node` is the `method_declaration` node, and we can query its children.
-                // A more robust way would be to pass `capturedNodes` from the outer loop or re-query for this specific
-                // `node`.
-
-                TSNode receiverNode;
-                // TSNode methodIdentifierNode = null; // This would be `node.getChildByFieldName("name")` for
-                // method_declaration
-                // or more reliably, the node associated with captureName.replace(".definition", ".name")
-                // simpleName is already derived from method.identifier.
-
-                // Re-evaluate captures specific to this `node` (method_definition)
-                // This is a simplified re-querying logic. A more efficient approach might involve
-                // passing the full `capturedNodes` map associated with the `match` that led to this `node`.
-                TSQueryCursor an_cursor = new TSQueryCursor();
-                TSQuery currentThreadQueryForNode = this.query.get(); // Get thread-specific query for this operation
-                an_cursor.exec(currentThreadQueryForNode, node); // Execute query only on the current definition node
-                TSQueryMatch an_match = new TSQueryMatch();
-                Map<String, TSNode> localCaptures = new HashMap<>();
-                if (an_cursor.nextMatch(an_match)) { // Should find one match for the definition node itself
-                    for (TSQueryCapture capture : an_match.getCaptures()) {
-                        String capName = currentThreadQueryForNode.getCaptureNameForId(capture.getIndex());
-                        localCaptures.put(capName, capture.getNode());
-                    }
-                }
-
-                receiverNode = localCaptures.get("method.receiver.type");
-
-                if (receiverNode != null && !receiverNode.isNull()) {
-                    String receiverTypeText = textSlice(receiverNode, fileBytes).trim();
-                    if (receiverTypeText.startsWith("*")) {
-                        receiverTypeText = receiverTypeText.substring(1).trim();
-                    }
-                    if (!receiverTypeText.isEmpty()) {
-                        simpleName = receiverTypeText + "." + simpleName;
-                        classChain = receiverTypeText; // For Go methods, classChain is the receiver type
-                        log.trace("Adjusted Go method: simpleName='{}', classChain='{}'", simpleName, classChain);
-                    } else {
-                        log.warn(
-                                "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
-                                textSlice(receiverNode, fileBytes));
-                    }
-                } else {
-                    log.warn(
-                            "Go method: Could not find capture for @method.receiver.type for method '{}'. FQN might be incorrect.",
-                            simpleName);
-                }
+            // Adjust simpleName and classChain for methods with receivers (e.g., Go methods)
+            Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, fileBytes);
+            if (receiverType.isPresent()) {
+                String receiverTypeText = receiverType.get();
+                simpleName = receiverTypeText + "." + simpleName;
+                classChain = receiverTypeText; // For methods with receivers, classChain is the receiver type
+                log.trace("Adjusted method with receiver: simpleName='{}', classChain='{}'", simpleName, classChain);
             }
 
             // Check if this node should be skipped for top-level processing
@@ -1596,7 +1603,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
-                    && (language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)) {
+                    && shouldMergeSignaturesForSameFqn()) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1807,10 +1814,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         TSNode nodeForContent = definitionNode;
         TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
 
-        // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
+        // 1. Handle language-specific structural unwrapping (e.g., export statements)
         // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
-        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
-                && "export_statement".equals(definitionNode.getType())) {
+        if (shouldUnwrapExportStatements() && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
                 // Check if the inner declaration's type matches what's expected for the skeletonType
@@ -1822,7 +1828,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         typeMatch = profile.functionLikeNodeTypes().contains(innerType)
                                 ||
                                 // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                                ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
+                                (shouldUnwrapExportStatements()
                                         && ("lexical_declaration".equals(innerType)
                                                 || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
@@ -1847,10 +1853,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
+        if (needsVariableDeclaratorUnwrapping(nodeForContent, skeletonType)
                 && ("lexical_declaration".equals(nodeForContent.getType())
-                        || "variable_declaration".equals(nodeForContent.getType()))
-                && (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
+                        || "variable_declaration".equals(nodeForContent.getType()))) {
             // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator
             // by name
             log.trace(
