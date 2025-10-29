@@ -73,6 +73,9 @@ public class MenuBar {
     private static final String DIALOG_KEY_GIT_CHANGES = "changes";
     private static final String DIALOG_TITLE_GIT_CHANGES = "Changes";
 
+    private static final String DIALOG_KEY_GIT_COMMIT = "commit";
+    private static final String DIALOG_TITLE_GIT_COMMIT = "Commit";
+
     private static final String DIALOG_KEY_WORKTREES = "worktrees";
     private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
 
@@ -612,6 +615,21 @@ public class MenuBar {
             showOrFocusDialog(chrome, DIALOG_KEY_GIT_CHANGES, DIALOG_TITLE_GIT_CHANGES, gitLogTab, null);
         }));
         toolsMenu.add(logItem);
+
+        // Commit (Git Commit tab) - open GitCommitTab in a dialog (modeless), similar to Issues/Pull Requests
+        var commitItem = new JMenuItem("Commit");
+        commitItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            var existing = chrome.getGitCommitTab();
+            Supplier<JComponent> factory;
+            if (existing != null && existing.getParent() == null) {
+                // Reuse the panel if it's not currently parented in the main UI.
+                factory = () -> existing;
+            } else {
+                factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
+            }
+            showOrFocusDialog(chrome, DIALOG_KEY_GIT_COMMIT, DIALOG_TITLE_GIT_COMMIT, factory, null);
+        }));
+        toolsMenu.add(commitItem);
 
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
