@@ -1150,12 +1150,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
-     * For Python, applies "last wins" semantics for fields, classes, and functions (matching runtime behavior).
-     * For C++, applies "first wins" semantics (simulating header guard behavior).
-     * For other languages, logs an error for unexpected duplicates.
+     * Determines whether a duplicate CodeUnit should be ignored.
+     * Called when a CodeUnit with matching fqName already exists.
+     * Subclasses can override to implement language-specific duplicate handling.
      *
-     * @param cppDuplicateCount counter for C++ duplicates (will be incremented when C++ duplicates are skipped)
+     * @param existing The CodeUnit already in the list
+     * @param candidate The new CodeUnit being considered for addition
+     * @param file The file being analyzed
+     * @return true if the candidate should be ignored (existing kept), false if candidate should be added
+     */
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // Default: ignore duplicates (keep first)
+        // Subclasses can override for language-specific logic
+        return true;
+    }
+
+    /**
+     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
+     * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1163,49 +1175,33 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            ProjectFile file,
-            java.util.concurrent.atomic.AtomicInteger cppDuplicateCount) {
+            ProjectFile file) {
 
-        boolean alreadyExists =
-                localTopLevelCUs.stream().anyMatch(existing -> existing.fqName().equals(cu.fqName()));
+        // Find existing CodeUnit with same fqName
+        CodeUnit existingDuplicate = localTopLevelCUs.stream()
+                .filter(existing -> existing.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
 
-        if (!alreadyExists) {
+        if (existingDuplicate == null) {
+            // No duplicate, add normally
             localTopLevelCUs.add(cu);
         } else if (shouldReplaceOnDuplicate(cu)) {
             // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
-            CodeUnit oldCu = localTopLevelCUs.stream()
-                    .filter(existing -> existing.fqName().equals(cu.fqName()))
-                    .findFirst()
-                    .orElse(null);
-
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
 
             // Recursively remove the old definition and all its descendants from all maps
             // This prevents orphaned children from appearing in the final result
-            if (oldCu != null) {
-                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
-            }
-        } else if (language == Languages.CPP_TREESITTER
-                && (cu.isClass() || cu.isFunction() || cu.isField() || cu.isModule())) {
-            // C++ duplicate - keep first occurrence (first definition wins)
-            // This simulates header guard behavior where preprocessor would skip duplicate inclusions
-            // TreeSitter parses raw text without preprocessing, so it sees duplicates from:
-            // - Multiple header inclusions (despite header guards)
-            // - Forward declarations + full definitions
-            // - Preprocessor conditional compilation branches
-            // - Template specializations
-            // - Namespace reopening (legal in C++)
-            cppDuplicateCount.incrementAndGet();
-            log.trace(
-                    "Ignoring duplicate definition {} in {} (first definition kept)", cu.fqName(), file.getFileName());
+            removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+        } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
+            // Language-specific duplicate handling says ignore
+            log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
         } else {
-            // Unexpected duplicate for languages that don't allow replacement
-            log.error(
-                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={})",
-                    file.getFileName(),
-                    cu.fqName(),
-                    cu.kind());
+            // shouldIgnoreDuplicate returned false, meaning this is not a true duplicate
+            // (e.g., function overload with different signature) - add it
+            localTopLevelCUs.add(cu);
+            log.trace("Adding non-duplicate {} in {} (e.g., overload)", cu.fqName(), file.getFileName());
         }
     }
 
@@ -1309,7 +1305,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
-        java.util.concurrent.atomic.AtomicInteger cppDuplicateCount = new java.util.concurrent.atomic.AtomicInteger(0);
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
@@ -1687,8 +1682,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             localChildren,
                             localSignatures,
                             localSourceRanges,
-                            file,
-                            cppDuplicateCount);
+                            file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu, classChain);
@@ -1709,8 +1703,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 localChildren,
                                 localSignatures,
                                 localSourceRanges,
-                                file,
-                                cppDuplicateCount);
+                                file);
                     }
                 }
             }
@@ -1772,15 +1765,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             log.error("Unexpected duplicate top-level CodeUnits in file {}: [{}]", file, diagnostics);
         }
         var finalLocalTopLevelCUs = localTopLevelCUs.stream().distinct().toList();
-
-        // Log summary of C++ duplicate handling (at TRACE level since duplicates are expected)
-        int dupCount = cppDuplicateCount.get();
-        if (dupCount > 0) {
-            log.trace(
-                    "C++ file {} had {} duplicate definitions ignored (first-wins strategy)",
-                    file.getFileName(),
-                    dupCount);
-        }
 
         long __processEnd = System.nanoTime();
         if (timing != null) {

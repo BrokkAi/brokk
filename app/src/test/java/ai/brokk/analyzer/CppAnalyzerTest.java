@@ -466,6 +466,57 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testFunctionOverloadsPreserved() {
+        // Test that function overloads are preserved (not treated as duplicates)
+        var duplicatesFile = testProject.getAllFiles().stream()
+                .filter(file -> file.absPath().toString().endsWith("simple_overloads.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("simple_overloads.h not found"));
+
+        var declarations = analyzer.getDeclarations(duplicatesFile);
+
+        // Debug: log all declarations found
+        logger.debug("Total declarations found: {}", declarations.size());
+        declarations.forEach(cu -> logger.debug("  - {} (kind: {}, isFunction: {})", cu.fqName(), cu.kind(), cu.isFunction()));
+
+        // Find all overloads of overloadedFunction
+        var overloads = declarations.stream()
+                .filter(cu -> cu.shortName().equals("overloadedFunction"))
+                .collect(Collectors.toList());
+
+        logger.debug("Found {} overloads of overloadedFunction", overloads.size());
+        overloads.forEach(cu -> logger.debug("  - {}", cu.fqName()));
+
+        // All 3 overloads should be preserved
+        assertEquals(3, overloads.size(), "All 3 overloads of overloadedFunction should be preserved");
+
+        // Verify each has unique signature
+        var skeletons = analyzer.getSkeletons(duplicatesFile);
+        var signatures = overloads.stream()
+                .map(skeletons::get)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+
+        logger.debug("Found {} skeleton signatures for overloads", signatures.size());
+        signatures.forEach(sig -> logger.debug("  Signature: {}", sig));
+
+        assertEquals(3, signatures.size(), "Each overload should have a skeleton");
+
+        // Convert to set to check uniqueness
+        var uniqueSignatures = new java.util.HashSet<>(signatures);
+        assertEquals(3, uniqueSignatures.size(), "Each overload should have a unique signature");
+
+        // Verify specific parameter patterns exist
+        var hasInt = signatures.stream().anyMatch(s -> s.contains("(int") && !s.contains(", int"));
+        var hasDouble = signatures.stream().anyMatch(s -> s.contains("(double"));
+        var hasTwoInts = signatures.stream().anyMatch(s -> s.contains("(int") && s.contains(", int"));
+
+        assertTrue(hasInt, "Should have overload with single int parameter");
+        assertTrue(hasDouble, "Should have overload with double parameter");
+        assertTrue(hasTwoInts, "Should have overload with two int parameters");
+    }
+
+    @Test
     public void testAnonymousStructHandling() {
         // Test that anonymous structs/classes don't generate warnings
         var advancedFile = testProject.getAllFiles().stream()

@@ -42,9 +42,20 @@ public:
 // 3. Function overloads (not technically duplicates, but same name)
 // ====================
 
-void overloadedFunction(int x);
-void overloadedFunction(double x);
-void overloadedFunction(int x, int y);
+// Function overload with int parameter
+void overloadedFunction(int x) {
+    // Implementation for int overload
+}
+
+// Function overload with double parameter
+void overloadedFunction(double x) {
+    // Implementation for double overload
+}
+
+// Function overload with two int parameters
+void overloadedFunction(int x, int y) {
+    // Implementation for two-int overload
+}
 
 // ====================
 // 4. Template specializations

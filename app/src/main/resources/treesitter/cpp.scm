@@ -20,8 +20,11 @@
 
 ; Global function definitions (non-method functions)
 (function_definition
+  declarator: (function_declarator) @function.declarator) @function.definition
+
+(function_definition
   declarator: (function_declarator
-    declarator: (identifier) @function.name)) @function.definition
+    declarator: (identifier) @function.name))
 
 ; Global function declarations - specific function declarator patterns (prototypes)
 (translation_unit

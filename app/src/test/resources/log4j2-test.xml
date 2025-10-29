@@ -37,6 +37,11 @@
       <AppenderRef ref="Console"/>
     </Logger>
 
+    <!-- Enable TRACE for TreeSitterAnalyzer to debug duplicate handling -->
+    <Logger name="ai.brokk.analyzer.TreeSitterAnalyzer" level="trace" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+
     <!-- everything else at DEBUG -->
     <Root level="debug">
       <AppenderRef ref="Console"/>

@@ -533,6 +533,26 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 || "parameter_declaration".equals(nodeType);
     }
 
+    @Override
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // For C++, we ignore duplicates for classes, fields, and modules
+        // BUT NOT for functions, because they might be overloads with different signatures
+
+        if (candidate.isFunction()) {
+            // Functions might be overloads - don't treat as duplicates
+            // Trade-off: this also keeps forward declarations + definitions
+            return false; // Don't ignore - add the candidate
+        }
+
+        if (candidate.isClass() || candidate.isField() || candidate.isModule()) {
+            // These are true duplicates in C++ (header guards, preprocessor conditionals, etc.)
+            return true; // Ignore the duplicate
+        }
+
+        // For other types, use default behavior
+        return super.shouldIgnoreDuplicate(existing, candidate, file);
+    }
+
     public String getCacheStatistics() {
         // Count non-null parsed trees in fileState
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
