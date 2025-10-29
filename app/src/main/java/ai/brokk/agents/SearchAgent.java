@@ -5,6 +5,10 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
+import ai.brokk.ModelSpec;
+import ai.brokk.TaskMeta;
+import ai.brokk.TaskType;
+import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -731,7 +735,11 @@ public class SearchAgent {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.CUSTOM);
             // create a history entry
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-            context = scope.append(contextAgentResult);
+            context = scope.append(
+                    contextAgentResult,
+                    new TaskMeta(
+                            TaskType.SEARCH,
+                            ModelSpec.from(cm.getService().getScanModel(), cm.getService())));
             long scanTime = System.currentTimeMillis() - scanStartTime;
             metrics.recordContextScan(0, scanTime, false, Set.of());
             return;
@@ -759,7 +767,11 @@ public class SearchAgent {
 
         // create a history entry
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-        context = scope.append(contextAgentResult);
+        context = scope.append(
+                contextAgentResult,
+                new TaskMeta(
+                        TaskType.SEARCH,
+                        ModelSpec.from(cm.getService().getScanModel(), cm.getService())));
 
         // Track metrics
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
