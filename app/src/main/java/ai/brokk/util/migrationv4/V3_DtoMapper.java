@@ -148,8 +148,9 @@ public class V3_DtoMapper {
                         reader.readContent(gfd.contentId()),
                         gfd.id());
             case V3_FragmentDtos.FrozenFragmentDto ffd -> {
-                // TODO: [Migration4] Frozen fragments are to be replaced and mapped to "Fragments"
-                yield FrozenFragment.fromDto(
+                // We may find a frozen fragment in the history. We need to unfreeze these so that we can migrate
+                // the live fragment
+                var frozen = FrozenFragment.fromDto(
                         ffd.id(),
                         mgr,
                         ContextFragment.FragmentType.valueOf(ffd.originalType()),
@@ -165,6 +166,13 @@ public class V3_DtoMapper {
                         ffd.originalClassName(),
                         ffd.meta(),
                         ffd.repr());
+                try {
+                    yield frozen.unfreeze(mgr);
+                } catch (IOException e) {
+                    logger.warn(
+                            "Failed to unfreeze FrozenFragment {}, keeping it frozen: {}", frozen.id(), e.getMessage());
+                    yield frozen;
+                }
             }
         };
     }
