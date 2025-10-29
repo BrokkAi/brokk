@@ -783,6 +783,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<byte[]> imageBytesCv;
 
         // Primary constructor for new dynamic fragments
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -934,6 +935,23 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("iff-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public @Nullable ComputedValue<byte[]> computedImageBytes() {
+            if (imageBytesCv == null) {
+                imageBytesCv = new ComputedValue<>(
+                        "iff-image-" + id(),
+                        () -> {
+                            try {
+                                return FrozenFragment.imageToBytes(image());
+                            } catch (IOException e) {
+                                throw new UncheckedIOException(e);
+                            }
+                        },
+                        getFragmentExecutor());
+            }
+            return imageBytesCv;
         }
 
         @Override
@@ -1136,6 +1154,15 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "StringFragment('%s')".formatted(description);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+            if (!(other instanceof StringFragment that)) {
+                return false;
+            }
+            return text.equals(that.text) && syntaxStyle.equals(that.syntaxStyle);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
@@ -1346,11 +1373,21 @@ public interface ContextFragment {
         public String shortDescription() {
             return "pasted text";
         }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+            if (!(other instanceof PasteTextFragment that)) {
+                return false;
+            }
+            return text.equals(that.text);
+        }
     }
 
     class AnonymousImageFragment extends PasteFragment implements ImageFragment { // Non-dynamic, content-hashed
         private final Image image;
         private @Nullable ComputedValue<String> textCv;
+        private transient @Nullable ComputedValue<byte[]> imageBytesCv;
 
         // Helper to get image bytes, might throw UncheckedIOException
         @Nullable
@@ -1410,6 +1447,14 @@ public interface ContextFragment {
                 textCv = ComputedValue.completed("aif-text-" + id(), text());
             }
             return textCv;
+        }
+
+        @Override
+        public @Nullable ComputedValue<byte[]> computedImageBytes() {
+            if (imageBytesCv == null) {
+                imageBytesCv = new ComputedValue<>("aif-image-" + id(), this::imageBytes, getFragmentExecutor());
+            }
+            return imageBytesCv;
         }
 
         @Override
