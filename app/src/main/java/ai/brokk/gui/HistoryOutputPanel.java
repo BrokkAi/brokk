@@ -2509,7 +2509,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var tt = taskType == null ? "" : taskType + " ";
 
         var header = "[" + summarizeModel(spec) + "]";
-        return "<html>" + escapeHtml(tt +header) + "<br/>" + escapeHtml(base) + "</html>";
+        return "<html>" + escapeHtml(tt + header) + "<br/>" + escapeHtml(base) + "</html>";
     }
 
     /** Icon renderer that mirrors the Action column's indentation for nested rows. */

@@ -6,10 +6,10 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
-import ai.brokk.TaskResult;
-import ai.brokk.TaskResult.StopReason;
 import ai.brokk.ModelSpec;
 import ai.brokk.TaskMeta;
+import ai.brokk.TaskResult;
+import ai.brokk.TaskResult.StopReason;
 import ai.brokk.TaskType;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
@@ -198,7 +198,8 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal),
+        context = scope.append(
+                resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal),
                 new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
     }
 
@@ -298,7 +299,8 @@ public class ArchitectAgent {
 
         // Run Architect proper
         var archResult = this.execute();
-        context = scope.append(archResult, new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
+        context = scope.append(
+                archResult, new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
         return archResult;
     }
 

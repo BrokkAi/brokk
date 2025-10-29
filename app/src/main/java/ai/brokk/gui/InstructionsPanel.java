@@ -1728,13 +1728,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Derive TaskMeta (type + primary model) for this action
                 var svc = cm.getService();
                 var selectedModel = getSelectedModel();
-                TaskType taskType = switch (action) {
-                    case ACTION_ARCHITECT -> TaskType.ARCHITECT;
-                    case ACTION_CODE -> TaskType.CODE;
-                    case ACTION_ASK -> TaskType.ASK;
-                    case ACTION_SEARCH -> TaskType.SEARCH;
-                    default -> TaskType.NONE;
-                };
+                TaskType taskType =
+                        switch (action) {
+                            case ACTION_ARCHITECT -> TaskType.ARCHITECT;
+                            case ACTION_CODE -> TaskType.CODE;
+                            case ACTION_ASK -> TaskType.ASK;
+                            case ACTION_SEARCH -> TaskType.SEARCH;
+                            default -> TaskType.NONE;
+                        };
                 var primary = ModelSpec.from(selectedModel, svc);
                 var meta = new TaskMeta(taskType, primary);
 
@@ -1766,13 +1767,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Derive TaskMeta (type + primary model) for this action
                 var svc = cm.getService();
                 var selectedModel = getSelectedModel();
-                TaskType taskType = switch (action) {
-                    case ACTION_ARCHITECT -> TaskType.ARCHITECT;
-                    case ACTION_CODE -> TaskType.CODE;
-                    case ACTION_ASK -> TaskType.ASK;
-                    case ACTION_SEARCH -> TaskType.SEARCH;
-                    default -> TaskType.NONE;
-                };
+                TaskType taskType =
+                        switch (action) {
+                            case ACTION_ARCHITECT -> TaskType.ARCHITECT;
+                            case ACTION_CODE -> TaskType.CODE;
+                            case ACTION_ASK -> TaskType.ASK;
+                            case ACTION_SEARCH -> TaskType.SEARCH;
+                            default -> TaskType.NONE;
+                        };
                 var primary = ModelSpec.from(selectedModel, svc);
                 var meta = new TaskMeta(taskType, primary);
 

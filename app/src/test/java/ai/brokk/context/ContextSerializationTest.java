@@ -3,9 +3,9 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.ModelSpec;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskMeta;
-import ai.brokk.ModelSpec;
 import ai.brokk.TaskType;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -297,7 +297,8 @@ public class ContextSerializationTest {
         if (expectedMeta == null) {
             // Accept null or default-like meta (NONE + null model)
             if (actualMeta != null) {
-                assertEquals(TaskType.NONE, actualMeta.type(), "When expected meta is null, actual type should be NONE");
+                assertEquals(
+                        TaskType.NONE, actualMeta.type(), "When expected meta is null, actual type should be NONE");
                 assertNull(actualMeta.primaryModel(), "When expected meta is null, actual primaryModel should be null");
             }
         } else {

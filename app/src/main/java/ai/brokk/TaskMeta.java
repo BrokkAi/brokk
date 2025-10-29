@@ -8,9 +8,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record TaskMeta(TaskType type, ModelSpec primaryModel) {
 
     @JsonCreator
-    public TaskMeta(
-            @JsonProperty("type") TaskType type,
-            @JsonProperty("primaryModel") ModelSpec primaryModel) {
+    public TaskMeta(@JsonProperty("type") TaskType type, @JsonProperty("primaryModel") ModelSpec primaryModel) {
         this.type = requireNonNull(type, "type");
         this.primaryModel = requireNonNull(primaryModel, "primaryModel");
     }

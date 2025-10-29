@@ -19,10 +19,7 @@ import org.jetbrains.annotations.Nullable;
  * @param summary The compressed representation of the chat messages (summary). Null if uncompressed.
  */
 public record TaskEntry(
-        int sequence,
-        @Nullable ContextFragment.TaskFragment log,
-        @Nullable String summary,
-        @Nullable TaskMeta meta) {
+        int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary, @Nullable TaskMeta meta) {
 
     /** Enforce that exactly one of log or summary is non-null */
     public TaskEntry {

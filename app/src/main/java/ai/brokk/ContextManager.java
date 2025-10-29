@@ -2205,11 +2205,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             final TaskResult toAppend = (meta != null && result.meta() == null)
                     ? new TaskResult(
-                            result.actionDescription(),
-                            result.output(),
-                            result.context(),
-                            result.stopDetails(),
-                            meta)
+                            result.actionDescription(), result.output(), result.context(), result.stopDetails(), meta)
                     : result;
 
             var action = toAppend.actionDescription();

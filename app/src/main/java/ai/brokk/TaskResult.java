@@ -24,11 +24,11 @@ public record TaskResult(
 
     // Backward-compatible overload for existing call-sites
     public TaskResult(
-    String actionDescription,
-    ai.brokk.context.ContextFragment.TaskFragment output,
-    ai.brokk.context.Context context,
-    StopDetails stopDetails) {
-    this(actionDescription, output, context, stopDetails, null);
+            String actionDescription,
+            ai.brokk.context.ContextFragment.TaskFragment output,
+            ai.brokk.context.Context context,
+            StopDetails stopDetails) {
+        this(actionDescription, output, context, stopDetails, null);
     }
 
     public TaskResult(

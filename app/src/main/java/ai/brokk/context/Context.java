@@ -439,15 +439,7 @@ public class Context {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         // Do not inherit grouping on derived contexts; grouping is explicit
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                newTaskHistory,
-                parsed,
-                action,
-                null,
-                null);
+        return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action, null, null);
     }
 
     public Context clearHistory() {
@@ -503,15 +495,7 @@ public class Context {
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
         // Clear grouping by default on derived contexts
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                action,
-                null,
-                null);
+        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
@@ -529,15 +513,7 @@ public class Context {
 
     public Context withAction(Future<String> action) {
         // Clear grouping by default on derived contexts
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                action,
-                null,
-                null);
+        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
     }
 
     public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {

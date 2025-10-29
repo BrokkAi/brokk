@@ -7,10 +7,10 @@ import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
 import ai.brokk.ModelSpec;
+import ai.brokk.Service;
 import ai.brokk.TaskMeta;
+import ai.brokk.TaskResult;
 import ai.brokk.TaskType;
 import ai.brokk.WorktreeProject;
 import ai.brokk.agents.ArchitectAgent;
@@ -627,7 +627,11 @@ public final class BrokkCli implements Callable<Integer> {
                     try {
                         result = mergeAgent.execute();
                         // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        context = scope.append(result, new TaskMeta(TaskType.MERGE, ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                        context = scope.append(
+                                result,
+                                new TaskMeta(
+                                        TaskType.MERGE,
+                                        ModelSpec.from(planModel, service == null ? cm.getService() : service)));
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
                         return 1;
