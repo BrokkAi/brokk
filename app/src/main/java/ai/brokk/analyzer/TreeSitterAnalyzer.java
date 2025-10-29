@@ -1426,7 +1426,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         simpleName = extractSimpleName(definitionNode, src).orElse(null);
                     } else if (nameNode != null && !nameNode.isNull()) {
                         simpleName = textSlice(nameNode, fileBytes);
-                        if (simpleName.isBlank()) {
+                        if (simpleName.isBlank()
+                                && !isBlankNameAllowed(
+                                        captureName, simpleName, definitionNode.getType(), file.getFileName())) {
                             log.debug(
                                     "Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
                                     expectedNameCapture,
@@ -1453,13 +1455,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         captureName, simpleName, sortedModifierStrings, decoratorNodesForMatch));
                     } else {
                         if (simpleName == null) {
-                            log.debug(
-                                    "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
+                            if (!isNullNameAllowed(
                                     captureName,
                                     definitionNode.getType(),
                                     definitionNode.getStartPoint().getRow() + 1,
-                                    file);
-                        } else {
+                                    file.getFileName())) {
+                                log.debug(
+                                        "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
+                                        captureName,
+                                        definitionNode.getType(),
+                                        definitionNode.getStartPoint().getRow() + 1,
+                                        file);
+                            }
+                        } else if (!isBlankNameAllowed(
+                                captureName, simpleName, definitionNode.getType(), file.getFileName())) {
                             log.debug(
                                     "Determined simple name for definition capture {} (Node Type [{}], Line {}) in file {} is BLANK. Definition will be skipped.",
                                     captureName,
@@ -2565,8 +2574,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (nameNode != null && !nameNode.isNull()) {
                 nameOpt = Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
                         src, nameNode.getStartByte(), nameNode.getEndByte()));
-            } else {
-                log.warn(
+            } else if (!isNullNameExpectedForExtraction(decl.getType())) {
+                log.debug(
                         "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
                         identifierFieldName,
                         decl.getType(),
@@ -2584,8 +2593,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     e.getMessage());
         }
 
-        if (nameOpt.isEmpty()) {
-            log.warn(
+        if (nameOpt.isEmpty() && !isNullNameExpectedForExtraction(decl.getType())) {
+            log.debug(
                     "extractSimpleName: Failed using getChildByFieldName('{}') for node type {} at line {}",
                     identifierFieldName,
                     decl.getType(),
@@ -3221,5 +3230,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
         return best;
+    }
+
+    protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
+        return false;
+    }
+
+    protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+        return false;
+    }
+
+    /**
+     * Hook for subclasses to suppress logging when extractSimpleName encounters null/missing names
+     * that are expected for the language (e.g., C++ declarations, anonymous structures).
+     *
+     * @param nodeType the AST node type
+     * @return true if null names are expected and logging should be suppressed
+     */
+    protected boolean isNullNameExpectedForExtraction(String nodeType) {
+        return false;
     }
 }

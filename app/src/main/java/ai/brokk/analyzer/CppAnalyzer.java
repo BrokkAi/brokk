@@ -309,8 +309,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             String fileContent = getCachedFileContent(file);
             TSTree tree = treeOf(file);
             if (tree == null) {
-                // Fallback: parse the file if tree is not cached (should rarely happen)
-                log.warn("Tree not found in cache for {}. Parsing on-demand - this may indicate a bug.", file);
+                // Fallback: parse the file if tree is not cached
+                // This can happen for implementation headers (_impl.h, _inl.h) or when analyzing
+                // corresponding source files before the main analysis pass
+                log.trace("Tree not found in cache for {}. Parsing on-demand.", file);
                 var parser = getSharedParser();
                 tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
             }
@@ -500,6 +502,35 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         return super.extractSimpleName(decl, src);
+    }
+
+    @Override
+    protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
+        // C++ allows blank names for complex declaration structures where the parser
+        // produces empty identifier nodes (common in flexed/generated C code, function pointers,
+        // template specializations, macro expansions)
+        return simpleName != null && simpleName.isBlank() && isComplexDeclarationStructure(captureName, nodeType);
+    }
+
+    @Override
+    protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+        // C++ allows NULL names for complex declaration structures like function pointers,
+        // template specializations, and macro declarations
+        return isComplexDeclarationStructure(identifierFieldName, nodeType);
+    }
+
+    @Override
+    protected boolean isNullNameExpectedForExtraction(String nodeType) {
+        // Suppress logging for common C++ patterns where null names are expected
+        return isComplexDeclarationStructure(null, nodeType);
+    }
+
+    private boolean isComplexDeclarationStructure(String identifierFieldName, String nodeType) {
+        // Common C++ complex declaration patterns that may not have simple name fields
+        return "declaration".equals(nodeType)
+                || "function_definition".equals(nodeType)
+                || "field_declaration".equals(nodeType)
+                || "parameter_declaration".equals(nodeType);
     }
 
     public String getCacheStatistics() {
