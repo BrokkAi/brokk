@@ -161,14 +161,14 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().size(), loadedHistory.getHistory().size());
 
         // Compare Context 1
-        Context originalCtx1Frozen = originalHistory.getHistory().get(0); // This is already frozen by ContextHistory
+        Context originalCtx1 = originalHistory.getHistory().get(0);
         Context loadedCtx1 = loadedHistory.getHistory().get(0);
-        assertContextsEqual(originalCtx1Frozen, loadedCtx1);
+        assertContextsEqual(originalCtx1, loadedCtx1);
 
         // Compare Context 2
-        Context originalCtx2Frozen = originalHistory.getHistory().get(1); // This is already frozen by ContextHistory
+        Context originalCtx2 = originalHistory.getHistory().get(1);
         Context loadedCtx2 = loadedHistory.getHistory().get(1);
-        assertContextsEqual(originalCtx2Frozen, loadedCtx2);
+        assertContextsEqual(originalCtx2, loadedCtx2);
 
         // Verify image content from the image fragment in loadedCtx2
         var loadedImageFragmentOpt = loadedCtx2
@@ -242,7 +242,7 @@ public class ContextSerializationTest {
                         actualFf.imageBytesContent(),
                         "FrozenFragment imageBytesContent mismatch for ID " + expected.id());
             } else if (expected.image() != null
-                    && actual.image() != null) { // Fallback for non-frozen, if any after freezing
+                    && actual.image() != null) { // Fallback for live fragments, if any after deserialization
                 assertArrayEquals(
                         imageToBytes(expected.image()),
                         imageToBytes(actual.image()),
