@@ -573,6 +573,16 @@ public interface ContextFragment {
         public int hashCode() {
             return Objects.hash(file);
         }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
+        }
     }
 
     /** Represents a specific revision of a ProjectFile from Git history. This is non-dynamic. */
@@ -660,6 +670,16 @@ public interface ContextFragment {
         @Override
         public int hashCode() {
             return Objects.hash(file, revision);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof GitFileFragment that)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = that.file().absPath().normalize();
+            return pa.equals(pb) && this.revision().equals(that.revision());
         }
 
         @Override
@@ -772,6 +792,16 @@ public interface ContextFragment {
         @Override
         public int hashCode() {
             return Objects.hash(file);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
         }
     }
 
@@ -964,6 +994,16 @@ public interface ContextFragment {
         @Override
         public int hashCode() {
             return Objects.hash(file);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
         }
 
         @Override
@@ -1704,7 +1744,7 @@ public interface ContextFragment {
 
         @Override
         public String repr() {
-            return "SymbolUsages('%s')".formatted(targetIdentifier);
+            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
         }
 
         @Override
@@ -1924,9 +1964,8 @@ public interface ContextFragment {
 
         @Override
         public String repr() {
-            return isCalleeGraph
-                    ? "CallGraphOut('%s', %d)".formatted(methodName, depth)
-                    : "CallGraphIn('%s', %d)".formatted(methodName, depth);
+            String direction = isCalleeGraph ? "OUT" : "IN";
+            return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, direction);
         }
 
         @Override
