@@ -1005,4 +1005,34 @@ public class CppAnalyzerTest {
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
         assertTrue(sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
     }
+
+    @Test
+    public void testTemplateFunctionPointerParameter() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("template_fpointers.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("template_fpointers.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in template_fpointers.h");
+
+        // Find function CodeUnits and locate 'g'
+        var gFuncs = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("g"))
+                .collect(Collectors.toList());
+
+        assertFalse(gFuncs.isEmpty(), "Should find function g() in template_fpointers.h");
+
+        // Pick one occurrence and inspect its FQN for intact template argument list
+        var gCu = gFuncs.get(0);
+        String fq = gCu.fqName();
+        logger.debug("Found g() FQN: {}", fq);
+
+        // The FQN should include the intact template argument list "std::vector<int>"
+        // without splitting on the comma inside the template arguments
+        assertTrue(
+                fq != null && fq.contains("std::vector<int>"),
+                "FQN should include intact template argument list: expected to find 'std::vector<int>' in " + fq);
+    }
 }
