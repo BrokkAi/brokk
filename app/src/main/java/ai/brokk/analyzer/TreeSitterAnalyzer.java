@@ -548,11 +548,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public boolean isDefinitionAvailable(CodeUnit cu) {
-        return allCodeUnits().anyMatch(unit -> unit.fqName().equals(cu.fqName()));
-    }
-
-    @Override
     public List<CodeUnit> getAllDeclarations() {
         return uniqueCodeUnitList().stream().filter(CodeUnit::isClass).toList();
     }

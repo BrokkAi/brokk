@@ -115,17 +115,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Returns true if a definition is available for the given code unit. This
-     * is a fast way to test if {@link #getDefinition(String)} would return a non-empty Optional.
-     *
-     * @param cu The CodeUnit to check for definition availability
-     * @return true if a definition is available, false otherwise
-     */
-    default boolean isDefinitionAvailable(CodeUnit cu) {
-        return getDefinition(cu.fqName()).isPresent();
-    }
-
-    /**
      * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided pattern as
      * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"val
      * ciPattern = "(?i)" + preparedPattern // case-insensitive substring match

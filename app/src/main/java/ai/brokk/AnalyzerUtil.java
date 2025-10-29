@@ -196,15 +196,6 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Check if a definition is available for the given fully qualified name.
-     */
-    public static boolean isDefinitionAvailable(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinition(fqName)
-                .map(analyzer::isDefinitionAvailable)
-                .orElse(false);
-    }
-
-    /**
      * Extract the class/module/type name from a method/member reference.
      * This is a heuristic method that uses language-specific parsing.
      */
