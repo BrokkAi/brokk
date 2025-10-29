@@ -13,6 +13,7 @@ import ai.brokk.gui.dialogs.BlitzForgeDialog;
 import ai.brokk.gui.dialogs.FeedbackDialog;
 import ai.brokk.gui.dialogs.SessionsDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.Environment;
@@ -24,6 +25,8 @@ import java.awt.desktop.PreferencesHandler;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -33,13 +36,93 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
+import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
+    /**
+     * Static map to track open dialogs by key, preventing duplicate dialogs.
+     * Maps unique keys to their corresponding JDialog instances.
+     */
+    private static final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
+
+    /**
+     * Shows or focuses a modeless dialog for a given component.
+     * If a dialog with the given key already exists and is displayable,
+     * brings it to the front and returns. Otherwise, creates a new modeless dialog.
+     *
+     * @param chrome the Chrome instance providing the owner frame and theme
+     * @param key unique identifier for this dialog (used to track and reuse dialogs)
+     * @param title the title for the dialog
+     * @param content the JComponent to display in the dialog
+     * @param onClose optional callback to run when the dialog is closed
+     */
+    private static void showOrFocusDialog(
+            Chrome chrome, String key, String title, JComponent content, @Nullable Runnable onClose) {
+        Runnable task = () -> {
+            // Check if dialog already exists and is displayable
+            JDialog existingDialog = openDialogs.get(key);
+            if (existingDialog != null && existingDialog.isDisplayable()) {
+                existingDialog.toFront();
+                existingDialog.requestFocus();
+                return;
+            }
+
+            // Create new modeless dialog
+            JDialog dialog = new JDialog(chrome.getFrame(), title, false);
+            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+            dialog.add(content);
+
+            // Calculate size with reasonable minimums
+            Dimension prefSize = content.getPreferredSize();
+            int width = Math.max(prefSize.width, 600);
+            int height = Math.max(prefSize.height, 300);
+            dialog.setSize(width, height);
+
+            // Center relative to main frame
+            JFrame mainFrame = chrome.getFrame();
+            int x = mainFrame.getX() + (mainFrame.getWidth() - width) / 2;
+            int y = mainFrame.getY() + (mainFrame.getHeight() - height) / 2;
+            dialog.setLocation(x, y);
+
+            // Apply application icon
+            Chrome.applyIcon(dialog);
+
+            // Apply theme if content supports it
+            if (content instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(chrome.getTheme());
+            }
+
+            // Add window listener for cleanup and callback
+            dialog.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    openDialogs.remove(key);
+                    if (onClose != null) {
+                        onClose.run();
+                    }
+                }
+            });
+
+            // Make visible and store in map
+            dialog.setVisible(true);
+            openDialogs.put(key, dialog);
+        };
+
+        // Ensure execution on EDT
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
     /**
      * Builds the menu bar
      *
