@@ -59,7 +59,42 @@ public class CppAnalyzerTest {
      */
     private static String getBaseFunctionName(CodeUnit cu) {
         String shortName = cu.shortName();
-        int parenIndex = shortName.indexOf('(');
+        
+        // Handle operator names specially: for "operator(...)", we need to find the parameter list parens
+        // not the operator definition parens. E.g., "S::operator()()" should extract "operator()"
+        int parenIndex = -1;
+        if (shortName.contains("operator")) {
+            // Find the parameter list parenthesis by counting opening parens
+            // For "operator()" the first ( is part of the operator name, second ( is parameters
+            int openCount = 0;
+            for (int i = 0; i < shortName.length(); i++) {
+                char c = shortName.charAt(i);
+                if (c == '(') {
+                    openCount++;
+                    // If we've seen 2 opening parens, or if this is the first paren and it's NOT right after "operator"
+                    if (openCount == 2) {
+                        parenIndex = i;
+                        break;
+                    }
+                    if (openCount == 1 && i >= 8) {
+                        // Check if "operator" ends right before this paren (no gap)
+                        String before = shortName.substring(Math.max(0, i - 9), i);
+                        if (!before.contains("operator")) {
+                            // First paren is not part of "operator(...)", so it's the parameter list
+                            parenIndex = i;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (parenIndex < 0) {
+                // Didn't find two parens or any non-operator paren, use first paren as fallback
+                parenIndex = shortName.indexOf('(');
+            }
+        } else {
+            parenIndex = shortName.indexOf('(');
+        }
+        
         String beforeParen = parenIndex > 0 ? shortName.substring(0, parenIndex) : shortName;
 
         // Handle C++ scope operator '::' first
@@ -829,6 +864,56 @@ public class CppAnalyzerTest {
                 "Should have FQN containing 'noexcept(false)' for noexcept(false) variant. Available: " + hFqNames);
         assertNotEquals(noexceptTrueFqn.get(), noexceptFalseFqn.get(),
                 "noexcept(true) and noexcept(false) variants should have distinct FQNs");
+    }
+
+    @Test
+    public void testOperatorOverloads() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("operators.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("operators.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in operators.h");
+
+        // Gather function CodeUnits
+        var funcs = decls.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+        assertFalse(funcs.isEmpty(), "Should find function-like declarations (operators)");
+
+        logger.debug("Found {} function declarations in operators.h", funcs.size());
+        funcs.forEach(cu -> logger.debug("  - {} (FQN: {})", cu.shortName(), cu.fqName()));
+
+        // Check member operator(): base name should be "operator()"
+        var memberCallOps = funcs.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("operator()"))
+                .collect(Collectors.toList());
+        assertFalse(memberCallOps.isEmpty(), "Should find member operator() overload(s)");
+
+        logger.debug("Found {} member operator() overload(s)", memberCallOps.size());
+        memberCallOps.forEach(cu -> logger.debug("  - {} (FQN: {})", cu.shortName(), cu.fqName()));
+
+        // Ensure at least one member operator FQN contains 'const' qualifier
+        boolean memberHasConst = memberCallOps.stream()
+                .map(CodeUnit::fqName)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(fqn -> fqn.contains("const"));
+        assertTrue(memberHasConst, "Member operator() FQN should include 'const' qualifier");
+
+        // Check non-member operator== exists as a global function and includes int parameter types
+        var nonMemberEq = funcs.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("operator=="))
+                .filter(cu -> cu.packageName().isEmpty())
+                .collect(Collectors.toList());
+        assertFalse(nonMemberEq.isEmpty(), "Should find non-member operator==(int,int) as a global function");
+
+        logger.debug("Found {} non-member operator== overload(s)", nonMemberEq.size());
+        nonMemberEq.forEach(cu -> logger.debug("  - {} (FQN: {}, packageName: {})", cu.shortName(), cu.fqName(), cu.packageName()));
+
+        boolean eqHasIntParams = nonMemberEq.stream()
+                .map(CodeUnit::fqName)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(fqn -> fqn.contains("operator==(") && fqn.contains("int"));
+        assertTrue(eqHasIntParams, "operator== FQN should include int parameters");
     }
 
     @Test
