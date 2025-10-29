@@ -444,6 +444,24 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             return Optional.of(name);
         }
 
+        // Handle class-like types (struct, class, union, enum)
+        if (STRUCT_SPECIFIER.equals(decl.getType())
+                || CLASS_SPECIFIER.equals(decl.getType())
+                || UNION_SPECIFIER.equals(decl.getType())
+                || ENUM_SPECIFIER.equals(decl.getType())) {
+            TSNode nameNode = decl.getChildByFieldName("name");
+            if (nameNode == null || nameNode.isNull()) {
+                // Anonymous struct/class/union/enum (e.g., anonymous struct in union)
+                return Optional.of("(anonymous)");
+            }
+            String name = ASTTraversalUtils.extractNodeText(nameNode, src);
+            if (name.isBlank()) {
+                // Name exists but is blank - likely parsing edge case
+                return Optional.of("(anonymous)");
+            }
+            return Optional.of(name);
+        }
+
         if (FUNCTION_DEFINITION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
             if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {

@@ -422,6 +422,83 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testDuplicateHandling() {
+        // Test that C++ analyzer handles duplicate CodeUnits gracefully (first-wins strategy)
+        var duplicatesFile = testProject.getAllFiles().stream()
+                .filter(file -> file.absPath().toString().endsWith("duplicates.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("duplicates.h not found"));
+
+        // This should not throw errors even though the file contains duplicates
+        var declarations = analyzer.getDeclarations(duplicatesFile);
+        assertNotNull(declarations, "Should successfully analyze file with duplicates");
+
+        logger.debug("Found {} declarations in duplicates.h", declarations.size());
+        declarations.forEach(cu -> logger.debug("  - {} (kind: {})", cu.fqName(), cu.kind()));
+
+        // Verify we got declarations (even if some duplicates were filtered)
+        assertFalse(declarations.isEmpty(), "Should find at least some declarations");
+
+        // Check that specific classes are present (first occurrence should be kept)
+        var classNames = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .map(CodeUnit::shortName)
+                .collect(Collectors.toSet());
+
+        logger.debug("Found classes: {}", classNames);
+
+        // Should find the first occurrence of these classes
+        assertTrue(
+                classNames.contains("ForwardDeclaredClass"),
+                "Should find ForwardDeclaredClass (first occurrence kept)");
+        assertTrue(
+                classNames.contains("ConditionalClass"),
+                "Should find ConditionalClass (first conditional branch kept)");
+        assertTrue(classNames.contains("TemplateClass"), "Should find TemplateClass (primary template kept)");
+        assertTrue(classNames.contains("Point"), "Should find Point struct");
+
+        // Verify skeletons can be generated without errors
+        var skeletons = analyzer.getSkeletons(duplicatesFile);
+        assertNotNull(skeletons, "Should generate skeletons for file with duplicates");
+        assertFalse(skeletons.isEmpty(), "Should have at least some skeleton entries");
+
+        logger.debug("Generated {} skeletons for duplicates.h", skeletons.size());
+    }
+
+    @Test
+    public void testAnonymousStructHandling() {
+        // Test that anonymous structs/classes don't generate warnings
+        var advancedFile = testProject.getAllFiles().stream()
+                .filter(file -> file.absPath().toString().endsWith("advanced_features.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("advanced_features.h not found"));
+
+        // This file contains an anonymous struct inside the Pixel union
+        // Should process without WARN logs about extractSimpleName failures
+        var declarations = analyzer.getDeclarations(advancedFile);
+        assertNotNull(declarations, "Should successfully analyze file with anonymous structs");
+
+        logger.debug("Found {} declarations in advanced_features.h", declarations.size());
+
+        // Verify Pixel union is found
+        var unions = declarations.stream()
+                .filter(cu -> cu.isClass())
+                .filter(cu -> cu.shortName().contains("Pixel"))
+                .collect(Collectors.toList());
+
+        assertFalse(unions.isEmpty(), "Should find Pixel union");
+
+        // Verify skeletons can be generated without warnings
+        var skeletons = analyzer.getSkeletons(advancedFile);
+        assertNotNull(skeletons, "Should generate skeletons for file with anonymous structs");
+        assertFalse(skeletons.isEmpty(), "Should have skeleton entries");
+
+        // The anonymous struct inside Pixel union should be handled gracefully
+        // with "(anonymous)" name rather than generating warnings
+        logger.debug("Successfully processed advanced_features.h with anonymous struct");
+    }
+
+    @Test
     public void testParseOnceCachingPerformance() {
         var geometryFile = testProject.getAllFiles().stream()
                 .filter(file -> file.absPath().toString().endsWith("geometry.cpp"))
@@ -469,5 +546,42 @@ public class CppAnalyzerTest {
                 logger.info("? Unexpected performance variance detected");
             }
         }
+    }
+
+    @Test
+    public void testCFileExtensionSupport() {
+        // Test that .c files are properly recognized and don't trigger "Tree not found in cache" warnings
+        var cFile = testProject.getAllFiles().stream()
+                .filter(file -> file.absPath().toString().endsWith("test_file.c"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("test_file.c not found"));
+
+        logger.debug("Testing .c file: {}", cFile.absPath());
+
+        // This should work without triggering "Tree not found in cache" warning
+        // because .c extension should now be included in the initial parse
+        var declarations = analyzer.getDeclarations(cFile);
+        assertNotNull(declarations, "Should successfully analyze .c file");
+        assertFalse(declarations.isEmpty(), "Should find declarations in .c file");
+
+        logger.debug("Found {} declarations in test_file.c", declarations.size());
+        declarations.forEach(cu -> logger.debug("  - {} (kind: {})", cu.fqName(), cu.kind()));
+
+        // Verify we found the expected symbols
+        var functionNames = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .map(CodeUnit::shortName)
+                .collect(Collectors.toSet());
+
+        assertTrue(functionNames.contains("add_numbers"), "Should find add_numbers function");
+
+        var structs = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .map(CodeUnit::shortName)
+                .collect(Collectors.toSet());
+
+        assertTrue(structs.contains("Point"), "Should find Point struct");
+
+        logger.debug("Successfully processed .c file without cache warnings");
     }
 }
