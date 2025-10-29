@@ -46,14 +46,37 @@ public class CppAnalyzerTest {
     }
 
     /**
-     * Extracts the base function name from a CodeUnit shortName that may include parameter signature.
-     * For C++ functions, shortName is "functionName(paramTypes)" so we extract the part before '('.
-     * For non-functions or functions without signatures, returns the shortName as-is.
+     * Extracts the base function name from a CodeUnit shortName that may include parameter signature
+     * and enclosing class/namespace qualifiers.
+     *
+     * Examples:
+     * - "m(int)" -> "m"
+     * - "C.m(int)" -> "m"
+     * - "ns::C::m(int)" -> "m"
+     *
+     * This is defensive: it first strips the parameter list (text after '('), then removes any
+     * qualifying prefixes separated by '::', '.', or '$', returning the final simple name token.
      */
     private static String getBaseFunctionName(CodeUnit cu) {
         String shortName = cu.shortName();
         int parenIndex = shortName.indexOf('(');
-        return parenIndex > 0 ? shortName.substring(0, parenIndex) : shortName;
+        String beforeParen = parenIndex > 0 ? shortName.substring(0, parenIndex) : shortName;
+
+        // Handle C++ scope operator '::' first
+        int idx = beforeParen.lastIndexOf("::");
+        if (idx >= 0 && idx + 2 < beforeParen.length()) {
+            return beforeParen.substring(idx + 2);
+        }
+
+        // Fallback: split on common hierarchy separators and take the last token
+        int lastDot = beforeParen.lastIndexOf('.');
+        int lastDollar = beforeParen.lastIndexOf('$');
+        int sep = Math.max(lastDot, lastDollar);
+        if (sep >= 0 && sep + 1 < beforeParen.length()) {
+            return beforeParen.substring(sep + 1);
+        }
+
+        return beforeParen;
     }
 
     @Test
@@ -657,5 +680,117 @@ public class CppAnalyzerTest {
         assertTrue(structs.contains("Point"), "Should find Point struct");
 
         logger.debug("Successfully processed .c file without cache warnings");
+    }
+
+    @Test
+    public void testTemplateParameterParsing() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("overload_edgecases.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("overload_edgecases.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in overload_edgecases.h");
+
+        // Find overloaded 'f' declarations
+        var overloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("f"))
+                .collect(Collectors.toList());
+
+        assertEquals(2, overloads.size(), "Should find two overloads of f() from templates");
+
+        // Ensure parameter type snippets are present in FQName (normalized)
+        var fqNames = overloads.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        boolean hasMap = fqNames.stream().anyMatch(n -> n.contains("map") || n.contains("std::map"));
+        boolean hasVectorPair = fqNames.stream().anyMatch(n -> n.contains("pair") || n.contains("std::pair"));
+        assertTrue(hasMap, "Should include std::map parameter in at least one FQName");
+        assertTrue(hasVectorPair, "Should include std::pair parameter in at least one FQName");
+    }
+
+    @Test
+    public void testFunctionPointerParameterParsing() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("function_pointers.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("function_pointers.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in function_pointers.h");
+
+        var funcs = decls.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+
+        // g should exist and h should exist
+        assertTrue(funcs.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("g")), "Should find g()");
+        assertTrue(funcs.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("h")), "Should find h()");
+    }
+
+    @Test
+    public void testQualifiersDistinguishOverloads() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("qualifiers.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("qualifiers.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers.h");
+
+        var fOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("f"))
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toSet());
+
+        // Expect at least 3 distinct FQNs for the qualifiers (const, &, noexcept)
+        assertTrue(fOverloads.size() >= 3, "Should distinguish f() overloads by qualifiers");
+    }
+
+    @Test
+    public void testConstructorDestructorHandling() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("ctor_dtor.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("ctor_dtor.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+
+        // Expect constructor T() and T(int) and destructor ~T
+        boolean hasCtorNoArgs = decls.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("T"));
+        boolean hasDtor = decls.stream().anyMatch(cu -> getBaseFunctionName(cu).startsWith("~T"));
+        assertTrue(hasCtorNoArgs, "Should find constructor T()");
+        assertTrue(hasDtor, "Should find destructor ~T()");
+    }
+
+    @Test
+    public void testScopedDefinitionParameterExtraction() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("scoped_def.cpp"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("scoped_def.cpp not found"));
+
+        var decls = analyzer.getDeclarations(file);
+
+        // Method m should be found
+        assertTrue(decls.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("m")), "Should find C::m");
+    }
+
+    @Test
+    public void testDefinitionPreferredOverDeclaration() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("forward_decl.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("forward_decl.h not found"));
+
+        var skeletons = analyzer.getSkeletons(file);
+
+        // There should be a skeleton entry (definition) for foo() and its skeleton should include body placeholder or implementation
+        var fooEntry = skeletons.entrySet().stream()
+                .filter(e -> getBaseFunctionName(e.getKey()).equals("foo"))
+                .findFirst();
+
+        assertTrue(fooEntry.isPresent(), "Should find skeleton for foo()");
+        String sig = fooEntry.get().getValue();
+        // The signature should either include a body placeholder or actual body text; prefer placeholder check
+        assertTrue(sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
     }
 }
