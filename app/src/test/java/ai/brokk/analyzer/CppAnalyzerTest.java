@@ -861,6 +861,47 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testDuplicatePrototypesCollapsed() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("dupe_prototypes.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("dupe_prototypes.h not found"));
+
+        logger.info("Test file exists at: {}", file.absPath());
+        var decls = analyzer.getDeclarations(file);
+        logger.info("Analyzing dupe_prototypes.h at: {}", file.absPath());
+        logger.info("Total declarations found: {}", decls.size());
+        decls.forEach(cu -> logger.info("  - {} (kind: {}, isFunction: {})", cu.fqName(), cu.kind(), cu.isFunction()));
+
+        // Filter for functions named 'duplicated_function'
+        var dupFuncs = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("duplicated_function"))
+                .collect(Collectors.toList());
+
+        logger.debug("Found {} declaration(s) for duplicated_function", dupFuncs.size());
+        dupFuncs.forEach(cu -> logger.debug("  - {} (FQN: {})", cu.shortName(), cu.fqName()));
+
+        // Assert that duplicate prototypes are collapsed to a single declaration
+        assertEquals(1, dupFuncs.size(), "Duplicate prototypes should be collapsed to a single declaration");
+
+        // Verify skeleton generation succeeds and contains the retained declaration
+        var skeletons = analyzer.getSkeletons(file);
+        assertNotNull(skeletons, "Should generate skeletons for dupe_prototypes.h");
+
+        // Verify the retained function has a skeleton entry
+        assertTrue(skeletons.containsKey(dupFuncs.get(0)),
+                "Skeletons should include the retained declaration for duplicated_function");
+
+        // Verify the skeleton is non-null and non-empty
+        var skeleton = skeletons.get(dupFuncs.get(0));
+        assertNotNull(skeleton, "Skeleton for duplicated_function should be non-null");
+        assertFalse(skeleton.isEmpty(), "Skeleton for duplicated_function should be non-empty");
+
+        logger.debug("Skeleton for duplicated_function: {}", skeleton);
+    }
+
+    @Test
     public void testDefinitionPreferredOverDeclaration() {
         var file = testProject.getAllFiles().stream()
                 .filter(f -> f.absPath().toString().endsWith("forward_decl.h"))
