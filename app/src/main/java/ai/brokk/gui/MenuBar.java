@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.swing.*;
@@ -488,24 +489,37 @@ public class MenuBar {
         // Issues
         var issuesItem = new JMenuItem("Issues");
         issuesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Prefer creating a fresh instance so we don't reparent sidebar components.
-            var issuesPanel = new GitIssuesTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, "tools/issues", "Issues", issuesPanel, null);
+            var existing = chrome.getIssuesPanel();
+            Supplier<JComponent> factory;
+            if (existing != null && existing.getParent() == null) {
+                factory = () -> existing;
+            } else {
+                factory = () -> new GitIssuesTab(chrome, chrome.getContextManager());
+            }
+            showOrFocusDialog(chrome, "issues", "Issues", factory, null);
         }));
         toolsMenu.add(issuesItem);
 
-        // Terminal
+        // Terminal (always create a fresh terminal panel)
         var terminalItem = new JMenuItem("Terminal");
         terminalItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Create a standalone terminal instance for the dialog and ensure it is disposed on close.
-            var terminalPanel = new TerminalPanel(chrome, () -> {
-            }, true, chrome.getProject().getRoot());
-            showOrFocusDialog(chrome, "tools/terminal", "Terminal", terminalPanel, () -> {
-                try {
-                    terminalPanel.dispose();
-                } catch (Throwable ignored) {
+            var holder = new AtomicReference<TerminalPanel>();
+            Supplier<JComponent> factory = () -> {
+                var terminalPanel = new TerminalPanel(chrome, () -> {
+                }, true, chrome.getProject().getRoot());
+                holder.set(terminalPanel);
+                return terminalPanel;
+            };
+            Runnable onClose = () -> {
+                var tp = holder.getAndSet(null);
+                if (tp != null) {
+                    try {
+                        tp.dispose();
+                    } catch (Throwable ignored) {
+                    }
                 }
-            });
+            };
+            showOrFocusDialog(chrome, "terminal", "Terminal", factory, onClose);
         }));
         toolsMenu.add(terminalItem);
 
@@ -513,15 +527,19 @@ public class MenuBar {
         var prsItem = new JMenuItem("Pull Requests");
         prsItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             var existing = chrome.getPullRequestsPanel();
-            if (existing != null) {
-                // If Chrome already has a pull requests panel, show that in a dialog.
-                showOrFocusDialog(chrome, "tools/pull_requests", "Pull Requests", existing, null);
+            Supplier<JComponent> factory;
+            if (existing != null && existing.getParent() == null) {
+                // Reuse the panel if it's not currently parented in the main UI.
+                factory = () -> existing;
             } else {
-                // Fallback: display a small placeholder if PR UI isn't available.
-                var fallback = new JPanel(new BorderLayout());
-                fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
-                showOrFocusDialog(chrome, "tools/pull_requests", "Pull Requests", fallback, null);
+                // Avoid calling chrome.getGitLogTab() (not available in all builds). Show a safe fallback.
+                factory = () -> {
+                    var fallback = new JPanel(new BorderLayout());
+                    fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
+                    return fallback;
+                };
             }
+            showOrFocusDialog(chrome, "pull_requests", "Pull Requests", factory, null);
         }));
         toolsMenu.add(prsItem);
 
@@ -529,31 +547,36 @@ public class MenuBar {
         var logItem = new JMenuItem("Log");
         logItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             var commitTab = chrome.getGitCommitTab();
-            if (commitTab != null) {
-                showOrFocusDialog(chrome, "tools/log", "Commit Log", commitTab, null);
+            Supplier<JComponent> factory;
+            if (commitTab != null && commitTab.getParent() == null) {
+                factory = () -> commitTab;
             } else {
-                var fallback = new JPanel(new BorderLayout());
-                fallback.add(new JLabel("Git Log not available for this project."), BorderLayout.CENTER);
-                showOrFocusDialog(chrome, "tools/log", "Commit Log", fallback, null);
+                factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
             }
+            showOrFocusDialog(chrome, "git_log", "Commit Log", factory, null);
         }));
         toolsMenu.add(logItem);
 
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
         worktreesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Create a fresh worktree tab instance for the dialog
-            var worktreePanel = new GitWorktreeTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, "tools/worktrees", "Worktrees", worktreePanel, null);
+            // Chrome does not expose a public getGitWorktreeTab() in all builds; always create a fresh dialog-backed tab.
+            Supplier<JComponent> factory = () -> new GitWorktreeTab(chrome, chrome.getContextManager());
+            showOrFocusDialog(chrome, "worktrees", "Worktrees", factory, null);
         }));
         toolsMenu.add(worktreesItem);
 
         // Changes (Git changes / diff overview)
         var changesItem = new JMenuItem("Changes");
         changesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Create a fresh HistoryOutputPanel to show changes if needed.
-            var changesPanel = new HistoryOutputPanel(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, "tools/changes", "Changes", changesPanel, null);
+            var existing = chrome.getHistoryOutputPanel();
+            Supplier<JComponent> factory;
+            if (existing != null && existing.getParent() == null) {
+                factory = () -> existing;
+            } else {
+                factory = () -> new HistoryOutputPanel(chrome, chrome.getContextManager());
+            }
+            showOrFocusDialog(chrome, "changes", "Changes", factory, null);
         }));
         toolsMenu.add(changesItem);
 
