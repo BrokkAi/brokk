@@ -16,23 +16,26 @@ public final class SystemScaleDetector {
     public static @Nullable Double detectLinuxUiScale(SystemScaleProvider provider) {
         var kde = tryDetectScaleViaKscreenDoctor(provider);
         if (kde != null) {
-            return kde;
+            return normalizeUiScaleToAllowed(kde);
         }
 
         var gnomeModern = tryDetectScaleViaGnomeDBus(provider);
         if (gnomeModern != null) {
-            return gnomeModern;
+            return normalizeUiScaleToAllowed(gnomeModern);
         }
 
         var gnome = tryDetectScaleViaGsettings(provider);
         if (gnome != null) {
-            return gnome;
+            return normalizeUiScaleToAllowed(gnome);
         }
         return null;
     }
 
     public static double normalizeUiScaleToAllowed(double v) {
-        return v;
+        int rounded = (int) Math.round(v);
+        if (rounded < 1) rounded = 1;
+        if (rounded > 5) rounded = 5;
+        return (double) rounded;
     }
 
     public static @Nullable Double tryDetectScaleViaKscreenDoctor(SystemScaleProvider provider) {

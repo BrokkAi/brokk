@@ -111,9 +111,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JComboBox<String> uiScaleCombo; // Hidden on macOS
 
-    @Nullable
-    private JSpinner uiScaleSpinner; // Hidden on macOS
-
     // JVM memory settings controls (General tab)
     private JRadioButton memoryAutoRadio = new JRadioButton("Automatic (recommended)");
     private JRadioButton memoryManualRadio = new JRadioButton("Manual:");
@@ -399,18 +396,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } catch (Exception e) {
             return ks.toString();
         }
-    }
-
-    /**
-     * Clamp a UI scale value to the inclusive fractional bounds [0.5, 5.0] without rounding.
-     * This is intended for use when fractional UI scaling is enabled.
-     */
-    private static double clampToFractionalBounds(double value) {
-        if (Double.isNaN(value)) return 1.0;
-        if (Double.isInfinite(value)) return value > 0 ? 5.0 : 0.5;
-        if (value < 0.5) return 0.5;
-        if (value > 5.0) return 5.0;
-        return value;
     }
 
     private static KeyStroke captureKeyStroke(Component parent) {
@@ -865,13 +850,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
 
-        // UI Scale controls (hidden on macOS and when running under JetBrains Runtime)
-        var vmVendor = System.getProperty("java.vm.vendor", "");
-        var runtimeName = System.getProperty("java.runtime.name", "");
-        boolean isJbr = vmVendor.toLowerCase(Locale.ROOT).contains("jetbrains")
-                || runtimeName.toLowerCase(Locale.ROOT).contains("jetbrains");
-
-        if (!Environment.isMacOs() && !isJbr) {
+        // UI Scale controls (hidden on macOS)
+        if (!Environment.isMacOs()) {
             gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
             gbc.gridx = 0;
             gbc.gridy = row;
@@ -885,8 +865,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             scaleGroup.add(uiScaleAutoRadio);
             scaleGroup.add(uiScaleCustomRadio);
 
-            // Detect if fractional UI scaling is enabled
-            boolean fractionalEnabled = "true".equalsIgnoreCase(System.getProperty("sun.java2d.uiScale.enabled"));
+            uiScaleCombo = new JComboBox<>();
+            final JComboBox<String> combo = uiScaleCombo;
+            var uiScaleModel = new DefaultComboBoxModel<String>();
+            uiScaleModel.addElement("1.0");
+            uiScaleModel.addElement("2.0");
+            uiScaleModel.addElement("3.0");
+            uiScaleModel.addElement("4.0");
+            uiScaleModel.addElement("5.0");
+            combo.setModel(uiScaleModel);
+            combo.setEnabled(false);
+
+            uiScaleAutoRadio.addActionListener(e -> combo.setEnabled(false));
+            uiScaleCustomRadio.addActionListener(e -> combo.setEnabled(true));
 
             gbc.gridx = 1;
             gbc.gridy = row++;
@@ -896,33 +887,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             var customPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
             customPanel.add(uiScaleCustomRadio);
-
-            if (fractionalEnabled) {
-                // Use spinner for fractional UI scaling
-                uiScaleSpinner = new JSpinner(new SpinnerNumberModel(1.0, 0.5, 5.0, 0.1));
-                uiScaleSpinner.setEditor(new JSpinner.NumberEditor(uiScaleSpinner, "#0.0"));
-                uiScaleSpinner.setEnabled(false);
-                customPanel.add(uiScaleSpinner);
-
-                uiScaleAutoRadio.addActionListener(e -> uiScaleSpinner.setEnabled(false));
-                uiScaleCustomRadio.addActionListener(e -> uiScaleSpinner.setEnabled(true));
-            } else {
-                // Use combo box for fixed UI scaling (current behavior)
-                uiScaleCombo = new JComboBox<>();
-                final JComboBox<String> combo = uiScaleCombo;
-                var uiScaleModel = new DefaultComboBoxModel<String>();
-                uiScaleModel.addElement("1.0");
-                uiScaleModel.addElement("2.0");
-                uiScaleModel.addElement("3.0");
-                uiScaleModel.addElement("4.0");
-                uiScaleModel.addElement("5.0");
-                combo.setModel(uiScaleModel);
-                combo.setEnabled(false);
-                customPanel.add(combo);
-
-                uiScaleAutoRadio.addActionListener(e -> combo.setEnabled(false));
-                uiScaleCustomRadio.addActionListener(e -> combo.setEnabled(true));
-            }
+            customPanel.add(combo);
 
             gbc.gridy = row++;
             appearancePanel.add(customPanel, gbc);
@@ -937,7 +902,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             uiScaleAutoRadio = null;
             uiScaleCustomRadio = null;
             uiScaleCombo = null;
-            uiScaleSpinner = null;
         }
 
         // Terminal font size
@@ -1339,68 +1303,36 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
 
         // UI Scale (if present; hidden on macOS)
-        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null) {
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
             String pref = MainProject.getUiScalePref();
-
-            // Spinner path: fractional UI scaling enabled
-            if (uiScaleSpinner != null) {
-                if ("auto".equalsIgnoreCase(pref)) {
-                    uiScaleAutoRadio.setSelected(true);
-                    uiScaleSpinner.setValue(1.0);
-                    uiScaleSpinner.setEnabled(false);
-                } else {
+            if ("auto".equalsIgnoreCase(pref)) {
+                uiScaleAutoRadio.setSelected(true);
+                uiScaleCombo.setSelectedItem("1.0");
+                uiScaleCombo.setEnabled(false);
+            } else {
+                uiScaleCustomRadio.setSelected(true);
+                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
+                String selected = pref;
+                boolean found = false;
+                for (int i = 0; i < model.getSize(); i++) {
+                    if (pref.equals(model.getElementAt(i))) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
                     try {
                         double v = Double.parseDouble(pref);
-                        // Clamp to fractional bounds without rounding
-                        v = clampToFractionalBounds(v);
-                        // Clamp to spinner model bounds
-                        SpinnerNumberModel spinnerModel = (SpinnerNumberModel) uiScaleSpinner.getModel();
-                        double min = ((Number) spinnerModel.getMinimum()).doubleValue();
-                        double max = ((Number) spinnerModel.getMaximum()).doubleValue();
-                        if (v < min) v = min;
-                        if (v > max) v = max;
-                        uiScaleCustomRadio.setSelected(true);
-                        uiScaleSpinner.setValue(v);
-                        uiScaleSpinner.setEnabled(true);
+                        int nearest = (int) Math.round(v);
+                        if (nearest < 1) nearest = 1;
+                        if (nearest > 5) nearest = 5;
+                        selected = nearest + ".0";
                     } catch (NumberFormatException ignore) {
-                        // Invalid preference; fall back to auto
-                        uiScaleAutoRadio.setSelected(true);
-                        uiScaleSpinner.setValue(1.0);
-                        uiScaleSpinner.setEnabled(false);
+                        selected = "1.0";
                     }
                 }
-            }
-            // Combo box path: fixed UI scaling (existing behavior)
-            else if (uiScaleCombo != null) {
-                if ("auto".equalsIgnoreCase(pref)) {
-                    uiScaleAutoRadio.setSelected(true);
-                    uiScaleCombo.setSelectedItem("1.0");
-                    uiScaleCombo.setEnabled(false);
-                } else {
-                    uiScaleCustomRadio.setSelected(true);
-                    var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
-                    String selected = pref;
-                    boolean found = false;
-                    for (int i = 0; i < model.getSize(); i++) {
-                        if (pref.equals(model.getElementAt(i))) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        try {
-                            double v = Double.parseDouble(pref);
-                            int nearest = (int) Math.round(v);
-                            if (nearest < 1) nearest = 1;
-                            if (nearest > 5) nearest = 5;
-                            selected = nearest + ".0";
-                        } catch (NumberFormatException ignore) {
-                            selected = "1.0";
-                        }
-                    }
-                    uiScaleCombo.setSelectedItem(selected);
-                    uiScaleCombo.setEnabled(true);
-                }
+                uiScaleCombo.setSelectedItem(selected);
+                uiScaleCombo.setEnabled(true);
             }
         }
 
@@ -1582,7 +1514,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // UI Scale preference (if present; hidden on macOS)
-        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null) {
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
             String before = MainProject.getUiScalePref();
             if (uiScaleAutoRadio.isSelected()) {
                 if (!"auto".equalsIgnoreCase(before)) {
@@ -1591,41 +1523,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     logger.debug("Applied UI scale preference: auto");
                 }
             } else {
-                // Custom selected
-                if (uiScaleSpinner != null) {
-                    // Fractional mode: spinner (save exact fractional value; no rounding)
-                    double v = ((Number) uiScaleSpinner.getValue()).doubleValue();
-                    v = clampToFractionalBounds(v);
-                    // Check if value changed
-                    double beforeValue;
-                    try {
-                        beforeValue = "auto".equalsIgnoreCase(before) ? 1.0 : Double.parseDouble(before);
-                    } catch (NumberFormatException e) {
-                        beforeValue = 1.0;
-                    }
-                    if (v != beforeValue) {
-                        MainProject.setUiScalePrefCustom(v);
-                        parentDialog.markRestartNeededForUiScale();
-                        logger.debug("Applied UI scale preference: {}", v);
-                    }
-                } else if (uiScaleCombo != null) {
-                    // Fixed mode: combo box
-                    String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
-                    var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
-                    if (!allowed.contains(txt)) {
-                        JOptionPane.showMessageDialog(
-                                this,
-                                "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
-                                "Invalid UI Scale",
-                                JOptionPane.ERROR_MESSAGE);
-                        return false;
-                    }
-                    if (!txt.equals(before)) {
-                        double v = Double.parseDouble(txt);
-                        MainProject.setUiScalePrefCustom(v);
-                        parentDialog.markRestartNeededForUiScale();
-                        logger.debug("Applied UI scale preference: {}", v);
-                    }
+                String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
+                var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
+                if (!allowed.contains(txt)) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
+                            "Invalid UI Scale",
+                            JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                if (!txt.equals(before)) {
+                    double v = Double.parseDouble(txt);
+                    MainProject.setUiScalePrefCustom(v);
+                    parentDialog.markRestartNeededForUiScale();
+                    logger.debug("Applied UI scale preference: {}", v);
                 }
             }
         }
