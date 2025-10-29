@@ -73,4 +73,23 @@ class CppAnalyzerUpdateTest {
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo()").isEmpty());
     }
+
+    @Test
+    void backCompatZeroArgLookup() throws IOException {
+        // Create an isolated temporary project with a single zero-arg function 'foo'
+        var tmp = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(tmp, "B.cpp", "int foo() { return 1; }\n");
+
+        var proj = UpdateTestUtil.newTestProject(tmp, Languages.CPP_TREESITTER);
+        try (proj) {
+            var localAnalyzer = new CppAnalyzer(proj);
+
+            var withParen = localAnalyzer.getDefinition("foo()");
+            var withoutParen = localAnalyzer.getDefinition("foo");
+
+            // Both should be present or both absent, and when present they should refer to the same definition
+            assertEquals(withParen.isPresent(), withoutParen.isPresent(), "Presence should match for 'foo' vs 'foo()'");
+            assertEquals(withParen, withoutParen, "Definition lookup should return the same result for 'foo' and 'foo()'");
+        }
+    }
 }
