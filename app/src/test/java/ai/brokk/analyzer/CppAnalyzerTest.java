@@ -59,7 +59,7 @@ public class CppAnalyzerTest {
      */
     private static String getBaseFunctionName(CodeUnit cu) {
         String shortName = cu.shortName();
-        
+
         // Handle operator names specially: for "operator(...)", we need to find the parameter list parens
         // not the operator definition parens. E.g., "S::operator()()" should extract "operator()"
         int parenIndex = -1;
@@ -94,7 +94,7 @@ public class CppAnalyzerTest {
         } else {
             parenIndex = shortName.indexOf('(');
         }
-        
+
         String beforeParen = parenIndex > 0 ? shortName.substring(0, parenIndex) : shortName;
 
         // Handle C++ scope operator '::' first
@@ -796,13 +796,13 @@ public class CppAnalyzerTest {
                 .filter(cu -> getBaseFunctionName(cu).equals("f"))
                 .collect(Collectors.toList());
 
-        logger.debug("Found {} overloads of f(): {}", fOverloads.size(),
+        logger.debug(
+                "Found {} overloads of f(): {}",
+                fOverloads.size(),
                 fOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
 
         // Get their FQNs
-        var fqNames = fOverloads.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.toSet());
+        var fqNames = fOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
         logger.debug("FQN variants for f():");
         fqNames.forEach(fqn -> logger.debug("  - {}", fqn));
@@ -811,29 +811,34 @@ public class CppAnalyzerTest {
         var volatileFqn = fqNames.stream()
                 .filter(fqn -> fqn.contains("volatile") && !fqn.contains("const volatile"))
                 .findFirst();
-        var constVolatileFqn = fqNames.stream()
-                .filter(fqn -> fqn.contains("const volatile"))
-                .findFirst();
+        var constVolatileFqn =
+                fqNames.stream().filter(fqn -> fqn.contains("const volatile")).findFirst();
 
-        assertTrue(volatileFqn.isPresent(),
+        assertTrue(
+                volatileFqn.isPresent(),
                 "Should have FQN containing 'volatile' for volatile member function. Available: " + fqNames);
-        assertTrue(constVolatileFqn.isPresent(),
-                "Should have FQN containing 'const volatile' for const volatile member function. Available: " + fqNames);
-        assertNotEquals(volatileFqn.get(), constVolatileFqn.get(),
+        assertTrue(
+                constVolatileFqn.isPresent(),
+                "Should have FQN containing 'const volatile' for const volatile member function. Available: "
+                        + fqNames);
+        assertNotEquals(
+                volatileFqn.get(),
+                constVolatileFqn.get(),
                 "volatile and const volatile variants should have distinct FQNs");
 
         // Assertion (b): Distinguish & vs && reference qualifiers
         var lvalueRefFqn = fqNames.stream()
                 .filter(fqn -> fqn.contains("&") && !fqn.contains("&&"))
                 .findFirst();
-        var rvalueRefFqn = fqNames.stream()
-                .filter(fqn -> fqn.contains("&&"))
-                .findFirst();
+        var rvalueRefFqn = fqNames.stream().filter(fqn -> fqn.contains("&&")).findFirst();
 
-        assertTrue(lvalueRefFqn.isPresent() || rvalueRefFqn.isPresent(),
+        assertTrue(
+                lvalueRefFqn.isPresent() || rvalueRefFqn.isPresent(),
                 "Should have at least one reference-qualified variant. Available: " + fqNames);
         if (lvalueRefFqn.isPresent() && rvalueRefFqn.isPresent()) {
-            assertNotEquals(lvalueRefFqn.get(), rvalueRefFqn.get(),
+            assertNotEquals(
+                    lvalueRefFqn.get(),
+                    rvalueRefFqn.get(),
                     "& and && reference qualifiers should produce distinct FQNs");
         }
 
@@ -844,25 +849,27 @@ public class CppAnalyzerTest {
                 .filter(cu -> getBaseFunctionName(cu).equals("h"))
                 .collect(Collectors.toList());
 
-        logger.debug("Found {} overloads of h(): {}", hOverloads.size(),
+        logger.debug(
+                "Found {} overloads of h(): {}",
+                hOverloads.size(),
                 hOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
 
-        var hFqNames = hOverloads.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.toSet());
+        var hFqNames = hOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        var noexceptTrueFqn = hFqNames.stream()
-                .filter(fqn -> fqn.contains("noexcept(true)"))
-                .findFirst();
-        var noexceptFalseFqn = hFqNames.stream()
-                .filter(fqn -> fqn.contains("noexcept(false)"))
-                .findFirst();
+        var noexceptTrueFqn =
+                hFqNames.stream().filter(fqn -> fqn.contains("noexcept(true)")).findFirst();
+        var noexceptFalseFqn =
+                hFqNames.stream().filter(fqn -> fqn.contains("noexcept(false)")).findFirst();
 
-        assertTrue(noexceptTrueFqn.isPresent(),
+        assertTrue(
+                noexceptTrueFqn.isPresent(),
                 "Should have FQN containing 'noexcept(true)' for noexcept(true) variant. Available: " + hFqNames);
-        assertTrue(noexceptFalseFqn.isPresent(),
+        assertTrue(
+                noexceptFalseFqn.isPresent(),
                 "Should have FQN containing 'noexcept(false)' for noexcept(false) variant. Available: " + hFqNames);
-        assertNotEquals(noexceptTrueFqn.get(), noexceptFalseFqn.get(),
+        assertNotEquals(
+                noexceptTrueFqn.get(),
+                noexceptFalseFqn.get(),
                 "noexcept(true) and noexcept(false) variants should have distinct FQNs");
     }
 
@@ -907,7 +914,8 @@ public class CppAnalyzerTest {
         assertFalse(nonMemberEq.isEmpty(), "Should find non-member operator==(int,int) as a global function");
 
         logger.debug("Found {} non-member operator== overload(s)", nonMemberEq.size());
-        nonMemberEq.forEach(cu -> logger.debug("  - {} (FQN: {}, packageName: {})", cu.shortName(), cu.fqName(), cu.packageName()));
+        nonMemberEq.forEach(
+                cu -> logger.debug("  - {} (FQN: {}, packageName: {})", cu.shortName(), cu.fqName(), cu.packageName()));
 
         boolean eqHasIntParams = nonMemberEq.stream()
                 .map(CodeUnit::fqName)
@@ -926,7 +934,8 @@ public class CppAnalyzerTest {
         var decls = analyzer.getDeclarations(file);
 
         // Expect constructor T() and T(int) and destructor ~T
-        boolean hasCtorNoArgs = decls.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("T"));
+        boolean hasCtorNoArgs =
+                decls.stream().anyMatch(cu -> getBaseFunctionName(cu).equals("T"));
         boolean hasDtor = decls.stream().anyMatch(cu -> getBaseFunctionName(cu).startsWith("~T"));
         assertTrue(hasCtorNoArgs, "Should find constructor T()");
         assertTrue(hasDtor, "Should find destructor ~T()");
@@ -975,7 +984,8 @@ public class CppAnalyzerTest {
         assertNotNull(skeletons, "Should generate skeletons for dupe_prototypes.h");
 
         // Verify the retained function has a skeleton entry
-        assertTrue(skeletons.containsKey(dupFuncs.get(0)),
+        assertTrue(
+                skeletons.containsKey(dupFuncs.get(0)),
                 "Skeletons should include the retained declaration for duplicated_function");
 
         // Verify the skeleton is non-null and non-empty
@@ -995,7 +1005,8 @@ public class CppAnalyzerTest {
 
         var skeletons = analyzer.getSkeletons(file);
 
-        // There should be a skeleton entry (definition) for foo() and its skeleton should include body placeholder or implementation
+        // There should be a skeleton entry (definition) for foo() and its skeleton should include body placeholder or
+        // implementation
         var fooEntry = skeletons.entrySet().stream()
                 .filter(e -> getBaseFunctionName(e.getKey()).equals("foo"))
                 .findFirst();
@@ -1003,7 +1014,8 @@ public class CppAnalyzerTest {
         assertTrue(fooEntry.isPresent(), "Should find skeleton for foo()");
         String sig = fooEntry.get().getValue();
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
-        assertTrue(sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
+        assertTrue(
+                sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
     }
 
     @Test

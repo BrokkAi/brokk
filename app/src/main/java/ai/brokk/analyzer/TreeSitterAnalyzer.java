@@ -1205,7 +1205,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // SPECIAL CASE: For functions, prefer the definition (with body) over a forward declaration.
-        // We infer presence of a body from signatures produced earlier in analysis (signature contains bodyPlaceholder).
+        // We infer presence of a body from signatures produced earlier in analysis (signature contains
+        // bodyPlaceholder).
         if (cu.isFunction() && existingDuplicate.isFunction()) {
             List<String> existingSigs = localSignatures.getOrDefault(existingDuplicate, List.of());
             List<String> candidateSigs = localSignatures.getOrDefault(cu, List.of());
@@ -1214,7 +1215,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             if (existingHasBody && !candidateHasBody) {
                 // Keep existing (definition) and ignore new declaration
-                log.trace("Ignoring duplicate declaration for {} in {} because definition already present", cu.fqName(), file.getFileName());
+                log.trace(
+                        "Ignoring duplicate declaration for {} in {} because definition already present",
+                        cu.fqName(),
+                        file.getFileName());
                 return;
             } else if (candidateHasBody && !existingHasBody) {
                 // Replace existing (declaration) with candidate (definition)
@@ -1224,10 +1228,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 return;
             }
             // If both have body or both lack body, fall through to general duplicate handling below
-            
+
             // Guard against duplicate body-less prototypes: if neither has a body, keep the first one
             if (!existingHasBody && !candidateHasBody) {
-                log.trace("Ignoring duplicate declaration for {} in {} because both are body-less prototypes", cu.fqName(), file.getFileName());
+                log.trace(
+                        "Ignoring duplicate declaration for {} in {} because both are body-less prototypes",
+                        cu.fqName(),
+                        file.getFileName());
                 return;
             }
         }

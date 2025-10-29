@@ -89,7 +89,8 @@ class CppAnalyzerUpdateTest {
 
             // Both should be present or both absent, and when present they should refer to the same definition
             assertEquals(withParen.isPresent(), withoutParen.isPresent(), "Presence should match for 'foo' vs 'foo()'");
-            assertEquals(withParen, withoutParen, "Definition lookup should return the same result for 'foo' and 'foo()'");
+            assertEquals(
+                    withParen, withoutParen, "Definition lookup should return the same result for 'foo' and 'foo()'");
         }
     }
 }

@@ -481,10 +481,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (nameNode != null && !nameNode.isNull()) {
-                String nameText = ASTTraversalUtils.extractNodeText(nameNode, src).strip();
+                String nameText =
+                        ASTTraversalUtils.extractNodeText(nameNode, src).strip();
                 if (!nameText.isEmpty()) {
                     // Remove the identifier token (token-boundary) to avoid clobbering template names
-                    raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "").strip();
+                    raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "")
+                            .strip();
                 }
             } else {
                 // Fallback heuristic: remove a trailing token that looks like an identifier
@@ -492,23 +494,23 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 if (toks.length > 1) {
                     String last = toks[toks.length - 1];
                     if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
-                        raw = String.join(" ", java.util.Arrays.copyOf(toks, toks.length - 1)).strip();
+                        raw = String.join(" ", java.util.Arrays.copyOf(toks, toks.length - 1))
+                                .strip();
                     }
                 }
             }
 
             // Normalize whitespace and pointer/reference spacing
             raw = raw.replaceAll("\\s+", " ")
-                     .replaceAll("\\s*\\*\\s*", "*")
-                     .replaceAll("\\s*&\\s*", "&")
-                     .strip();
+                    .replaceAll("\\s*\\*\\s*", "*")
+                    .replaceAll("\\s*&\\s*", "&")
+                    .strip();
 
             if (!raw.isEmpty()) paramTypes.add(raw);
         }
 
         return String.join(",", paramTypes);
     }
-
 
     /**
      * Recursively searches for a function_declarator node within a declarator tree.
@@ -544,8 +546,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         return null;
     }
-
-
 
     @Override
     public void clearCaches() {
@@ -657,7 +657,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        // For functions (including constructors, destructors, and methods), append parameter signature (and qualifiers) to FQN
+        // For functions (including constructors, destructors, and methods), append parameter signature (and qualifiers)
+        // to FQN
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
             // Special-case: ensure destructors have a leading '~' in the symbol name.
             // Tree-sitter may expose the underlying identifier without the tilde; normalize here.
@@ -707,7 +708,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int tailEnd = decl.getEndByte();
         if (tailStart >= tailEnd) return "";
 
-        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd).strip();
+        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd)
+                .strip();
         if (tail.isEmpty()) return "";
 
         var quals = new ArrayList<String>();
