@@ -11,8 +11,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -219,9 +219,7 @@ class FileListenersIntegrationTest {
                 externalListener.eventAfterResumeLatch.await(5, TimeUnit.SECONDS),
                 "Events should be processed after resume");
 
-        assertTrue(
-                externalListener.receivedEventAfterResume.get(),
-                "Should have received event after resume");
+        assertTrue(externalListener.receivedEventAfterResume.get(), "Should have received event after resume");
     }
 
     /**

@@ -351,10 +351,12 @@ class ProjectWatchServiceTest {
         assertFalse(watchService.isPaused(), "Should still not be paused");
 
         // Multiple resumes should be safe
-        assertDoesNotThrow(() -> {
-            watchService.resume();
-            watchService.resume();
-        }, "Multiple resumes should not throw");
+        assertDoesNotThrow(
+                () -> {
+                    watchService.resume();
+                    watchService.resume();
+                },
+                "Multiple resumes should not throw");
 
         assertFalse(watchService.isPaused(), "Should still not be paused");
     }

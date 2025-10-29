@@ -36,6 +36,7 @@ import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.notifications.NotificationsCenter;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.MarkdownSearchableComponent;
 import ai.brokk.gui.terminal.TaskListPanel;
@@ -195,6 +196,7 @@ public class Chrome
     private final JTabbedPane historyTabbedPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
     private final HistoryOutputPanel historyOutputPanel;
+    private final NotificationsCenter notificationsCenter;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
 
@@ -287,6 +289,14 @@ public class Chrome
         // Create instructions panel and history/output panel
         instructionsPanel = new InstructionsPanel(this);
         historyOutputPanel = new HistoryOutputPanel(this, this.contextManager);
+        // Initialize GUI notifications center (file-backed store under project .brokk)
+        this.notificationsCenter =
+                NotificationsCenter.createWithDefaultStore(getProject().getRoot(), frame, cnt -> {
+                    // unread-count callback: update toolbar badge or ignore for now
+                    SwingUtilities.invokeLater(() -> {
+                        // TODO: wire unread-count to a toolbar button badge; currently a no-op
+                    });
+                });
 
         // Bottom Area: Context/Git + Status
         bottomPanel = new JPanel(new BorderLayout());
@@ -3336,7 +3346,8 @@ public class Chrome
                 };
         if (!allowed) return;
 
-        SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
+        // Forward to the NotificationsCenter (it handles EDT and persistence internally)
+        notificationsCenter.showNotification(role, message);
     }
 
     /** Helper method to find JScrollPane component within a container */
