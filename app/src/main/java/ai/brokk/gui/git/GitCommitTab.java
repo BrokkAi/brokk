@@ -1013,7 +1013,15 @@ Would you like to resolve these conflicts with the Merge Agent?
                     var agent = new MergeAgent(
                             contextManager, planningModel, codeModel, conflict, scope, customInstructions);
                     var result = agent.execute();
-                    scope.append(result);
+                    // TODO(clarify-metadata): MergeAgent orchestrates both a planning model and a code model.
+                    // For now record no TaskMeta (null) to avoid misattributing the result. Consider either:
+                    //  - Recording this as TaskType.ARCHITECT using the planning model:
+                    //      TaskMeta.of(TaskType.ARCHITECT, ModelSpec.from(planningModel, contextManager.getService()))
+                    //    (or similar construction depending on the project's TaskMeta factory), or
+                    //  - Introducing a dedicated TaskType.MERGE to accurately represent multi-model merges.
+                    // Do NOT change runtime behaviour; this only records metadata. Pass null until a clear
+                    // attribution strategy is chosen.
+                    scope.append(result, null);
                 } catch (Exception ex) {
                     logger.error("AI merge failed", ex);
                     SwingUtilities.invokeLater(
