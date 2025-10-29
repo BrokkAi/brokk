@@ -2533,19 +2533,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int indentLevel = (actionVal instanceof ActionText at) ? Math.max(0, at.indentLevel()) : 0;
             Component comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 
-            // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry
+            // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry,
+            // but only for AI result contexts.
             try {
                 Object ctxVal = table.getModel().getValueAt(row, 2);
                 if (ctxVal instanceof ai.brokk.context.Context ctx) {
                     var meta = lastMetaOf(ctx);
-                    if (meta != null) {
-                        var chosen = iconFor(meta.type());
-                        if (comp instanceof JLabel lbl && chosen != null) {
-                            lbl.setIcon(chosen);
+                    if (comp instanceof JLabel lbl) {
+                        if (ctx.isAiResult() && meta != null) {
+                            var chosen = iconFor(meta.type());
+                            if (chosen != null) {
+                                lbl.setIcon(chosen);
+                            }
+                        } else if (!ctx.isAiResult()) {
+                            // Ensure non-AI rows have no type icon override
+                            lbl.setIcon(null);
                         }
                     }
 
-                    // Also set a combined tooltip with the model summary + normal tooltip (action text)
+                    // Compute tooltip: include model details only for AI + meta; otherwise use plain action text
                     String actionText;
                     Object col1 = table.getModel().getValueAt(row, 1);
                     if (col1 instanceof ActionText at2) {
@@ -2554,7 +2560,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         actionText = (col1 != null) ? col1.toString() : "";
                     }
                     if (comp instanceof JComponent jc) {
-                        jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
+                        if (ctx.isAiResult() && meta != null) {
+                            jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
+                        } else {
+                            jc.setToolTipText(actionText);
+                        }
                     }
                 }
             } catch (Throwable ignored) {
@@ -2686,8 +2696,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int indentPx = indentLevel * Constants.H_GAP * 3;
             panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
             panel.add(actionComp, BorderLayout.NORTH);
-            // Ensure tooltip is visible even though we return a composite panel
-            panel.setToolTipText(buildTooltipWithModel(ctx, actionText));
+            // Ensure tooltip is visible even though we return a composite panel.
+            // Only include model info for AI result contexts with metadata.
+            if (ctx.isAiResult() && lastMetaOf(ctx) != null) {
+                panel.setToolTipText(buildTooltipWithModel(ctx, actionText));
+            } else {
+                panel.setToolTipText(actionText);
+            }
 
             // If we have cached diff entries, add a summary panel; otherwise, action-only
             if (cachedOpt.isPresent() && !cachedOpt.get().isEmpty()) {
