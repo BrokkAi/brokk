@@ -89,6 +89,10 @@ public class GitLogTab extends JPanel {
             return t;
         });
         scheduleMidnightRefresh();
+
+        // Ensure the tab populates its branch/commit data when created (e.g., when opened in a dialog).
+        // Use invokeLater so the UI is fully constructed before update() manipulates selection/scrolling.
+        SwingUtilities.invokeLater(this::update);
     }
 
     /**
