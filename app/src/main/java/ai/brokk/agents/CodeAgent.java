@@ -678,40 +678,71 @@ public class CodeAgent {
                     Files.createDirectories(subdir);
 
                     for (var entry : es.javaLintDiagnostics().entrySet()) {
-                        ProjectFile pf = entry.getKey();
-                        var list = entry.getValue();
-                        var diagsString =
-                                list.stream().map(JavaDiagnostic::description).collect(Collectors.joining("\n"));
-
-                        var unique = System.currentTimeMillis() + "-"
-                                + UUID.randomUUID().toString().substring(0, 8);
-                        var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
-                        var out = subdir.resolve(fileName);
-
-                        var markdownContent =
-                                """
-                                # False Positive for %s
-
-                                %s
-
-                                # Source
-
-                                ```java
-                                %s
-                                ```
-                                """
-                                        .formatted(
-                                                pf.getFileName(),
-                                                diagsString,
-                                                pf.read().orElse(""));
-
-                        Files.writeString(out, markdownContent);
-                        logger.info("Wrote pre-lint findings for {} to {}", pf.getFileName(), out.toString());
+                    ProjectFile pf = entry.getKey();
+                    var list = entry.getValue();
+                    var diagsString =
+                    list.stream().map(JavaDiagnostic::description).collect(Collectors.joining("\n"));
+                    
+                    var unique = System.currentTimeMillis() + "-"
+                    + UUID.randomUUID().toString().substring(0, 8);
+                    var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
+                    var out = subdir.resolve(fileName);
+                    
+                    var markdownContent =
+                    """
+                    # False Positive for %s
+                    
+                    %s
+                    
+                    # Source
+                    
+                    ```java
+                    %s
+                    ```
+                    """
+                    .formatted(
+                    pf.getFileName(),
+                    diagsString,
+                    pf.read().orElse(""));
+                    
+                    Files.writeString(out, markdownContent);
+                    logger.info("Wrote pre-lint findings for {} to {}", pf.getFileName(), out.toString());
                     }
-                } catch (IOException e) {
+                    } catch (IOException e) {
                     logger.warn("Failed to write pre-lint diagnostics file(s)", e);
-                }
-            }
+                    }
+                    
+                    // Report detected false positives to the ExceptionReporter for monitoring,
+                    // but do not throw — keep this non-fatal and guarded.
+                    try {
+                    var reportSummary = es.javaLintDiagnostics().entrySet().stream()
+                    .map(en -> {
+                    var pf = en.getKey();
+                    var diagText = en.getValue().stream()
+                    .map(JavaDiagnostic::description)
+                    .collect(Collectors.joining("\n"));
+                    return pf.getFileName() + ":\n" + diagText;
+                    })
+                    .collect(Collectors.joining("\n\n"));
+                    
+                    var reportEx = new Exception(
+                    "Java parse pre-lint false positives detected (" + es.javaLintDiagnostics().size() + " file(s)):\n\n"
+                    + reportSummary);
+                    
+                    logger.warn(
+                    "Detected Java pre-lint false positives for {} file(s); reporting for telemetry.",
+                    es.javaLintDiagnostics().size());
+                    try {
+                    ExceptionReporter.tryReportException(reportEx);
+                    } catch (Exception reportErr) {
+                    // Defensive: don't allow reporting failures to affect the task flow
+                    logger.debug("Failed to report false-positive diagnostics to ExceptionReporter: {}",
+                    reportErr.getMessage());
+                    }
+                    } catch (Exception prepareErr) {
+                    logger.debug("Failed to prepare false-positive report payload: {}", prepareErr.getMessage());
+                    }
+                    }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
