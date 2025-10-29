@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -615,7 +616,44 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         Path gitTopLevel = gitRepo.getGitTopLevel();
         Path projectAbsPath = root.resolve(projectRelPath);
         Path gitRelPath = gitTopLevel.relativize(projectAbsPath);
-        return gitRelPath.toString().replace('\\', '/');
+        return toUnixPath(gitRelPath);
+    }
+
+    /**
+     * Converts a Path to Unix-style path string for gitignore matching.
+     * All gitignore patterns use forward slashes, even on Windows.
+     * JGit's IgnoreNode.isIgnored() requires Unix-style paths.
+     *
+     * @param path The path to normalize
+     * @return Unix-style path string (forward slashes)
+     */
+    private static String toUnixPath(Path path) {
+        return path.toString().replace('\\', '/');
+    }
+
+    /**
+     * Normalizes a path to Unix-style separators for gitignore matching.
+     * Computes the path relative to a gitignore directory and converts to
+     * the format expected by JGit's IgnoreNode.isIgnored().
+     *
+     * CRITICAL CONTRACT:
+     * - JGit's IgnoreNode.isIgnored() expects Unix-style paths (forward slashes)
+     * - All paths must be relative to the .gitignore file's directory
+     * - Root .gitignore uses empty Path ("") as directory reference
+     * - Empty paths are handled correctly (empty string, not "." or null)
+     *
+     * @param gitignoreDir The directory containing the .gitignore file (empty Path for root)
+     * @param pathToNormalize The path to normalize (git-relative)
+     * @return Unix-style path string relative to gitignoreDir
+     */
+    private static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize) {
+        if (gitignoreDir.toString().isEmpty()) {
+            // Root .gitignore - use full path as-is
+            return toUnixPath(pathToNormalize);
+        } else {
+            // Nested .gitignore - compute relative path and normalize
+            return toUnixPath(gitignoreDir.relativize(pathToNormalize));
+        }
     }
 
     /**
@@ -741,14 +779,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         gitignorePairs.addAll(fixedGitignorePairs);
 
         // Add nested .gitignore files for each directory in the path
+        // Collect from farthest ancestor down to immediate parent to maintain correct precedence
+        var nestedGitignores = new ArrayList<Map.Entry<Path, Path>>();
         Path currentDir = gitRelPath.getParent();
         while (currentDir != null && !currentDir.toString().isEmpty()) {
             var nestedGitignore = gitTopLevel.resolve(currentDir).resolve(".gitignore");
             if (Files.exists(nestedGitignore)) {
-                gitignorePairs.add(Map.entry(currentDir, nestedGitignore));
+                nestedGitignores.add(Map.entry(currentDir, nestedGitignore));
             }
             currentDir = currentDir.getParent();
         }
+        // Reverse so farthest ancestor is added first (lowest precedence)
+        // and closest parent is added last (highest precedence)
+        Collections.reverse(nestedGitignores);
+        gitignorePairs.addAll(nestedGitignores);
 
         return gitignorePairs;
     }
@@ -800,15 +844,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             var gitignoreFile = entry.getValue();
 
             // Calculate path relative to this .gitignore's directory
-            String relativeToGitignoreDir;
-            if (gitignoreDir.toString().isEmpty()) {
-                // Root .gitignore - use full git-relative path
-                relativeToGitignoreDir = gitRelPath;
-            } else {
-                // Nested .gitignore - use path relative to its directory
-                relativeToGitignoreDir =
-                        gitignoreDir.relativize(gitRelPathObj).toString().replace('\\', '/');
-            }
+            String relativeToGitignoreDir = normalizePathForGitignore(gitignoreDir, gitRelPathObj);
 
             var result = checkIgnoreFile(gitignoreFile, relativeToGitignoreDir, isDirectory);
 
@@ -832,7 +868,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         Path parent = gitRelPathObj.getParent();
         while (parent != null && !parent.toString().isEmpty()) {
-            String parentPath = parent.toString().replace('\\', '/');
+            String parentPath = toUnixPath(parent);
 
             // Collect all gitignore files that apply to this parent path
             var parentGitignorePairs = collectGitignorePairs(gitTopLevel, parent, fixedGitignorePairs);
@@ -844,15 +880,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 var gitignoreDir = entry.getKey();
                 var gitignoreFile = entry.getValue();
 
-                String relativeToGitignoreDir;
-                if (gitignoreDir.toString().isEmpty()) {
-                    relativeToGitignoreDir = parentPath;
-                } else {
-                    relativeToGitignoreDir = gitignoreDir
-                            .relativize(Path.of(parentPath))
-                            .toString()
-                            .replace('\\', '/');
-                }
+                String relativeToGitignoreDir = normalizePathForGitignore(gitignoreDir, Path.of(parentPath));
 
                 var result = checkIgnoreFile(gitignoreFile, relativeToGitignoreDir, true);
 

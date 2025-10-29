@@ -697,6 +697,64 @@ class ProjectFilteringGitRepoTest {
     }
 
     /**
+     * Tests that nested .gitignore files can override parent .gitignore rules.
+     * This validates the precedence bug fix where closer (more specific) rules
+     * must override farther (less specific) rules.
+     *
+     * Setup:
+     * /root/.gitignore (ignores *.log)
+     * /root/parent/sub/.gitignore (un-ignores keep.log with !keep.log)
+     *
+     * Expected behavior (Git semantics):
+     * - parent/debug.log → ignored (parent rule applies)
+     * - parent/sub/delete.log → ignored (parent rule applies, no override)
+     * - parent/sub/keep.log → NOT ignored (sub's !keep.log overrides parent's *.log)
+     */
+    @Test
+    void getAllFiles_nested_gitignore_overrides_parent_gitignore(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files
+        createFile(tempDir, "parent/debug.log", "debug");
+        createFile(tempDir, "parent/sub/keep.log", "keep this");
+        createFile(tempDir, "parent/sub/delete.log", "delete this");
+        createFile(tempDir, "parent/sub/code.java", "class Code {}");
+
+        trackFiles(tempDir);
+
+        // Parent ignores all .log files
+        createFile(tempDir, "parent/.gitignore", "*.log\n");
+
+        // Subdirectory un-ignores keep.log specifically
+        createFile(tempDir, "parent/sub/.gitignore", "!keep.log\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // parent/debug.log should be ignored by parent/.gitignore
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("parent/debug.log")),
+                "parent/debug.log should be ignored by parent/.gitignore");
+
+        // parent/sub/delete.log should be ignored (parent rule applies, no override)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("parent/sub/delete.log")),
+                "parent/sub/delete.log should be ignored (parent rule, no override)");
+
+        // parent/sub/keep.log should be NOT ignored (sub's rule overrides parent's)
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("parent/sub/keep.log")),
+                "parent/sub/keep.log should NOT be ignored (sub/.gitignore overrides parent/.gitignore)");
+
+        // Other files should be included
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("parent/sub/code.java")),
+                "parent/sub/code.java should be included");
+
+        project.close();
+    }
+
+    /**
      * Test that .git/info/exclude is properly loaded and applied.
      * .git/info/exclude works like .gitignore but is local to the repository and not committed.
      */
