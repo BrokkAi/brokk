@@ -424,66 +424,89 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Builds a canonical parameter type suffix for C++ function overloads.
-     * Locates the function_declarator (handling nested declarators for method definitions),
-     * extracts parameter types (ignoring names and defaults), normalizes them, and returns a CSV string.
+     * Builds a canonical parameter type CSV for C++ function overloads using the AST.
      *
-     * Handles constructors, destructors, and method definitions with scope resolution (e.g., ClassName::method).
-     * Example: "int,const char*" or "" if no parameters.
-     * Empty parameter list results in empty string (caller appends "()" for functions).
+     * This implementation iterates the named children of the `parameters` node (parameter_declaration nodes) and
+     * extracts the type portion for each parameter by removing parameter names and default values. It avoids splitting
+     * on commas in raw text so template arguments or function-pointer parameter lists are not broken.
+     *
+     * Note: This method returns only the comma-separated parameter type list (no enclosing parentheses).
      *
      * @param funcOrDeclNode the function definition or declaration node
      * @param src the source code
      * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
      */
     private String buildCppOverloadSuffix(TSNode funcOrDeclNode, String src) {
-        if (funcOrDeclNode.isNull()) {
-            return "";
+        if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
+
+        // Find the function_declarator (descend if necessary)
+        TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
+        if (decl == null || decl.isNull() || !"function_declarator".equals(decl.getType())) {
+            decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
+            if (decl == null) return "";
         }
 
-        // Find the declarator node (may be immediate child or nested)
-        TSNode declaratorNode = funcOrDeclNode.getChildByFieldName("declarator");
-        if (declaratorNode == null || declaratorNode.isNull()) {
-            return "";
-        }
+        TSNode paramsNode = decl.getChildByFieldName("parameters");
+        if (paramsNode == null || paramsNode.isNull()) return "";
 
-        // Navigate to function_declarator, handling nested declarators
-        // (e.g., ClassName::method(...) has nested declarator structure)
-        TSNode funcDeclNode = declaratorNode;
-        if (!"function_declarator".equals(funcDeclNode.getType())) {
-            // Recursively search for function_declarator as a descendant
-            funcDeclNode = findFunctionDeclaratorRecursive(declaratorNode);
-            if (funcDeclNode == null) {
-                return "";
+        var paramTypes = new ArrayList<String>();
+
+        // Iterate named children to avoid naive comma splitting (templates contain commas)
+        int namedCount = paramsNode.getNamedChildCount();
+        for (int i = 0; i < namedCount; i++) {
+            TSNode paramNode = paramsNode.getNamedChild(i);
+            if (paramNode == null || paramNode.isNull()) continue;
+
+            String raw = ASTTraversalUtils.extractNodeText(paramNode, src).strip();
+            if (raw.isEmpty()) continue;
+            if (raw.equals("...")) {
+                paramTypes.add("...");
+                continue;
             }
+
+            // Remove default value (everything after '=')
+            int eqIdx = raw.indexOf('=');
+            if (eqIdx >= 0) raw = raw.substring(0, eqIdx).strip();
+
+            // Try to remove parameter name using AST-extracted name nodes
+            TSNode nameNode = paramNode.getChildByFieldName("name");
+            if (nameNode == null || nameNode.isNull()) {
+                // parameter names are sometimes inside a declarator child
+                TSNode declChild = paramNode.getChildByFieldName("declarator");
+                if (declChild != null && !declChild.isNull()) {
+                    TSNode innerName = declChild.getChildByFieldName("declarator");
+                    if (innerName == null || innerName.isNull()) innerName = declChild.getChildByFieldName("name");
+                    if (innerName != null && !innerName.isNull()) nameNode = innerName;
+                }
+            }
+
+            if (nameNode != null && !nameNode.isNull()) {
+                String nameText = ASTTraversalUtils.extractNodeText(nameNode, src).strip();
+                if (!nameText.isEmpty()) {
+                    // Remove the identifier token (token-boundary) to avoid clobbering template names
+                    raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "").strip();
+                }
+            } else {
+                // Fallback heuristic: remove a trailing token that looks like an identifier
+                String[] toks = raw.split("\\s+");
+                if (toks.length > 1) {
+                    String last = toks[toks.length - 1];
+                    if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
+                        raw = String.join(" ", java.util.Arrays.copyOf(toks, toks.length - 1)).strip();
+                    }
+                }
+            }
+
+            // Normalize whitespace and pointer/reference spacing
+            raw = raw.replaceAll("\\s+", " ")
+                     .replaceAll("\\s*\\*\\s*", "*")
+                     .replaceAll("\\s*&\\s*", "&")
+                     .strip();
+
+            if (!raw.isEmpty()) paramTypes.add(raw);
         }
 
-        // Extract parameters node from function_declarator
-        TSNode paramsNode = funcDeclNode.getChildByFieldName("parameters");
-        if (paramsNode == null || paramsNode.isNull()) {
-            return "";
-        }
-
-        // Extract raw parameter text including parentheses
-        String paramsText = ASTTraversalUtils.extractNodeText(paramsNode, src).strip();
-
-        // Handle empty parameter list: "()" returns empty string
-        if (paramsText.isEmpty() || paramsText.equals("()")) {
-            return "";
-        }
-
-        // Remove outer parentheses to get parameter content
-        if (paramsText.startsWith("(") && paramsText.endsWith(")")) {
-            paramsText = paramsText.substring(1, paramsText.length() - 1).strip();
-        }
-
-        // If content is empty after stripping parentheses, return empty
-        if (paramsText.isEmpty()) {
-            return "";
-        }
-
-        // Parse and normalize parameter types (handles variadic "...", const, pointers, references, templates)
-        return normalizeParameterTypes(paramsText);
+        return String.join(",", paramTypes);
     }
 
     /**
@@ -763,25 +786,52 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        // For functions (including constructors, destructors, and methods), append parameter signature to FQN
+        // For functions (including constructors, destructors, and methods), append parameter signature (and qualifiers) to FQN
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
-            // Extract normalized parameter types CSV (e.g., "int,const char*" or "" for no params)
             String paramSignature = buildCppOverloadSuffix(definitionNode, src);
+            String qualifierSuffix = buildCppQualifierSuffix(definitionNode, src);
 
-            // Append signature to FQN: fqName(params) or fqName() if no params
-            // This ensures:
-            // - Overloads with different parameters get unique FQNs (e.g., Foo(int) vs Foo(double))
-            // - Functions with no parameters get stable identity: Foo() or ns.Foo()
-            // - Destructors with ~ prefix work correctly: ns.~Foo() or ns.~Foo(int)
             if (!paramSignature.isEmpty()) {
-                return fqName + "(" + paramSignature + ")";
+                return fqName + "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
             }
-            // Empty parameter list: still append "()" for stable function identity
-            return fqName + "()";
+            // Empty parameter list: still append "()" for stable function identity, optionally with qualifiers
+            return fqName + "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
         }
 
         // For non-function types (classes, fields, modules), return unchanged
         return fqName;
+    }
+
+    /**
+     * Extracts method-level qualifiers (const/ref/noexcept) that should form part of overload identity.
+     * Returns a trimmed suffix such as "const", "&", "noexcept", or combinations ("const noexcept"), or empty string.
+     */
+    private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
+        if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
+
+        // Find the function_declarator if present
+        TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
+        if (decl == null || decl.isNull() || !"function_declarator".equals(decl.getType())) {
+            decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
+            if (decl == null) return "";
+        }
+
+        // Look for textual qualifiers in the trailing portion of the declarator node (after parameters)
+        TSNode paramsNode = decl.getChildByFieldName("parameters");
+        int tailStart = (paramsNode != null && !paramsNode.isNull()) ? paramsNode.getEndByte() : decl.getStartByte();
+        int tailEnd = decl.getEndByte();
+        if (tailStart >= tailEnd) return "";
+
+        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd);
+        var quals = new ArrayList<String>();
+
+        if (tail.contains("const")) quals.add("const");
+        // Prefer && over & when both present
+        if (tail.contains("&&")) quals.add("&&");
+        else if (tail.contains("&")) quals.add("&");
+        if (tail.contains("noexcept")) quals.add("noexcept");
+
+        return String.join(" ", quals).strip();
     }
 
     @Override

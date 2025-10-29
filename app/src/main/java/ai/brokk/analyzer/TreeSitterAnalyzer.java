@@ -1201,7 +1201,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (existingDuplicate == null) {
             // No duplicate, add normally
             localTopLevelCUs.add(cu);
-        } else if (shouldReplaceOnDuplicate(cu)) {
+            return;
+        }
+
+        // SPECIAL CASE: For functions, prefer the definition (with body) over a forward declaration.
+        // We infer presence of a body from signatures produced earlier in analysis (signature contains bodyPlaceholder).
+        if (cu.isFunction() && existingDuplicate.isFunction()) {
+            List<String> existingSigs = localSignatures.getOrDefault(existingDuplicate, List.of());
+            List<String> candidateSigs = localSignatures.getOrDefault(cu, List.of());
+            boolean existingHasBody = existingSigs.stream().anyMatch(s -> s.contains(bodyPlaceholder()));
+            boolean candidateHasBody = candidateSigs.stream().anyMatch(s -> s.contains(bodyPlaceholder()));
+
+            if (existingHasBody && !candidateHasBody) {
+                // Keep existing (definition) and ignore new declaration
+                log.trace("Ignoring duplicate declaration for {} in {} because definition already present", cu.fqName(), file.getFileName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                // Replace existing (declaration) with candidate (definition)
+                localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+                localTopLevelCUs.add(cu);
+                removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+                return;
+            }
+            // If both have body or both lack body, fall through to general duplicate handling below
+        }
+
+        if (shouldReplaceOnDuplicate(cu)) {
             // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
@@ -1211,15 +1236,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             // Language-specific duplicate handling says ignore
+            log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
         } else {
             // shouldIgnoreDuplicate returned false - verify it's truly different
             // This handles cases where TreeSitter captures the same function twice
             // (e.g., forward declaration + definition with identical signature)
             if (existingDuplicate.equals(cu)) {
                 // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
+                log.trace("Ignoring true duplicate {} in {} (same signature)", cu.fqName(), file.getFileName());
             } else {
                 // Different CodeUnits (e.g., overloads with different signatures) - add it
                 localTopLevelCUs.add(cu);
+                log.trace("Adding non-duplicate {} in {} (e.g., overload)", cu.fqName(), file.getFileName());
             }
         }
     }
