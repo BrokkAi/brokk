@@ -22,6 +22,7 @@ import ai.brokk.gui.git.GitIssuesTab;
 import ai.brokk.gui.git.GitPullRequestsTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.git.GitCommitTab;
+import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.HistoryOutputPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import java.awt.*;
@@ -69,8 +70,8 @@ public class MenuBar {
     private static final String DIALOG_KEY_PULL_REQUESTS = "pull_requests";
     private static final String DIALOG_TITLE_PULL_REQUESTS = "Pull Requests";
 
-    private static final String DIALOG_KEY_GIT_LOG = "git_log";
-    private static final String DIALOG_TITLE_GIT_LOG = "Changes";
+    private static final String DIALOG_KEY_GIT_CHANGES = "changes";
+    private static final String DIALOG_TITLE_GIT_CHANGES = "Changes";
 
     private static final String DIALOG_KEY_WORKTREES = "worktrees";
     private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
@@ -602,17 +603,11 @@ public class MenuBar {
         }));
         toolsMenu.add(prsItem);
 
-        // Log (Git Log / Commit view)
+        // Log (Git Log) - open GitLogTab in a dialog (modeless), similar to Issues/Pull Requests
         var logItem = new JMenuItem("Changes");
         logItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            var commitTab = chrome.getGitCommitTab();
-            Supplier<JComponent> factory;
-            if (commitTab != null && commitTab.getParent() == null) {
-                factory = () -> commitTab;
-            } else {
-                factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
-            }
-            showOrFocusDialog(chrome, DIALOG_KEY_GIT_LOG, DIALOG_TITLE_GIT_LOG, factory, null);
+            Supplier<JComponent> factory = () -> new GitLogTab(chrome, chrome.getContextManager());
+            showOrFocusDialog(chrome, DIALOG_KEY_GIT_CHANGES, DIALOG_TITLE_GIT_CHANGES, factory, null);
         }));
         toolsMenu.add(logItem);
 
