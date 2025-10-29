@@ -70,7 +70,7 @@ public class MenuBar {
     private static final String DIALOG_TITLE_PULL_REQUESTS = "Pull Requests";
 
     private static final String DIALOG_KEY_GIT_LOG = "git_log";
-    private static final String DIALOG_TITLE_GIT_LOG = "Log";
+    private static final String DIALOG_TITLE_GIT_LOG = "Changes";
 
     private static final String DIALOG_KEY_WORKTREES = "worktrees";
     private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
@@ -603,7 +603,7 @@ public class MenuBar {
         toolsMenu.add(prsItem);
 
         // Log (Git Log / Commit view)
-        var logItem = new JMenuItem("Log");
+        var logItem = new JMenuItem("Changes");
         logItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             var commitTab = chrome.getGitCommitTab();
             Supplier<JComponent> factory;
