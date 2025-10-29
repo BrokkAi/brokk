@@ -628,19 +628,6 @@ public class MenuBar {
         }));
         toolsMenu.add(worktreesItem);
 
-        // Changes (Git changes / diff overview)
-        var changesItem = new JMenuItem("Changes");
-        changesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            var existing = chrome.getHistoryOutputPanel();
-            Supplier<JComponent> factory;
-            if (existing != null && existing.getParent() == null) {
-                factory = () -> existing;
-            } else {
-                factory = () -> new HistoryOutputPanel(chrome, chrome.getContextManager());
-            }
-            showOrFocusDialog(chrome, DIALOG_KEY_CHANGES, DIALOG_TITLE_CHANGES, factory, null);
-        }));
-        toolsMenu.add(changesItem);
 
         // Open Output in New Window (reuse existing behavior)
         var openOutputItem = new JMenuItem("Open Output in New Window");
