@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
@@ -59,20 +60,21 @@ public class MenuBar {
     private static final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
 
     /**
-     * Shows or focuses a modeless dialog for a given component.
+     * Shows or focuses a modeless dialog for a given component factory.
      * If a dialog with the given key already exists and is displayable,
-     * brings it to the front and returns. Otherwise, creates a new modeless dialog.
+     * brings it to the front and returns. Otherwise, creates a new modeless dialog
+     * using the provided factory to create content only when needed.
      *
      * @param chrome the Chrome instance providing the owner frame and theme
      * @param key unique identifier for this dialog (used to track and reuse dialogs)
      * @param title the title for the dialog
-     * @param content the JComponent to display in the dialog
+     * @param factory supplier used to instantiate the dialog content when creating a new dialog
      * @param onClose optional callback to run when the dialog is closed
      */
     private static void showOrFocusDialog(
-            Chrome chrome, String key, String title, JComponent content, @Nullable Runnable onClose) {
+            Chrome chrome, String key, String title, Supplier<JComponent> factory, @Nullable Runnable onClose) {
         Runnable task = () -> {
-            // Check if dialog already exists and is displayable
+            // If an existing dialog for this key is present and displayable, focus it.
             JDialog existingDialog = openDialogs.get(key);
             if (existingDialog != null && existingDialog.isDisplayable()) {
                 existingDialog.toFront();
@@ -80,10 +82,13 @@ public class MenuBar {
                 return;
             }
 
+            // Create content only when needed
+            JComponent content = factory.get();
+
             // Create new modeless dialog
             JDialog dialog = new JDialog(chrome.getFrame(), title, false);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-            dialog.add(content);
+            dialog.getContentPane().add(content);
 
             // Calculate size with reasonable minimums
             Dimension prefSize = content.getPreferredSize();
@@ -105,6 +110,9 @@ public class MenuBar {
                 themeAware.applyTheme(chrome.getTheme());
             }
 
+            // Store in map before showing to avoid races querying openDialogs
+            openDialogs.put(key, dialog);
+
             // Add window listener for cleanup and callback
             dialog.addWindowListener(new WindowAdapter() {
                 @Override
@@ -116,9 +124,8 @@ public class MenuBar {
                 }
             });
 
-            // Make visible and store in map
+            // Make visible
             dialog.setVisible(true);
-            openDialogs.put(key, dialog);
         };
 
         // Ensure execution on EDT
@@ -127,6 +134,15 @@ public class MenuBar {
         } else {
             SwingUtilities.invokeLater(task);
         }
+    }
+
+    /**
+     * Convenience overload that accepts an already-created content component.
+     * Delegates to the factory-based overload to avoid duplicating logic.
+     */
+    private static void showOrFocusDialog(
+            Chrome chrome, String key, String title, JComponent content, @Nullable Runnable onClose) {
+        showOrFocusDialog(chrome, key, title, () -> content, onClose);
     }
 
     /**
