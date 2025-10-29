@@ -1224,6 +1224,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 return;
             }
             // If both have body or both lack body, fall through to general duplicate handling below
+            
+            // Guard against duplicate body-less prototypes: if neither has a body, keep the first one
+            if (!existingHasBody && !candidateHasBody) {
+                log.trace("Ignoring duplicate declaration for {} in {} because both are body-less prototypes", cu.fqName(), file.getFileName());
+                return;
+            }
         }
 
         if (shouldReplaceOnDuplicate(cu)) {
