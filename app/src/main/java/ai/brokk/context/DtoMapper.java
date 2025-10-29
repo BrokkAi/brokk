@@ -373,10 +373,9 @@ public class DtoMapper {
             case ContextFragment.ProjectPathFragment pf -> toProjectFileDto(pf);
             case ContextFragment.GitFileFragment gf -> {
                 var file = gf.file();
-                var fileKey =
-                        file.getRoot().toString() + ":" + file.getRelPath().toString();
+                var fileKey = file.getRoot() + ":" + file.getRelPath();
                 String contentId = writer.writeContent(gf.content(), fileKey);
-                var pf = (ProjectFile) gf.file();
+                ProjectFile pf = gf.file();
                 yield new GitFileFragmentDto(
                         gf.id(), pf.getRoot().toString(), pf.getRelPath().toString(), gf.revision(), contentId);
             }
@@ -392,13 +391,7 @@ public class DtoMapper {
                 else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
                 else if (fileName.endsWith(".gif")) mediaType = "image/gif";
 
-                // Determine if this is a ProjectFile or ExternalFile to build appropriate DTO
-                String fileId;
-                if (file instanceof ProjectFile pf) {
-                    fileId = pf.getRoot().toString() + ":" + pf.getRelPath().toString();
-                } else {
-                    fileId = file.absPath().toString();
-                }
+                String fileId = file.absPath().toString();
                 yield new ImageFileDto(imf.id(), fileId, mediaType);
             }
             default ->

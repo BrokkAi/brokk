@@ -62,7 +62,7 @@ class HistoryIoV3CompatibilityTest {
         assertNotNull(history);
         assertFalse(history.getHistory().isEmpty());
 
-        Context top = history.getLiveContext();
+        Context top = history.topContext();
 
         var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
                 .contains("GitHubAuth.java"));
