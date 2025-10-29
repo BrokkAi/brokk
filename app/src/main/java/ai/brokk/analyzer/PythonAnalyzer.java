@@ -5,6 +5,7 @@ import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 import ai.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -153,6 +154,36 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
         return false;
+    }
+
+    @Override
+    protected boolean shouldReplaceOnDuplicate(CodeUnit cu) {
+        // Python "last wins" semantics: duplicate definitions replace earlier ones
+        return cu.isField() || cu.isClass() || cu.isFunction();
+    }
+
+    @Override
+    protected boolean hasWrappingDecoratorNode() {
+        // Python wraps decorated definitions in a decorated_definition node
+        return true;
+    }
+
+    @Override
+    protected TSNode extractContentFromDecoratedNode(
+            TSNode decoratedNode, List<String> outDecoratorLines, byte[] srcBytes, LanguageSyntaxProfile profile) {
+        // Python's decorated_definition: decorators and actual definition are children
+        // Process decorators and identify the actual content node
+        TSNode nodeForContent = decoratedNode;
+        for (int i = 0; i < decoratedNode.getNamedChildCount(); i++) {
+            TSNode child = decoratedNode.getNamedChild(i);
+            if (profile.decoratorNodeTypes().contains(child.getType())) {
+                outDecoratorLines.add(textSlice(child, srcBytes).stripLeading());
+            } else if (profile.functionLikeNodeTypes().contains(child.getType())
+                    || profile.classLikeNodeTypes().contains(child.getType())) {
+                nodeForContent = child;
+            }
+        }
+        return nodeForContent;
     }
 
     @Override

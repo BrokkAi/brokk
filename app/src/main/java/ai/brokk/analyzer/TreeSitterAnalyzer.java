@@ -1083,9 +1083,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines whether a duplicate CodeUnit with the same FQN should replace the existing one.
+     * Default behavior is to keep the first definition and reject duplicates.
+     *
+     * @param cu the new CodeUnit that would be a duplicate
+     * @return true if duplicates should replace existing (Python "last wins"), false otherwise
+     */
+    protected boolean shouldReplaceOnDuplicate(CodeUnit cu) {
+        return false;
+    }
+
+    /**
+     * Determines whether decorators are wrapped in a parent node vs appearing as preceding siblings.
+     * Python wraps decorators in a decorated_definition node containing both decorators and the definition.
+     * Other languages (TypeScript, Java) have decorators as preceding sibling nodes.
+     *
+     * @return true if decorators are wrapped in a parent node, false if they precede the definition
+     */
+    protected boolean hasWrappingDecoratorNode() {
+        return false;
+    }
+
+    /**
+     * Extracts the actual definition node from a decorator-wrapping node and collects decorator text.
+     * Only called if hasWrappingDecoratorNode() returns true.
+     *
+     * @param decoratedNode the wrapping node (e.g., Python's decorated_definition)
+     * @param outDecoratorLines list to append decorator text to
+     * @param srcBytes source code bytes
+     * @param profile language syntax profile for identifying decorator and definition node types
+     * @return the unwrapped definition node
+     */
+    protected TSNode extractContentFromDecoratedNode(
+            TSNode decoratedNode, List<String> outDecoratorLines, byte[] srcBytes, LanguageSyntaxProfile profile) {
+        return decoratedNode; // default: no unwrapping needed
+    }
+
+    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
-     * For Python, applies "last wins" semantics for fields, classes, and functions (matching runtime behavior).
-     * For other languages, logs an error for unexpected duplicates.
+     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1100,9 +1136,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         if (!alreadyExists) {
             localTopLevelCUs.add(cu);
-        } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass() || cu.isFunction())) {
-            // Python duplicate - replace previous with this one (last assignment wins)
-            // This matches Python's runtime behavior where duplicate definitions replace earlier ones
+        } else if (shouldReplaceOnDuplicate(cu)) {
+            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             CodeUnit oldCu = localTopLevelCUs.stream()
                     .filter(existing -> existing.fqName().equals(cu.fqName()))
                     .findFirst()
@@ -1117,7 +1152,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
             }
         } else {
-            // Unexpected duplicate for other languages/types
+            // Unexpected duplicate for languages that don't allow replacement
             log.error(
                     "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={})",
                     file.getFileName(),
@@ -1156,7 +1191,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Adds a child CodeUnit to its parent's children list, handling Python's "last wins" duplicate semantics.
+     * Adds a child CodeUnit to its parent's children list.
+     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
     private void addChildCodeUnit(
@@ -1170,8 +1206,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         if (!kids.contains(cu)) {
             kids.add(cu);
-        } else if (language == Languages.PYTHON && (cu.isField() || cu.isClass() || cu.isFunction())) {
-            // Python "last wins" semantics - replace existing child with same FQN
+        } else if (shouldReplaceOnDuplicate(cu)) {
+            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             CodeUnit oldCu = kids.stream().filter(k -> k.equals(cu)).findFirst().orElse(null);
 
             if (oldCu != null) {
@@ -1180,7 +1216,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 kids.add(cu);
             }
         } else {
-            // For non-Python or other types, just skip adding the duplicate
+            // For languages that don't allow replacement, just skip the duplicate
             log.trace("Skipping duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
         }
     }
@@ -1856,22 +1892,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
 
-        if (language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
-            // Python's decorated_definition: decorators and actual def are children.
-            // Process decorators directly here and identify the actual content node.
-            for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
-                TSNode child = definitionNode.getNamedChild(i);
-                if (profile.decoratorNodeTypes().contains(child.getType())) {
-                    signatureLines.add(textSlice(child, srcBytes).stripLeading());
-                } else if (profile.functionLikeNodeTypes().contains(child.getType())
-                        || profile.classLikeNodeTypes().contains(child.getType())) {
-                    nodeForContent = child;
-                }
-            }
-        }
-        // 2. Handle decorators for languages where they precede the definition
-        //    (Skip if Python already handled its specific decorator structure)
-        if (!(language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
+        // 1. Handle decorators: check if language wraps them in a parent node or if they precede the definition
+        if (hasWrappingDecoratorNode()) {
+            // Language wraps decorators in a parent node (e.g., Python's decorated_definition)
+            nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, srcBytes, profile);
+        } else {
+            // 2. Handle decorators for languages where they precede the definition as siblings
             List<TSNode> decorators =
                     getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {
