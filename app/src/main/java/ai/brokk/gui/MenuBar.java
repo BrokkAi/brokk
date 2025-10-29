@@ -606,8 +606,10 @@ public class MenuBar {
         // Log (Git Log) - open GitLogTab in a dialog (modeless), similar to Issues/Pull Requests
         var logItem = new JMenuItem("Changes");
         logItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            Supplier<JComponent> factory = () -> new GitLogTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, DIALOG_KEY_GIT_CHANGES, DIALOG_TITLE_GIT_CHANGES, factory, null);
+            // Create GitLogTab and request a larger preferred size so the dialog opens bigger by default.
+            GitLogTab gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
+            gitLogTab.setPreferredSize(new Dimension(1000, 700));
+            showOrFocusDialog(chrome, DIALOG_KEY_GIT_CHANGES, DIALOG_TITLE_GIT_CHANGES, gitLogTab, null);
         }));
         toolsMenu.add(logItem);
 
