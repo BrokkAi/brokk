@@ -75,9 +75,6 @@ public class MenuBar {
     private static final String DIALOG_KEY_WORKTREES = "worktrees";
     private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
 
-    private static final String DIALOG_KEY_CHANGES = "changes";
-    private static final String DIALOG_TITLE_CHANGES = "Changes";
-
     /**
      * Static map to track open dialogs by key, preventing duplicate dialogs.
      * Maps unique keys to their corresponding JDialog instances.
