@@ -563,18 +563,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ProjectPathFragment that)) return false;
-            return file.equals(that.file());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file);
-        }
-
-        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -658,18 +646,6 @@ public interface ContextFragment {
         @Override
         public boolean isDynamic() {
             return false; // Content is fixed to a revision
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof GitFileFragment that)) return false;
-            return file.equals(that.file()) && revision.equals(that.revision());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file, revision);
         }
 
         @Override
@@ -780,18 +756,6 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("epf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ExternalPathFragment that)) return false;
-            return file.equals(that.file());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file);
         }
 
         @Override
@@ -982,18 +946,6 @@ public interface ContextFragment {
                         getFragmentExecutor());
             }
             return imageBytesCv;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ImageFileFragment that)) return false;
-            return file.equals(that.file());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file);
         }
 
         @Override

@@ -268,8 +268,10 @@ class FragmentEqualityTest {
             var sf2 = new ContextFragment.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // Content-hashed: same text and syntaxStyle produce same ID
-            assertEquals(sf1, sf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(sf1, sf2);
+            // But they have the same content source
+            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -279,8 +281,10 @@ class FragmentEqualityTest {
             var sf2 = new ContextFragment.StringFragment(
                     contextManager, "text", "desc2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // Description not part of hash; same text means same ID
-            assertEquals(sf1, sf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(sf1, sf2);
+            // But they have the same source (text and style match)
+            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -350,8 +354,10 @@ class FragmentEqualityTest {
                     CompletableFuture.completedFuture("desc2"),
                     CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
 
-            // Content-hashed: same text produces same ID
-            assertEquals(ptf1, ptf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(ptf1, ptf2);
+            // But they have the same text content
+            assertTrue(ptf1.hasSameSource(ptf2));
         }
 
         @Test
@@ -414,8 +420,10 @@ class FragmentEqualityTest {
             var aif2 = new ContextFragment.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc2"));
 
-            // Content-hashed: same image produces same ID
-            assertEquals(aif1, aif2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(aif1, aif2);
+            // But they have the same image content
+            assertTrue(aif1.hasSameSource(aif2));
         }
 
         @Test
@@ -582,8 +590,10 @@ class FragmentEqualityTest {
             var tf1 = new ContextFragment.TaskFragment(contextManager, messages, "session");
             var tf2 = new ContextFragment.TaskFragment(contextManager, messages, "session");
 
-            // Content-hashed: same messages and session produce same ID
-            assertEquals(tf1, tf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(tf1, tf2);
+            // But they represent the same session content
+            assertTrue(tf1.hasSameSource(tf2));
         }
 
         @Test
@@ -622,8 +632,10 @@ class FragmentEqualityTest {
             var sf1 = new ContextFragment.SearchFragment(contextManager, "search", messages, sources);
             var sf2 = new ContextFragment.SearchFragment(contextManager, "search", messages, sources);
 
-            // Content-hashed via TaskFragment parent
-            assertEquals(sf1, sf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(sf1, sf2);
+            // But they represent the same search content
+            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -654,8 +666,10 @@ class FragmentEqualityTest {
             var sf2 =
                     new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
 
-            // Content-hashed: same exception and code produce same ID
-            assertEquals(sf1, sf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(sf1, sf2);
+            // But they represent the same stacktrace content
+            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -760,8 +774,10 @@ class FragmentEqualityTest {
             var hf1 = new ContextFragment.HistoryFragment(contextManager, List.of(te));
             var hf2 = new ContextFragment.HistoryFragment(contextManager, List.of(te));
 
-            // Content-hashed
-            assertEquals(hf1, hf2);
+            // Identity-based: different instances are NOT equal()
+            assertNotEquals(hf1, hf2);
+            // But they represent the same history content
+            assertTrue(hf1.hasSameSource(hf2));
         }
 
         @Test
@@ -791,8 +807,8 @@ class FragmentEqualityTest {
             var ppf = new ContextFragment.ProjectPathFragment(projectFile, contextManager);
             var epf = new ContextFragment.ExternalPathFragment(externalFile, contextManager);
 
-            // Different types never have same source
-            assertFalse(ppf.hasSameSource(epf));
+            // Both refer to the same absolute path, so hasSameSource should return true
+            assertTrue(ppf.hasSameSource(epf));
         }
 
         @Test
