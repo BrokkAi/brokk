@@ -131,7 +131,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             correctedClassChain = classChain.substring(packageName.length() + 1);
         }
 
-        final String fqName = correctedClassChain.isEmpty() ? simpleName : correctedClassChain + delimiter + simpleName;
+        String fqName = correctedClassChain.isEmpty() ? simpleName : correctedClassChain + delimiter + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
@@ -155,6 +155,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         return createCodeUnit(file, type, packageName, fqName);
     }
+
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
@@ -420,6 +421,198 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
+     * Extracts normalized parameter type signature from a function declarator node.
+     * Returns a CSV of parameter types with names removed and whitespace normalized.
+     * Example: "int, const char*, std::string" (or empty if no parameters).
+     *
+     * @param funcDefNode the function_definition or declaration node
+     * @param src the source code
+     * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
+     */
+    private String extractNormalizedParameterSignature(TSNode funcDefNode, String src) {
+        if (funcDefNode.isNull()) {
+            return "";
+        }
+
+        // Find the function_declarator node
+        TSNode declaratorNode = funcDefNode.getChildByFieldName("declarator");
+        if (declaratorNode == null || declaratorNode.isNull()) {
+            return "";
+        }
+
+        // Navigate to function_declarator if current declarator is nested
+        TSNode funcDeclNode = declaratorNode;
+        if (!"function_declarator".equals(funcDeclNode.getType())) {
+            // Try to find function_declarator as a descendant
+            funcDeclNode = findFunctionDeclaratorRecursive(declaratorNode);
+            if (funcDeclNode == null) {
+                return "";
+            }
+        }
+
+        // Extract parameters node
+        TSNode paramsNode = funcDeclNode.getChildByFieldName("parameters");
+        if (paramsNode == null || paramsNode.isNull()) {
+            return "";
+        }
+
+        // Extract raw parameter text
+        String paramsText = ASTTraversalUtils.extractNodeText(paramsNode, src).strip();
+        if (paramsText.isEmpty() || paramsText.equals("()")) {
+            return "";
+        }
+
+        // Remove outer parentheses if present
+        if (paramsText.startsWith("(") && paramsText.endsWith(")")) {
+            paramsText = paramsText.substring(1, paramsText.length() - 1).strip();
+        }
+
+        if (paramsText.isEmpty()) {
+            return "";
+        }
+
+        // Parse and normalize parameter types
+        return normalizeParameterTypes(paramsText);
+    }
+
+    /**
+     * Recursively searches for a function_declarator node within a declarator tree.
+     */
+    private @Nullable TSNode findFunctionDeclaratorRecursive(TSNode node) {
+        if ("function_declarator".equals(node.getType())) {
+            return node;
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && !child.isNull()) {
+                TSNode result = findFunctionDeclaratorRecursive(child);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Normalizes a parameter list string by extracting only types (removing names, default values).
+     * Normalizes whitespace and punctuation.
+     * Example input: "int x, const char* name, std::string s = \"default\""
+     * Example output: "int,const char*,std::string"
+     */
+    private String normalizeParameterTypes(String paramsText) {
+        // Split by comma to get individual parameters
+        var params = paramsText.split(",");
+        var normalizedTypes = new ArrayList<String>();
+
+        for (String param : params) {
+            param = param.strip();
+            if (param.isEmpty() || param.equals("...")) {
+                // Skip empty or variadic marker itself, but handle ... separately
+                if (param.equals("...")) {
+                    normalizedTypes.add("...");
+                }
+                continue;
+            }
+
+            // Handle variadic parameters
+            if (param.equals("...")) {
+                normalizedTypes.add("...");
+                continue;
+            }
+
+            // Remove default values (everything after '=')
+            int eqIdx = param.indexOf('=');
+            if (eqIdx >= 0) {
+                param = param.substring(0, eqIdx).strip();
+            }
+
+            // Extract just the type part (before the identifier)
+            // Common patterns: "int x", "const char* name", "std::string&& ref"
+            String typeOnly = extractTypeFromParameter(param);
+
+            if (!typeOnly.isEmpty()) {
+                // Normalize internal whitespace
+                typeOnly = typeOnly.replaceAll("\\s+", " ").strip();
+                normalizedTypes.add(typeOnly);
+            }
+        }
+
+        return String.join(",", normalizedTypes);
+    }
+
+    /**
+     * Extracts the type portion of a parameter declaration, removing the identifier/name.
+     * Handles complex types like pointers, references, arrays, templates.
+     * Example: "const char* name" -> "const char*"
+     * Example: "std::vector<int>& vec" -> "std::vector<int>&"
+     */
+    private String extractTypeFromParameter(String param) {
+        param = param.strip();
+        if (param.isEmpty()) {
+            return "";
+        }
+
+        // Handle trailing reference/pointer qualifiers that might follow identifier
+        // e.g., "int* p" -> type is "int*"
+        // The type typically ends before the identifier starts (with possible * or & attached to type)
+
+        // Find where the identifier likely starts
+        // Identifiers can't start with *, &, or digits, but types can end with them
+        // Strategy: work backwards from the end, tracking pointer/reference/const qualifiers
+
+        // First, handle simple case: no spaces (like "int" or "char*")
+        if (!param.contains(" ")) {
+            // Could be fully qualified like "std::string" or "int*" or "int&"
+            return param;
+        }
+
+        // Multiple words: need to separate type from identifier
+        // Split by whitespace and reconstruct type portion
+        var tokens = param.split("\\s+");
+
+        // Build type by collecting tokens until we hit the identifier
+        var typeParts = new ArrayList<String>();
+        for (int i = 0; i < tokens.length - 1; i++) {
+            typeParts.add(tokens[i]);
+        }
+
+        // Last token(s) might include identifier and/or trailing pointer/reference markers
+        String lastToken = tokens[tokens.length - 1];
+
+        // Check if lastToken has trailing * or & that belongs to type
+        // e.g., in "const char* name", last token after split is "name"
+        // In "int* p", tokens are ["int*", "p"]
+        // In "const char* name", tokens are ["const", "char*", "name"]
+
+        // For safety: if the lastToken starts with a letter/_, it's likely the identifier
+        // Attach any leading * or & to the type instead
+        if (!lastToken.isEmpty() && (Character.isLetter(lastToken.charAt(0)) || lastToken.charAt(0) == '_')) {
+            // lastToken is the identifier, don't include it
+            // But check if there are trailing pointer/reference markers to move to type
+            int i = lastToken.length() - 1;
+            while (i >= 0 && (lastToken.charAt(i) == '*' || lastToken.charAt(i) == '&' || lastToken.charAt(i) == '[' || lastToken.charAt(i) == ']')) {
+                i--;
+            }
+            if (i < lastToken.length() - 1) {
+                // There are trailing markers
+                String markers = lastToken.substring(i + 1);
+                String identifier = lastToken.substring(0, i + 1);
+                // Don't include identifier in type
+                typeParts.add(markers);
+            }
+            // else: no trailing markers, identifier is standalone
+        } else {
+            // Might be part of type (e.g., trailing * or &)
+            typeParts.add(lastToken);
+        }
+
+        return String.join(" ", typeParts).strip();
+    }
+
+    /**
      * Factory method to get or create a CodeUnit instance, ensuring object identity. This prevents duplicate CodeUnit
      * instances for the same logical entity.
      */
@@ -531,6 +724,24 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 || "function_definition".equals(nodeType)
                 || "field_declaration".equals(nodeType)
                 || "parameter_declaration".equals(nodeType);
+    }
+
+    @Override
+    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+        var skeletonType = getSkeletonTypeForCapture(captureName);
+
+        // For functions, append normalized parameter signature to FQN
+        if (skeletonType == SkeletonType.FUNCTION_LIKE) {
+            String paramSignature = extractNormalizedParameterSignature(definitionNode, src);
+            if (!paramSignature.isEmpty()) {
+                return fqName + "(" + paramSignature + ")";
+            }
+            // If no parameters, still append empty parens to distinguish from non-function items
+            return fqName + "()";
+        }
+
+        // For non-function types, return unchanged
+        return fqName;
     }
 
     @Override

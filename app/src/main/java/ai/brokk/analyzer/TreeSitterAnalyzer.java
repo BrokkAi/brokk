@@ -1010,6 +1010,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
 
     /**
+     * Hook for subclasses to enhance the FQN before CodeUnit creation.
+     * Called during analysis with access to the definition node and source code.
+     * Default implementation returns the input FQName unchanged.
+     *
+     * @param fqName the computed FQName
+     * @param captureName the capture name from the query
+     * @param definitionNode the AST node for this definition
+     * @param src the source code
+     * @return enhanced FQName, or input FQName if no enhancement needed
+     */
+    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+        return fqName;
+    }
+
+    /**
      * Determines the package or namespace name for a given definition.
      *
      * @param file           The project file being analyzed.
@@ -1559,6 +1574,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         primaryCaptureName,
                         file.getFileName());
                 continue;
+            }
+
+            // Allow subclasses to enhance the FQN (e.g., C++ function overloads with parameter signatures)
+            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
+            if (!enhancedFqName.equals(cu.fqName())) {
+                // Reconstruct CodeUnit with enhanced FQName
+                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedFqName);
+                log.trace("Enhanced FQName to: {} for overload handling", enhancedFqName);
             }
 
             localCodeUnitsBySymbol
