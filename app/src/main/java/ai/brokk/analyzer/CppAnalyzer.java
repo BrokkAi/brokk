@@ -317,10 +317,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             String fileContent = getCachedFileContent(file);
             TSTree tree = treeOf(file);
             if (tree == null) {
-                // Fallback: parse the file if tree is not cached
-                // This can happen for implementation headers (_impl.h, _inl.h) or when analyzing
-                // corresponding source files before the main analysis pass
-                log.trace("Tree not found in cache for {}. Parsing on-demand.", file);
                 var parser = getSharedParser();
                 tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
             }

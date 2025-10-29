@@ -1211,18 +1211,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
         } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
             // Language-specific duplicate handling says ignore
-            log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
         } else {
             // shouldIgnoreDuplicate returned false - verify it's truly different
             // This handles cases where TreeSitter captures the same function twice
             // (e.g., forward declaration + definition with identical signature)
             if (existingDuplicate.equals(cu)) {
                 // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
-                log.trace("Ignoring true duplicate {} in {} (same signature)", cu.fqName(), file.getFileName());
             } else {
                 // Different CodeUnits (e.g., overloads with different signatures) - add it
                 localTopLevelCUs.add(cu);
-                log.trace("Adding non-duplicate {} in {} (e.g., overload)", cu.fqName(), file.getFileName());
             }
         }
     }
@@ -1588,7 +1585,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!enhancedFqName.equals(cu.fqName())) {
                 // Reconstruct CodeUnit with enhanced FQName
                 cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedFqName);
-                log.trace("Enhanced FQName to: {} for overload handling", enhancedFqName);
             }
 
             localCodeUnitsBySymbol
