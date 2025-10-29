@@ -788,6 +788,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // For functions (including constructors, destructors, and methods), append parameter signature (and qualifiers) to FQN
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
+            // Special-case: ensure destructors have a leading '~' in the symbol name.
+            // Tree-sitter may expose the underlying identifier without the tilde; normalize here.
+            if (CaptureNames.DESTRUCTOR_DEFINITION.equals(captureName) && !fqName.startsWith("~")) {
+                fqName = "~" + fqName;
+            }
+
             String paramSignature = buildCppOverloadSuffix(definitionNode, src);
             String qualifierSuffix = buildCppQualifierSuffix(definitionNode, src);
 
