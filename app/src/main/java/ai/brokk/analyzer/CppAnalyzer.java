@@ -809,8 +809,16 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Extracts method-level qualifiers (const/ref/noexcept) that should form part of overload identity.
-     * Returns a trimmed suffix such as "const", "&", "noexcept", or combinations ("const noexcept"), or empty string.
+     * Extracts method-level qualifiers (const/volatile/ref/noexcept) that should form part of overload identity.
+     * Captures full qualifier identity including complete noexcept expressions.
+     *
+     * Returns a trimmed suffix such as "const", "volatile", "&", "&&", "noexcept", "noexcept(expr)",
+     * or combinations in order ("const volatile && noexcept(true)"), or empty string if none found.
+     *
+     * The method parses the declarator tail (from parameters end to declarator end) to extract:
+     * - const and volatile keywords (using word boundaries to avoid false matches)
+     * - reference qualifiers (&& has precedence over &)
+     * - complete noexcept clause (including optional parenthesized condition)
      */
     private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
@@ -828,16 +836,140 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int tailEnd = decl.getEndByte();
         if (tailStart >= tailEnd) return "";
 
-        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd);
+        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd).strip();
+        if (tail.isEmpty()) return "";
+
         var quals = new ArrayList<String>();
+        var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
 
-        if (tail.contains("const")) quals.add("const");
-        // Prefer && over & when both present
-        if (tail.contains("&&")) quals.add("&&");
-        else if (tail.contains("&")) quals.add("&");
-        if (tail.contains("noexcept")) quals.add("noexcept");
+        // Extract const qualifier (word boundary aware)
+        if (hasKeywordWithBoundary(tail, "const") && addedQualTypes.add("const")) {
+            quals.add("const");
+        }
 
-        return String.join(" ", quals).strip();
+        // Extract volatile qualifier (word boundary aware)
+        if (hasKeywordWithBoundary(tail, "volatile") && addedQualTypes.add("volatile")) {
+            quals.add("volatile");
+        }
+
+        // Extract reference qualifier: && takes precedence over & (check && first)
+        if (tail.contains("&&")) {
+            if (addedQualTypes.add("&&")) {
+                quals.add("&&");
+            }
+        } else if (tail.contains("&")) {
+            if (addedQualTypes.add("&")) {
+                quals.add("&");
+            }
+        }
+
+        // Extract full noexcept clause (including optional parenthesized condition)
+        String noexceptClause = extractNoexceptClause(tail);
+        if (!noexceptClause.isEmpty() && addedQualTypes.add("noexcept")) {
+            quals.add(noexceptClause);
+        }
+
+        if (quals.isEmpty()) {
+            return "";
+        }
+
+        String result = String.join(" ", quals).strip();
+        if (log.isDebugEnabled()) {
+            log.debug("Extracted qualifier suffix '{}' from declarator tail: {}", result, tail);
+        }
+        return result;
+    }
+
+    /**
+     * Checks if a keyword exists in text with word boundaries (not as part of a longer identifier).
+     * This prevents false matches like "const" matching inside "constexpr".
+     *
+     * @param text the text to search
+     * @param keyword the keyword to find
+     * @return true if the keyword is found as a standalone word
+     */
+    private boolean hasKeywordWithBoundary(String text, String keyword) {
+        var pattern = java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(keyword) + "\\b");
+        return pattern.matcher(text).find();
+    }
+
+    /**
+     * Extracts the full noexcept clause from a string, including optional parenthesized expressions.
+     *
+     * Handles patterns:
+     * - "noexcept" -> "noexcept"
+     * - "noexcept(true)" -> "noexcept(true)"
+     * - "noexcept(false)" -> "noexcept(false)"
+     * - "noexcept(some_expr)" -> "noexcept(some_expr)"
+     * - "noexcept()" -> "noexcept()"
+     * - Multiple spaces and formatting variations
+     *
+     * Uses word-boundary matching to avoid false positives and parenthesis depth tracking
+     * to correctly extract nested expressions.
+     *
+     * @param text the tail string to search for noexcept
+     * @return the complete noexcept clause (with normalized spacing), or empty string if not found
+     */
+    private String extractNoexceptClause(String text) {
+        // Use word boundary to find "noexcept" as standalone keyword
+        var pattern = java.util.regex.Pattern.compile("\\bnoexcept\\b");
+        var matcher = pattern.matcher(text);
+
+        if (!matcher.find()) {
+            return "";
+        }
+
+        int startIdx = matcher.start();
+        int endIdx = matcher.end();
+
+        // Skip any whitespace between "noexcept" and potential opening parenthesis
+        while (endIdx < text.length() && Character.isWhitespace(text.charAt(endIdx))) {
+            endIdx++;
+        }
+
+        // Check if there's a parenthesized expression immediately following
+        if (endIdx < text.length() && text.charAt(endIdx) == '(') {
+            // Find matching closing parenthesis using depth tracking
+            int parenDepth = 0;
+            int i = endIdx;
+            int closeParenIdx = -1;
+
+            while (i < text.length()) {
+                char ch = text.charAt(i);
+                if (ch == '(') {
+                    parenDepth++;
+                } else if (ch == ')') {
+                    parenDepth--;
+                    if (parenDepth == 0) {
+                        closeParenIdx = i;
+                        break;
+                    }
+                }
+                i++;
+            }
+
+            // If matching closing paren found, include it; otherwise just return "noexcept"
+            if (closeParenIdx >= 0) {
+                endIdx = closeParenIdx + 1;
+            } else {
+                // Mismatched parens; just return the keyword
+                endIdx = matcher.end();
+            }
+        } else {
+            // No parentheses; just return "noexcept"
+            endIdx = matcher.end();
+        }
+
+        String clause = text.substring(startIdx, endIdx).strip();
+
+        // Normalize internal spacing (remove spaces around parentheses and inside)
+        clause = clause.replaceAll("\\s*\\(\\s*", "(").replaceAll("\\s*\\)\\s*", ")");
+
+        if (log.isDebugEnabled()) {
+            log.debug("Extracted noexcept clause '{}' from text", clause);
+        }
+
+        return clause;
     }
 
     @Override
