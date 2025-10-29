@@ -258,7 +258,7 @@ public class GitRepoWorktrees {
         try {
             // Try to run a simple git command to check if git executable is available and working
             Environment.instance.runShellCommand(
-                    "git --version", repo.getGitTopLevel(), output -> {}, Environment.GIT_TIMEOUT);
+                    "git --version", repo.getProjectRoot(), output -> {}, Environment.GIT_TIMEOUT);
             return true;
         } catch (Environment.SubprocessException e) {
             // This typically means git command failed, e.g., not found or permission issue

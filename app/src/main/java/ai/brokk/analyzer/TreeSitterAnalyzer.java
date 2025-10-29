@@ -132,7 +132,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     protected record AnalyzerState(
             PMap<String, List<CodeUnit>> symbolIndex,
-            PMap<ProjectFile, TSTree> parsedTreeCache,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
@@ -266,7 +265,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var timing = ConstructionTiming.create();
         // Local mutable maps to accumulate analysis results, then snapshotted into immutable PMaps
         var localSymbolIndex = new ConcurrentHashMap<String, List<CodeUnit>>();
-        var localParsedTreeCache = new ConcurrentHashMap<ProjectFile, TSTree>();
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
         List<CompletableFuture<?>> futures = new ArrayList<>();
@@ -290,7 +288,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         analysisResult,
                                         timing,
                                         localSymbolIndex,
-                                        localParsedTreeCache,
                                         localCodeUnitState,
                                         localFileState),
                                 ingestExecutor)
@@ -335,7 +332,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         this.state = new AnalyzerState(
                 HashTreePMap.from(localSymbolIndex),
-                HashTreePMap.from(localParsedTreeCache),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
@@ -437,8 +433,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     public void clearCaches() {
         var current = this.state;
-        // Drop parsed trees and null them inside FileProperties
-        var newParsed = HashTreePMap.<ProjectFile, TSTree>empty();
+        // Drop parsed trees by nulling them inside FileProperties
         var newFileState = current.fileState().entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
@@ -448,19 +443,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 e.getValue().importStatements())));
         this.state = new AnalyzerState(
                 current.symbolIndex(),
-                newParsed,
                 current.codeUnitState(),
                 HashTreePMap.from(newFileState),
                 current.symbolKeyIndex(),
                 current.snapshotEpochNanos());
-    }
-
-    /**
-     * The number of cached AST entries.
-     */
-    public int cacheSize() {
-        var current = this.state;
-        return current.parsedTreeCache().size();
     }
 
     /**
@@ -998,18 +984,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Returns the cached parsed tree for the given file if available, or null if not cached. This method allows
-     * subclasses to reuse already-parsed trees instead of re-parsing files.
-     *
-     * @param file The project file to get the cached tree for
-     * @return The cached TSTree, or null if not available
-     */
-    protected @Nullable TSTree getCachedTree(ProjectFile file) {
-        var current = this.state;
-        return current == null ? null : current.parsedTreeCache().get(file);
-    }
-
-    /**
      * Provides the language-specific syntax profile.
      */
     protected abstract LanguageSyntaxProfile getLanguageSyntaxProfile();
@@ -1126,6 +1100,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
+
+        // Check if file is binary early and skip processing if so
+        if (BrokkFile.isBinary(src)) {
+            log.debug("Skipping binary file: {}", file);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
+        }
+
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
@@ -2608,7 +2589,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             FileAnalysisResult analysisResult,
             @Nullable ConstructionTiming timing,
             Map<String, List<CodeUnit>> targetSymbolIndex,
-            Map<ProjectFile, TSTree> targetParsedTreeCache,
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
             Map<ProjectFile, FileProperties> targetFileState) {
         if (analysisResult.topLevelCUs().isEmpty()
@@ -2668,8 +2648,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             });
         });
 
-        // Update parsed tree and file state
-        targetParsedTreeCache.put(pf, analysisResult.parsedTree());
+        // Update file state
         targetFileState.put(
                 pf,
                 new FileProperties(
@@ -2709,7 +2688,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         final var base = this.state;
         var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
-        var newParsedTreeCache = new ConcurrentHashMap<>(base.parsedTreeCache());
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
 
@@ -2724,7 +2702,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
                             // Remove old entries for this file
                             Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
-                            newParsedTreeCache.remove(file);
                             newFileState.remove(file);
                             // Purge CodeUnitState entries for this file and prune children lists
                             newCodeUnitState.keySet().removeIf(fromFile);
@@ -2757,13 +2734,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     byte[] bytes = readFileBytes(file, null);
                                     var analysisResult = analyzeFileContent(file, bytes, parser, null);
                                     mergeAnalysisResultIntoMaps(
-                                            file,
-                                            analysisResult,
-                                            null,
-                                            newSymbolIndex,
-                                            newParsedTreeCache,
-                                            newCodeUnitState,
-                                            newFileState);
+                                            file, analysisResult, null, newSymbolIndex, newCodeUnitState, newFileState);
                                     reanalyzedCount.incrementAndGet();
                                 } catch (UncheckedIOException e) {
                                     log.warn("IO error re-analysing {}: {}", file, e.getMessage());
@@ -2794,7 +2765,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         var nextState = new AnalyzerState(
                 HashTreePMap.from(newSymbolIndex),
-                HashTreePMap.from(newParsedTreeCache),
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 nextSymbolKeyIndex,
@@ -2837,9 +2807,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 })
                 .collect(Collectors.toSet());
 
-        // Snapshot known files (those we've analyzed/cached)
+        // Snapshot known files (those we've analyzed)
         var current = this.state;
-        Set<ProjectFile> knownFiles = new HashSet<>(current.parsedTreeCache().keySet());
+        Set<ProjectFile> knownFiles = new HashSet<>(current.fileState().keySet());
 
         Set<ProjectFile> changed = new HashSet<>();
         long last = lastUpdateEpochNanos.get();

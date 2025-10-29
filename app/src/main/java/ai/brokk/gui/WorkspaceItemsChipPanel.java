@@ -79,6 +79,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     handleBlankSpaceRightClick(e);
                 }
             }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                // Clear hover state when mouse leaves the entire panel
+                applyGlobalStyling(Set.of());
+            }
         });
     }
 

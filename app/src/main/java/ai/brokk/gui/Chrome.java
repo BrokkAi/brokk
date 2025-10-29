@@ -342,7 +342,7 @@ public class Chrome
 
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager, this.testRunnerPanel);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
@@ -486,6 +486,23 @@ public class Chrome
                     }
                 });
             }
+        }
+
+        // --- New top-level Tests panel (always last) ---
+        {
+            var testsIcon = Icons.PLAY;
+            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
+            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+            var testsShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_8));
+            var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
+            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
+            testsTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(testsTabIdx);
+                }
+            });
         }
 
         /*
@@ -1360,6 +1377,20 @@ public class Chrome
             });
         }
 
+        // Alt/Cmd+8 for Tests panel
+        if (testRunnerPanel != null) {
+            KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
+                    "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_8));
+            bindKey(rootPane, switchToTests, "switchToTests");
+            rootPane.getActionMap().put("switchToTests", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
         // Drawer navigation shortcuts
         // Cmd/Ctrl+Shift+T => toggle terminal drawer
         KeyStroke toggleTerminalDrawerKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1740,7 +1771,7 @@ public class Chrome
             }
 
             // Set a minimum width for preview windows to ensure search controls work properly
-            previewFrame.setMinimumSize(new Dimension(400, 200));
+            previewFrame.setMinimumSize(new Dimension(700, 200));
 
             // Add listener to save bounds using the "preview" key
             final JFrame finalFrameForBounds = previewFrame;
@@ -1790,6 +1821,11 @@ public class Chrome
 
         // Add content component (for both new and reused windows)
         previewFrame.add(contentComponent, BorderLayout.CENTER);
+
+        // Apply theme to ThemeAware components after they're added to the window
+        if (contentComponent instanceof ThemeAware themeAware) {
+            themeAware.applyTheme(themeManager);
+        }
 
         // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
         // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
@@ -2608,6 +2644,10 @@ public class Chrome
         return dependenciesPanel;
     }
 
+    public TestRunnerPanel getTestRunnerPanel() {
+        return testRunnerPanel;
+    }
+
     // --- New helpers for Git tabs moved into Chrome ---
 
     public void updateLogTab() {
@@ -3406,28 +3446,6 @@ public class Chrome
     }
 
     /**
-     * Updates the git tab badge with the current number of modified files. Should be called whenever the git status
-     * changes. This version fetches the count itself and should only be used when the count is not already available.
-     */
-    public void updateGitTabBadge() {
-        if (gitTabBadgedIcon == null) {
-            return; // No git support
-        }
-
-        // Fetch the modified count off-EDT to avoid blocking UI
-        contextManager.submitBackgroundTask("Updating git badge", () -> {
-            try {
-                int modifiedCount = (gitCommitTab == null) ? 0 : gitCommitTab.getThreadSafeCachedModifiedFileCount();
-                SwingUtilities.invokeLater(() -> updateGitTabBadge(modifiedCount));
-            } catch (Exception e) {
-                logger.warn("Error getting modified file count for badge: {}", e.getMessage());
-                SwingUtilities.invokeLater(() -> updateGitTabBadge(0));
-            }
-            return null;
-        });
-    }
-
-    /**
      * Refresh the branch selector UI hosted in Chrome. Safe to call from any thread.
      *
      * @param branchName the branch name to display (may be null/blank)
@@ -3635,6 +3653,18 @@ public class Chrome
 
         int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
         mainVerticalSplitPane.setDividerLocation(safeDivider);
+    }
+
+    /**
+     * Get the list of uncommitted modified files from GCT's cache.
+     * No repo call needed—uses the already-computed list from GitCommitTab.
+     * Safe to call from any thread.
+     */
+    public List<ProjectFile> getModifiedFiles() {
+        if (gitCommitTab == null) {
+            return List.of();
+        }
+        return gitCommitTab.getModifiedFiles();
     }
 
     /**

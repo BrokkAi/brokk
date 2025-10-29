@@ -14,7 +14,9 @@ import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
@@ -65,7 +67,7 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class BrokkDiffPanel extends JPanel implements ThemeAware {
+public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -93,6 +95,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
     private final int initialFileIndex;
+    private final boolean forceFileTree;
 
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
@@ -156,6 +159,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.initialFileIndex = builder.initialFileIndex;
+        this.forceFileTree = builder.forceFileTree;
 
         // Initialize blame service if we have a git repo
         if (contextManager.getProject().getRepo() instanceof GitRepo gitRepo) {
@@ -177,9 +181,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         fileTreePanel = new FileTreePanel(
                 this.fileComparisons, contextManager.getProject().getRoot(), builder.rootTitle);
 
-        // Create split pane with file tree on left and tabs on right (only if multiple files)
+        // Create split pane with file tree on left and tabs on right (if multiple files or multi-file-only mode)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.setMinimumSize(new Dimension(200, 0)); // Prevent file tree from becoming too small
             mainSplitPane.setLeftComponent(fileTreePanel);
             mainSplitPane.setRightComponent(tabbedPane);
@@ -193,8 +197,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             mainSplitPane.setEnabled(false); // Disable resizing
         }
 
-        // Set up tree selection listener (only if multiple files)
-        if (fileComparisons.size() > 1) {
+        // Set up tree selection listener (if multiple files or multi-file-only mode)
+        if (showFileTree()) {
             fileTreePanel.setSelectionListener(this::switchToFile);
         }
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
@@ -203,7 +207,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             public void ancestorAdded(AncestorEvent event) {
                 start();
                 // Initialize file tree after panel is added to UI
-                if (fileComparisons.size() > 1) {
+                if (showFileTree()) {
                     fileTreePanel.initializeTree();
                 }
             }
@@ -271,6 +275,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         revalidate();
     }
 
+    private boolean showFileTree() {
+        return forceFileTree || fileComparisons.size() > 1;
+    }
+
     // Builder Class
     public static class Builder {
         private final GuiTheme theme;
@@ -278,6 +286,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         private final List<FileComparisonInfo> fileComparisons;
         private boolean isMultipleCommitsContext = false;
         private int initialFileIndex = 0;
+        private boolean forceFileTree = false;
 
         @Nullable
         private String rootTitle;
@@ -326,6 +335,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         public Builder setInitialFileIndex(int initialFileIndex) {
             this.initialFileIndex = initialFileIndex;
+            return this;
+        }
+
+        public Builder setForceFileTree(boolean forceFileTree) {
+            this.forceFileTree = forceFileTree;
             return this;
         }
 
@@ -383,6 +397,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 this, zoomOutKeyStroke, "decreaseFontSize", this::decreaseEditorFont);
         KeyboardShortcutUtil.registerGlobalShortcut(this, resetZoomKeyStroke, "resetFontSize", this::resetEditorFont);
 
+        // Initialize font index from saved settings BEFORE creating panels
+        // This ensures hasExplicitFontSize() returns true when panels apply themes
+        ensureFontIndexInitialized();
+
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
@@ -414,15 +432,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton captureDiffButton = new MaterialButton();
 
     // Font size adjustment buttons
-    private final MaterialButton btnDecreaseFont = new MaterialButton();
-    private final MaterialButton btnResetFont = new MaterialButton();
-    private final MaterialButton btnIncreaseFont = new MaterialButton();
+    private MaterialButton btnDecreaseFont;
+    private MaterialButton btnResetFont;
+    private MaterialButton btnIncreaseFont;
 
-    // Editor font size state with predefined sizes (standard sizes with 2pt minimum increments)
-    private static final float[] FONT_SIZES = {8f, 10f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f};
-    private static final int DEFAULT_FONT_INDEX = 2; // 12f
-    private static final float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES[DEFAULT_FONT_INDEX];
+    // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
+
+    @Override
+    public int getCurrentFontIndex() {
+        return currentFontIndex;
+    }
+
+    @Override
+    public void setCurrentFontIndex(int index) {
+        this.currentFontIndex = index;
+    }
 
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
@@ -844,45 +869,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
 
         // Font size controls (positioned before capture button)
-        var zoomOutKs = GlobalUiSettings.getKeybinding(
-                "view.zoomOut",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        var resetZoomKs = GlobalUiSettings.getKeybinding(
-                "view.resetZoom",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        var zoomInKs = GlobalUiSettings.getKeybinding(
-                "view.zoomIn",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-
-        btnDecreaseFont.setText("A");
-        btnDecreaseFont.setFont(new Font(btnDecreaseFont.getFont().getName(), Font.PLAIN, 10));
-        btnDecreaseFont.setToolTipText(
-                "Decrease editor font size (" + KeyboardShortcutUtil.formatKeyStroke(zoomOutKs) + ")");
-        btnDecreaseFont.setBorderPainted(false);
-        btnDecreaseFont.setContentAreaFilled(false);
-        btnDecreaseFont.setFocusPainted(false);
-        btnDecreaseFont.addActionListener(e -> decreaseEditorFont());
-
-        btnResetFont.setText("A");
-        btnResetFont.setFont(new Font(btnResetFont.getFont().getName(), Font.PLAIN, 14));
-        btnResetFont.setToolTipText(
-                "Reset editor font size (" + KeyboardShortcutUtil.formatKeyStroke(resetZoomKs) + ")");
-        btnResetFont.setBorderPainted(false);
-        btnResetFont.setContentAreaFilled(false);
-        btnResetFont.setFocusPainted(false);
-        btnResetFont.addActionListener(e -> resetEditorFont());
-
-        btnIncreaseFont.setText("A");
-        btnIncreaseFont.setFont(new Font(btnIncreaseFont.getFont().getName(), Font.PLAIN, 18));
-        btnIncreaseFont.setToolTipText(
-                "Increase editor font size (" + KeyboardShortcutUtil.formatKeyStroke(zoomInKs) + ")");
-        btnIncreaseFont.setBorderPainted(false);
-        btnIncreaseFont.setContentAreaFilled(false);
-        btnIncreaseFont.setFocusPainted(false);
-        btnIncreaseFont.addActionListener(e -> increaseEditorFont());
+        // Create font size control buttons using interface methods
+        btnDecreaseFont = createDecreaseFontButton(this::decreaseEditorFont);
+        btnResetFont = createResetFontButton(this::resetEditorFont);
+        btnIncreaseFont = createIncreaseFontButton(this::increaseEditorFont);
 
         toolBar.add(btnDecreaseFont);
         toolBar.add(Box.createHorizontalStrut(4));
@@ -977,7 +967,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
 
         // Update per-file dirty indicators in the file tree (only when multiple files are shown)
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             var dirty = new HashSet<Integer>();
 
             // Current (visible) file (only if it's a BufferDiffPanel)
@@ -1245,7 +1235,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         loadFileOnDemand(currentFileIndex);
 
         // Select the initial file in the tree (only if multiple files)
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.selectFile(currentFileIndex);
         }
     }
@@ -1402,12 +1392,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
-        // Ensure currentFontIndex is initialized (lazily) from the visible editor before applying it.
-        // This probes the panel's editor for a realistic starting font size (fallback handled internally).
-        ensureEditorFontSizeInitialized(cachedPanel);
+        // Ensure currentFontIndex is initialized from saved font size or default
+        ensureFontIndexInitialized();
         // Apply current editor font size to the panel so theme application doesn't override it
-        if (currentFontIndex >= 0) {
-            applySizeToSinglePanel(cachedPanel, FONT_SIZES[currentFontIndex]);
+        if (getCurrentFontIndex() >= 0) {
+            applySizeToSinglePanel(cachedPanel, FONT_SIZES[getCurrentFontIndex()]);
         }
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
@@ -1667,12 +1656,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         // Apply theme to file tree panel (only if multiple files)
-        if (fileComparisons.size() > 1) {
+        if (showFileTree()) {
             fileTreePanel.applyTheme(guiTheme);
         }
 
-        // Update all child components including toolbar buttons and labels
-        SwingUtilities.updateComponentTreeUI(this);
+        // Update all child components including toolbar buttons and labels while preserving fonts
+        guiTheme.updateComponentTreeUIPreservingFonts(this);
         revalidate();
         repaint();
     }
@@ -1914,64 +1903,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         System.gc();
     }
 
-    /** Find the closest font size index for a given font size. */
-    private static int findClosestFontIndex(float targetSize) {
-        int closestIndex = DEFAULT_FONT_INDEX;
-        float minDiff = Math.abs(FONT_SIZES[DEFAULT_FONT_INDEX] - targetSize);
-
-        for (int i = 0; i < FONT_SIZES.length; i++) {
-            float diff = Math.abs(FONT_SIZES[i] - targetSize);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closestIndex = i;
-            }
-        }
-        return closestIndex;
-    }
-
-    /**
-     * Lazily initialize the currentFontIndex from saved font size, then from a panel or component if not saved. Accepts
-     * either an IDiffPanel (preferred) or any Component (e.g., AbstractContentPanel is a Component). If no saved font
-     * size and no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
-     */
-    private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
-        if (currentFontIndex >= 0) return;
-
-        // Try to load from saved font size first
-        float savedFontSize = GlobalUiSettings.getDiffFontSize();
-        if (savedFontSize > 0) {
-            currentFontIndex = findClosestFontIndex(savedFontSize);
-            return;
-        }
-
-        float size = DEFAULT_FALLBACK_FONT_SIZE;
-
-        Component comp = null;
-        try {
-            if (panelOrComponent instanceof IDiffPanel idp) {
-                comp = idp.getComponent();
-            } else if (panelOrComponent instanceof Component c) {
-                comp = c;
-            }
-            if (comp != null) {
-                var editorOpt = findEditorInComponent(comp);
-                if (editorOpt.isPresent()) {
-                    try {
-                        size = editorOpt.get().getFont().getSize2D();
-                    } catch (Exception ignored) {
-                        // ignore and use fallback
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Defensive: don't let any unexpected runtime errors prevent initialization
-            logger.debug("Failed to derive editor font size from component", e);
-        }
-
-        // Find closest index
-        currentFontIndex = findClosestFontIndex(size);
-    }
-
     /**
      * Apply a specific font size to a single panel's editors and gutters. Handles UnifiedDiffPanel, BufferDiffPanel,
      * and generic panels with comprehensive logic.
@@ -1986,6 +1917,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Special-case UnifiedDiffPanel: use its public getters for reliable access
         if (panel instanceof UnifiedDiffPanel up) {
             try {
+                // Apply theme preserving font before setting size
+                if (theme != null) {
+                    theme.applyThemePreservingFont(up.getTextArea());
+                }
                 setEditorFont(up.getTextArea(), size);
             } catch (Exception e) {
                 logger.debug("Unified text area update failed", e);
@@ -2026,15 +1961,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Apply font size from current index to every visible code editor and gutter (cached panels + visible panel). This
-     * is the central helper for immediately applying font changes across all panels.
+     * Apply font size from current index to every visible code editor and gutter (cached panels + visible panel).
      */
-    private void applyEditorFontSize() {
-        if (currentFontIndex < 0) return;
+    private void applyAllEditorFontSizes() {
+        if (getCurrentFontIndex() < 0) return;
 
-        float fontSize = FONT_SIZES[currentFontIndex];
-        // Save the actual font size
-        GlobalUiSettings.saveDiffFontSize(fontSize);
+        float fontSize = FONT_SIZES[getCurrentFontIndex()];
+        GlobalUiSettings.saveEditorFontSize(fontSize);
 
         // Apply to cached panels
         for (var p : panelCache.nonNullValues()) {
@@ -2054,58 +1987,28 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
         }
 
-        // Force a UI refresh
         SwingUtilities.invokeLater(() -> {
             revalidate();
             repaint();
         });
     }
 
-    /** Increase font size to next preset size and apply to cached/current panels. */
-    private void increaseEditorFont() {
-        var panel = getCurrentContentPanel();
-        ensureEditorFontSizeInitialized(panel);
-        if (currentFontIndex >= FONT_SIZES.length - 1) return; // Already at maximum
-        currentFontIndex++;
-        applyEditorFontSize();
+    /** Increase font size using interface method, then apply to all panels. */
+    public void increaseEditorFont() {
+        EditorFontSizeControl.super.increaseEditorFont();
+        applyAllEditorFontSizes();
     }
 
-    /** Decrease font size to previous preset size and apply to cached/current panels. */
-    private void decreaseEditorFont() {
-        var panel = getCurrentContentPanel();
-        ensureEditorFontSizeInitialized(panel);
-        if (currentFontIndex <= 0) return; // Already at minimum
-        currentFontIndex--;
-        applyEditorFontSize();
+    /** Decrease font size using interface method, then apply to all panels. */
+    public void decreaseEditorFont() {
+        EditorFontSizeControl.super.decreaseEditorFont();
+        applyAllEditorFontSizes();
     }
 
-    /** Reset font size to default and apply to cached/current panels. */
-    private void resetEditorFont() {
-        var panel = getCurrentContentPanel();
-        ensureEditorFontSizeInitialized(panel);
-        if (currentFontIndex == DEFAULT_FONT_INDEX) return; // Already at default
-        currentFontIndex = DEFAULT_FONT_INDEX;
-        applyEditorFontSize();
-    }
-
-    /**
-     * Set the font for an editor and update its syntax scheme while preserving colors.
-     *
-     * @param editor The editor to update
-     * @param size The font size to apply
-     */
-    private void setEditorFont(RSyntaxTextArea editor, float size) {
-        try {
-            Font base = editor.getFont();
-            Font newFont =
-                    (base != null) ? base.deriveFont(size) : editor.getFont().deriveFont(size);
-            editor.setFont(newFont);
-            updateSyntaxSchemeFonts(editor, newFont);
-            editor.revalidate();
-            editor.repaint();
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to editor", ex);
-        }
+    /** Reset font size using interface method, then apply to all panels. */
+    public void resetEditorFont() {
+        EditorFontSizeControl.super.resetEditorFont();
+        applyAllEditorFontSizes();
     }
 
     /**
@@ -2175,28 +2078,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Update all token styles in the syntax scheme to use the new font while preserving colors. This ensures consistent
-     * font sizing across all syntax elements (keywords, identifiers, etc.).
-     */
-    private void updateSyntaxSchemeFonts(RSyntaxTextArea editor, Font newFont) {
-        try {
-            var scheme = editor.getSyntaxScheme();
-            if (scheme == null) return;
-
-            // Update font for each token type style while preserving colors
-            for (int i = 0; i < scheme.getStyleCount(); i++) {
-                var style = scheme.getStyle(i);
-                if (style != null && style.font != null) {
-                    // Preserve font style (bold, italic) but use new size
-                    int fontStyle = style.font.getStyle();
-                    style.font = newFont.deriveFont(fontStyle);
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("Could not update syntax scheme fonts", ex);
-        }
-    }
+    // updateSyntaxSchemeFonts and setEditorFont delegated to EditorFontSizeControl interface
 
     /** Recursively search the component tree for the first RSyntaxTextArea instance and return it. */
     private Optional<RSyntaxTextArea> findEditorInComponent(Component c) {
@@ -2737,4 +2619,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Refresh the current file with the new view mode (skip loading UI since we already have the data)
         loadFileOnDemand(currentFileIndex, true);
     }
+
+    // FontSizeAware implementation uses default methods from interface
 }

@@ -231,24 +231,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         applyGlobalStyling(Set.copyOf(targets));
     }
 
-    /**
-     * Highlight the segment corresponding to the given fragment.
-     * If the fragment belongs to a grouped segment, that segment is highlighted.
-     */
-    public void highlightForFragment(ContextFragment fragment, boolean entered) {
-        if (entered) {
-            // Find the segment containing this fragment
-            for (var seg : segments) {
-                if (seg.fragments.contains(fragment)) {
-                    applyGlobalStyling(seg.fragments);
-                    return;
-                }
-            }
-        } else {
-            applyGlobalStyling(Set.of());
-        }
-    }
-
     public void setMaxTokens(int max) {
         this.maxTokens = Math.max(1, max);
         repaint();
@@ -310,12 +292,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             setEnabled(!readOnly);
             repaint();
         });
-    }
-
-    public void setWarningLevel(WarningLevel level, @Nullable Service.ModelConfig config) {
-        this.warningLevel = level;
-        this.modelConfig = config;
-        repaint();
     }
 
     @Nullable
@@ -380,10 +356,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     @Override
-    public Point getToolTipLocation(MouseEvent event) {
+    public @Nullable Point getToolTipLocation(MouseEvent event) {
         try {
             String text = getToolTipText(event);
-            if (text == null || text.isEmpty()) {
+            if (text.isEmpty()) {
                 return null; // default behavior if no tooltip
             }
 
@@ -735,11 +711,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             double rw = (tokensSummaries * 1.0 / totalTokens) * effectiveFill;
             int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
             items.add(new AllocItem(null, false, true, tokensSummaries, rw, min));
-        }
-
-        if (items.isEmpty()) {
-            this.segments = List.of();
-            return this.segments;
         }
 
         // Largest-remainder with min width clamping

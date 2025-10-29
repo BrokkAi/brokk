@@ -6,7 +6,6 @@ import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
-import ai.brokk.gui.tests.TestRunnerPanel;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import java.awt.*;
@@ -44,15 +43,12 @@ public class ProjectFilesPanel extends JPanel {
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
-    private final TestRunnerPanel testRunnerPanel;
-    private final JSplitPane splitPane;
 
-    public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, TestRunnerPanel testRunnerPanel) {
+    public ProjectFilesPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.project = contextManager.getProject();
-        this.testRunnerPanel = testRunnerPanel;
 
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -83,13 +79,7 @@ public class ProjectFilesPanel extends JPanel {
         // add(treeScrollPane, BorderLayout.CENTER);
         var projectTreeScrollPane = new JScrollPane(projectTree);
         updateBorderTitle(); // Set initial title with branch name
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, projectTreeScrollPane, this.testRunnerPanel);
-        splitPane.setResizeWeight(0.7);
-        splitPane.setBorder(BorderFactory.createEmptyBorder());
-        splitPane.setOneTouchExpandable(false);
-        splitPane.setMinimumSize(new Dimension(100, 200));
-        this.testRunnerPanel.setMinimumSize(new Dimension(100, 200));
-        add(splitPane, BorderLayout.CENTER);
+        add(projectTreeScrollPane, BorderLayout.CENTER);
     }
 
     private void updateBorderTitle() {
@@ -312,6 +302,7 @@ public class ProjectFilesPanel extends JPanel {
     private void refreshProjectFiles() {
         projectTree.onTrackedFilesChanged();
         updateBorderTitle(); // Refresh title in case branch changed
+        chrome.updateCommitPanel();
     }
 
     /** Updates the panel to reflect the current project state, including branch name in title. */

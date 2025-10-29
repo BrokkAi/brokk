@@ -13,6 +13,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.FrozenFragment;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -177,11 +178,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
-    // Diff caching
-    private final Map<UUID, List<Context.DiffEntry>> diffCache = new ConcurrentHashMap<>();
-    private final Set<UUID> diffInFlight = ConcurrentHashMap.newKeySet();
-    private Map<UUID, Context> previousContextMap = new HashMap<>();
-
     @Nullable
     private String lastSpinnerMessage = null; // Explicitly initialize
 
@@ -212,7 +208,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Constructs a new HistoryOutputPane.
      *
-     * @param chrome The parent Chrome instance
+     * @param chrome         The parent Chrome instance
      * @param contextManager The context manager
      */
     public HistoryOutputPanel(Chrome chrome, ContextManager contextManager) {
@@ -383,7 +379,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         var activityTabs = new JTabbedPane(JTabbedPane.TOP);
         activityTabs.addTab("Activity", activityPanel);
-        activityTabs.setMinimumSize(new Dimension(230, 0));
+        activityTabs.setMinimumSize(new Dimension(250, 0));
         activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
 
         // Create center container with both tab panels
@@ -476,11 +472,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return centerContainer;
     }
 
-    /** Builds the Sessions panel container (temporary until removal).
-     *
-     *  Note: The "New Session" control has been relocated to the Output panel bar (east side).
-     *  The session name label is shown under the Output section title.
-     *  This panel currently does not render the new session control to avoid duplication.
+    /**
+     * Builds the Sessions panel container (temporary until removal).
+     * <p>
+     * Note: The "New Session" control has been relocated to the Output panel bar (east side).
+     * The session name label is shown under the Output section title.
+     * This panel currently does not render the new session control to avoid duplication.
      */
     private JPanel buildSessionControlsPanel(JLabel sessionNameLabel, SplitButton newSessionButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
@@ -550,6 +547,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Integrator note: When sessions are created/deleted/renamed externally, call
     // HistoryOutputPanel.updateSessionComboBox() to keep the compact session label
     // and popup list synchronized.
+
     /**
      * Refresh the compact session label and (if present) the sessions popup list model.
      *
@@ -622,7 +620,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         historyTable.setTableHeader(null);
 
         // Set up custom renderers for history table columns
-        historyTable.getColumnModel().getColumn(0).setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
+        historyTable.getColumnModel().getColumn(0).setCellRenderer(new IndentedIconRenderer());
         historyTable.getColumnModel().getColumn(1).setCellRenderer(new DiffAwareActionRenderer());
 
         // Add selection listener to preview context (ignore group header rows)
@@ -686,9 +684,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
 
         // Adjust column widths - set emoji column width and hide the context object column
-        historyTable.getColumnModel().getColumn(0).setPreferredWidth(30);
-        historyTable.getColumnModel().getColumn(0).setMinWidth(30);
-        historyTable.getColumnModel().getColumn(0).setMaxWidth(30);
+        // Increase to 44 to accommodate one indent level (~15px) + possibly 24px themed icon, ensuring no clipping.
+        historyTable.getColumnModel().getColumn(0).setPreferredWidth(38);
+        historyTable.getColumnModel().getColumn(0).setMinWidth(38);
+        historyTable.getColumnModel().getColumn(0).setMaxWidth(38);
         historyTable.getColumnModel().getColumn(1).setPreferredWidth(150);
         historyTable.getColumnModel().getColumn(2).setMinWidth(0);
         historyTable.getColumnModel().getColumn(2).setMaxWidth(0);
@@ -745,7 +744,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Calculate preferred width for the history panel
         // Table width (30 + 150) + scrollbar (~20) + padding = ~210
         // Button width (100 + 100 + 5) + padding = ~215
-        int preferredWidth = 230; // Give a bit more room
+        int preferredWidth = 250; // Give a bit more room
         var preferredSize = new Dimension(preferredWidth, panel.getPreferredSize().height);
         panel.setPreferredSize(preferredSize);
         panel.setMinimumSize(preferredSize);
@@ -831,11 +830,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         undoToHereItem.addActionListener(event -> undoHistoryUntil(context));
         popup.add(undoToHereItem);
 
-        JMenuItem resetToHereItem = new JMenuItem("Copy Workspace");
+        JMenuItem resetToHereItem = new JMenuItem("Copy Context");
         resetToHereItem.addActionListener(event -> resetContextTo(context));
         popup.add(resetToHereItem);
 
-        JMenuItem resetToHereIncludingHistoryItem = new JMenuItem("Copy Workspace with History");
+        JMenuItem resetToHereIncludingHistoryItem = new JMenuItem("Copy Context + History");
         resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
         popup.add(resetToHereIncludingHistoryItem);
 
@@ -843,7 +842,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         JMenuItem showDiffItem = new JMenuItem("Show diff");
         showDiffItem.addActionListener(event -> openDiffPreview(context));
         // Enable only if we have a previous context to diff against
-        showDiffItem.setEnabled(previousContextMap.get(context.id()) != null);
+        showDiffItem.setEnabled(contextManager.getContextHistory().previousOf(context) != null);
         popup.add(showDiffItem);
 
         popup.addSeparator();
@@ -897,25 +896,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
-            // Recompute previous-context map for diffing AI result contexts
-            {
-                var list = contextManager.getContextHistoryList();
-                var map = new HashMap<UUID, Context>();
-                for (int i = 1; i < list.size(); i++) {
-                    map.put(list.get(i).id(), list.get(i - 1));
-                }
-                previousContextMap = map;
-            }
             historyModel.setRowCount(0);
 
             int rowToSelect = -1;
             int currentRow = 0;
 
             var contexts = contextManager.getContextHistoryList();
-            // Proactively compute diffs for the renderer; grouping boundaries are independent of diffs
-            for (var c : contexts) {
-                scheduleDiffComputation(c);
-            }
+            // Warm up diffs centrally via ContextHistory.DiffService
+            contextManager.getContextHistory().getDiffService().warmUp(contexts);
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -1835,6 +1823,52 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
     }
 
+    /**
+     * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
+     * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
+     */
+    private void setChangesTabTitleAndTooltip(CumulativeChanges res) {
+        var tabs = outputTabs;
+        if (tabs == null) return;
+
+        int idx = -1;
+        if (changesTabPlaceholder != null) {
+            idx = tabs.indexOfComponent(changesTabPlaceholder);
+        }
+        if (idx < 0) {
+            try {
+                if (tabs.getTabCount() >= 2) {
+                    idx = 1; // Fallback: assume second tab is "Changes"
+                }
+            } catch (IndexOutOfBoundsException ignore) {
+                return;
+            }
+        }
+        if (idx < 0) return;
+
+        try {
+            if (res.filesChanged() == 0) {
+                tabs.setTitleAt(idx, "Changes (0)");
+                tabs.setToolTipTextAt(idx, "No changes in this session.");
+            } else {
+                boolean isDark = chrome.getTheme().isDarkTheme();
+                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+                String htmlTitle = String.format(
+                        "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
+                        res.filesChanged(), toHex(plusColor), res.totalAdded(), toHex(minusColor), res.totalDeleted());
+                tabs.setTitleAt(idx, htmlTitle);
+                String tooltip = "Cumulative changes: "
+                        + res.filesChanged()
+                        + " files, +" + res.totalAdded()
+                        + "/-" + res.totalDeleted();
+                tabs.setToolTipTextAt(idx, tooltip);
+            }
+        } catch (IndexOutOfBoundsException ignore) {
+            // Tab lineup changed; ignore safely
+        }
+    }
+
     private void removeNotificationCard() {
         Runnable r = () -> {
             refreshLatestNotificationCard();
@@ -1868,7 +1902,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * (for the last task).
      *
      * @param history The list of tasks to show in the history section.
-     * @param main The final task to show in the main output section.
+     * @param main    The final task to show in the main output section.
      */
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         // Clear any staged preset since we are explicitly setting both main and history
@@ -2146,21 +2180,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 + "Do not output free-form text.");
                 var user = new UserMessage(
                         """
-                <capture>
-                %s
-                </capture>
+                                <capture>
+                                %s
+                                </capture>
 
-                Instructions:
-                - Prefer using tasks that are already defined in the capture.
-                - If no such tasks exist, use your best judgement with the following guidelines:
-                - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
-                - Prefer tasks that keep the project buildable and testable after each step.
-                - Avoid multi-goal items; split if needed.
-                - Avoid external/non-code tasks.
-                - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
+                                Instructions:
+                                - Prefer using tasks that are already defined in the capture.
+                                - If no such tasks exist, use your best judgement with the following guidelines:
+                                - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+                                - Prefer tasks that keep the project buildable and testable after each step.
+                                - Avoid multi-goal items; split if needed.
+                                - Avoid external/non-code tasks.
+                                - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
-                """
+                                Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
+                                """
                                 .formatted(captureText));
 
                 // Register tool providers
@@ -2220,11 +2254,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         /**
          * Creates a new output window with the given content and optional history.
          *
-         * @param parentPanel The parent HistoryOutputPanel
-         * @param history The conversation tasks to display in the history section (all but the main task)
-         * @param main The main/last task to display in the live area
-         * @param titleHint A hint for the window title (e.g., task summary or spinner message)
-         * @param themeName The theme name (dark, light, or high-contrast)
+         * @param parentPanel      The parent HistoryOutputPanel
+         * @param history          The conversation tasks to display in the history section (all but the main task)
+         * @param main             The main/last task to display in the live area
+         * @param titleHint        A hint for the window title (e.g., task summary or spinner message)
+         * @param themeName        The theme name (dark, light, or high-contrast)
          * @param isTaskInProgress Whether the window shows a streaming (in-progress) output
          */
         public OutputWindow(
@@ -2408,6 +2442,41 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /** Icon renderer that mirrors the Action column's indentation for nested rows. */
+    private class IndentedIconRenderer extends ActivityTableRenderers.IconCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            // Retrieve the action value from column 1; derive indent level from ActionText if present
+            Object actionVal = table.getModel().getValueAt(row, 1);
+            Object actionForCheck = (actionVal instanceof ActionText at) ? at.text() : actionVal;
+
+            // Detect group header rows from column 2
+            Object contextCol2 = table.getModel().getValueAt(row, 2);
+            boolean isHeader = (contextCol2 instanceof GroupRow);
+
+            // Preserve separator and header behavior by delegating to the base renderer unchanged
+            if (ActivityTableRenderers.isSeparatorAction(actionForCheck) || isHeader) {
+                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            }
+
+            int indentLevel = (actionVal instanceof ActionText at) ? Math.max(0, at.indentLevel()) : 0;
+            Component comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
+            // Apply inset: top-level rows get a base margin; nested rows align exactly with action indent
+            if (comp instanceof JComponent jc) {
+                int perLevelInset = indentLevel * Constants.H_GAP * 4;
+                int inset = (indentLevel == 0) ? (Constants.H_GAP * 2) : perLevelInset;
+                jc.setBorder(new EmptyBorder(0, inset, 0, 0));
+            }
+            // Align icon left only for non-header, non-separator rows
+            if (comp instanceof JLabel lbl) {
+                lbl.setHorizontalAlignment(JLabel.LEFT);
+            }
+            return comp;
+        }
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         assert SwingUtilities.isEventDispatchThread() : "applyTheme must be called on EDT";
@@ -2419,42 +2488,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
-        if (outputTabs != null && lastCumulativeChanges != null) {
-            int idx = -1;
-            if (changesTabPlaceholder != null) {
-                idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-            }
-            if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                idx = 1; // Fallback: assume second tab is "Changes"
-            }
-            if (idx >= 0) {
-                var res = lastCumulativeChanges;
-                try {
-                    if (res.filesChanged() == 0) {
-                        outputTabs.setTitleAt(idx, "Changes (0)");
-                        outputTabs.setToolTipTextAt(idx, "No changes in this session.");
-                    } else {
-                        boolean isDark = chrome.getTheme().isDarkTheme();
-                        Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                        Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                        String htmlTitle = String.format(
-                                "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                                res.filesChanged(),
-                                toHex(plusColor),
-                                res.totalAdded(),
-                                toHex(minusColor),
-                                res.totalDeleted());
-                        outputTabs.setTitleAt(idx, htmlTitle);
-                        String tooltip = "Cumulative changes: "
-                                + res.filesChanged()
-                                + " files, +" + res.totalAdded()
-                                + "/-" + res.totalDeleted();
-                        outputTabs.setToolTipTextAt(idx, tooltip);
-                    }
-                } catch (IndexOutOfBoundsException ignore) {
-                    // Tab lineup changed; safe to ignore
-                }
-            }
+        if (lastCumulativeChanges != null) {
+            setChangesTabTitleAndTooltip(lastCumulativeChanges);
         }
 
         SwingUtilities.updateComponentTreeUI(this);
@@ -2529,11 +2564,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             // Decide whether to render a diff panel or just the label
-            var cached = diffCache.get(ctx.id());
+            var ds = contextManager.getContextHistory().getDiffService();
+            var cachedOpt = ds.peek(ctx);
 
             // Kick off background computation if needed
-            if (cached == null) {
-                scheduleDiffComputation(ctx);
+            if (cachedOpt.isEmpty()) {
+                ds.diff(ctx).whenComplete((r, ex) -> SwingUtilities.invokeLater(table::repaint));
             }
 
             // Build action component using LAF-consistent renderer, but make it non-opaque
@@ -2556,8 +2592,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             panel.setToolTipText(actionText);
 
             // If we have cached diff entries, add a summary panel; otherwise, action-only
-            if (cached != null && !cached.isEmpty()) {
+            if (cachedOpt.isPresent() && !cachedOpt.get().isEmpty()) {
                 boolean isDark = chrome.getTheme().isDarkTheme();
+                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
 
                 var diffPanel = new JPanel();
                 diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
@@ -2565,7 +2603,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 // No extra left inset; the outer panel border provides the indent alignment
                 diffPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
 
-                for (var de : cached) {
+                for (var de : cachedOpt.get()) {
                     String bareName;
                     try {
                         var files = de.fragment().files();
@@ -2585,11 +2623,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     var plus = new JLabel("+" + de.linesAdded());
                     plus.setFont(smallFont);
-                    plus.setForeground(ThemeColors.getDiffAdded(!isDark));
+                    plus.setForeground(plusColor);
 
                     var minus = new JLabel("-" + de.linesDeleted());
                     minus.setFont(smallFont);
-                    minus.setForeground(ThemeColors.getDiffDeleted(!isDark));
+                    minus.setForeground(minusColor);
 
                     var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
                     rowPanel.setOpaque(false);
@@ -2622,44 +2660,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /** Schedule background computation (with caching) of diff for an AI result context. */
-    private void scheduleDiffComputation(Context ctx) {
-        if (diffCache.containsKey(ctx.id())) return;
-        if (!diffInFlight.add(ctx.id())) return;
-
-        var prev = previousContextMap.get(ctx.id());
-        if (prev == null) {
-            diffInFlight.remove(ctx.id());
-            return;
-        }
-
-        contextManager.submitBackgroundTask("Compute diff for history entry", () -> {
-            try {
-                var diffs = ctx.getDiff(prev);
-                diffCache.put(ctx.id(), diffs);
-            } finally {
-                diffInFlight.remove(ctx.id());
-                SwingUtilities.invokeLater(() -> {
-                    historyTable.repaint();
-                    // Rebuild table so group boundaries can reflect new diff availability
-                    updateHistoryTable(null);
-                });
-            }
-        });
-    }
-
     /** Open a multi-file diff preview window for the given AI result context. */
     private void openDiffPreview(Context ctx) {
-        var prev = previousContextMap.get(ctx.id());
-        if (prev == null) {
+        var ch = contextManager.getContextHistory();
+        if (ch.previousOf(ctx) == null) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No previous context to diff against.");
             return;
         }
-
-        contextManager.submitBackgroundTask("Preparing diff preview", () -> {
-            var diffs = diffCache.computeIfAbsent(ctx.id(), id -> ctx.getDiff(prev));
-            SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs));
-        });
+        var ds = ch.getDiffService();
+        ds.diff(ctx).thenAccept(diffs -> SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs)));
     }
 
     private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
@@ -2709,106 +2718,99 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return contextManager
                 .submitBackgroundTask("Aggregate session changes", () -> {
                     var contexts = contextManager.getContextHistoryList();
-                    var prevMapSnapshot = new HashMap<>(previousContextMap);
+                    var ch = contextManager.getContextHistory();
+                    var ds = ch.getDiffService();
 
-                    Map<String, PerFileChange> perFileMap = new HashMap<>();
-
+                    // Step 1: Collect all DiffEntry objects across all contexts (compute in parallel via cache)
+                    var futures = new ArrayList<CompletableFuture<List<Context.DiffEntry>>>();
                     for (var ctx : contexts) {
-                        var prev = prevMapSnapshot.get(ctx.id());
-                        if (prev == null) {
-                            continue;
+                        if (ch.previousOf(ctx) != null) {
+                            futures.add(ds.diff(ctx));
                         }
+                    }
+                    CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                            .join();
 
-                        var diffs = diffCache.get(ctx.id());
-                        if (diffs == null) {
-                            // Compute once and cache for reuse elsewhere
-                            diffs = ctx.getDiff(prev);
-                            diffCache.put(ctx.id(), diffs);
-                        }
-
-                        for (var de : diffs) {
-                            String key;
-                            try {
-                                var files = de.fragment().files();
-                                if (!files.isEmpty()) {
-                                    var pf = files.iterator().next();
-                                    key = pf.getRelPath().toString();
-                                } else {
-                                    key = de.fragment().shortDescription();
-                                }
-                            } catch (Throwable t) {
-                                key = de.fragment().shortDescription();
-                            }
-
-                            // Track earliest old and latest new across all changes for this file
-                            var existing = perFileMap.get(key);
-                            String earliestOld = (existing == null)
-                                    ? (de.oldContent() == null ? "" : de.oldContent())
-                                    : existing.earliestOld();
-                            String latestNew = safeFragmentText(de);
-
-                            perFileMap.put(key, new PerFileChange(earliestOld, latestNew));
+                    var allDiffEntries = new ArrayList<Context.DiffEntry>();
+                    for (var f : futures) {
+                        try {
+                            var list = f.get();
+                            allDiffEntries.addAll(list);
+                        } catch (Exception ignore) {
+                            // skip failed computations; best-effort aggregation
                         }
                     }
 
-                    // Compute net changes: count actual added/deleted lines between earliest and latest versions
+                    // Step 2: Identify unique frozen fragments by source matching
+                    var uniqueFragments = new ArrayList<FrozenFragment>();
+                    for (var de : allDiffEntries) {
+                        FrozenFragment ff = de.fragment();
+                        boolean found = false;
+                        for (var existing : uniqueFragments) {
+                            if (ff.hasSameSource(existing)) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            uniqueFragments.add(ff);
+                        }
+                    }
+
+                    // Step 3: For each unique fragment, find earliest and latest versions and compute net diff
+                    List<PerFileChange> perFileChanges = new ArrayList<>();
                     int totalAdded = 0;
                     int totalDeleted = 0;
-                    for (var change : perFileMap.values()) {
-                        int[] netCounts = computeNetLineCounts(change.earliestOld(), change.latestNew());
-                        totalAdded += netCounts[0];
-                        totalDeleted += netCounts[1];
+
+                    for (var uniqueFrag : uniqueFragments) {
+                        String earliestContent = null;
+                        String latestContent = null;
+
+                        // Forward loop: find first occurrence (earliest)
+                        for (var de : allDiffEntries) {
+                            if (uniqueFrag.hasSameSource(de.fragment())) {
+                                earliestContent = de.oldContent();
+                                break;
+                            }
+                        }
+
+                        // Backward loop: find last occurrence (latest)
+                        for (int i = allDiffEntries.size() - 1; i >= 0; i--) {
+                            var de = allDiffEntries.get(i);
+                            if (uniqueFrag.hasSameSource(de.fragment())) {
+                                latestContent = safeFragmentText(de);
+                                break;
+                            }
+                        }
+
+                        if (earliestContent != null) {
+                            // Compute net diff for this fragment
+                            int[] netCounts = computeNetLineCounts(earliestContent, latestContent);
+                            totalAdded += netCounts[0];
+                            totalDeleted += netCounts[1];
+
+                            // Derive a display file name for the diff view; keep extension for syntax highlighting
+                            String displayFile;
+                            var files = uniqueFrag.files();
+                            if (files.size() == 1) {
+                                var pf = files.iterator().next();
+                                displayFile = pf.getRelPath().toString();
+                            } else {
+                                displayFile = uniqueFrag.shortDescription();
+                            }
+
+                            perFileChanges.add(new PerFileChange(displayFile, earliestContent, latestContent));
+                        }
                     }
 
-                    return new CumulativeChanges(perFileMap.size(), totalAdded, totalDeleted, Map.copyOf(perFileMap));
+                    return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
                 })
                 .thenApply(result -> {
                     // Update UI on EDT
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
 
-                        var tabs = outputTabs;
-                        if (tabs != null) {
-                            int idx = -1;
-                            if (changesTabPlaceholder != null) {
-                                idx = tabs.indexOfComponent(changesTabPlaceholder);
-                            }
-                            if (idx < 0 && tabs.getTabCount() >= 2) {
-                                // Fallback: assume second tab is "Changes"
-                                idx = 1;
-                            }
-                            if (idx >= 0) {
-                                if (result.filesChanged() == 0) {
-                                    try {
-                                        tabs.setTitleAt(idx, "Changes (0)");
-                                        tabs.setToolTipTextAt(idx, "No changes in this session.");
-                                    } catch (IndexOutOfBoundsException ignore) {
-                                        // Tab disappeared or index changed; ignore
-                                    }
-                                } else {
-                                    boolean isDark = chrome.getTheme().isDarkTheme();
-                                    Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                                    Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                                    String htmlTitle = String.format(
-                                            "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                                            result.filesChanged(),
-                                            toHex(plusColor),
-                                            result.totalAdded(),
-                                            toHex(minusColor),
-                                            result.totalDeleted());
-                                    try {
-                                        tabs.setTitleAt(idx, htmlTitle);
-                                        String tooltip = "Cumulative changes: "
-                                                + result.filesChanged()
-                                                + " files, +" + result.totalAdded()
-                                                + "/-" + result.totalDeleted();
-                                        tabs.setToolTipTextAt(idx, tooltip);
-                                    } catch (IndexOutOfBoundsException ignore) {
-                                        // Tab disappeared or index changed; ignore
-                                    }
-                                }
-                            }
-                        }
+                        setChangesTabTitleAndTooltip(result);
 
                         // Render or update the Changes tab content
                         updateChangesTabContent(result);
@@ -2879,7 +2881,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         try {
             var proj = contextManager.getProject();
             var root = proj.getRoot();
-            if (root != null && root.getFileName() != null) {
+            if (root.getFileName() != null) {
                 projectName = root.getFileName().toString();
             }
         } catch (Exception ignored) {
@@ -2889,16 +2891,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                 .setMultipleCommitsContext(false)
                 .setRootTitle(projectName)
-                .setInitialFileIndex(0);
+                .setInitialFileIndex(0)
+                .setForceFileTree(true);
 
-        // Stable order by path key
-        var keys = new ArrayList<>(res.perFileMap().keySet());
-        keys.sort(Comparator.naturalOrder());
+        // Stable order by display file path
+        var changes = new ArrayList<>(res.perFileChanges());
+        changes.sort(Comparator.comparing(PerFileChange::displayFile));
 
-        for (var path : keys) {
-            var change = res.perFileMap().get(path);
-            String leftContent = change.earliestOld() == null ? "" : change.earliestOld();
-            String rightContent = change.latestNew() == null ? "" : change.latestNew();
+        for (var change : changes) {
+            String path = change.displayFile();
+            String leftContent = change.earliestOld();
+            String rightContent = change.latestNew();
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
             BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
@@ -2919,8 +2922,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Compute the net added/deleted line counts between two versions of a file.
     // Uses ContentDiffUtils for accurate Myers-algorithm-based diff counts.
     private static int[] computeNetLineCounts(String earliestOld, String latestNew) {
-        var result = ContentDiffUtils.computeDiffResult(
-                earliestOld == null ? "" : earliestOld, latestNew == null ? "" : latestNew, "old", "new");
+        var result = ContentDiffUtils.computeDiffResult(earliestOld, latestNew, "old", "new");
         return new int[] {result.added(), result.deleted()};
     }
 
@@ -2932,10 +2934,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static record PerFileChange(String earliestOld, String latestNew) {}
+    private record PerFileChange(String displayFile, String earliestOld, String latestNew) {}
 
-    private static record CumulativeChanges(
-            int filesChanged, int totalAdded, int totalDeleted, Map<String, PerFileChange> perFileMap) {}
+    private record CumulativeChanges(
+            int filesChanged, int totalAdded, int totalDeleted, List<PerFileChange> perFileChanges) {}
 
     /** A LayerUI that paints reset-from-history arrows over the history table. */
     private class ResetArrowLayerUI extends LayerUI<JScrollPane> {

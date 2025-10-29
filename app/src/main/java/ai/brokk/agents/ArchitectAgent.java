@@ -74,7 +74,7 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
-    private static final ThreadLocal<TaskResult> LAST_SEARCH_RESULT = new ThreadLocal<>();
+    private static final ThreadLocal<TaskResult> threadlocalSearchResult = new ThreadLocal<>();
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -159,8 +159,10 @@ public class ArchitectAgent {
         context = scope.append(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            var resultString = "CodeAgent finished! Details are in the Workspace messages.";
-            logger.debug("callCodeAgent finished");
+            var resultString = deferBuild
+                    ? "CodeAgent finished! Details are in the Workspace messages."
+                    : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
+            logger.debug("callCodeAgent finished successfully");
             codeAgentJustSucceeded = !deferBuild
                     && !context.freeze().getDiff(initialContext.freeze()).isEmpty();
             return resultString;
@@ -229,7 +231,6 @@ public class ArchitectAgent {
             throws FatalLlmException, InterruptedException {
         addPlanningToHistory();
         logger.debug("callSearchAgent invoked with query: {}", query);
-        LAST_SEARCH_RESULT.remove();
 
         // Instantiate and run SearchAgent
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
@@ -237,9 +238,8 @@ public class ArchitectAgent {
                 context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), scope);
         searchAgent.scanInitialContext();
         var result = searchAgent.execute();
-        // Update local context from SearchAgent result
-        context = scope.append(result);
-        LAST_SEARCH_RESULT.set(result);
+        // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
+        threadlocalSearchResult.set(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
@@ -300,6 +300,15 @@ public class ArchitectAgent {
         return archResult;
     }
 
+    /**
+     * Run the multi-step project loop: plan, choose tools, execute, repeat.
+     *
+     * Strategy:
+     * 1) Try CodeAgent first with the goal.
+     * 2) Enter planning loop. If the workspace is critical, restrict tools to workspace-trimming set.
+     * 3) If the planning LLM returns ContextTooLarge, switch to GEMINI_2_5_PRO and run a single
+     *    critical-turn (restricted tools) to shrink the workspace, then proceed with the result.
+     */
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
@@ -347,33 +356,17 @@ public class ArchitectAgent {
             var wst = new WorkspaceTools(this.context);
             var tr = cm.getToolRegistry().builder().register(this).register(wst).build();
 
-            // Figure out which tools are allowed in this step (hard-coded: Workspace, CodeAgent, Search (only with
-            // Undo), Undo, Finish/Abort)
+            // Decide tool availability for this step
             var toolSpecs = new ArrayList<ToolSpecification>();
             var criticalWorkspaceSize = minInputTokenLimit < Integer.MAX_VALUE
                     && workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit);
 
+            ToolContext toolContext;
             if (criticalWorkspaceSize) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        String.format(
-                                "Workspace size (%,d tokens) is %.0f%% of limit %,d. Tool usage restricted to workspace modification.",
-                                workspaceTokenSize,
-                                (double) workspaceTokenSize / minInputTokenLimit * 100,
-                                minInputTokenLimit));
-
-                var allowed = new ArrayList<String>();
-                allowed.add("projectFinished");
-                allowed.add("abortProject");
-                allowed.add("dropWorkspaceFragments");
-                allowed.add("addFileSummariesToWorkspace");
-                allowed.add("appendNote");
-                allowed.add("addFilesToWorkspace");
-                if (io instanceof Chrome) {
-                    allowed.add("askHuman");
-                }
-
+                notifyCriticalWorkspaceRestriction(workspaceTokenSize, minInputTokenLimit);
+                var allowed = criticalAllowedTools();
                 toolSpecs.addAll(tr.getTools(allowed));
+                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
             } else {
                 // Default tool population logic
                 var allowed = new ArrayList<String>();
@@ -401,20 +394,56 @@ public class ArchitectAgent {
                 allowed.add("abortProject");
 
                 toolSpecs.addAll(tr.getTools(allowed));
+                toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
             }
 
             // Ask the LLM for the next step
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            var result = llm.sendRequest(messages, toolContext);
 
+            // Handle errors, with special recovery for ContextTooLarge
             if (result.error() != null) {
-                logger.debug(
-                        "Error from LLM while deciding next action: {}",
-                        result.error().getMessage());
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Error from LLM while deciding next action (see debug log for details)");
-                return resultWithMessages(StopReason.LLM_ERROR);
+                if (!(result.error() instanceof dev.langchain4j.exception.ContextTooLargeException)) {
+                    logger.debug(
+                            "Error from LLM while deciding next action: {}",
+                            result.error().getMessage());
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Error from LLM while deciding next action (see debug log for details)");
+                    return resultWithMessages(StopReason.LLM_ERROR);
+                }
+
+                var currentModelTokens = modelsService.getMaxInputTokens(this.planningModel);
+                var fallbackModel = requireNonNull(modelsService.getModel(ai.brokk.Service.GEMINI_2_5_PRO));
+                var fallbackModelTokens = modelsService.getMaxInputTokens(fallbackModel);
+                if (fallbackModelTokens < currentModelTokens * 1.2) {
+                    return resultWithMessages(StopReason.LLM_ERROR);
+                }
+                logger.warn(
+                        "Context too large for current model; attempting emergency retry with {} (tokens: {} vs {})",
+                        ai.brokk.Service.GEMINI_2_5_PRO,
+                        fallbackModelTokens,
+                        currentModelTokens);
+
+                // Emergency LLM restricted to critical workspace tools
+                var emergencyLlm = cm.getLlm(
+                        new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
+                notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
+                var emergencyAllowed = criticalAllowedTools();
+                var emergencyToolContext = new ToolContext(tr.getTools(emergencyAllowed), ToolChoice.REQUIRED, tr);
+
+                var emergencyResult = emergencyLlm.sendRequest(messages, emergencyToolContext);
+                if (emergencyResult.error() != null) {
+                    logger.debug(
+                            "Error from LLM during emergency reduced-context turn: {}",
+                            emergencyResult.error().getMessage());
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Error from LLM during emergency reduced-context turn (see debug log for details)");
+                    return resultWithMessages(StopReason.LLM_ERROR);
+                }
+                result = emergencyResult; // proceed with emergency result
             }
+
             // show thinking
             if (!result.text().isBlank()) {
                 io.llmOutput("\n" + result.text(), ChatMessageType.AI);
@@ -507,9 +536,9 @@ public class ArchitectAgent {
             for (var req : searchAgentReqs) {
                 Callable<SearchTaskResult> task = () -> {
                     // Ensure a clean slate for this thread before invoking the tool
-                    LAST_SEARCH_RESULT.remove();
+                    threadlocalSearchResult.remove();
                     var toolResult = tr.executeTool(req);
-                    var saResult = requireNonNull(LAST_SEARCH_RESULT.get());
+                    var saResult = requireNonNull(threadlocalSearchResult.get());
                     logger.debug("Finished SearchAgent task for request: {}", req.name());
                     return new SearchTaskResult(toolResult, saResult.context());
                 };
@@ -578,6 +607,36 @@ public class ArchitectAgent {
                 return codeAgentSuccessResult();
             }
         }
+    }
+
+    /**
+     * Notifies the user that tool usage is being restricted due to large workspace size.
+     */
+    private void notifyCriticalWorkspaceRestriction(int workspaceTokenSize, int minInputTokenLimit) {
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                String.format(
+                        "Workspace size (%,d tokens) is %.0f%% of limit %,d. Tool usage restricted to workspace modification.",
+                        workspaceTokenSize,
+                        (double) workspaceTokenSize / Math.max(1, minInputTokenLimit) * 100,
+                        minInputTokenLimit));
+    }
+
+    /**
+     * Returns the list of tools allowed during a critical workspace turn. These tools are
+     * limited to workspace management and safe terminal actions to help shrink context.
+     */
+    private List<String> criticalAllowedTools() {
+        var allowed = new ArrayList<String>();
+        allowed.add("projectFinished");
+        allowed.add("abortProject");
+        allowed.add("dropWorkspaceFragments");
+        allowed.add("addFileSummariesToWorkspace");
+        allowed.add("appendNote");
+        if (io instanceof Chrome) {
+            allowed.add("askHuman");
+        }
+        return allowed;
     }
 
     private @NotNull TaskResult codeAgentSuccessResult() {

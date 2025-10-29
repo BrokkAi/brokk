@@ -42,7 +42,9 @@ public final class GlobalUiSettings {
     private static final String KEY_DIFF_SHOW_BLANK_LINES = "diff.showBlankLines";
     private static final String KEY_DIFF_SHOW_ALL_LINES = "diff.showAllLines";
     private static final String KEY_DIFF_SHOW_BLAME = "diff.showBlame";
+    private static final String KEY_EDITOR_FONT_SIZE = "editor.fontSize";
     private static final String KEY_DIFF_FONT_SIZE = "diff.fontSize";
+    private static final String KEY_PREVIEW_FONT_SIZE = "preview.fontSize";
     private static final String KEYBIND_PREFIX = "keybinding.";
     private static final String KEY_SHOW_COST_NOTIFICATIONS = "notifications.cost.enabled";
     private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
@@ -284,10 +286,38 @@ public final class GlobalUiSettings {
         setBoolean(KEY_DIFF_SHOW_BLAME, show);
     }
 
-    public static float getDiffFontSize() {
+    /**
+     * Get unified editor font size for all editor components (diff panels, preview panels, etc.)
+     * Migrates from old diff.fontSize or preview.fontSize settings if found.
+     */
+    public static float getEditorFontSize() {
         var props = loadProps();
-        var raw = props.getProperty(KEY_DIFF_FONT_SIZE);
-        if (raw == null || raw.isBlank()) return -1.0f;
+        var raw = props.getProperty(KEY_EDITOR_FONT_SIZE);
+
+        // If unified setting doesn't exist, migrate from old settings
+        if (raw == null || raw.isBlank()) {
+            // Try diff setting first (most commonly used)
+            raw = props.getProperty(KEY_DIFF_FONT_SIZE);
+            if (raw == null || raw.isBlank()) {
+                // Try preview setting
+                raw = props.getProperty(KEY_PREVIEW_FONT_SIZE);
+            }
+
+            // If we found an old setting, migrate it
+            if (raw != null && !raw.isBlank()) {
+                try {
+                    float migrated = Float.parseFloat(raw.trim());
+                    if (migrated > 0) {
+                        saveEditorFontSize(migrated);
+                        return migrated;
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to migrate old font size setting", e);
+                }
+            }
+            return -1.0f;
+        }
+
         try {
             return Float.parseFloat(raw.trim());
         } catch (Exception e) {
@@ -295,10 +325,13 @@ public final class GlobalUiSettings {
         }
     }
 
-    public static void saveDiffFontSize(float fontSize) {
+    /**
+     * Save unified editor font size for all editor components.
+     */
+    public static void saveEditorFontSize(float fontSize) {
         if (fontSize <= 0) return;
         var props = loadProps();
-        props.setProperty(KEY_DIFF_FONT_SIZE, Float.toString(fontSize));
+        props.setProperty(KEY_EDITOR_FONT_SIZE, Float.toString(fontSize));
         saveProps(props);
     }
 

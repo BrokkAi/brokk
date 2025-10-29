@@ -67,7 +67,7 @@ public class FilePathLookupService {
 
         var project = contextManager.getProject();
 
-        logger.debug("Looking up {} file paths", filePaths.size());
+        logger.trace("Looking up {} file paths", filePaths.size());
 
         try {
             // Build or reuse an index of tracked files once for this batch
@@ -85,7 +85,7 @@ public class FilePathLookupService {
 
                 resultCallback.accept(filePath, result);
 
-                logger.debug(
+                logger.trace(
                         "File path '{}' lookup completed in {}ms: exists={}, matches={}",
                         filePath,
                         processingTime,
@@ -112,7 +112,7 @@ public class FilePathLookupService {
         var byName = buildIndexFromTrackedFiles(project);
         var fresh = new CachedIndex(byName, System.currentTimeMillis());
         INDEX_CACHE.put(key, fresh);
-        logger.debug(
+        logger.trace(
                 "FilePathLookupService: built filename index for {} with {} entries in {}ms",
                 key,
                 byName.size(),
@@ -146,11 +146,11 @@ public class FilePathLookupService {
             var matches = findMatchingFiles(project, cleanPath, parsed.lineNumber(), parsed.lineRange(), index);
 
             if (matches.isEmpty()) {
-                logger.debug("No matches found for file path '{}'", filePath);
+                logger.trace("No matches found for file path '{}'", filePath);
                 return FilePathLookupResult.notFound(filePath);
             }
 
-            logger.debug("Found {} matches for file path '{}'", matches.size(), filePath);
+            logger.trace("Found {} matches for file path '{}'", matches.size(), filePath);
             return FilePathLookupResult.found(matches, 0); // Processing time will be set by caller
 
         } catch (Exception e) {

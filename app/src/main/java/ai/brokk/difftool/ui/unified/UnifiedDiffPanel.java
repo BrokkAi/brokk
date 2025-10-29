@@ -10,6 +10,7 @@ import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.CompositeHighlighter;
 import ai.brokk.difftool.ui.DiffGutterComponent;
 import ai.brokk.difftool.ui.JMHighlighter;
+import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.BorderLayout;
@@ -60,6 +61,33 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
+    /** Custom RSyntaxTextArea that preserves font sizes during theme changes */
+    private class UnifiedEditorArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
+        @Override
+        public boolean hasExplicitFontSize() {
+            return parent.hasExplicitFontSize();
+        }
+
+        @Override
+        public float getExplicitFontSize() {
+            return parent.getExplicitFontSize();
+        }
+
+        @Override
+        public void setExplicitFontSize(float size) {
+            parent.setExplicitFontSize(size);
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            if (hasExplicitFontSize()) {
+                guiTheme.applyThemePreservingFont(this);
+            } else {
+                guiTheme.applyCurrentThemeToComponent(this);
+            }
+        }
+    }
+
     private boolean autoScrollFlag = true;
 
     // Custom document filter for line-level editing control (initialized in setupUI)
@@ -79,8 +107,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         this.leftSource = null;
         this.rightSource = null;
 
-        // Create text area for unified diff display
-        this.textArea = new RSyntaxTextArea();
+        // Create text area for unified diff display (using custom class for font preservation)
+        this.textArea = new UnifiedEditorArea();
         this.scrollPane = new RTextScrollPane(textArea);
 
         // Initialize highlighting system similar to FilePanel
@@ -107,8 +135,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         this.leftSource = leftSource;
         this.rightSource = rightSource;
 
-        // Create text area for unified diff display
-        this.textArea = new RSyntaxTextArea();
+        // Create text area for unified diff display (using custom class for font preservation)
+        this.textArea = new UnifiedEditorArea();
         this.scrollPane = new RTextScrollPane(textArea);
 
         // Initialize highlighting system similar to FilePanel
@@ -147,6 +175,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         scrollPane.setRowHeaderView(customLineNumberList);
 
         // Apply initial theme (same approach as FilePanel:177)
+        // textArea is ThemeAware but we can apply theme directly since no font size is set yet during init
         String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(textArea));
     }
@@ -587,8 +616,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Apply theme to the composite highlighter (which will forward to JMHighlighter)
             compositeHighlighter.applyTheme(guiTheme);
 
-            // Apply RSyntax theme
-            theme.apply(textArea);
+            // Let ThemeAware textArea handle theme application with font preservation
+            if (textArea instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
+            } else {
+                theme.apply(textArea);
+            }
 
             // Update line number list theme
             if (customLineNumberList != null) {

@@ -371,13 +371,93 @@ public class GuiTheme {
     }
 
     /**
-     * Applies the current theme to a specific RSyntaxTextArea
+     * Applies the current RSyntaxTextArea theme to the supplied component.
      *
      * @param textArea The text area to apply theme to
      */
     public void applyCurrentThemeToComponent(RSyntaxTextArea textArea) {
         String themeName = MainProject.getTheme();
         loadRSyntaxTheme(themeName).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
+    }
+
+    /**
+     * Applies the current RSyntaxTextArea theme to the supplied component while preserving
+     * any explicitly set font size from FontSizeAware components.
+     * Must be called on the EDT.
+     *
+     * @param textArea The text area to apply theme to
+     */
+    public void applyThemePreservingFont(RSyntaxTextArea textArea) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Save current font if component has explicit font size
+        float currentFontSize = -1;
+        if (textArea instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
+            currentFontSize = fsAware.getExplicitFontSize();
+        }
+
+        // Apply theme and restore font synchronously
+        String themeName = MainProject.getTheme();
+        final float fontSize = currentFontSize;
+        loadRSyntaxTheme(themeName).ifPresent(theme -> {
+            // Apply theme (which will override font)
+            theme.apply(textArea);
+
+            // Immediately restore font size if it was explicitly set
+            if (fontSize > 0) {
+                Font themeFont = textArea.getFont();
+                if (themeFont != null) {
+                    textArea.setFont(themeFont.deriveFont(fontSize));
+                }
+            }
+        });
+    }
+
+    /**
+     * Updates component tree UI while preserving explicit font sizes in FontSizeAware components.
+     *
+     * @param container The container to update
+     */
+    public void updateComponentTreeUIPreservingFonts(Container container) {
+        // Collect font sizes from FontSizeAware components before update
+        java.util.Map<Component, Float> fontMap = new java.util.HashMap<>();
+        collectExplicitFonts(container, fontMap);
+
+        // Update UI
+        SwingUtilities.updateComponentTreeUI(container);
+
+        // Restore explicit fonts
+        SwingUtilities.invokeLater(() -> restoreExplicitFonts(fontMap));
+    }
+
+    /**
+     * Recursively collects explicit font sizes from FontSizeAware components.
+     */
+    private void collectExplicitFonts(Container container, java.util.Map<Component, Float> fontMap) {
+        for (Component comp : container.getComponents()) {
+            if (comp instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
+                float fontSize = fsAware.getExplicitFontSize();
+                fontMap.put(comp, fontSize);
+            }
+            if (comp instanceof Container) {
+                collectExplicitFonts((Container) comp, fontMap);
+            }
+        }
+    }
+
+    /**
+     * Restores explicit font sizes to components.
+     */
+    private void restoreExplicitFonts(java.util.Map<Component, Float> fontMap) {
+        fontMap.forEach((comp, fontSize) -> {
+            if (comp instanceof RSyntaxTextArea textArea) {
+                Font currentFont = textArea.getFont();
+                if (currentFont != null) {
+                    Font preservedFont = currentFont.deriveFont(fontSize);
+                    textArea.setFont(preservedFont);
+                }
+            }
+        });
     }
 
     /**

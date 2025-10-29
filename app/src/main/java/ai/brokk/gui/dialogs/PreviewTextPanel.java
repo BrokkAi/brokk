@@ -18,9 +18,11 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.VoiceInputButton;
+import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.RTextAreaSearchableComponent;
+import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
@@ -67,7 +69,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Supports editing {@link ProjectFile} content and capturing revisions.
  */
-public class PreviewTextPanel extends JPanel implements ThemeAware {
+public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
@@ -81,6 +83,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private MaterialButton saveButton;
+
+    private MaterialButton btnDecreaseFont;
+    private MaterialButton btnResetFont;
+    private MaterialButton btnIncreaseFont;
 
     private final ContextManager cm;
 
@@ -103,6 +109,19 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
+
+    // Font size state - implements EditorFontSizeControl
+    private int currentFontIndex = -1; // -1 = uninitialized
+
+    @Override
+    public int getCurrentFontIndex() {
+        return currentFontIndex;
+    }
+
+    @Override
+    public void setCurrentFontIndex(int index) {
+        this.currentFontIndex = index;
+    }
 
     public PreviewTextPanel(
             ContextManager cm,
@@ -183,6 +202,27 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             actionButtonPanel.add(editButton); // Add edit button to the action panel
         }
 
+        // Create font size control buttons using interface methods
+        btnDecreaseFont = createDecreaseFontButton(() -> {
+            decreaseEditorFont();
+            applyEditorFontSize(textArea);
+        });
+        btnResetFont = createResetFontButton(() -> {
+            resetEditorFont();
+            applyEditorFontSize(textArea);
+        });
+        btnIncreaseFont = createIncreaseFontButton(() -> {
+            increaseEditorFont();
+            applyEditorFontSize(textArea);
+        });
+
+        // Add font size buttons to action panel with spacing
+        actionButtonPanel.add(btnDecreaseFont);
+        actionButtonPanel.add(Box.createHorizontalStrut(4));
+        actionButtonPanel.add(btnResetFont);
+        actionButtonPanel.add(Box.createHorizontalStrut(4));
+        actionButtonPanel.add(btnIncreaseFont);
+
         // Add the action button panel to the top panel if it has any buttons
         if (actionButtonPanel.getComponentCount() > 0) {
             topPanel.add(actionButtonPanel, BorderLayout.EAST);
@@ -215,8 +255,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
-        // Apply the current theme to the text area
-        guiTheme.applyCurrentThemeToComponent(textArea);
+        // Initialize font index from saved settings or default
+        // This must happen BEFORE theme application (which Chrome.java will do after construction)
+        // so the theme preserves the font when applyTheme() is called
+        ensureFontIndexInitialized();
 
         // Add top panel (search + edit) + text area to this panel
         add(topPanel, BorderLayout.NORTH);
@@ -272,17 +314,25 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
     }
 
+    // Font size methods delegated to EditorFontSizeControl interface
+
     /**
-     * Implementation of {@link ThemeAware}. Delegates the actual work to {@link GuiTheme#applyCurrentThemeToComponent}.
+     * Implementation of {@link ThemeAware}. Updates the entire panel's UI components while
+     * preserving font sizes, and explicitly themes the text area.
      */
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        SwingUtilities.updateComponentTreeUI(this);
-        guiTheme.applyCurrentThemeToComponent(textArea);
+        // Update panel UI components (buttons, borders, search bar, etc.)
+        guiTheme.updateComponentTreeUIPreservingFonts(this);
+        // Explicitly theme the text area (updateComponentTreeUIPreservingFonts doesn't recurse into ThemeAware
+        // children)
+        textArea.applyTheme(guiTheme);
+        revalidate();
+        repaint();
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
-    public class PreviewTextArea extends RSyntaxTextArea {
+    public class PreviewTextArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
         public PreviewTextArea(String content, @Nullable String syntaxStyle, boolean isEditable) {
             setSyntaxEditingStyle(syntaxStyle != null ? syntaxStyle : SyntaxConstants.SYNTAX_STYLE_NONE);
             setCodeFoldingEnabled(true);
@@ -290,6 +340,33 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             setHighlightCurrentLine(false);
             setEditable(isEditable);
             setText(content);
+        }
+
+        // FontSizeAware implementation - delegate to parent PreviewTextPanel
+        @Override
+        public boolean hasExplicitFontSize() {
+            return PreviewTextPanel.this.hasExplicitFontSize();
+        }
+
+        @Override
+        public float getExplicitFontSize() {
+            return PreviewTextPanel.this.getExplicitFontSize();
+        }
+
+        @Override
+        public void setExplicitFontSize(float size) {
+            PreviewTextPanel.this.setExplicitFontSize(size);
+        }
+
+        // ThemeAware implementation - handle font preservation during theme changes
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            // Use font-preserving theme application when font is explicitly set
+            if (hasExplicitFontSize()) {
+                guiTheme.applyThemePreservingFont(this);
+            } else {
+                guiTheme.applyCurrentThemeToComponent(this);
+            }
         }
 
         @Override
@@ -1215,6 +1292,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Gets the text area for font operations.
+     *
+     * @return The RSyntaxTextArea instance
+     */
+    public RSyntaxTextArea getTextArea() {
+        return textArea;
+    }
+
+    /**
      * Refreshes the content from disk if the file has changed. Preserves caret position and viewport position when
      * possible. Does not refresh if there are unsaved changes.
      */
@@ -1362,4 +1448,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
         }
     }
+
+    // FontSizeAware implementation uses default methods from interface
 }

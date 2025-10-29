@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -55,24 +56,16 @@ public class ContextHistory {
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
 
+    /** Centralized diff caching/memoization for this history. */
+    private final DiffService diffService;
+
     public ContextHistory(Context liveContext) {
         var fr = liveContext.freezeAndCleanup();
         this.liveContext = fr.liveContext();
         var frozen = fr.frozenContext();
         history.add(frozen);
         selected = frozen;
-    }
-
-    public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of(), Map.of(), Map.of());
-    }
-
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of(), Map.of());
-    }
-
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
-        this(contexts, resetEdges, gitStates, Map.of());
+        this.diffService = new DiffService(this);
     }
 
     public ContextHistory(
@@ -89,6 +82,7 @@ public class ContextHistory {
         this.entryInfos.putAll(entryInfos);
         this.liveContext = Context.unfreeze(castNonNull(history.peekLast()));
         selected = history.peekLast();
+        this.diffService = new DiffService(this);
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -255,6 +249,75 @@ public class ContextHistory {
         return null;
     }
 
+    /** Returns the previous frozen Context for the given one, or {@code null} if none (oldest). */
+    public synchronized @Nullable Context previousOf(Context curr) {
+        Context prev = null;
+        for (var c : history) {
+            if (c.equals(curr)) {
+                return prev;
+            }
+            prev = c;
+        }
+        return null;
+    }
+
+    /** Exposes the centralized diff service. */
+    public DiffService getDiffService() {
+        return diffService;
+    }
+
+    /**
+     * Centralized diff cache + dispatcher. Keys by current context id assuming a single stable predecessor per context.
+     */
+    public static final class DiffService {
+        private final ContextHistory history;
+        private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache =
+                new ConcurrentHashMap<>();
+
+        DiffService(ContextHistory history) {
+            this.history = history;
+        }
+
+        /** Non-blocking: returns cached result if ready. */
+        public Optional<List<Context.DiffEntry>> peek(Context curr) {
+            var cf = cache.get(curr.id());
+            if (cf != null && cf.isDone()) {
+                return java.util.Optional.ofNullable(cf.getNow(null));
+            }
+            return java.util.Optional.empty();
+        }
+
+        /** Load or compute the diff (shared across callers). */
+        public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
+            return cache.computeIfAbsent(
+                    curr.id(),
+                    id -> CompletableFuture.supplyAsync(() -> {
+                        var prev = history.previousOf(curr);
+                        if (prev == null) return java.util.List.of();
+                        return curr.getDiff(prev);
+                    }));
+        }
+
+        /** Best-effort prefetch of all contexts that have a predecessor. */
+        public void warmUp(List<Context> contexts) {
+            for (var c : contexts) {
+                if (history.previousOf(c) != null) {
+                    diff(c);
+                }
+            }
+        }
+
+        /** Clear all cached entries. */
+        public void clear() {
+            cache.clear();
+        }
+
+        /** Retain only diffs for the provided set of current Context ids. */
+        public void retainOnly(java.util.Set<UUID> currentIds) {
+            cache.keySet().retainAll(currentIds);
+        }
+    }
+
     /* ─────────────── undo / redo  ────────────── */
 
     public record UndoResult(boolean wasUndone, int steps) {
@@ -394,6 +457,8 @@ public class ContextHistory {
             entryInfos.remove(removed.id());
             var historyIds = history.stream().map(Context::id).collect(Collectors.toSet());
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
+            // keep diff cache bounded to current history
+            diffService.retainOnly(historyIds);
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }

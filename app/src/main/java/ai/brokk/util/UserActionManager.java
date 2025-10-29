@@ -6,7 +6,6 @@ import java.io.StringWriter;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -97,30 +96,28 @@ public class UserActionManager {
      * CancellationException; other exceptions complete the future exceptionally.
      */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
-        return CompletableFuture.runAsync(
-                () -> {
-                    cancelableThread.set(Thread.currentThread());
-                    io.disableActionButtons();
-                    try {
-                        task.run();
-                    } catch (InterruptedException ie) {
-                        logger.error("LLM task did not handle interruption correctly", ie);
-                        throw new CancellationException(ie.getMessage());
-                    } catch (CancellationException cex) {
-                        logger.error("LLM task did not handle interruption correctly", cex);
-                        throw cex; // propagates as exceptional completion
-                    } catch (Exception ex) {
-                        logger.error("Internal error running LLM task", ex);
-                        throw new CompletionException(ex);
-                    } finally {
-                        cancelableThread.set(null);
-                        // Clear interrupt status so subsequent exclusive actions are unaffected
-                        Thread.interrupted();
-                        io.actionComplete();
-                        io.enableActionButtons();
-                    }
-                },
-                userExecutor);
+        return userExecutor.submit(() -> {
+            cancelableThread.set(Thread.currentThread());
+            io.disableActionButtons();
+            try {
+                task.run();
+            } catch (InterruptedException ie) {
+                logger.error("LLM task did not handle interruption correctly", ie);
+                throw new CancellationException(ie.getMessage());
+            } catch (CancellationException cex) {
+                logger.error("LLM task did not handle interruption correctly", cex);
+                throw cex; // propagates as exceptional completion
+            } catch (Exception ex) {
+                // let LoggingExecutorService handle
+                throw new RuntimeException(ex);
+            } finally {
+                cancelableThread.set(null);
+                // Clear interrupt status so subsequent exclusive actions are unaffected
+                Thread.interrupted();
+                io.actionComplete();
+                io.enableActionButtons();
+            }
+        });
     }
 
     // ---------- helpers ----------

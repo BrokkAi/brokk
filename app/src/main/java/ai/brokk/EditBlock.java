@@ -397,11 +397,11 @@ public class EditBlock {
         ContentLines targetCl = prep(target);
         ContentLines replaceCL = prep(replace);
 
-        if (logger.isDebugEnabled()) {
-            logger.debug(
+        if (logger.isTraceEnabled()) {
+            logger.trace(
                     "Original content (non-whitespace):\n{}",
                     originalCL.lines().stream().map(EditBlock::nonWhitespace).collect(Collectors.joining("\n")));
-            logger.debug(
+            logger.trace(
                     "Target snippet (non-whitespace):\n{}",
                     targetCl.lines().stream().map(EditBlock::nonWhitespace).collect(Collectors.joining("\n")));
         }

@@ -3,7 +3,9 @@ package ai.brokk.gui.wand;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -12,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -59,6 +62,7 @@ public class WandAction {
 
     public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO) throws InterruptedException {
         var model = contextManager.getCodeModel();
+        var ctx = contextManager.topContext();
 
         String instruction =
                 """
@@ -66,7 +70,11 @@ public class WandAction {
                 %s
                 </workspace_summary>
 
-                <draft_prompt>>
+                <history_sumary>
+                %s
+                </history_sumary>
+
+                <draft_prompt>
                 %s
                 </draft_prompt>
 
@@ -78,9 +86,7 @@ public class WandAction {
                 </goal>
                 """
                         .formatted(
-                                ContextFragment.describe(
-                                        contextManager.topContext().allFragments()),
-                                originalPrompt);
+                                ContextFragment.describe(ctx.allFragments()), buildHistorySummary(ctx), originalPrompt);
 
         Llm llm = contextManager.getLlm(new Llm.Options(model, "Refine Prompt").withEcho());
         llm.setOutput(consoleIO);
@@ -93,6 +99,24 @@ public class WandAction {
         }
 
         return sanitize(res.text());
+    }
+
+    private String buildHistorySummary(Context ctx) {
+        return ctx.getTaskHistory().stream()
+                .map(entry -> {
+                    if (entry.summary() != null) {
+                        return entry.summary();
+                    }
+                    if (entry.log() != null) {
+                        var messages = entry.log().messages();
+                        if (!messages.isEmpty()) {
+                            return "User: " + Messages.getText(messages.getFirst());
+                        }
+                    }
+                    throw new IllegalStateException("No summary or messages found for task entry");
+                })
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
     }
 
     private String sanitize(String refined) {

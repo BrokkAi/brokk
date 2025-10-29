@@ -640,7 +640,7 @@ public class GitWorktreeTab extends JPanel {
                 gbc.weightx = 0.0;
                 gbc.insets = new Insets(5, 5, 5, 5);
 
-                JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
+                JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Context to worktree Session");
                 copyWorkspaceCheckbox.setSelected(false);
                 gbc.gridx = 0;
                 gbc.gridy = 5;

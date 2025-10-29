@@ -1788,12 +1788,12 @@ public final class MainProject extends AbstractProject {
     }
 
     public void reserveSessionsForKnownWorktrees() {
-        if (this.repo.isWorktree() || !(this.repo instanceof GitRepo gitRepo) || !gitRepo.supportsWorktrees()) {
+        if (!repo.supportsWorktrees()) {
             return;
         }
         logger.debug("Main project {} reserving sessions for its known worktrees.", this.root.getFileName());
         try {
-            var worktrees = gitRepo.listWorktrees();
+            var worktrees = repo.listWorktrees();
             for (var wtInfo : worktrees) {
                 Path wtPath = wtInfo.path().toAbsolutePath().normalize();
                 if (wtPath.equals(this.root)) continue;

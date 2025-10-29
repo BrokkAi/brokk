@@ -10,6 +10,15 @@ import java.util.Locale;
 import java.util.Optional;
 
 public interface BrokkFile extends Comparable<BrokkFile> {
+    /** Heuristic binary detection: presence of NUL within the first few KB. */
+    static boolean isBinary(String content) {
+        int limit = Math.min(content.length(), 8192);
+        for (int i = 0; i < limit; i++) {
+            if (content.charAt(i) == '\0') return true;
+        }
+        return false;
+    }
+
     Path absPath();
 
     default Optional<String> read() {

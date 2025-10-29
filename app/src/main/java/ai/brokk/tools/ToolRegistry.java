@@ -317,7 +317,20 @@ public class ToolRegistry {
                 var paramType = param.getParameterizedType();
                 if (paramType instanceof ParameterizedType) {
                     JavaType javaType = typeFactory.constructType(paramType);
-                    converted = OBJECT_MAPPER.convertValue(argValue, javaType);
+                    try {
+                        converted = OBJECT_MAPPER.convertValue(argValue, javaType);
+                    } catch (IllegalArgumentException e) {
+                        // If conversion fails and target is a collection, try wrapping the value in a list
+                        // This is fallback for some edge cases where Sonnet 4.5 has been seen sending a string
+                        // when it should be a single element list of strings
+                        if (javaType.isCollectionLikeType() && !(argValue instanceof Collection)) {
+                            logger.debug(
+                                    "Retrying conversion of '{}' to {} by wrapping in list", param.getName(), javaType);
+                            converted = OBJECT_MAPPER.convertValue(List.of(argValue), javaType);
+                        } else {
+                            throw e;
+                        }
+                    }
 
                     if (javaType.isCollectionLikeType()) {
                         JavaType contentType = javaType.getContentType();

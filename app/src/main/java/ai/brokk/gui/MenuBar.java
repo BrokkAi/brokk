@@ -181,7 +181,7 @@ public class MenuBar {
         }));
         sessionMenu.add(newSessionItem);
 
-        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
+        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Context");
         newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
@@ -439,6 +439,15 @@ public class MenuBar {
                     });
                     windowMenu.add(issuesItem);
                 }
+
+                // Tests
+                var testsItem = new JMenuItem("Tests");
+                testsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_8));
+                testsItem.addActionListener(actionEvent -> {
+                    var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getTestRunnerPanel());
+                    if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                });
+                windowMenu.add(testsItem);
 
                 windowMenu.addSeparator();
 

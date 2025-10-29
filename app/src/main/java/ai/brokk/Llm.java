@@ -878,7 +878,7 @@ public class Llm {
                     String combinedContent = formattedResults + "\n" + Messages.getText(userMessage);
                     UserMessage updatedUserMessage = new UserMessage(userMessage.name(), combinedContent);
                     processedMessages.add(updatedUserMessage);
-                    logger.debug("Prepended {} tool result(s) to subsequent user message.", pendingTerms.size());
+                    logger.trace("Prepended {} tool result(s) to subsequent user message.", pendingTerms.size());
 
                     pendingTerms.clear();
                     continue;
@@ -1050,7 +1050,7 @@ public class Llm {
                 .anyMatch(m -> Messages.getText(m).contains("available tools:")
                         && Messages.getText(m).contains("tool_calls"));
 
-        logger.debug(
+        logger.trace(
                 "Tool emulation sending {} messages with instructionsPresent={}", messages.size(), instructionsPresent);
 
         // Prepare messages, possibly adding instructions
@@ -1330,14 +1330,14 @@ public class Llm {
 
         // Add the think tool only if the model is not a reasoning model
         if (!contextManager.getService().isReasoning(this.model)) {
-            logger.debug(
+            logger.trace(
                     "Adding 'think' tool for non-reasoning model {}",
                     contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
             enhancedTools.addAll(contextManager.getToolRegistry().getTools(List.of("think")));
             return enhancedTools;
         }
-        logger.debug(
+        logger.trace(
                 "Skipping 'think' tool for reasoning model {}",
                 contextManager.getService().nameOf(this.model));
         return originalTools;
@@ -1375,59 +1375,50 @@ public class Llm {
         }
 
         // Compute and show cost notification if usage/pricing are available
-        try {
-            if (result != null) {
-                var usage = result.tokenUsage();
-                if (usage != null) {
-                    var service = contextManager.getService();
-                    var modelName = service.nameOf(model);
-                    // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
-                    boolean isFreeInternalLLM =
-                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
-                    if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
-                        logger.debug(
-                                "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
-                                modelName);
-                        return;
-                    }
-                    // Respect user preference for cost notifications
-                    if (!GlobalUiSettings.isShowCostNotifications()) {
-                        logger.debug("Cost notifications disabled by user settings");
-                        return;
-                    }
-                    var pricing = service.getModelPricing(modelName);
-
-                    int input = usage.inputTokens();
-                    int cached = usage.cachedInputTokens();
-                    int uncached = Math.max(0, input - cached);
-                    int output = usage.outputTokens();
-
-                    int totalTokens = Math.max(0, input) + Math.max(0, output);
-                    int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
-                    String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
-
-                    String message;
-                    if (pricing.bands().isEmpty()) {
-                        message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
-                    } else {
-                        double cost = pricing.estimateCost(uncached, cached, output);
-                        DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
-                        df.applyPattern("#,##0.0000");
-                        String costStr = df.format(cost);
-                        message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
-                    }
-
-                    try {
-                        io.showNotification(IConsoleIO.NotificationRole.COST, message);
-                    } catch (Throwable t) {
-                        logger.debug("Unable to show cost notification; falling back to system output", t);
-                        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    }
-                    logger.debug("LLM cost: {}", message);
+        if (result != null) {
+            var usage = result.tokenUsage();
+            if (usage != null) {
+                var service = contextManager.getService();
+                var modelName = service.nameOf(model);
+                // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
+                boolean isFreeInternalLLM =
+                        "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
+                if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
+                    logger.debug(
+                            "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
+                            modelName);
+                    return;
                 }
+                // Respect user preference for cost notifications
+                if (!GlobalUiSettings.isShowCostNotifications()) {
+                    logger.debug("Cost notifications disabled by user settings");
+                    return;
+                }
+                var pricing = service.getModelPricing(modelName);
+
+                int input = usage.inputTokens();
+                int cached = usage.cachedInputTokens();
+                int uncached = Math.max(0, input - cached);
+                int output = usage.outputTokens();
+
+                int totalTokens = Math.max(0, input) + Math.max(0, output);
+                int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
+                String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
+
+                String message;
+                if (pricing.bands().isEmpty()) {
+                    message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                } else {
+                    double cost = pricing.estimateCost(uncached, cached, output);
+                    DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
+                    df.applyPattern("#,##0.0000");
+                    String costStr = df.format(cost);
+                    message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                }
+
+                io.showNotification(IConsoleIO.NotificationRole.COST, message);
+                logger.debug("LLM cost: {}", message);
             }
-        } catch (Throwable t) {
-            logger.debug("Unable to compute cost notification", t);
         }
     }
 

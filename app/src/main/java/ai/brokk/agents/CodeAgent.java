@@ -74,6 +74,9 @@ public class CodeAgent {
     // A "global" for current task Context. Updated mid-task with new files and build status.
     private Context context;
 
+    @VisibleForTesting
+    boolean javaParsingEnabled = false;
+
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
@@ -977,6 +980,10 @@ public class CodeAgent {
      * expensive full build. Goal is to catch as many true positives as possible with zero false positives.
      */
     Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
+        if (!javaParsingEnabled) {
+            return new Step.Continue(cs, es);
+        }
+
         // Only run if there were edits since the last build attempt (PJ-21)
         if (es.blocksAppliedWithoutBuild() == 0) {
             return new Step.Continue(cs, es);

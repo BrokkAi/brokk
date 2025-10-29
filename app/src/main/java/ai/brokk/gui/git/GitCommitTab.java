@@ -65,6 +65,9 @@ public class GitCommitTab extends JPanel {
     // Thread-safe cached count for badge updates
     private volatile int cachedModifiedFileCount = 0;
 
+    // Thread-safe cached list of modified files
+    private volatile List<ProjectFile> cachedModifiedFiles = List.of();
+
     // Guard to avoid repeatedly offering AI merge while a conflict is active
     private volatile boolean mergeOfferShown = false;
 
@@ -395,8 +398,11 @@ public class GitCommitTab extends JPanel {
                 updateButtonEnablement(); // General button enablement based on table content
                 updateCommitButtonText(); // Updates commit button label specifically
 
-                // Update cached count and badge after status change
-                updateAfterStatusChange(uncommittedFilesList.size());
+                // Update cached count, files, and badge after status change
+                var projectFiles = uncommittedFilesList.stream()
+                        .map(GitRepo.ModifiedFile::file)
+                        .collect(Collectors.toList());
+                updateAfterStatusChange(projectFiles);
 
                 // Offer AI-assisted merge once per conflict state
                 if (detectedConflict.isPresent()) {
@@ -799,18 +805,19 @@ public class GitCommitTab extends JPanel {
         resolveConflictsButton.setEnabled(fileStatusPane.hasConflicts());
     }
 
-    public int getThreadSafeCachedModifiedFileCount() {
-        return cachedModifiedFileCount;
+    public List<ProjectFile> getModifiedFiles() {
+        return cachedModifiedFiles;
     }
 
-    private void updateAfterStatusChange(int newCount) {
+    private void updateAfterStatusChange(List<ProjectFile> newFiles) {
         assert SwingUtilities.isEventDispatchThread() : "updateAfterStatusChange must be called on EDT";
 
-        // Update cached count for thread-safe access
-        cachedModifiedFileCount = newCount;
+        // Update cached files and count for thread-safe access
+        cachedModifiedFiles = List.copyOf(newFiles);
+        cachedModifiedFileCount = newFiles.size();
 
         // Update the git tab badge
-        chrome.updateGitTabBadge(newCount);
+        chrome.updateGitTabBadge(newFiles.size());
     }
 
     /** Offer AI-assisted merge once per detected conflict. */
