@@ -509,18 +509,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return String.join(",", paramTypes);
     }
 
-    /**
-     * Extracts normalized parameter type signature from a function declarator node.
-     * Returns a CSV of parameter types with names removed and whitespace normalized.
-     * Example: "int, const char*, std::string" (or empty if no parameters).
-     *
-     * @param funcDefNode the function_definition or declaration node
-     * @param src the source code
-     * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
-     */
-    private String extractNormalizedParameterSignature(TSNode funcDefNode, String src) {
-        return buildCppOverloadSuffix(funcDefNode, src);
-    }
 
     /**
      * Recursively searches for a function_declarator node within a declarator tree.
@@ -557,124 +545,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return null;
     }
 
-    /**
-     * Normalizes a parameter list string by extracting only types (removing names, default values).
-     * Normalizes whitespace and punctuation while preserving const, pointers, references, templates.
-     *
-     * Handles:
-     * - Parameter names (removed): "int x" -> "int"
-     * - Default values (removed): "int x = 5" -> "int"
-     * - Pointers and references: "const char*" preserved, "int&" preserved, "int&&" preserved
-     * - Const qualifiers: "const int" preserved
-     * - Templates: "std::vector<int>&" preserved
-     * - Variadic: "..." preserved as "..."
-     *
-     * Example input: "int x, const char* name, std::string s = \"default\", ..."
-     * Example output: "int,const char*,std::string,..."
-     *
-     * @param paramsText comma-separated parameter list without outer parentheses
-     * @return normalized CSV of parameter types, or empty string if no parameters
-     */
-    private String normalizeParameterTypes(String paramsText) {
-        // Split by comma to get individual parameters
-        var params = paramsText.split(",");
-        var normalizedTypes = new ArrayList<String>();
 
-        for (String param : params) {
-            param = param.strip();
-            if (param.isEmpty()) {
-                continue;
-            }
-
-            // Handle variadic parameters: preserve "..." as-is
-            if (param.equals("...")) {
-                normalizedTypes.add("...");
-                continue;
-            }
-
-            // Remove default values (everything after '=')
-            int eqIdx = param.indexOf('=');
-            if (eqIdx >= 0) {
-                param = param.substring(0, eqIdx).strip();
-            }
-
-            // Extract just the type part (before the identifier)
-            // Common patterns: "int x", "const char* name", "std::string&& ref", "std::vector<int>& vec"
-            String typeOnly = extractTypeFromParameter(param);
-
-            if (!typeOnly.isEmpty()) {
-                // Normalize internal whitespace (collapse multiple spaces to single space)
-                typeOnly = typeOnly.replaceAll("\\s+", " ").strip();
-                normalizedTypes.add(typeOnly);
-            }
-        }
-
-        return String.join(",", normalizedTypes);
-    }
-
-    /**
-     * Extracts the type portion of a parameter declaration, removing the identifier/name.
-     * Handles complex types: pointers, references, arrays, templates, const qualifiers.
-     *
-     * Examples:
-     * - "int x" -> "int"
-     * - "const char* name" -> "const char*"
-     * - "std::vector<int>& vec" -> "std::vector<int>&"
-     * - "int* p" -> "int*"
-     * - "const int& ref" -> "const int&"
-     * - "int arr[10]" -> "int[10]" (though array params decay to pointer in C++)
-     *
-     * @param param the parameter string including type and optional identifier
-     * @return the type portion without the identifier name
-     */
-    private String extractTypeFromParameter(String param) {
-        param = param.strip();
-        if (param.isEmpty()) {
-            return "";
-        }
-
-        // Simple case: no spaces means no identifier (e.g., "int", "char*", "std::string")
-        if (!param.contains(" ")) {
-            return param;
-        }
-
-        // Multiple tokens: split and reconstruct type portion
-        var tokens = param.split("\\s+");
-
-        // Collect all tokens except the last, which is likely the identifier
-        var typeParts = new ArrayList<String>();
-        for (int i = 0; i < tokens.length - 1; i++) {
-            typeParts.add(tokens[i]);
-        }
-
-        // Process last token: it may be identifier, or identifier with trailing markers (* or &)
-        String lastToken = tokens[tokens.length - 1];
-
-        // If lastToken starts with letter or underscore, it's the identifier (don't include it)
-        if (!lastToken.isEmpty() && (Character.isLetter(lastToken.charAt(0)) || lastToken.charAt(0) == '_')) {
-            // Check for trailing pointer/reference markers in the identifier
-            // e.g., "p*" (unusual but extract the * for type)
-            int i = lastToken.length() - 1;
-            while (i >= 0
-                    && (lastToken.charAt(i) == '*'
-                            || lastToken.charAt(i) == '&'
-                            || lastToken.charAt(i) == '['
-                            || lastToken.charAt(i) == ']')) {
-                i--;
-            }
-            if (i < lastToken.length() - 1) {
-                // Trailing markers exist; add them to type
-                String markers = lastToken.substring(i + 1);
-                typeParts.add(markers);
-            }
-            // else: lastToken is pure identifier, don't add anything
-        } else {
-            // lastToken doesn't start with identifier pattern; likely part of type (e.g., "*" or "&")
-            typeParts.add(lastToken);
-        }
-
-        return String.join(" ", typeParts).strip();
-    }
 
     @Override
     public void clearCaches() {
