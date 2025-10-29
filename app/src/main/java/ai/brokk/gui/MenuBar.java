@@ -56,6 +56,29 @@ import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
     /**
+     * Stable dialog keys and titles used by MenuBar.showOrFocusDialog.
+     * Use these constants when opening modeless dialogs to avoid typos and
+     * to make it clear which dialogs are expected to be reused.
+     */
+    private static final String DIALOG_KEY_ISSUES = "issues";
+    private static final String DIALOG_TITLE_ISSUES = "Issues";
+
+    private static final String DIALOG_KEY_TERMINAL = "terminal";
+    private static final String DIALOG_TITLE_TERMINAL = "Terminal";
+
+    private static final String DIALOG_KEY_PULL_REQUESTS = "pull_requests";
+    private static final String DIALOG_TITLE_PULL_REQUESTS = "Pull Requests";
+
+    private static final String DIALOG_KEY_GIT_LOG = "git_log";
+    private static final String DIALOG_TITLE_GIT_LOG = "Log";
+
+    private static final String DIALOG_KEY_WORKTREES = "worktrees";
+    private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
+
+    private static final String DIALOG_KEY_CHANGES = "changes";
+    private static final String DIALOG_TITLE_CHANGES = "Changes";
+
+    /**
      * Static map to track open dialogs by key, preventing duplicate dialogs.
      * Maps unique keys to their corresponding JDialog instances.
      */
@@ -535,7 +558,7 @@ public class MenuBar {
             } else {
                 factory = () -> new GitIssuesTab(chrome, chrome.getContextManager());
             }
-            showOrFocusDialog(chrome, "issues", "Issues", factory, null);
+            showOrFocusDialog(chrome, DIALOG_KEY_ISSUES, DIALOG_TITLE_ISSUES, factory, null);
         }));
         toolsMenu.add(issuesItem);
 
@@ -558,7 +581,7 @@ public class MenuBar {
                     }
                 }
             };
-            showOrFocusDialog(chrome, "terminal", "Terminal", factory, onClose);
+            showOrFocusDialog(chrome, DIALOG_KEY_TERMINAL, DIALOG_TITLE_TERMINAL, factory, onClose);
         }));
         toolsMenu.add(terminalItem);
 
@@ -578,7 +601,7 @@ public class MenuBar {
                     return fallback;
                 };
             }
-            showOrFocusDialog(chrome, "pull_requests", "Pull Requests", factory, null);
+            showOrFocusDialog(chrome, DIALOG_KEY_PULL_REQUESTS, DIALOG_TITLE_PULL_REQUESTS, factory, null);
         }));
         toolsMenu.add(prsItem);
 
@@ -592,7 +615,7 @@ public class MenuBar {
             } else {
                 factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
             }
-            showOrFocusDialog(chrome, "git_log", "Log", factory, null);
+            showOrFocusDialog(chrome, DIALOG_KEY_GIT_LOG, DIALOG_TITLE_GIT_LOG, factory, null);
         }));
         toolsMenu.add(logItem);
 
@@ -601,7 +624,7 @@ public class MenuBar {
         worktreesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             // Chrome does not expose a public getGitWorktreeTab() in all builds; always create a fresh dialog-backed tab.
             Supplier<JComponent> factory = () -> new GitWorktreeTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, "worktrees", "Worktrees", factory, null);
+            showOrFocusDialog(chrome, DIALOG_KEY_WORKTREES, DIALOG_TITLE_WORKTREES, factory, null);
         }));
         toolsMenu.add(worktreesItem);
 
@@ -615,7 +638,7 @@ public class MenuBar {
             } else {
                 factory = () -> new HistoryOutputPanel(chrome, chrome.getContextManager());
             }
-            showOrFocusDialog(chrome, "changes", "Changes", factory, null);
+            showOrFocusDialog(chrome, DIALOG_KEY_CHANGES, DIALOG_TITLE_CHANGES, factory, null);
         }));
         toolsMenu.add(changesItem);
 
