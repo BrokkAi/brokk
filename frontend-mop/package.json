@@ -34,5 +34,13 @@
     "remark-rehype": "^11.1.2",
     "mark.js": "^8.11.1",
     "svelte-exmarkdown": "^5.0.1"
+  },
+  "overrides": {
+    "mdast-util-gfm-autolink-literal": "2.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "mdast-util-gfm-autolink-literal": "2.0.0"
+    }
   }
 }
