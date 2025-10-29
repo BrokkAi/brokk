@@ -18,6 +18,12 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.gui.git.GitIssuesTab;
+import ai.brokk.gui.git.GitPullRequestsTab;
+import ai.brokk.gui.git.GitWorktreeTab;
+import ai.brokk.gui.git.GitCommitTab;
+import ai.brokk.gui.HistoryOutputPanel;
+import ai.brokk.gui.terminal.TerminalPanel;
 import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesEvent;
@@ -463,7 +469,86 @@ public class MenuBar {
         upgradeAgentItem.setEnabled(true);
         toolsMenu.add(upgradeAgentItem);
 
-        // Let Chrome manage this item’s enabled state during long-running actions
+        // Issues
+        var issuesItem = new JMenuItem("Issues");
+        issuesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            // Prefer creating a fresh instance so we don't reparent sidebar components.
+            var issuesPanel = new GitIssuesTab(chrome, chrome.getContextManager());
+            showOrFocusDialog(chrome, "tools/issues", "Issues", issuesPanel, null);
+        }));
+        toolsMenu.add(issuesItem);
+
+        // Terminal
+        var terminalItem = new JMenuItem("Terminal");
+        terminalItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            // Create a standalone terminal instance for the dialog and ensure it is disposed on close.
+            var terminalPanel = new TerminalPanel(chrome, () -> {
+            }, true, chrome.getProject().getRoot());
+            showOrFocusDialog(chrome, "tools/terminal", "Terminal", terminalPanel, () -> {
+                try {
+                    terminalPanel.dispose();
+                } catch (Throwable ignored) {
+                }
+            });
+        }));
+        toolsMenu.add(terminalItem);
+
+        // Pull Requests
+        var prsItem = new JMenuItem("Pull Requests");
+        prsItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            var existing = chrome.getPullRequestsPanel();
+            if (existing != null) {
+                // If Chrome already has a pull requests panel, show that in a dialog.
+                showOrFocusDialog(chrome, "tools/pull_requests", "Pull Requests", existing, null);
+            } else {
+                // Fallback: display a small placeholder if PR UI isn't available.
+                var fallback = new JPanel(new BorderLayout());
+                fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
+                showOrFocusDialog(chrome, "tools/pull_requests", "Pull Requests", fallback, null);
+            }
+        }));
+        toolsMenu.add(prsItem);
+
+        // Log (Git Log / Commit view)
+        var logItem = new JMenuItem("Log");
+        logItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            var commitTab = chrome.getGitCommitTab();
+            if (commitTab != null) {
+                showOrFocusDialog(chrome, "tools/log", "Commit Log", commitTab, null);
+            } else {
+                var fallback = new JPanel(new BorderLayout());
+                fallback.add(new JLabel("Git Log not available for this project."), BorderLayout.CENTER);
+                showOrFocusDialog(chrome, "tools/log", "Commit Log", fallback, null);
+            }
+        }));
+        toolsMenu.add(logItem);
+
+        // Worktrees
+        var worktreesItem = new JMenuItem("Worktrees");
+        worktreesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            // Create a fresh worktree tab instance for the dialog
+            var worktreePanel = new GitWorktreeTab(chrome, chrome.getContextManager());
+            showOrFocusDialog(chrome, "tools/worktrees", "Worktrees", worktreePanel, null);
+        }));
+        toolsMenu.add(worktreesItem);
+
+        // Changes (Git changes / diff overview)
+        var changesItem = new JMenuItem("Changes");
+        changesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            // Create a fresh HistoryOutputPanel to show changes if needed.
+            var changesPanel = new HistoryOutputPanel(chrome, chrome.getContextManager());
+            showOrFocusDialog(chrome, "tools/changes", "Changes", changesPanel, null);
+        }));
+        toolsMenu.add(changesItem);
+
+        // Open Output in New Window (reuse existing behavior)
+        var openOutputItem = new JMenuItem("Open Output in New Window");
+        openOutputItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            chrome.getHistoryOutputPanel().openOutputInNewWindow();
+        }));
+        toolsMenu.add(openOutputItem);
+
+        // Let Chrome manage BlitzForge item’s enabled state during long-running actions
         chrome.setBlitzForgeMenuItem(upgradeAgentItem);
         if (toolsMenu.getItemCount() > 0) { // Should always be true since BlitzForge is present.
             menuBar.add(toolsMenu);
