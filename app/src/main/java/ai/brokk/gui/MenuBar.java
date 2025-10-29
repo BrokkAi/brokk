@@ -592,7 +592,7 @@ public class MenuBar {
             } else {
                 factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
             }
-            showOrFocusDialog(chrome, "git_log", "Commit Log", factory, null);
+            showOrFocusDialog(chrome, "git_log", "Log", factory, null);
         }));
         toolsMenu.add(logItem);
 
