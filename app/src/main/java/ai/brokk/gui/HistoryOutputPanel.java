@@ -13,7 +13,6 @@ import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -2606,12 +2605,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 for (var de : cachedOpt.get()) {
                     String bareName;
                     try {
-                        var files = de.fragment().files();
+                        var fragment = de.fragment();
+                        var files = fragment.files();
                         if (!files.isEmpty()) {
                             var pf = files.iterator().next();
                             bareName = pf.getRelPath().getFileName().toString();
                         } else {
-                            bareName = de.fragment().shortDescription();
+                            bareName = fragment.shortDescription();
                         }
                     } catch (Exception ex) {
                         bareName = de.fragment().shortDescription();
@@ -2741,19 +2741,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         }
                     }
 
-                    // Step 2: Identify unique frozen fragments by source matching
-                    var uniqueFragments = new ArrayList<FrozenFragment>();
+                    // Step 2: Identify unique fragments by source matching
+                    var uniqueFragments = new ArrayList<ContextFragment>();
                     for (var de : allDiffEntries) {
-                        FrozenFragment ff = de.fragment();
+                        ContextFragment frag = de.fragment();
                         boolean found = false;
                         for (var existing : uniqueFragments) {
-                            if (ff.hasSameSource(existing)) {
+                            if (frag.hasSameSource(existing)) {
                                 found = true;
                                 break;
                             }
                         }
                         if (!found) {
-                            uniqueFragments.add(ff);
+                            uniqueFragments.add(frag);
                         }
                     }
 
