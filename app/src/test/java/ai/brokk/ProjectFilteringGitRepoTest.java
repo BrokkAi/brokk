@@ -755,6 +755,276 @@ class ProjectFilteringGitRepoTest {
     }
 
     /**
+     * Tests multi-level nested gitignore precedence (3+ levels).
+     * Verifies that the "most specific must win" rule works when there are
+     * multiple nested .gitignore files above the target file.
+     *
+     * Setup:
+     * /root/.gitignore (ignores *.log)
+     * /root/projects/.gitignore (ignores *.tmp)
+     * /root/projects/service/.gitignore (un-ignores keep.log with !keep.log)
+     *
+     * Expected behavior:
+     * - root/debug.log → ignored (root rule)
+     * - projects/test.tmp → ignored (projects rule)
+     * - projects/service/keep.log → NOT ignored (service rule overrides root)
+     * - projects/service/delete.log → ignored (root rule applies, no override)
+     * - projects/service/temp.tmp → ignored (projects rule applies)
+     */
+    @Test
+    void getAllFiles_multi_level_nested_gitignore_precedence(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files at different levels
+        createFile(tempDir, "debug.log", "root level log");
+        createFile(tempDir, "projects/test.tmp", "projects level tmp");
+        createFile(tempDir, "projects/service/keep.log", "keep this");
+        createFile(tempDir, "projects/service/delete.log", "delete this");
+        createFile(tempDir, "projects/service/temp.tmp", "temp file");
+        createFile(tempDir, "projects/service/code.java", "class Code {}");
+
+        trackFiles(tempDir);
+
+        // Root ignores all .log files
+        createFile(tempDir, ".gitignore", "*.log\n");
+
+        // Projects ignores all .tmp files
+        createFile(tempDir, "projects/.gitignore", "*.tmp\n");
+
+        // Service un-ignores keep.log specifically (overrides root)
+        createFile(tempDir, "projects/service/.gitignore", "!keep.log\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // Root level: debug.log should be ignored
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("debug.log")),
+                "debug.log should be ignored by root .gitignore");
+
+        // Projects level: test.tmp should be ignored
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("projects/test.tmp")),
+                "projects/test.tmp should be ignored by projects/.gitignore");
+
+        // Service level: keep.log should NOT be ignored (most specific rule wins)
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("projects/service/keep.log")),
+                "projects/service/keep.log should NOT be ignored (service/.gitignore overrides root/.gitignore)");
+
+        // Service level: delete.log should be ignored (root rule, no override)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("projects/service/delete.log")),
+                "projects/service/delete.log should be ignored (root rule applies)");
+
+        // Service level: temp.tmp should be ignored (projects rule applies)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("projects/service/temp.tmp")),
+                "projects/service/temp.tmp should be ignored (projects/.gitignore rule)");
+
+        // Service level: code.java should be included (no rule matches)
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("projects/service/code.java")),
+                "projects/service/code.java should be included");
+
+        project.close();
+    }
+
+    /**
+     * Tests that a non-root ancestor .gitignore can be overridden by a deeper .gitignore.
+     * This is different from root override tests - it verifies middle-level precedence.
+     *
+     * Setup:
+     * /root/services/.gitignore (ignores *.log)
+     * /root/services/backend/.gitignore (un-ignores important.log)
+     *
+     * Expected: services/backend/important.log should be included (deeper wins)
+     */
+    @Test
+    void getAllFiles_non_root_ancestor_can_be_overridden(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files
+        createFile(tempDir, "services/debug.log", "debug");
+        createFile(tempDir, "services/backend/important.log", "important");
+        createFile(tempDir, "services/backend/trace.log", "trace");
+        createFile(tempDir, "services/backend/App.java", "class App {}");
+
+        trackFiles(tempDir);
+
+        // Services (non-root ancestor) ignores all .log files
+        createFile(tempDir, "services/.gitignore", "*.log\n");
+
+        // Backend un-ignores important.log specifically
+        createFile(tempDir, "services/backend/.gitignore", "!important.log\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // services/debug.log should be ignored (ancestor rule)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("services/debug.log")),
+                "services/debug.log should be ignored by services/.gitignore");
+
+        // services/backend/important.log should NOT be ignored (deeper rule overrides ancestor)
+        assertTrue(
+                allFiles.stream()
+                        .anyMatch(pf -> normalize(pf).equals("services/backend/important.log")),
+                "services/backend/important.log should NOT be ignored (backend/.gitignore overrides services/.gitignore)");
+
+        // services/backend/trace.log should be ignored (ancestor rule, no override)
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("services/backend/trace.log")),
+                "services/backend/trace.log should be ignored (ancestor rule applies)");
+
+        // services/backend/App.java should be included
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("services/backend/App.java")),
+                "services/backend/App.java should be included");
+
+        project.close();
+    }
+
+    /**
+     * Tests double-negation scenarios and path-anchored rules.
+     * Verifies that:
+     * 1. Double negation (ignore → un-ignore → ignore again) works correctly
+     * 2. Path-anchored rules (/build vs build/) are handled properly
+     *
+     * Setup:
+     * /root/.gitignore (ignores *.tmp)
+     * /root/sub/.gitignore (un-ignores !keep.tmp)
+     * /root/sub/nested/.gitignore (ignores keep.tmp again - double negation)
+     * /root/.gitignore (also has /build/ - anchored to root)
+     *
+     * Expected behavior:
+     * - Double negation: file ignored at root, included at sub, ignored again at nested
+     * - Path anchoring: /build/ only matches root/build/, not root/src/build/
+     */
+    @Test
+    void getAllFiles_double_negation_and_anchored_paths(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files for double-negation test
+        createFile(tempDir, "test.tmp", "root tmp");
+        createFile(tempDir, "sub/keep.tmp", "keep in sub");
+        createFile(tempDir, "sub/nested/keep.tmp", "ignore again in nested");
+
+        // Create files for path-anchoring test
+        createFile(tempDir, "build/output.class", "root build");
+        createFile(tempDir, "src/build/script.sh", "nested build");
+        createFile(tempDir, "src/Main.java", "class Main {}");
+
+        trackFiles(tempDir);
+
+        // Root: ignore *.tmp and /build/ (anchored to root)
+        createFile(tempDir, ".gitignore", "*.tmp\n/build/\n");
+
+        // Sub: un-ignore keep.tmp (double negation starts)
+        createFile(tempDir, "sub/.gitignore", "!keep.tmp\n");
+
+        // Nested: ignore keep.tmp again (double negation completes)
+        createFile(tempDir, "sub/nested/.gitignore", "keep.tmp\n");
+
+        var project = new MainProject(tempDir);
+        var allFiles = project.getAllFiles();
+
+        // Double negation tests
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("test.tmp")),
+                "test.tmp should be ignored (root rule)");
+
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("sub/keep.tmp")),
+                "sub/keep.tmp should NOT be ignored (sub/.gitignore un-ignores)");
+
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("sub/nested/keep.tmp")),
+                "sub/nested/keep.tmp should be ignored (nested/.gitignore re-ignores)");
+
+        // Path-anchoring tests
+        assertFalse(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("build/output.class")),
+                "build/output.class should be ignored (anchored /build/ matches root/build/)");
+
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/build/script.sh")),
+                "src/build/script.sh should NOT be ignored (anchored /build/ does not match nested build/)");
+
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")),
+                "src/Main.java should be included");
+
+        project.close();
+    }
+
+    /**
+     * Performance smoke test for deep directory structures.
+     * Ensures that the gitignore implementation doesn't regress badly with:
+     * - Deep directory trees (20+ levels)
+     * - Multiple nested .gitignore files
+     * - Repeated per-file directory ascent and Files.exists calls
+     *
+     * This is not a rigorous benchmark, just a safeguard against catastrophic regressions.
+     */
+    @Test
+    void getAllFiles_performance_smoke_test_deep_directories(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create a deep directory structure: 20 levels deep
+        StringBuilder pathBuilder = new StringBuilder();
+        for (int i = 0; i < 20; i++) {
+            pathBuilder.append("level").append(i).append("/");
+        }
+        String deepPath = pathBuilder.toString();
+
+        // Create files at various depths
+        createFile(tempDir, "shallow.java", "class Shallow {}");
+        createFile(tempDir, "level0/mid.java", "class Mid {}");
+        createFile(tempDir, deepPath + "deep.java", "class Deep {}");
+        createFile(tempDir, deepPath + "test.log", "deep log");
+
+        // Create .gitignore files at several levels
+        createFile(tempDir, ".gitignore", "*.log\n");
+        createFile(tempDir, "level0/.gitignore", "# comment\n");
+        createFile(tempDir, "level0/level1/level2/.gitignore", "# another comment\n");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Measure time (crude smoke test - just ensure it completes reasonably)
+        long startTime = System.currentTimeMillis();
+        var allFiles = project.getAllFiles();
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+
+        // Verify correctness
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("shallow.java")),
+                "shallow.java should be included");
+        assertTrue(
+                allFiles.stream().anyMatch(pf -> normalize(pf).equals("level0/mid.java")),
+                "level0/mid.java should be included");
+        assertTrue(
+                allFiles.stream()
+                        .anyMatch(pf -> normalize(pf).equals(deepPath.replaceAll("/$", "") + "/deep.java")),
+                "deep.java should be included at 20 levels deep");
+        assertFalse(
+                allFiles.stream()
+                        .anyMatch(pf -> normalize(pf).equals(deepPath.replaceAll("/$", "") + "/test.log")),
+                "test.log should be ignored even at 20 levels deep");
+
+        // Smoke test: should complete in under 5 seconds for this small dataset
+        // (This is a very generous threshold - just catching catastrophic regressions)
+        assertTrue(
+                duration < 5000,
+                "getAllFiles took " + duration + "ms, expected < 5000ms (smoke test threshold)");
+
+        project.close();
+    }
+
+    /**
      * Test that .git/info/exclude is properly loaded and applied.
      * .git/info/exclude works like .gitignore but is local to the repository and not committed.
      */
