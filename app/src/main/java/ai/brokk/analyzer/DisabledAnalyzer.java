@@ -51,4 +51,14 @@ public class DisabledAnalyzer implements IAnalyzer {
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         return Optional.empty();
     }
+
+    @Override
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        return update();
+    }
+
+    @Override
+    public IAnalyzer update() {
+        return new DisabledAnalyzer();
+    }
 }
