@@ -1,8 +1,6 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
-import ai.brokk.TaskResult;
+import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
@@ -1163,9 +1161,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
             // Add a single history entry for the whole batch
             try (var scope = contextManager.beginTask(actionDescription, false)) {
-                // TODO: This is a local save operation (non-LLM). For now we record no TaskMeta.
-                // If the product later introduces an appropriate TaskType (e.g. TaskType.NONE)
-                // we could consider creating a TaskMeta(TaskType.NONE, null) instead.
+                // This is a local save operation (non-LLM). For now we record no TaskMeta.
                 scope.append(result, null);
             }
             logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);

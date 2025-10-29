@@ -2179,17 +2179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         /**
-         * Appends a TaskResult to the context history and returns updated local context.
-         *
-         * @param result The TaskResult to append.
-         */
-        public Context append(TaskResult result) {
-            return append(result, null);
-        }
-
-        /**
          * Appends a TaskResult to the context history and returns updated local context, optionally attaching metadata.
-         *
          * If meta is provided and the TaskResult does not already carry metadata, the metadata is attached before
          * creating the TaskEntry to ensure persistence in history.
          *

@@ -627,8 +627,7 @@ public final class BrokkCli implements Callable<Integer> {
                     try {
                         result = mergeAgent.execute();
                         // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        // TODO: Consider recording TaskType.ARCHITECT with planModel, or introduce TaskType.MERGE and a representative ModelSpec.
-                        context = scope.append(result, null);
+                        context = scope.append(result, new TaskMeta(TaskType.MERGE, ModelSpec.from(planModel, service == null ? cm.getService() : service)));
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
                         return 1;

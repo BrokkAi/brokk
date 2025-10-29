@@ -1331,11 +1331,7 @@ public class BlitzForgeDialog extends JDialog {
                         instructions,
                         fContextFilter,
                         contextFilter);
-                if (engineAction == Action.ASK) {
-                    scope.append(parallelResult, new TaskMeta(TaskType.ASK, ModelSpec.from(perFileModel, service)));
-                } else {
-                    scope.append(parallelResult, new TaskMeta(TaskType.CODE, ModelSpec.from(perFileModel, service)));
-                }
+                scope.append(parallelResult, new TaskMeta(TaskType.BLITZFORGE, ModelSpec.from(perFileModel, service)));
 
                 // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
                 if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -1404,11 +1400,11 @@ public class BlitzForgeDialog extends JDialog {
                         """
                                 .formatted(instructions, parallelDetails, effectiveGoal);
 
-                TaskResult postProcessResult;
                 if (fRunOption == PostProcessingOption.ASK) {
                     mainIo.systemNotify(
                             "Ask command has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
-                    postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                    TaskResult postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                    scope.append(postProcessResult, new TaskMeta(TaskType.ASK, ModelSpec.from(perFileModel, service)));
                 } else {
                     mainIo.systemNotify(
                             "Architect has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
@@ -1418,12 +1414,7 @@ public class BlitzForgeDialog extends JDialog {
                             perFileModel,
                             agentInstructions,
                             scope);
-                    postProcessResult = agent.executeWithSearch();
-                }
-                if (fRunOption == PostProcessingOption.ASK) {
-                    scope.append(postProcessResult, new TaskMeta(TaskType.ASK, ModelSpec.from(perFileModel, service)));
-                } else {
-                    // Architect post-processing: primary model is the architect/planning model selected in the UI
+                    TaskResult postProcessResult = agent.executeWithSearch();
                     scope.append(
                             postProcessResult,
                             new TaskMeta(

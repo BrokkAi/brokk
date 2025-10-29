@@ -9,7 +9,9 @@ public enum TaskType {
     CODE,
     ASK,
     SEARCH,
-    RUN;
+    CONTEXT,
+    MERGE,
+    BLITZFORGE;
 
     public String displayName() {
         if (this == SEARCH) {

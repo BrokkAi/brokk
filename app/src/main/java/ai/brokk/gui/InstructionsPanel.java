@@ -1733,7 +1733,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     case ACTION_CODE -> TaskType.CODE;
                     case ACTION_ASK -> TaskType.ASK;
                     case ACTION_SEARCH -> TaskType.SEARCH;
-                    case ACTION_RUN -> TaskType.RUN;
                     default -> TaskType.NONE;
                 };
                 var primary = ModelSpec.from(selectedModel, svc);
@@ -1772,7 +1771,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     case ACTION_CODE -> TaskType.CODE;
                     case ACTION_ASK -> TaskType.ASK;
                     case ACTION_SEARCH -> TaskType.SEARCH;
-                    case ACTION_RUN -> TaskType.RUN;
                     default -> TaskType.NONE;
                 };
                 var primary = ModelSpec.from(selectedModel, svc);
