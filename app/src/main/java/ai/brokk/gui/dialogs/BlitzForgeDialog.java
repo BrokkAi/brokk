@@ -6,6 +6,9 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.ModelSpec;
+import ai.brokk.TaskMeta;
+import ai.brokk.TaskType;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.agents.BuildAgent;
@@ -1328,7 +1331,11 @@ public class BlitzForgeDialog extends JDialog {
                         instructions,
                         fContextFilter,
                         contextFilter);
-                scope.append(parallelResult);
+                if (engineAction == Action.ASK) {
+                    scope.append(parallelResult, new TaskMeta(TaskType.ASK, ModelSpec.from(perFileModel, service)));
+                } else {
+                    scope.append(parallelResult, new TaskMeta(TaskType.CODE, ModelSpec.from(perFileModel, service)));
+                }
 
                 // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
                 if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -1413,7 +1420,16 @@ public class BlitzForgeDialog extends JDialog {
                             scope);
                     postProcessResult = agent.executeWithSearch();
                 }
-                scope.append(postProcessResult);
+                if (fRunOption == PostProcessingOption.ASK) {
+                    scope.append(postProcessResult, new TaskMeta(TaskType.ASK, ModelSpec.from(perFileModel, service)));
+                } else {
+                    // Architect post-processing: primary model is the architect/planning model selected in the UI
+                    scope.append(
+                            postProcessResult,
+                            new TaskMeta(
+                                    TaskType.ARCHITECT,
+                                    ModelSpec.from(chrome.getInstructionsPanel().getSelectedModel(), service)));
+                }
             } finally {
                 analyzerWrapper.resume();
             }
