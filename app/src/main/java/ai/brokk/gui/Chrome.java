@@ -490,7 +490,7 @@ public class Chrome
 
         // --- New top-level Tests panel (always last) ---
         {
-            var testsIcon = Icons.PLAY;
+            var testsIcon = Icons.SCIENCE;
             leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
             var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
             var testsShortcut =
