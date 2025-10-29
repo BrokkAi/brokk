@@ -162,9 +162,9 @@ class ScreenScaleDetectionTest {
 
     @Test
     void normalizeUiScaleToAllowed_edgeCases() {
-        assertEquals(2.0, SystemScaleDetector.normalizeUiScaleToAllowed(2.4), 1e-9);
-        assertEquals(5.0, SystemScaleDetector.normalizeUiScaleToAllowed(4.9), 1e-9);
-        assertEquals(1.0, SystemScaleDetector.normalizeUiScaleToAllowed(0.9), 1e-9);
+        assertEquals(2.4, SystemScaleDetector.normalizeUiScaleToAllowed(2.4), 1e-9);
+        assertEquals(4.9, SystemScaleDetector.normalizeUiScaleToAllowed(4.9), 1e-9);
+        assertEquals(0.9, SystemScaleDetector.normalizeUiScaleToAllowed(0.9), 1e-9);
         assertEquals(3.0, SystemScaleDetector.normalizeUiScaleToAllowed(3.0), 1e-9);
     }
 
