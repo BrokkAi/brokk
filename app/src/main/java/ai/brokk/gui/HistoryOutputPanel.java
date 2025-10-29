@@ -2482,6 +2482,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return (meta == null) ? null : meta.primaryModel();
     }
 
+    private @Nullable String taskTypeOf(ai.brokk.context.Context ctx) {
+        var meta = lastMetaOf(ctx);
+        return (meta == null) ? null : meta.type().displayName();
+    }
+
     /** Returns a short, human-friendly model string: "name (reasoning)" or just "name". */
     private static String summarizeModel(ModelSpec spec) {
         var name = spec.name();
@@ -2500,9 +2505,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (ctx == null) return base;
         var spec = modelOf(ctx);
         if (spec == null) return base;
+        var taskType = taskTypeOf(ctx);
+        var tt = taskType == null ? "" : taskType + " ";
 
-        var header = summarizeModel(spec);
-        return "<html>" + escapeHtml(header) + "<br/>" + escapeHtml(base) + "</html>";
+        var header = "[" + summarizeModel(spec) + "]";
+        return "<html>" + escapeHtml(tt +header) + "<br/>" + escapeHtml(base) + "</html>";
     }
 
     /** Icon renderer that mirrors the Action column's indentation for nested rows. */
