@@ -746,6 +746,92 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testExtendedQualifiersDistinguishOverloads() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
+
+        // Collect all function CodeUnits named 'f'
+        var fOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("f"))
+                .collect(Collectors.toList());
+
+        logger.debug("Found {} overloads of f(): {}", fOverloads.size(),
+                fOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+
+        // Get their FQNs
+        var fqNames = fOverloads.stream()
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toSet());
+
+        logger.debug("FQN variants for f():");
+        fqNames.forEach(fqn -> logger.debug("  - {}", fqn));
+
+        // Assertion (a): Distinct FQNs for volatile vs const volatile variants
+        var volatileFqn = fqNames.stream()
+                .filter(fqn -> fqn.contains("volatile") && !fqn.contains("const volatile"))
+                .findFirst();
+        var constVolatileFqn = fqNames.stream()
+                .filter(fqn -> fqn.contains("const volatile"))
+                .findFirst();
+
+        assertTrue(volatileFqn.isPresent(),
+                "Should have FQN containing 'volatile' for volatile member function. Available: " + fqNames);
+        assertTrue(constVolatileFqn.isPresent(),
+                "Should have FQN containing 'const volatile' for const volatile member function. Available: " + fqNames);
+        assertNotEquals(volatileFqn.get(), constVolatileFqn.get(),
+                "volatile and const volatile variants should have distinct FQNs");
+
+        // Assertion (b): Distinguish & vs && reference qualifiers
+        var lvalueRefFqn = fqNames.stream()
+                .filter(fqn -> fqn.contains("&") && !fqn.contains("&&"))
+                .findFirst();
+        var rvalueRefFqn = fqNames.stream()
+                .filter(fqn -> fqn.contains("&&"))
+                .findFirst();
+
+        assertTrue(lvalueRefFqn.isPresent() || rvalueRefFqn.isPresent(),
+                "Should have at least one reference-qualified variant. Available: " + fqNames);
+        if (lvalueRefFqn.isPresent() && rvalueRefFqn.isPresent()) {
+            assertNotEquals(lvalueRefFqn.get(), rvalueRefFqn.get(),
+                    "& and && reference qualifiers should produce distinct FQNs");
+        }
+
+        // Assertion (c): Distinct FQNs for noexcept(true) vs noexcept(false)
+        // Collect h() overloads to test noexcept distinction
+        var hOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("h"))
+                .collect(Collectors.toList());
+
+        logger.debug("Found {} overloads of h(): {}", hOverloads.size(),
+                hOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+
+        var hFqNames = hOverloads.stream()
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toSet());
+
+        var noexceptTrueFqn = hFqNames.stream()
+                .filter(fqn -> fqn.contains("noexcept(true)"))
+                .findFirst();
+        var noexceptFalseFqn = hFqNames.stream()
+                .filter(fqn -> fqn.contains("noexcept(false)"))
+                .findFirst();
+
+        assertTrue(noexceptTrueFqn.isPresent(),
+                "Should have FQN containing 'noexcept(true)' for noexcept(true) variant. Available: " + hFqNames);
+        assertTrue(noexceptFalseFqn.isPresent(),
+                "Should have FQN containing 'noexcept(false)' for noexcept(false) variant. Available: " + hFqNames);
+        assertNotEquals(noexceptTrueFqn.get(), noexceptFalseFqn.get(),
+                "noexcept(true) and noexcept(false) variants should have distinct FQNs");
+    }
+
+    @Test
     public void testConstructorDestructorHandling() {
         var file = testProject.getAllFiles().stream()
                 .filter(f -> f.absPath().toString().endsWith("ctor_dtor.h"))
