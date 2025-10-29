@@ -27,15 +27,15 @@
 
   <Loggers>
     <!-- Detailed logging for TreeSitter analysis -->
-    <Logger name="io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
+    <Logger name="ai.brokk.analyzer.TreeSitterAnalyzer" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
       <AppenderRef ref="SkeletonPrinterFileLogger"/>
     </Logger>
 
-    <Logger name="io.github.jbellis.brokk.analyzer.CppAnalyzer" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
+    <Logger name="ai.brokk.analyzer.CppAnalyzer" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
       <AppenderRef ref="SkeletonPrinterFileLogger"/>
     </Logger>
 
-    <Logger name="io.github.jbellis.brokk.analyzer.NamespaceProcessor" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
+    <Logger name="ai.brokk.analyzer.NamespaceProcessor" level="${sys:skeleton.printer.log.level:-info}" additivity="false">
       <AppenderRef ref="SkeletonPrinterFileLogger"/>
     </Logger>
 
