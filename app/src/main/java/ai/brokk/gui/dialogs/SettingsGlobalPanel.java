@@ -849,7 +849,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         appearancePanel.add(wordWrapCheckbox, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
-                                             //
+        //
         // Detect JetBrains Runtime (JBR) and defer to its HiDPI handling if present
         var vmVendor = System.getProperty("java.vm.vendor", "");
         var runtimeName = System.getProperty("java.runtime.name", "");
