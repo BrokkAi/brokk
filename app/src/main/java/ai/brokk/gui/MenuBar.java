@@ -13,18 +13,16 @@ import ai.brokk.gui.dialogs.BlitzForgeDialog;
 import ai.brokk.gui.dialogs.FeedbackDialog;
 import ai.brokk.gui.dialogs.SessionsDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.git.GitCommitTab;
+import ai.brokk.gui.git.GitIssuesTab;
+import ai.brokk.gui.git.GitLogTab;
+import ai.brokk.gui.git.GitWorktreeTab;
+import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
-import ai.brokk.gui.git.GitIssuesTab;
-import ai.brokk.gui.git.GitPullRequestsTab;
-import ai.brokk.gui.git.GitWorktreeTab;
-import ai.brokk.gui.git.GitCommitTab;
-import ai.brokk.gui.git.GitLogTab;
-import ai.brokk.gui.HistoryOutputPanel;
-import ai.brokk.gui.terminal.TerminalPanel;
 import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesEvent;
@@ -46,8 +44,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.swing.*;
@@ -62,6 +60,7 @@ public class MenuBar {
      * to make it clear which dialogs are expected to be reused.
      */
     private static final String DIALOG_KEY_ISSUES = "issues";
+
     private static final String DIALOG_TITLE_ISSUES = "Issues";
 
     private static final String DIALOG_KEY_TERMINAL = "terminal";
@@ -568,8 +567,8 @@ public class MenuBar {
         terminalItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             var holder = new AtomicReference<TerminalPanel>();
             Supplier<JComponent> factory = () -> {
-                var terminalPanel = new TerminalPanel(chrome, () -> {
-                }, true, chrome.getProject().getRoot());
+                var terminalPanel = new TerminalPanel(
+                        chrome, () -> {}, true, chrome.getProject().getRoot());
                 holder.set(terminalPanel);
                 return terminalPanel;
             };
@@ -634,12 +633,12 @@ public class MenuBar {
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
         worktreesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Chrome does not expose a public getGitWorktreeTab() in all builds; always create a fresh dialog-backed tab.
+            // Chrome does not expose a public getGitWorktreeTab() in all builds; always create a fresh dialog-backed
+            // tab.
             Supplier<JComponent> factory = () -> new GitWorktreeTab(chrome, chrome.getContextManager());
             showOrFocusDialog(chrome, DIALOG_KEY_WORKTREES, DIALOG_TITLE_WORKTREES, factory, null);
         }));
         toolsMenu.add(worktreesItem);
-
 
         // Open Output in New Window (reuse existing behavior)
         var openOutputItem = new JMenuItem("Open Output in New Window");

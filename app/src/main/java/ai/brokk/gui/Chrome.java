@@ -381,7 +381,7 @@ public class Chrome
         });
 
         // Add Git tabs (Changes, Worktrees, Log) if available
-        if (getProject().hasGit()) {
+        if (getProject().hasGit() && GlobalUiSettings.isAdvancedMode() {
             gitCommitTab = new GitCommitTab(this, contextManager);
             gitWorktreeTab = new GitWorktreeTab(this, contextManager);
             gitLogTab = new GitLogTab(this, contextManager);
