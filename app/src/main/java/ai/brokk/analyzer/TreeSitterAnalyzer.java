@@ -1699,13 +1699,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
                     // Top-level CU - use helper to handle duplicates appropriately
-                    addTopLevelCodeUnit(
-                            cu,
-                            localTopLevelCUs,
-                            localChildren,
-                            localSignatures,
-                            localSourceRanges,
-                            file);
+                    addTopLevelCodeUnit(cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu, classChain);
@@ -1721,12 +1715,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 classChain);
                         // Fallback: add as top-level, but use helper to handle duplicates
                         addTopLevelCodeUnit(
-                                cu,
-                                localTopLevelCUs,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                file);
+                                cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
                     }
                 }
             }

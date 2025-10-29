@@ -45,6 +45,17 @@ public class CppAnalyzerTest {
         }
     }
 
+    /**
+     * Extracts the base function name from a CodeUnit shortName that may include parameter signature.
+     * For C++ functions, shortName is "functionName(paramTypes)" so we extract the part before '('.
+     * For non-functions or functions without signatures, returns the shortName as-is.
+     */
+    private static String getBaseFunctionName(CodeUnit cu) {
+        String shortName = cu.shortName();
+        int parenIndex = shortName.indexOf('(');
+        return parenIndex > 0 ? shortName.substring(0, parenIndex) : shortName;
+    }
+
     @Test
     public void isEmptyTest() {
         assertFalse(analyzer.isEmpty());
@@ -90,10 +101,13 @@ public class CppAnalyzerTest {
 
         var allFunctions = allDeclarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
 
+        // Note: C++ function names include parameter signatures, so we need to extract base names
         var anonymousNamespaceFunctions = allDeclarations.stream()
                 .filter(CodeUnit::isFunction)
-                .filter(cu -> cu.shortName().contains("anonymous_helper")
-                        || cu.shortName().contains("anonymous_void_func"))
+                .filter(cu -> {
+                    String baseName = getBaseFunctionName(cu);
+                    return baseName.contains("anonymous_helper") || baseName.contains("anonymous_void_func");
+                })
                 .collect(Collectors.toList());
 
         var functionNames = allFunctions.stream().map(cu -> cu.shortName()).collect(Collectors.toList());
@@ -103,7 +117,13 @@ public class CppAnalyzerTest {
                 "Should find function from anonymous namespace. Available functions: " + functionNames);
 
         var anonymousHelperFunction = anonymousNamespaceFunctions.stream()
-                .filter(cu -> cu.identifier().equals("anonymous_helper"))
+                .filter(cu -> {
+                    String identifier = cu.identifier();
+                    // identifier() returns the part after last dot, but may still have params
+                    int parenIndex = identifier.indexOf('(');
+                    String baseIdentifier = parenIndex > 0 ? identifier.substring(0, parenIndex) : identifier;
+                    return baseIdentifier.equals("anonymous_helper");
+                })
                 .findFirst();
 
         assertTrue(
@@ -477,11 +497,13 @@ public class CppAnalyzerTest {
 
         // Debug: log all declarations found
         logger.debug("Total declarations found: {}", declarations.size());
-        declarations.forEach(cu -> logger.debug("  - {} (kind: {}, isFunction: {})", cu.fqName(), cu.kind(), cu.isFunction()));
+        declarations.forEach(
+                cu -> logger.debug("  - {} (kind: {}, isFunction: {})", cu.fqName(), cu.kind(), cu.isFunction()));
 
         // Find all overloads of overloadedFunction
+        // Note: C++ function names include parameter signatures, e.g., "overloadedFunction(int)"
         var overloads = declarations.stream()
-                .filter(cu -> cu.shortName().equals("overloadedFunction"))
+                .filter(cu -> getBaseFunctionName(cu).equals("overloadedFunction"))
                 .collect(Collectors.toList());
 
         logger.debug("Found {} overloads of overloadedFunction", overloads.size());
@@ -619,9 +641,10 @@ public class CppAnalyzerTest {
         declarations.forEach(cu -> logger.debug("  - {} (kind: {})", cu.fqName(), cu.kind()));
 
         // Verify we found the expected symbols
+        // Note: C++ function names include parameter signatures, e.g., "add_numbers(int,int)"
         var functionNames = declarations.stream()
                 .filter(CodeUnit::isFunction)
-                .map(CodeUnit::shortName)
+                .map(CppAnalyzerTest::getBaseFunctionName)
                 .collect(Collectors.toSet());
 
         assertTrue(functionNames.contains("add_numbers"), "Should find add_numbers function");

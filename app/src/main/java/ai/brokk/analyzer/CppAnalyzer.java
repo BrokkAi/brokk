@@ -164,7 +164,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return new CodeUnit(source, kind, packageName, fqName);
     }
 
-
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
         String packageName = cu.packageName();
@@ -432,7 +431,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * Builds a canonical parameter type suffix for C++ function overloads.
      * Locates the function_declarator (handling nested declarators for method definitions),
      * extracts parameter types (ignoring names and defaults), normalizes them, and returns a CSV string.
-     * 
+     *
      * Handles constructors, destructors, and method definitions with scope resolution (e.g., ClassName::method).
      * Example: "int,const char*" or "" if no parameters.
      * Empty parameter list results in empty string (caller appends "()" for functions).
@@ -471,7 +470,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // Extract raw parameter text including parentheses
         String paramsText = ASTTraversalUtils.extractNodeText(paramsNode, src).strip();
-        
+
         // Handle empty parameter list: "()" returns empty string
         if (paramsText.isEmpty() || paramsText.equals("()")) {
             return "";
@@ -506,12 +505,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     /**
      * Recursively searches for a function_declarator node within a declarator tree.
-     * 
+     *
      * Handles nested declarators found in:
      * - Method definitions with scope resolution (e.g., ClassName::method(...))
      * - Function pointers and complex declarators
      * - Constructors and destructors
-     * 
+     *
      * @param node the root node to search within
      * @return the function_declarator node, or null if not found
      */
@@ -519,7 +518,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         if (node == null || node.isNull()) {
             return null;
         }
-        
+
         // Base case: found the function_declarator
         if ("function_declarator".equals(node.getType())) {
             return node;
@@ -542,7 +541,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     /**
      * Normalizes a parameter list string by extracting only types (removing names, default values).
      * Normalizes whitespace and punctuation while preserving const, pointers, references, templates.
-     * 
+     *
      * Handles:
      * - Parameter names (removed): "int x" -> "int"
      * - Default values (removed): "int x = 5" -> "int"
@@ -550,7 +549,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * - Const qualifiers: "const int" preserved
      * - Templates: "std::vector<int>&" preserved
      * - Variadic: "..." preserved as "..."
-     * 
+     *
      * Example input: "int x, const char* name, std::string s = \"default\", ..."
      * Example output: "int,const char*,std::string,..."
      *
@@ -597,7 +596,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     /**
      * Extracts the type portion of a parameter declaration, removing the identifier/name.
      * Handles complex types: pointers, references, arrays, templates, const qualifiers.
-     * 
+     *
      * Examples:
      * - "int x" -> "int"
      * - "const char* name" -> "const char*"
@@ -605,7 +604,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * - "int* p" -> "int*"
      * - "const int& ref" -> "const int&"
      * - "int arr[10]" -> "int[10]" (though array params decay to pointer in C++)
-     * 
+     *
      * @param param the parameter string including type and optional identifier
      * @return the type portion without the identifier name
      */
@@ -637,8 +636,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             // Check for trailing pointer/reference markers in the identifier
             // e.g., "p*" (unusual but extract the * for type)
             int i = lastToken.length() - 1;
-            while (i >= 0 && (lastToken.charAt(i) == '*' || lastToken.charAt(i) == '&' 
-                    || lastToken.charAt(i) == '[' || lastToken.charAt(i) == ']')) {
+            while (i >= 0
+                    && (lastToken.charAt(i) == '*'
+                            || lastToken.charAt(i) == '&'
+                            || lastToken.charAt(i) == '['
+                            || lastToken.charAt(i) == ']')) {
                 i--;
             }
             if (i < lastToken.length() - 1) {
@@ -769,7 +771,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
             // Extract normalized parameter types CSV (e.g., "int,const char*" or "" for no params)
             String paramSignature = buildCppOverloadSuffix(definitionNode, src);
-            
+
             // Append signature to FQN: fqName(params) or fqName() if no params
             // This ensures:
             // - Overloads with different parameters get unique FQNs (e.g., Foo(int) vs Foo(double))
