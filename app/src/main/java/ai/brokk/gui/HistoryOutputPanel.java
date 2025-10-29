@@ -3,13 +3,7 @@ package ai.brokk.gui;
 import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.Brokk;
-import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
-import ai.brokk.Llm;
-import ai.brokk.MainProject;
-import ai.brokk.TaskEntry;
+import ai.brokk.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
@@ -2443,8 +2437,72 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Centralized icon mapping for task types; future-proofed for differentiation.
-    private javax.swing.Icon iconFor(ai.brokk.TaskType type) {
-        return Icons.CHAT_BUBBLE;
+    private javax.swing.Icon iconFor(TaskType type) {
+        switch (type) {
+            case ARCHITECT -> {
+                return Icons.ARCHITECT;
+            }
+            case CODE -> {
+                return Icons.CODE;
+            }
+            case ASK -> {
+                return Icons.ASK;
+            }
+            case SEARCH -> {
+                return Icons.SEARCH;
+            }
+            case CONTEXT -> {
+                return Icons.CONTEXT;
+            }
+            case MERGE -> {
+                return Icons.MERGE;
+            }
+            case BLITZFORGE -> {
+                return Icons.BLITZFORGE;
+            }
+            default -> {
+                return Icons.CHAT_BUBBLE;
+            }
+        }
+    }
+
+    // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
+
+    /** Returns the last TaskMeta in the given Context's task history, or null if not present. */
+    private @Nullable TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
+        var history = ctx.getTaskHistory();
+        if (history.isEmpty()) return null;
+        var last = history.getLast();
+        return last.meta();
+    }
+
+    /** Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable. */
+    private @Nullable ModelSpec modelOf(ai.brokk.context.Context ctx) {
+        var meta = lastMetaOf(ctx);
+        return (meta == null) ? null : meta.primaryModel();
+    }
+
+    /** Returns a short, human-friendly model string: "name (reasoning)" or just "name". */
+    private static String summarizeModel(ModelSpec spec) {
+        var name = spec.name();
+        var rl = spec.reasoningLevel();
+        if (rl != null && !rl.isBlank()) {
+            return name + " (" + rl + ")";
+        }
+        return name;
+    }
+
+    /**
+     * Builds a tooltip that prepends the model summary on its own line when available,
+     * followed by the provided base text ("normal tooltip").
+     */
+    private String buildTooltipWithModel(@Nullable ai.brokk.context.Context ctx, String base) {
+        if (ctx == null) return base;
+        var spec = modelOf(ctx);
+        if (spec == null) return base;
+
+        var header = summarizeModel(spec);
+        return "<html>" + escapeHtml(header) + "<br/>" + escapeHtml(base) + "</html>";
     }
 
     /** Icon renderer that mirrors the Action column's indentation for nested rows. */
@@ -2454,7 +2512,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Retrieve the action value from column 1; derive indent level from ActionText if present
             Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck = (actionVal instanceof ActionText at) ? at.text() : actionVal;
+            Object actionForCheck = (actionVal instanceof ActionText atTmp) ? atTmp.text() : actionVal;
 
             // Detect group header rows from column 2
             Object contextCol2 = table.getModel().getValueAt(row, 2);
@@ -2472,16 +2530,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             try {
                 Object ctxVal = table.getModel().getValueAt(row, 2);
                 if (ctxVal instanceof ai.brokk.context.Context ctx) {
-                    var history = ctx.getTaskHistory();
-                    if (!history.isEmpty()) {
-                        var last = history.getLast();
-                        var meta = last.meta();
-                        if (meta != null) {
-                            var chosen = iconFor(meta.type());
-                            if (comp instanceof JLabel lbl && chosen != null) {
-                                lbl.setIcon(chosen);
-                            }
+                    var meta = lastMetaOf(ctx);
+                    if (meta != null) {
+                        var chosen = iconFor(meta.type());
+                        if (comp instanceof JLabel lbl && chosen != null) {
+                            lbl.setIcon(chosen);
                         }
+                    }
+
+                    // Also set a combined tooltip with the model summary + normal tooltip (action text)
+                    String actionText;
+                    Object col1 = table.getModel().getValueAt(row, 1);
+                    if (col1 instanceof ActionText at2) {
+                        actionText = at2.text();
+                    } else {
+                        actionText = (col1 != null) ? col1.toString() : "";
+                    }
+                    if (comp instanceof JComponent jc) {
+                        jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
                     }
                 }
             } catch (Throwable ignored) {
@@ -2614,7 +2680,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
             panel.add(actionComp, BorderLayout.NORTH);
             // Ensure tooltip is visible even though we return a composite panel
-            panel.setToolTipText(actionText);
+            panel.setToolTipText(buildTooltipWithModel(ctx, actionText));
 
             // If we have cached diff entries, add a summary panel; otherwise, action-only
             if (cachedOpt.isPresent() && !cachedOpt.get().isEmpty()) {
