@@ -104,8 +104,7 @@ class HistoryV4MigrationTest {
             assertEquals(2, history.getHistory().size());
             var ctx1 = history.getHistory().get(0);
             assertEquals(2, ctx1.allFragments().count());
-            var ff = findFragment(
-                    ctx1, FrozenFragment.class, f -> f.originalClassName().contains("ProjectPathFragment"));
+            var ff = findFragment(ctx1, ContextFragment.ProjectPathFragment.class, f -> true);
             assertNotNull(ff);
             assertTrue(ff.description().contains("File1.java"));
 
@@ -201,10 +200,11 @@ class HistoryV4MigrationTest {
         } else if ("v3-skeleton-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.topContext();
-            assertEquals(2, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.SummaryFragment.class, f -> true);
+            assertEquals(1, ctx.allFragments().count());
+            var sf = findFragment(ctx, ContextFragment.SkeletonFragment.class, f -> true);
             assertNotNull(sf);
-            assertTrue(sf.description().contains("Summary of com.example"));
+            assertEquals(2, sf.getTargetIdentifiers().size());
+            assertEquals("Summary of com.example.ClassA, com.example.ClassB", sf.description());
             assertFalse(sf.getTargetIdentifiers().isEmpty());
         } else if ("v3-usage-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
