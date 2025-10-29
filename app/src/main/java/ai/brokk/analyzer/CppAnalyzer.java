@@ -156,6 +156,14 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return createCodeUnit(file, type, packageName, fqName);
     }
 
+    /**
+     * Factory method to get or create a CodeUnit instance with optional parameter signature.
+     * For functions, this is called with an enhanced FQName that includes parameter types for overload distinction.
+     */
+    public CodeUnit createCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
+        return new CodeUnit(source, kind, packageName, fqName);
+    }
+
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
@@ -421,21 +429,22 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Extracts normalized parameter type signature from a function declarator node.
-     * Returns a CSV of parameter types with names removed and whitespace normalized.
-     * Example: "int, const char*, std::string" (or empty if no parameters).
+     * Builds a canonical parameter type suffix for C++ function overloads.
+     * Locates the function_declarator, extracts parameter types (ignoring names and defaults),
+     * normalizes them, and returns a CSV string.
+     * Example: "int,const char*" or "" if no parameters.
      *
-     * @param funcDefNode the function_definition or declaration node
+     * @param funcOrDeclNode the function definition or declaration node
      * @param src the source code
      * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
      */
-    private String extractNormalizedParameterSignature(TSNode funcDefNode, String src) {
-        if (funcDefNode.isNull()) {
+    private String buildCppOverloadSuffix(TSNode funcOrDeclNode, String src) {
+        if (funcOrDeclNode.isNull()) {
             return "";
         }
 
         // Find the function_declarator node
-        TSNode declaratorNode = funcDefNode.getChildByFieldName("declarator");
+        TSNode declaratorNode = funcOrDeclNode.getChildByFieldName("declarator");
         if (declaratorNode == null || declaratorNode.isNull()) {
             return "";
         }
@@ -473,6 +482,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // Parse and normalize parameter types
         return normalizeParameterTypes(paramsText);
+    }
+
+    /**
+     * Extracts normalized parameter type signature from a function declarator node.
+     * Returns a CSV of parameter types with names removed and whitespace normalized.
+     * Example: "int, const char*, std::string" (or empty if no parameters).
+     *
+     * @param funcDefNode the function_definition or declaration node
+     * @param src the source code
+     * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
+     */
+    private String extractNormalizedParameterSignature(TSNode funcDefNode, String src) {
+        return buildCppOverloadSuffix(funcDefNode, src);
     }
 
     /**
@@ -612,14 +634,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return String.join(" ", typeParts).strip();
     }
 
-    /**
-     * Factory method to get or create a CodeUnit instance, ensuring object identity. This prevents duplicate CodeUnit
-     * instances for the same logical entity.
-     */
-    public CodeUnit createCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
-        return new CodeUnit(source, kind, packageName, fqName);
-    }
-
     @Override
     public void clearCaches() {
         super.clearCaches(); // Clear cached trees to free memory
@@ -732,7 +746,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // For functions, append normalized parameter signature to FQN
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
-            String paramSignature = extractNormalizedParameterSignature(definitionNode, src);
+            String paramSignature = buildCppOverloadSuffix(definitionNode, src);
             if (!paramSignature.isEmpty()) {
                 return fqName + "(" + paramSignature + ")";
             }
