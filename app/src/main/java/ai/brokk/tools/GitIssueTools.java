@@ -1,6 +1,8 @@
 package ai.brokk.tools;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IContextManager;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.issues.Comment;
@@ -22,7 +24,10 @@ import org.apache.logging.log4j.Logger;
 /**
  * Tools for capturing GitHub issues into the Workspace Context.
  *
- * Modeled after WorkspaceTools: it uses ContextManager to add fragments.
+ * Modeled after WorkspaceTools: it can operate on a local, per-turn Context to avoid mutating the global state.
+ * When constructed with a Context instance, it mutates only that local Context via getContext/setContext.
+ * When constructed with a ContextManager, it will mutate the global ContextManager (legacy behavior).
+ *
  * v1 validation: ensures the project is a GitHub repo and that the provided repo name matches the
  * current project's folder name. If you need stricter validation against the actual remote URL,
  * please expose the IGitRepo API for retrieving the origin URL and we can tighten this.
@@ -49,12 +54,32 @@ public class GitIssueTools {
 
     private static final Logger logger = LogManager.getLogger(GitIssueTools.class);
 
-    private final ContextManager contextManager;
+    private final IContextManager contextManager;
+    private Context context; // local working context (when useLocalContext == true)
+    private final boolean useLocalContext; // true if constructed with a Context
     // Test-only injection hook; when set, getIssueService() will return this instead of creating a real service.
     private transient IssueService testIssueService;
 
     public GitIssueTools(ContextManager cm) {
         this.contextManager = cm;
+        this.context = cm.liveContext();
+        this.useLocalContext = false;
+    }
+
+    public GitIssueTools(Context initialContext) {
+        this.context = initialContext;
+        this.contextManager = initialContext.getContextManager();
+        this.useLocalContext = true;
+    }
+
+    /** Returns the current working Context (only meaningful in local-context mode). */
+    public Context getContext() {
+        return context;
+    }
+
+    /** Updates the working Context (only meaningful in local-context mode). */
+    public void setContext(Context newContext) {
+        this.context = newContext;
     }
 
     // Package-private for tests
@@ -79,9 +104,15 @@ public class GitIssueTools {
             String markdown =
                     IssueCaptureBuilder.buildCompactListMarkdown(headers, ownerRepo.owner(), ownerRepo.repo());
             String description = "GitHub Issues: " + ownerRepo.owner() + "/" + ownerRepo.repo() + " (summary)";
+            var cm = useLocalContext ? context.getContextManager() : contextManager;
             ContextFragment.StringFragment fragment =
-                    new ContextFragment.StringFragment(contextManager, markdown, description, "md");
-            contextManager.addVirtualFragment(fragment);
+                    new ContextFragment.StringFragment(cm, markdown, description, "md");
+
+            if (useLocalContext) {
+                context = context.addVirtualFragment(fragment);
+            } else {
+                contextManager.pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+            }
 
             return "Added summary for " + headers.size() + " issues from " + ownerRepo.owner() + "/" + ownerRepo.repo()
                     + ".";
@@ -110,9 +141,15 @@ public class GitIssueTools {
             List<ChatMessage> issueTextMessages = IssueCaptureBuilder.buildIssueTextMessages(service, details);
             String issueTitle = details.header().title();
             String issueFragmentDescription = "Issue " + details.header().id() + ": " + issueTitle;
-            ContextFragment.TaskFragment issueTextFragment = new ContextFragment.TaskFragment(
-                    contextManager, issueTextMessages, issueFragmentDescription, false);
-            contextManager.addVirtualFragment(issueTextFragment);
+            var cm = useLocalContext ? context.getContextManager() : contextManager;
+            ContextFragment.TaskFragment issueTextFragment =
+                    new ContextFragment.TaskFragment(cm, issueTextMessages, issueFragmentDescription, false);
+
+            if (useLocalContext) {
+                context = context.addVirtualFragment(issueTextFragment);
+            } else {
+                contextManager.addVirtualFragment(issueTextFragment);
+            }
 
             // Comments, if any
             List<Comment> comments = details.comments();
@@ -120,8 +157,12 @@ public class GitIssueTools {
             if (!commentMessages.isEmpty()) {
                 String commentsDescription = "Issue " + details.header().id() + ": Comments";
                 ContextFragment.TaskFragment commentsFragment =
-                        new ContextFragment.TaskFragment(contextManager, commentMessages, commentsDescription, false);
-                contextManager.addVirtualFragment(commentsFragment);
+                        new ContextFragment.TaskFragment(cm, commentMessages, commentsDescription, false);
+                if (useLocalContext) {
+                    context = context.addVirtualFragment(commentsFragment);
+                } else {
+                    contextManager.pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(commentsFragment));
+                }
             }
 
             return "Captured issue " + details.header().id() + " (" + issueTitle + ") with " + comments.size()
@@ -141,7 +182,7 @@ public class GitIssueTools {
         if (testIssueService != null) {
             return testIssueService;
         }
-        var project = contextManager.getProject();
+        var project = useLocalContext ? context.getContextManager().getProject() : contextManager.getProject();
         var providerType = project.getIssuesProvider().type();
         return switch (providerType) {
             case JIRA -> new JiraIssueService(project);
@@ -165,7 +206,7 @@ public class GitIssueTools {
      * - Ensure the provided repo name matches the project folder name.
      */
     private void validateProjectMatchesRepoOrThrow(String owner, String repo) {
-        var project = contextManager.getProject();
+        var project = useLocalContext ? context.getContextManager().getProject() : contextManager.getProject();
         if (!project.isGitHubRepo()) {
             throw new IllegalArgumentException("Current project is not configured as a GitHub repository.");
         }

@@ -19,6 +19,7 @@ import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
+import ai.brokk.tools.GitIssueTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -137,13 +138,15 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        // Create a per-turn WorkspaceTools instance bound to the agent-local Context
+        // Create per-turn tool instances bound to the agent-local Context
         var wst = new WorkspaceTools(context);
-        var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+        var gist = new GitIssueTools(context);
+        var tr = cm.getToolRegistry().builder().register(wst).register(gist).register(this).build();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
             wst.setContext(context);
+            gist.setContext(context);
 
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
@@ -220,7 +223,7 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
-                    ToolExecutionResult exec = executeTool(req, tr, wst);
+                    ToolExecutionResult exec = executeTool(req, tr, wst, gist);
 
                     // Summarize large results
                     var display = exec.resultText();
@@ -240,9 +243,7 @@ public class SearchAgent {
                     // Track research categories to decide later if finalization is permitted
                     var category = categorizeTool(req.name());
                     if (category == ToolCategory.RESEARCH) {
-                        if (!isWorkspaceTool(req, tr)) {
-                            executedResearch = true;
-                        }
+                        executedResearch = true;
                     }
                 }
 
@@ -252,7 +253,7 @@ public class SearchAgent {
                         .min(Comparator.comparingInt(req -> priority(req.name())));
                 if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
                     var termReq = terminal.get();
-                    var termExec = executeTool(termReq, tr, wst);
+                    var termExec = executeTool(termReq, tr, wst, gist);
 
                     var display = termExec.resultText();
                     sessionMessages.add(ToolExecutionResultMessage.from(termReq, display));
@@ -276,12 +277,38 @@ public class SearchAgent {
         }
     }
 
-    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst) {
+    private ToolExecutionResult executeTool(
+            ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst, GitIssueTools gist) {
         ToolExecutionResult termExec;
         try {
             metrics.recordToolCall(req.name());
+
+            // Snapshot pre-execution contexts
+            var wstBefore = wst.getContext();
+            var gistBefore = gist.getContext();
+
+            // Execute
             termExec = registry.executeTool(req);
-            context = wst.getContext();
+
+            // Determine which tool mutated its local context
+            var wstAfter = wst.getContext();
+            var gistAfter = gist.getContext();
+
+            boolean wstChanged = !wstAfter.equals(wstBefore);
+            boolean gistChanged = !gistAfter.equals(gistBefore);
+
+            if (wstChanged && !gistChanged) {
+                context = wstAfter;
+            } else if (gistChanged && !wstChanged) {
+                context = gistAfter;
+            } else if (wstChanged && gistChanged) {
+                // If both changed (unlikely), prefer GitIssueTools' context as last writer
+                context = gistAfter;
+            }
+
+            // Keep both instances aligned for subsequent calls in this turn
+            wst.setContext(context);
+            gist.setContext(context);
         } catch (Exception e) {
             logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
             termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
@@ -620,14 +647,6 @@ public class SearchAgent {
         };
     }
 
-    private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
-        try {
-            var vi = tr.validateTool(request);
-            return vi.instance() instanceof WorkspaceTools;
-        } catch (ToolRegistry.ToolValidationException e) {
-            return false;
-        }
-    }
 
     private int priority(String toolName) {
         // Prioritize workspace pruning and adding summaries before deeper exploration.
