@@ -478,7 +478,7 @@ public class Chrome
                 leftTabbedPanel.addTab(null, issIcon, issuesPanel);
                 var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
                 var issuesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                 var issLabel = createSquareTabLabel(issIcon, "Issues (" + issuesShortcut + ")");
                 leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
                 issLabel.addMouseListener(new MouseAdapter() {
