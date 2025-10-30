@@ -79,12 +79,6 @@ public class MenuBar {
     private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
 
     /**
-     * Static map to track open dialogs by key, preventing duplicate dialogs.
-     * Maps unique keys to their corresponding JDialog instances.
-     */
-    private static final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
-
-    /**
      * Shows or focuses a modeless dialog for a given component factory.
      * If a dialog with the given key already exists and is displayable,
      * brings it to the front and returns. Otherwise, creates a new modeless dialog
@@ -99,8 +93,11 @@ public class MenuBar {
     private static void showOrFocusDialog(
             Chrome chrome, String key, String title, Supplier<JComponent> factory, @Nullable Runnable onClose) {
         Runnable task = () -> {
+            // Per-Chrome dialog tracking ensures each window has independent dialogs
+            Map<String, JDialog> chromeOpenDialogs = chrome.getOpenDialogs();
+
             // If an existing dialog for this key is present and displayable, focus it.
-            JDialog existingDialog = openDialogs.get(key);
+            JDialog existingDialog = chromeOpenDialogs.get(key);
             if (existingDialog != null && existingDialog.isDisplayable()) {
                 existingDialog.toFront();
                 existingDialog.requestFocus();
@@ -135,8 +132,8 @@ public class MenuBar {
                 themeAware.applyTheme(chrome.getTheme());
             }
 
-            // Store in map before showing to avoid races querying openDialogs
-            openDialogs.put(key, dialog);
+            // Store in map before showing to avoid races querying chromeOpenDialogs
+            chromeOpenDialogs.put(key, dialog);
 
             // Add window listener for cleanup and callback
             final AtomicBoolean cleanupInvoked = new AtomicBoolean(false);
@@ -146,9 +143,9 @@ public class MenuBar {
                         return;
                     }
 
-                    // Always remove from the open map to avoid duplicate-key leaks
+                    // Always remove from the per-Chrome open map to avoid duplicate-key leaks
                     try {
-                        openDialogs.remove(key);
+                        chromeOpenDialogs.remove(key);
                     } catch (Throwable ignored) {
                     }
 

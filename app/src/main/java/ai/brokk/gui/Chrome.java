@@ -104,6 +104,9 @@ public class Chrome
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
 
+    // Per-Chrome instance dialog tracking to support multiple Chrome windows with independent dialogs
+    private final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
+
     // Dependencies:
     final ContextManager contextManager;
     private Context activeContext; // Track the currently displayed context
@@ -2624,6 +2627,10 @@ public class Chrome
 
     public List<ContextFragment> getSelectedFragments() {
         return workspacePanel.getSelectedFragments();
+    }
+
+    public Map<String, JDialog> getOpenDialogs() {
+        return openDialogs;
     }
 
     public JTabbedPane getLeftTabbedPanel() {
