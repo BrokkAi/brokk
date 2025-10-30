@@ -361,12 +361,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Override
     public String getToolTipText(MouseEvent event) {
         String primaryTooltip = computeWarningTooltip(
-                rateIsTested,
-                modelConfig,
-                warningLevel,
-                lastSuccessRate,
-                computeUsedTokens(),
-                unfilledTooltipHtml);
+                rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
 
         if (primaryTooltip != null) {
             return primaryTooltip;
