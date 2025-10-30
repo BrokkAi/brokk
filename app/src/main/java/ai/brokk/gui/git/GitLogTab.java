@@ -1125,7 +1125,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme) {
         // Refresh the entire component tree to apply theme changes
         SwingUtilities.updateComponentTreeUI(this);
-        
+
         // Delegate to child components that are theme-aware
         if (gitCommitBrowserPanel instanceof ThemeAware themeAware) {
             themeAware.applyTheme(guiTheme);
