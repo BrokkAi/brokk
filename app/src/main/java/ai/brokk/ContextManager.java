@@ -2221,7 +2221,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var updated = toAppend.context().withGroup(groupId, groupLabel);
                 TaskEntry entry = updated.createTaskEntry(toAppend);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
-                return updated.addHistoryEntry(finalEntry, toAppend.output(), actionFuture);
+                return updated.addHistoryEntry(finalEntry, toAppend.output(), actionFuture)
+                        .withGroup(groupId, groupLabel);
             });
 
             // prepare MOP to display new history with the next streamed message
