@@ -876,6 +876,7 @@ public class ContextAgent {
         return files.stream()
                 .distinct()
                 .parallel()
+                .filter(file -> !file.isBinary())
                 .map(file -> {
                     var content = file.read().orElse("");
                     return Map.entry(file, content);

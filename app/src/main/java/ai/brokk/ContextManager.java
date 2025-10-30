@@ -1993,13 +1993,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var tokens = 0;
                 int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
                 for (var file : topClasses) {
+                    if (file.isBinary()) {
+                        continue;
+                    }
                     String chunk; // Declare chunk once outside the try-catch
+                    var contentOpt = file.read();
                     // Use project root for relative path display if possible
                     var relativePath =
                             project.getRoot().relativize(file.absPath()).toString();
-                    var contentOpt = file.read();
                     if (contentOpt.isEmpty()) {
-                        logger.debug("Skipping unreadable file {} for style guide", relativePath);
+                        logger.warn("Skipping unreadable file {} for style guide", relativePath);
                         continue;
                     }
                     chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
