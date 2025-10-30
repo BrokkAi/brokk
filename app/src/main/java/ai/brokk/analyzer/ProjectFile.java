@@ -19,16 +19,13 @@ public class ProjectFile implements BrokkFile {
     private final transient Path relPath;
 
     /**
-     * Public constructor for programmatic use only.
+     * Programmatic constructor; not a JSON creator.
      *
      * <p>This constructor is intentionally lenient: it accepts relative roots and
      * normalizes the provided paths for convenience when constructing
      * {@code ProjectFile} instances programmatically (for example, in tests or
-     * platform-specific code).</p>
-     *
-     * <p><strong>Important:</strong> this constructor is NOT intended to be used
-     * by Jackson for JSON deserialization. JSON deserialization MUST go through the
-     * strict {@link #forJson(Path, Path)} static factory (annotated with
+     * platform-specific code). JSON deserialization MUST go through the strict
+     * {@link #forJson(Path, Path)} static factory (annotated with
      * {@code @JsonCreator}) which enforces that the JSON-supplied {@code root} is
      * absolute and applies the necessary validation rules.</p>
      *
