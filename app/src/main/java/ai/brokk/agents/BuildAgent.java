@@ -48,7 +48,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -372,7 +371,7 @@ public class BuildAgent {
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
-    public static @Nullable String determineVerificationCommand(Context ctx) {
+    public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
 
         // Retrieve build details from the project associated with the ContextManager
@@ -427,7 +426,7 @@ public class BuildAgent {
     }
 
     /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+    public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
         return determineVerificationCommand(cm.topContext());
     }
 
@@ -451,7 +450,8 @@ public class BuildAgent {
      *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            throws InterruptedException {
 
         String testSomeTemplate = details.testSomeCommand();
 
@@ -499,13 +499,7 @@ public class BuildAgent {
             return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
         }
 
-        IAnalyzer analyzer;
-        try {
-            analyzer = cm.getAnalyzer();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CancellationException("Interrupted while retrieving analyzer");
-        }
+        IAnalyzer analyzer = cm.getAnalyzer();
 
         if (analyzer.isEmpty()) {
             logger.warn("Analyzer is empty; falling back to build/lint: {}", details.buildLintCommand());
@@ -655,7 +649,7 @@ public class BuildAgent {
      * If the template doesn't contain {{pyver}}, returns the original command.
      */
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
-        if (command == null || command.isEmpty()) {
+        if (command.isEmpty()) {
             return command;
         }
         String pythonVersion = getPythonVersionForProject(projectRoot);

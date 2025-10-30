@@ -1,7 +1,5 @@
 package ai.brokk.gui.git;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
@@ -38,7 +36,6 @@ import java.util.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -1240,15 +1237,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         }
                     }
                 }
-            } catch (InterruptedException e) {
-                logger.warn("CI status fetch worker interrupted", e);
-                Thread.currentThread().interrupt();
-            } catch (CancellationException e) {
-                logger.debug("CI status fetch worker task was cancelled.");
-            } catch (ExecutionException e) {
-                reportBackgroundError("Error executing CI status fetch worker task", requireNonNull(e.getCause()));
-            } catch (Exception e) {
-                reportBackgroundError("Error processing CI status fetch results", e);
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
         }
     }
@@ -1407,16 +1397,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
             try {
                 get(); // Consume the result to complete the future properly
-                // Files are now loaded on demand, no caching
-            } catch (InterruptedException e) {
-                logger.warn("PR files fetcher worker interrupted", e);
-                Thread.currentThread().interrupt();
-            } catch (CancellationException e) {
-                logger.debug("PR files fetcher worker task was cancelled.");
-            } catch (ExecutionException e) {
-                reportBackgroundError("Error executing PR files fetcher worker task", requireNonNull(e.getCause()));
-            } catch (Exception e) {
-                reportBackgroundError("Error processing PR files fetcher results", e);
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
         }
     }
@@ -2051,16 +2033,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             }
                         }
                     });
-                } catch (InterruptedException e) {
-                    logger.warn("PR files fetcher worker interrupted", e);
-                    Thread.currentThread().interrupt();
-                } catch (CancellationException e) {
-                    logger.debug("PR files fetcher worker task was cancelled.");
-                } catch (ExecutionException e) {
-                    var cause = requireNonNull(e.getCause());
-                    reportBackgroundError("Error executing PR files fetcher worker task", cause);
-                } catch (Exception e) {
-                    reportBackgroundError("Error processing PR files fetcher results", e);
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new RuntimeException(e);
                 }
             }
         };

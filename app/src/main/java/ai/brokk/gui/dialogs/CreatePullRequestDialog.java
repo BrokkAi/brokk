@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
@@ -788,70 +787,8 @@ public class CreatePullRequestDialog extends JDialog {
                     descriptionArea.setCaretPosition(0);
                     showDescriptionHint(suggestion.usedCommitMessages());
                 });
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("SuggestPrDetailsWorker interrupted for {} -> {}", sourceBranch, targetBranch, e);
-                SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete();
-                    setTextAndResetCaret(titleField, "(suggestion interrupted)");
-                    setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
-                    showDescriptionHint(false);
-                });
-            } catch (CancellationException e) {
-                logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
-                SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete();
-                    setTextAndResetCaret(titleField, "(suggestion cancelled)");
-                    setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
-                    showDescriptionHint(false);
-                });
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof InterruptedException interruptedException) {
-                    Thread.currentThread().interrupt();
-                    logger.warn(
-                            "SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}",
-                            sourceBranch,
-                            targetBranch,
-                            interruptedException);
-                    SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete();
-                        setTextAndResetCaret(titleField, "(suggestion interrupted)");
-                        setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
-                        showDescriptionHint(false);
-                    });
-                } else if (cause instanceof GitAPIException gitException) {
-                    logger.error(
-                            "SuggestPrDetailsWorker failed with Git error for {} -> {}",
-                            sourceBranch,
-                            targetBranch,
-                            gitException);
-                    SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete();
-                        setTextAndResetCaret(titleField, "(suggestion failed)");
-                        setTextAndResetCaret(descriptionArea, "(Git error occurred)");
-                        showDescriptionHint(false);
-                        chrome.toolError(
-                                "Failed to generate PR details due to Git error:\n" + gitException.getMessage(),
-                                "Git Error");
-                    });
-                } else {
-                    logger.warn(
-                            "SuggestPrDetailsWorker failed with ExecutionException for {} -> {}: {}",
-                            sourceBranch,
-                            targetBranch,
-                            (cause != null ? cause.getMessage() : e.getMessage()),
-                            cause);
-                    SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete();
-                        String errorMessage =
-                                (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
-                        errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;
-                        setTextAndResetCaret(titleField, "(suggestion failed)");
-                        setTextAndResetCaret(descriptionArea, "(suggestion failed: " + errorMessage + ")");
-                        showDescriptionHint(false);
-                    });
-                }
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
         }
     }

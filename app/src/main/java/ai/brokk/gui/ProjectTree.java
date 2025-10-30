@@ -408,7 +408,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         }
 
         runTestsItem.addActionListener(ev -> {
-            contextManager.submitContextTask(() -> {
+            contextManager.submitLlmAction(() -> {
                 var testProjectFiles =
                         targetFiles.stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
 
@@ -416,7 +416,11 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     // This case might occur if selection changes between menu population and action
                     chrome.toolError("No test files were selected to run");
                 } else {
-                    chrome.runTests(testProjectFiles);
+                    try {
+                        chrome.runTests(testProjectFiles);
+                    } catch (InterruptedException e) {
+                        logger.debug("Tests interrupted", e);
+                    }
                 }
             });
         });
