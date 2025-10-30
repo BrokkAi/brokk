@@ -24,18 +24,26 @@ public class ProjectFile implements BrokkFile {
         if (relPath.toString().contains("%s")) {
             throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
         }
-        // Validation and normalization
+
+        // Accept relative roots (e.g., platform- or test-provided paths) by converting to an absolute,
+        // normalized root. This keeps the constructor robust across platforms (Windows test fixtures that
+        // use backslash paths) while preserving the invariant that stored root is absolute and normalized.
+        var normalizedRoot = root;
         if (!root.isAbsolute()) {
-            throw new IllegalArgumentException("Root must be absolute, got " + root);
+            normalizedRoot = root.toAbsolutePath().normalize();
+        } else {
+            normalizedRoot = root.normalize();
         }
-        if (!root.equals(root.normalize())) {
-            throw new IllegalArgumentException("Root must be normalized, got " + root);
+
+        // Validation
+        if (!normalizedRoot.equals(normalizedRoot.normalize())) {
+            throw new IllegalArgumentException("Root must be normalized, got " + normalizedRoot);
         }
         if (relPath.isAbsolute()) {
             throw new IllegalArgumentException("RelPath must be relative, got " + relPath);
         }
 
-        this.root = root;
+        this.root = normalizedRoot;
         this.relPath = relPath.normalize();
     }
 
