@@ -55,64 +55,19 @@ import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
     /**
-     * Stable dialog types used by MenuBar.showOrFocusDialog.
-     * Each enum value defines the key and title for a modeless dialog.
-     */
-    private enum DialogType {
-        ISSUES("issues", "Issues"),
-        TERMINAL("terminal", "Terminal"),
-        PULL_REQUESTS("pull_requests", "Pull Requests"),
-        GIT_CHANGES("changes", "Changes"),
-        GIT_COMMIT("commit", "Commit"),
-        WORKTREES("worktrees", "Worktrees");
-
-        private final String key;
-        private final String title;
-
-        DialogType(String key, String title) {
-            this.key = key;
-            this.title = title;
-        }
-
-        public String getKey() {
-            return key;
-        }
-
-        public String getTitle() {
-            return title;
-        }
-    }
-
-    /**
-     * Shows or focuses a modeless dialog for a given component factory.
-     * If a dialog with the given type already exists and is displayable,
-     * brings it to the front and returns. Otherwise, creates a new modeless dialog
-     * using the provided factory to create content only when needed.
+     * Creates and shows a modeless dialog with the given title and content.
+     * A new dialog is created on each call (no reuse/tracking).
      *
      * @param chrome the Chrome instance providing the owner frame and theme
-     * @param dialogType the dialog type defining its key and title
-     * @param factory supplier used to instantiate the dialog content when creating a new dialog
+     * @param title the dialog title
+     * @param content the component to display in the dialog
      * @param onClose optional callback to run when the dialog is closed
      */
-    private static void showOrFocusDialog(
-            Chrome chrome, DialogType dialogType, Supplier<JComponent> factory, @Nullable Runnable onClose) {
+    private static void showDialog(
+            Chrome chrome, String title, JComponent content, @Nullable Runnable onClose) {
         Runnable task = () -> {
-            // Per-Chrome dialog tracking ensures each window has independent dialogs
-            Map<String, JDialog> chromeOpenDialogs = chrome.getOpenDialogs();
-
-            // If an existing dialog for this type is present and displayable, focus it.
-            JDialog existingDialog = chromeOpenDialogs.get(dialogType.getKey());
-            if (existingDialog != null && existingDialog.isDisplayable()) {
-                existingDialog.toFront();
-                existingDialog.requestFocus();
-                return;
-            }
-
-            // Create content only when needed
-            JComponent content = factory.get();
-
             // Create new modeless dialog
-            JDialog dialog = new JDialog(chrome.getFrame(), dialogType.getTitle(), false);
+            JDialog dialog = new JDialog(chrome.getFrame(), title, false);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.getContentPane().add(content);
 
@@ -136,21 +91,12 @@ public class MenuBar {
                 themeAware.applyTheme(chrome.getTheme());
             }
 
-            // Store in map before showing to avoid races querying chromeOpenDialogs
-            chromeOpenDialogs.put(dialogType.getKey(), dialog);
-
             // Add window listener for cleanup and callback
             final AtomicBoolean cleanupInvoked = new AtomicBoolean(false);
             dialog.addWindowListener(new WindowAdapter() {
                 private void runCleanup() {
                     if (!cleanupInvoked.compareAndSet(false, true)) {
                         return;
-                    }
-
-                    // Always remove from the per-Chrome open map to avoid duplicate-key leaks
-                    try {
-                        chromeOpenDialogs.remove(dialogType.getKey());
-                    } catch (Throwable ignored) {
                     }
 
                     // If an explicit onClose handler was provided (e.g. to dispose resources like TerminalPanel),
@@ -198,15 +144,6 @@ public class MenuBar {
         } else {
             SwingUtilities.invokeLater(task);
         }
-    }
-
-    /**
-     * Convenience overload that accepts an already-created content component.
-     * Delegates to the factory-based overload to avoid duplicating logic.
-     */
-    private static void showOrFocusDialog(
-            Chrome chrome, DialogType dialogType, JComponent content, @Nullable Runnable onClose) {
-        showOrFocusDialog(chrome, dialogType, () -> content, onClose);
     }
 
     /**
@@ -551,76 +488,57 @@ public class MenuBar {
 
         // Issues
         var issuesItem = new JMenuItem("Issues");
-        issuesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            Supplier<JComponent> factory = () -> new GitIssuesTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, DialogType.ISSUES, factory, null);
-        }));
+        issuesItem.addActionListener(e -> {
+            var content = new GitIssuesTab(chrome, chrome.getContextManager());
+            showDialog(chrome, "Issues", content, null);
+        });
         toolsMenu.add(issuesItem);
 
-        // Terminal (always create a fresh terminal panel)
+        // Terminal (create a fresh terminal panel with proper cleanup)
         var terminalItem = new JMenuItem("Terminal");
-        terminalItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            var holder = new AtomicReference<TerminalPanel>();
-            Supplier<JComponent> factory = () -> {
-                var terminalPanel = new TerminalPanel(
-                        chrome, () -> {}, true, chrome.getProject().getRoot());
-                holder.set(terminalPanel);
-                return terminalPanel;
-            };
-            Runnable onClose = () -> {
-                var tp = holder.getAndSet(null);
-                if (tp != null) {
-                    try {
-                        tp.dispose();
-                    } catch (Throwable ignored) {
-                    }
-                }
-            };
-            showOrFocusDialog(chrome, DialogType.TERMINAL, factory, onClose);
-        }));
+        terminalItem.addActionListener(e -> {
+            var terminalPanel = new TerminalPanel(chrome, () -> {}, true, chrome.getProject().getRoot());
+            showDialog(chrome, "Terminal", terminalPanel, terminalPanel::dispose);
+        });
         toolsMenu.add(terminalItem);
 
         // Pull Requests
         var prsItem = new JMenuItem("Pull Requests");
-        prsItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+        prsItem.addActionListener(e -> {
             var existing = chrome.getPullRequestsPanel();
             if (existing != null) {
-                Supplier<JComponent> factory = () -> existing;
-                showOrFocusDialog(chrome, DialogType.PULL_REQUESTS, factory, null);
+                showDialog(chrome, "Pull Requests", existing, null);
             } else {
                 var fallback = new JPanel(new BorderLayout());
                 fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
-                showOrFocusDialog(chrome, DialogType.PULL_REQUESTS, fallback, null);
+                showDialog(chrome, "Pull Requests", fallback, null);
             }
-        }));
+        });
         toolsMenu.add(prsItem);
 
-        // Log (Git Log) - open GitLogTab in a dialog (modeless), similar to Issues/Pull Requests
+        // Changes (Git Log)
         var logItem = new JMenuItem("Changes");
-        logItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Create GitLogTab and request a larger preferred size so the dialog opens bigger by default.
-            GitLogTab gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
+        logItem.addActionListener(e -> {
+            var gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
             gitLogTab.setPreferredSize(new Dimension(1000, 700));
-            showOrFocusDialog(chrome, DialogType.GIT_CHANGES, gitLogTab, null);
-        }));
+            showDialog(chrome, "Changes", gitLogTab, null);
+        });
         toolsMenu.add(logItem);
 
-        // Commit (Git Commit tab) - open GitCommitTab in a dialog (modeless), similar to Issues/Pull Requests
+        // Commit (Git Commit tab)
         var commitItem = new JMenuItem("Commit");
-        commitItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            Supplier<JComponent> factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, DialogType.GIT_COMMIT, factory, null);
-        }));
+        commitItem.addActionListener(e -> {
+            var content = new GitCommitTab(chrome, chrome.getContextManager());
+            showDialog(chrome, "Commit", content, null);
+        });
         toolsMenu.add(commitItem);
 
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
-        worktreesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            // Chrome does not expose a public getGitWorktreeTab() in all builds; always create a fresh dialog-backed
-            // tab.
-            Supplier<JComponent> factory = () -> new GitWorktreeTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, DialogType.WORKTREES, factory, null);
-        }));
+        worktreesItem.addActionListener(e -> {
+            var content = new GitWorktreeTab(chrome, chrome.getContextManager());
+            showDialog(chrome, "Worktrees", content, null);
+        });
         toolsMenu.add(worktreesItem);
 
         // Open Output in New Window (reuse existing behavior)
