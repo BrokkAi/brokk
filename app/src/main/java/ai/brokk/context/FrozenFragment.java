@@ -50,9 +50,7 @@ import org.jetbrains.annotations.Nullable;
  * live-context model.
  *
  * @see ContextHistory#ensureFilesSnapshot(ai.brokk.context.Context, java.time.Duration) for materialization during serialization
- * @deprecated Use live {@link ContextFragment} instances instead; work with {@link ComputedValue} for async computation
  */
-@Deprecated(since = "0.16.0", forRemoval = true)
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
     private static final Logger logger = LogManager.getLogger(FrozenFragment.class);
 
@@ -91,9 +89,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * Private constructor for creating FrozenFragment instances. The ID (contentHash) is passed to the super
      * constructor.
      *
-     * @deprecated FrozenFragment is maintained only for V3 history backward compatibility
      */
-    @Deprecated(since = "0.16.0", forRemoval = true)
     private FrozenFragment(
             String contentHashAsId,
             IContextManager contextManager,
@@ -259,9 +255,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @param meta The metadata map.
      * @param repr The repr snapshot of the original fragment.
      * @return A new FrozenFragment instance.
-     * @deprecated Only for V3 history backward compatibility; use live fragments in new code
      */
-    @Deprecated(since = "0.16.0", forRemoval = true)
     public static FrozenFragment fromDto(
             String idFromDto,
             IContextManager contextManager, // id is String
@@ -301,9 +295,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * <p><strong>DEPRECATED:</strong> Only for V3 history backward compatibility. Use the full overload with repr
      * parameter when available.
      *
-     * @deprecated Only for V3 history backward compatibility; use live fragments in new code
      */
-    @Deprecated(since = "0.16.0", forRemoval = true)
     public static FrozenFragment fromDto(
             String idFromDto,
             IContextManager contextManager, // id is String
@@ -349,10 +341,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return A frozen representation of the fragment
      * @throws IOException If reading fragment content fails
      * @throws InterruptedException If interrupted while reading fragment content
-     * @deprecated Use {@link ContextHistory#ensureFilesSnapshot(Context, java.time.Duration)} for materialization;
-     *             work with live fragments in new code
      */
-    @Deprecated(since = "0.16.0", forRemoval = true)
     public static ContextFragment freeze(ContextFragment liveFragment, IContextManager contextManagerForFrozenFragment)
             throws IOException, InterruptedException {
         if (liveFragment instanceof FrozenFragment ff) {
