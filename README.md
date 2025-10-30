@@ -6,6 +6,7 @@
 - [Overview](#overview)
 - [Running Brokk](#running-brokk)
 - [Documentation](#documentation)
+- [Git Issue Capture tools](#git-issue-capture-tools)
 - [Contributing](#contributing)
 - [Increasing JVM heap when running via Gradle](#increasing-jvm-heap-when-running-via-gradle)
 
@@ -26,6 +27,22 @@ There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and sugg
 # Documentation
 
 Brokk documentation is at https://brokk.ai/documentation/.
+
+## Git Issue Capture tools
+
+- addAllGithubIssuesAsFragment(repoUrl)
+  - Description: Adds a compact Markdown summary (one line per issue) for all issues in the specified GitHub repository into the Workspace context.
+  - Accepted repo URL examples: https://github.com/{owner}/{repo}, github.com/{owner}/{repo}, git@github.com:{owner}/{repo}.git
+  - Validation: v1 only supports capturing issues from the current project's configured repository. If the provided repo does not match the current project folder name, the tool returns an error and does not capture.
+
+- addGithubIssueAsFragment(repoUrl, issueId)
+  - Description: Adds the full issue content (and comments) for the specified issue into the Workspace context. The main issue is added as a TaskFragment (formatted Markdown) and comments (if any) are added as a separate TaskFragment.
+  - Accepted issue id formats: 123 or #123 (a leading '#' is tolerated and stripped automatically).
+  - Validation: Same project-repo limitation as above.
+
+Notes:
+- The repository URL is parsed to extract {owner}/{repo} via GitUiUtil.parseOwnerRepoFromUrl.
+- Future: cross-repo capture and stricter validation of the remote URL may be supported.
 
 # Contributing
 

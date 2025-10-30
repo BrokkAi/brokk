@@ -27,6 +27,24 @@ import org.apache.logging.log4j.Logger;
  * v1 validation: ensures the project is a GitHub repo and that the provided repo name matches the
  * current project's folder name. If you need stricter validation against the actual remote URL,
  * please expose the IGitRepo API for retrieving the origin URL and we can tighten this.
+ *
+ * Accepted repository URL formats (examples):
+ * - https://github.com/{owner}/{repo}
+ * - github.com/{owner}/{repo}
+ * - git@github.com:{owner}/{repo}.git
+ *
+ * Accepted issue id formats (examples):
+ * - Numeric issue number (e.g., "123")
+ * - Pound-prefixed number (e.g., "#123") — a leading '#' is tolerated and stripped automatically.
+ *
+ * Current limitation (v1):
+ * - For safety, capture is limited to the repository configured for the current project. The tool
+ *   validates that the provided repo name matches the current project folder name and will return
+ *   an error if it does not. Cross-repo capture is not yet supported.
+ *
+ * Future extension note:
+ * - Validation may be tightened to compare the provided URL against the repository "origin" remote
+ *   URL (via IGitRepo) or to enable controlled cross-repo capture.
  */
 public class GitIssueTools {
 
@@ -48,7 +66,7 @@ public class GitIssueTools {
   @Tool(
       "Add a compact summary of all issues for the given GitHub repository URL to the Workspace as a Markdown fragment.")
   public String addAllGithubIssuesAsFragment(
-      @P("GitHub repository URL (e.g., 'https://github.com/owner/repo' or 'git@github.com:owner/repo.git')") String repoUrl) {
+      @P("GitHub repository URL (e.g., 'https://github.com/{owner}/{repo}', 'github.com/{owner}/{repo}', or 'git@github.com:{owner}/{repo}.git'). The URL is parsed via GitUiUtil.parseOwnerRepoFromUrl.") String repoUrl) {
     try {
       var ownerRepo = parseRepoUrlOrThrow(repoUrl);
 
@@ -74,13 +92,14 @@ public class GitIssueTools {
   @Tool(
       "Add a full GitHub issue (and comments) for the given repository URL and issue ID to the Workspace as fragments.")
   public String addGithubIssueAsFragment(
-      @P("GitHub repository URL (e.g., 'https://github.com/owner/repo' or 'git@github.com:owner/repo.git')") String repoUrl,
-      @P("Issue ID or number (e.g., '123')") String issueId) {
+      @P("GitHub repository URL (e.g., 'https://github.com/{owner}/{repo}', 'github.com/{owner}/{repo}', or 'git@github.com:{owner}/{repo}.git')") String repoUrl,
+      @P("Issue ID or number (e.g., '123' or '#123'). A leading '#' will be stripped automatically.") String issueId) {
     try {
       var ownerRepo = parseRepoUrlOrThrow(repoUrl);
 
       IssueService service = getIssueService();
-      IssueDetails details = service.loadDetails(issueId);
+      var normalizedIssueId = issueId.startsWith("#") ? issueId.substring(1) : issueId;
+      IssueDetails details = service.loadDetails(normalizedIssueId);
 
       // Issue main content
       List<ChatMessage> issueTextMessages = IssueCaptureBuilder.buildIssueTextMessages(service, details);
