@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /** Represents a named code element (class, function, field, or module). */
 public class CodeUnit implements Comparable<CodeUnit> {
@@ -21,7 +22,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     private final String packageName;
 
     @JsonProperty("signature")
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     private final String signature;
 
     private final transient String fqName;
@@ -32,7 +33,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("kind") CodeUnitType kind,
             @JsonProperty("packageName") String packageName,
             @JsonProperty("shortName") String shortName,
-            @JsonProperty("signature") @org.jetbrains.annotations.Nullable String signature) {
+            @JsonProperty("signature") @Nullable String signature) {
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }
@@ -80,7 +81,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public String identifier() {
         return switch (kind) {
             case CLASS -> shortName; // Simple class name, potentially including nesting (C, C$D)
-            case CodeUnitType.MODULE -> shortName; // The module's own short name, e.g., "_module_"
+            case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
                 int lastDot = shortName.lastIndexOf('.');
@@ -170,7 +171,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      *
      * @return the signature string, or {@code null} if absent.
      */
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     public String signature() {
         return signature;
     }
@@ -193,7 +194,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public Optional<CodeUnit> classUnit() {
         return switch (kind) {
             case CLASS -> Optional.of(this);
-            case CodeUnitType.MODULE -> Optional.empty();
+            case MODULE -> Optional.empty();
             default -> { // FUNCTION or FIELD
                 // shortName is "ClassName.memberName" for members, or just "funcName" for top-level functions
                 int lastDot = shortName.lastIndexOf('.');
@@ -238,7 +239,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
             case CLASS -> "CLASS[" + fqName() + "]";
             case FUNCTION -> "FUNCTION[" + fqName() + "]";
             case FIELD -> "FIELD[" + fqName() + "]";
-            case CodeUnitType.MODULE -> "MODULE[" + fqName() + "]";
+            case MODULE -> "MODULE[" + fqName() + "]";
         };
     }
 
