@@ -21,6 +21,7 @@ import ai.brokk.context.ContextFragment.PathFragment;
 import ai.brokk.context.ContextFragment.VirtualFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
+import ai.brokk.context.FrozenFragment;
 import ai.brokk.exception.OomShutdownHandler;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -1063,7 +1064,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 List<TaskEntry> newHistory = List.copyOf(finalHistory);
 
-                // Categorize fragments to add after unfreezing
+                // Categorize fragments to add (should all be live already from migration logic)
                 List<ContextFragment.ProjectPathFragment> pathsToAdd = new ArrayList<>();
                 List<VirtualFragment> virtualFragmentsToAdd = new ArrayList<>();
 
@@ -1076,26 +1077,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .map(ContextFragment::id)
                         .collect(Collectors.toSet());
 
-                for (ContextFragment fragmentFromKeeperList : fragmentsToKeep) {
-                    ContextFragment unfrozen = Context.unfreezeFragmentIfNeeded(fragmentFromKeeperList, this);
-
-                    if (sourceEditableIds.contains(fragmentFromKeeperList.id())
-                            && unfrozen instanceof ContextFragment.ProjectPathFragment ppf) {
+                for (ContextFragment fragment : fragmentsToKeep) {
+                    // Fragments should already be live from migration logic
+                    if (sourceEditableIds.contains(fragment.id())
+                            && fragment instanceof ContextFragment.ProjectPathFragment ppf) {
                         pathsToAdd.add(ppf);
-                    } else if (sourceVirtualIds.contains(fragmentFromKeeperList.id())
-                            && unfrozen instanceof VirtualFragment vf) {
+                    } else if (sourceVirtualIds.contains(fragment.id())
+                            && fragment instanceof VirtualFragment vf) {
                         if (!(vf instanceof ContextFragment.HistoryFragment)) {
                             virtualFragmentsToAdd.add(vf);
                         }
-                    } else if (unfrozen instanceof ContextFragment.HistoryFragment) {
+                    } else if (fragment instanceof ContextFragment.HistoryFragment) {
                         // Handled by selectedHistoryFragmentOpt
                     } else {
                         logger.warn(
-                                "Fragment '{}' (ID: {}) from fragmentsToKeep could not be categorized. Original type: {}, Unfrozen type: {}",
-                                fragmentFromKeeperList.description(),
-                                fragmentFromKeeperList.id(),
-                                fragmentFromKeeperList.getClass().getSimpleName(),
-                                unfrozen.getClass().getSimpleName());
+                                "Fragment '{}' (ID: {}) from fragmentsToKeep could not be categorized. Type: {}",
+                                fragment.description(),
+                                fragment.id(),
+                                fragment.getClass().getSimpleName());
                     }
                 }
 
@@ -2327,7 +2326,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = Context.unfreeze(newContextFrom(sourceFrozenContext));
+        var ctx = newContextFrom(sourceFrozenContext);
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
         var ch = new ContextHistory(ctx);
@@ -2363,20 +2362,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     var initialContextForNewSession = newContextFrom(sourceFrozenContext);
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
-                    var newCh = new ContextHistory(Context.unfreeze(initialContextForNewSession));
+                    // Context should already be live from migration logic
+                    var newCh = new ContextHistory(initialContextForNewSession);
                     newCh.addResetEdge(sourceFrozenContext, initialContextForNewSession);
                     this.contextHistory = newCh;
 
-                    // 4. This is now handled by the ContextHistory constructor.
-
-                    // 5. Save the new session's history (which now contains one entry).
+                    // 4. Save the new session's history (which now contains one entry).
+                    // ensureFilesSnapshot() is called internally by ContextHistory.pushLive()
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
 
                     // Initialize empty task list for the new session and persist
                     this.taskList = new TaskList.TaskListData(List.of());
                     sessionManager.writeTaskList(this.currentSessionId, this.taskList);
 
-                    // 6. Notify UI about the context change.
+                    // 5. Notify UI about the context change.
                     notifyContextListeners(topContext());
                 })
                 .exceptionally(e -> {
@@ -2387,6 +2386,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** returns a frozen Context based on the source one */
     private Context newContextFrom(Context sourceFrozenContext) {
+        // Source context should already be live from migration logic
+        assert !sourceFrozenContext.containsDynamicFragments()
+                || !sourceFrozenContext.allFragments()
+                        .anyMatch(f -> f instanceof FrozenFragment)
+                : "Context should not contain FrozenFragment instances";
+
         var newActionDescription = "New session (from: " + sourceFrozenContext.getAction() + ")";
         var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
         var newParsedOutputFragment = new ContextFragment.TaskFragment(

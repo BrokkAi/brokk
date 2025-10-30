@@ -139,52 +139,6 @@ public class Context {
             String oldContent,
             String newContent) {}
 
-    /** Produces a live context whose fragments are un-frozen versions of those in {@code frozen}. */
-    public static Context unfreeze(Context frozen) {
-        var cm = frozen.getContextManager();
-
-        var newFragments = new ArrayList<ContextFragment>();
-
-        frozen.allFragments().forEach(f -> {
-            if (f instanceof FrozenFragment ff) {
-                try {
-                    newFragments.add(ff.unfreeze(cm));
-                } catch (IOException e) {
-                    logger.warn("Unable to unfreeze fragment {}: {}", ff.description(), e.getMessage());
-                    newFragments.add(ff); // fall back to frozen
-                }
-            } else {
-                newFragments.add(f); // Already live or non-dynamic
-            }
-        });
-
-        // Convert legacy SkeletonFragments to individual SummaryFragments
-        var expandedFragments = new ArrayList<ContextFragment>();
-        for (var fragment : newFragments) {
-            if (fragment instanceof ContextFragment.SkeletonFragment skeleton) {
-                logger.debug(
-                        "Converting legacy SkeletonFragment id={} with {} target(s) to individual SummaryFragments",
-                        skeleton.id(),
-                        skeleton.getTargetIdentifiers().size());
-                for (String targetId : skeleton.getTargetIdentifiers()) {
-                    var summary = new ContextFragment.SummaryFragment(cm, targetId, skeleton.getSummaryType());
-                    expandedFragments.add(summary);
-                }
-            } else {
-                expandedFragments.add(fragment);
-            }
-        }
-
-        return new Context(
-                frozen.id(),
-                cm,
-                List.copyOf(expandedFragments),
-                frozen.getTaskHistory(),
-                frozen.getParsedOutput(),
-                frozen.action,
-                frozen.getGroupId(),
-                frozen.getGroupLabel());
-    }
 
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
@@ -584,15 +538,13 @@ public class Context {
 
     /** Creates a new (live) Context that copies specific elements from the provided context. */
     public static Context createFrom(Context sourceContext, Context currentContext, List<TaskEntry> newHistory) {
-        var unfrozenFragments = sourceContext
-                .allFragments()
-                .map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager))
-                .toList();
+        // Fragments should already be live from migration logic; use them directly
+        var fragments = sourceContext.allFragments().toList();
 
         return new Context(
                 newContextId(),
                 currentContext.contextManager,
-                unfrozenFragments,
+                fragments,
                 newHistory,
                 null,
                 CompletableFuture.completedFuture("Reset context to historical state"),
@@ -600,18 +552,6 @@ public class Context {
                 sourceContext.getGroupLabel());
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T extends ContextFragment> T unfreezeFragmentIfNeeded(T fragment, IContextManager contextManager) {
-        if (fragment instanceof FrozenFragment frozen) {
-            try {
-                return (T) frozen.unfreeze(contextManager);
-            } catch (IOException e) {
-                logger.warn("Failed to unfreeze fragment {}: {}", frozen.description(), e.getMessage());
-                return fragment;
-            }
-        }
-        return fragment;
-    }
 
     @Override
     public boolean equals(@Nullable Object o) {
