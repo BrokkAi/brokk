@@ -55,49 +55,53 @@ import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
     /**
-     * Stable dialog keys and titles used by MenuBar.showOrFocusDialog.
-     * Use these constants when opening modeless dialogs to avoid typos and
-     * to make it clear which dialogs are expected to be reused.
+     * Stable dialog types used by MenuBar.showOrFocusDialog.
+     * Each enum value defines the key and title for a modeless dialog.
      */
-    private static final String DIALOG_KEY_ISSUES = "issues";
+    private enum DialogType {
+        ISSUES("issues", "Issues"),
+        TERMINAL("terminal", "Terminal"),
+        PULL_REQUESTS("pull_requests", "Pull Requests"),
+        GIT_CHANGES("changes", "Changes"),
+        GIT_COMMIT("commit", "Commit"),
+        WORKTREES("worktrees", "Worktrees");
 
-    private static final String DIALOG_TITLE_ISSUES = "Issues";
+        private final String key;
+        private final String title;
 
-    private static final String DIALOG_KEY_TERMINAL = "terminal";
-    private static final String DIALOG_TITLE_TERMINAL = "Terminal";
+        DialogType(String key, String title) {
+            this.key = key;
+            this.title = title;
+        }
 
-    private static final String DIALOG_KEY_PULL_REQUESTS = "pull_requests";
-    private static final String DIALOG_TITLE_PULL_REQUESTS = "Pull Requests";
+        public String getKey() {
+            return key;
+        }
 
-    private static final String DIALOG_KEY_GIT_CHANGES = "changes";
-    private static final String DIALOG_TITLE_GIT_CHANGES = "Changes";
-
-    private static final String DIALOG_KEY_GIT_COMMIT = "commit";
-    private static final String DIALOG_TITLE_GIT_COMMIT = "Commit";
-
-    private static final String DIALOG_KEY_WORKTREES = "worktrees";
-    private static final String DIALOG_TITLE_WORKTREES = "Worktrees";
+        public String getTitle() {
+            return title;
+        }
+    }
 
     /**
      * Shows or focuses a modeless dialog for a given component factory.
-     * If a dialog with the given key already exists and is displayable,
+     * If a dialog with the given type already exists and is displayable,
      * brings it to the front and returns. Otherwise, creates a new modeless dialog
      * using the provided factory to create content only when needed.
      *
      * @param chrome the Chrome instance providing the owner frame and theme
-     * @param key unique identifier for this dialog (used to track and reuse dialogs)
-     * @param title the title for the dialog
+     * @param dialogType the dialog type defining its key and title
      * @param factory supplier used to instantiate the dialog content when creating a new dialog
      * @param onClose optional callback to run when the dialog is closed
      */
     private static void showOrFocusDialog(
-            Chrome chrome, String key, String title, Supplier<JComponent> factory, @Nullable Runnable onClose) {
+            Chrome chrome, DialogType dialogType, Supplier<JComponent> factory, @Nullable Runnable onClose) {
         Runnable task = () -> {
             // Per-Chrome dialog tracking ensures each window has independent dialogs
             Map<String, JDialog> chromeOpenDialogs = chrome.getOpenDialogs();
 
-            // If an existing dialog for this key is present and displayable, focus it.
-            JDialog existingDialog = chromeOpenDialogs.get(key);
+            // If an existing dialog for this type is present and displayable, focus it.
+            JDialog existingDialog = chromeOpenDialogs.get(dialogType.getKey());
             if (existingDialog != null && existingDialog.isDisplayable()) {
                 existingDialog.toFront();
                 existingDialog.requestFocus();
@@ -108,7 +112,7 @@ public class MenuBar {
             JComponent content = factory.get();
 
             // Create new modeless dialog
-            JDialog dialog = new JDialog(chrome.getFrame(), title, false);
+            JDialog dialog = new JDialog(chrome.getFrame(), dialogType.getTitle(), false);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.getContentPane().add(content);
 
@@ -133,7 +137,7 @@ public class MenuBar {
             }
 
             // Store in map before showing to avoid races querying chromeOpenDialogs
-            chromeOpenDialogs.put(key, dialog);
+            chromeOpenDialogs.put(dialogType.getKey(), dialog);
 
             // Add window listener for cleanup and callback
             final AtomicBoolean cleanupInvoked = new AtomicBoolean(false);
@@ -145,7 +149,7 @@ public class MenuBar {
 
                     // Always remove from the per-Chrome open map to avoid duplicate-key leaks
                     try {
-                        chromeOpenDialogs.remove(key);
+                        chromeOpenDialogs.remove(dialogType.getKey());
                     } catch (Throwable ignored) {
                     }
 
@@ -201,8 +205,8 @@ public class MenuBar {
      * Delegates to the factory-based overload to avoid duplicating logic.
      */
     private static void showOrFocusDialog(
-            Chrome chrome, String key, String title, JComponent content, @Nullable Runnable onClose) {
-        showOrFocusDialog(chrome, key, title, () -> content, onClose);
+            Chrome chrome, DialogType dialogType, JComponent content, @Nullable Runnable onClose) {
+        showOrFocusDialog(chrome, dialogType, () -> content, onClose);
     }
 
     /**
@@ -555,7 +559,7 @@ public class MenuBar {
             } else {
                 factory = () -> new GitIssuesTab(chrome, chrome.getContextManager());
             }
-            showOrFocusDialog(chrome, DIALOG_KEY_ISSUES, DIALOG_TITLE_ISSUES, factory, null);
+            showOrFocusDialog(chrome, DialogType.ISSUES, factory, null);
         }));
         toolsMenu.add(issuesItem);
 
@@ -578,7 +582,7 @@ public class MenuBar {
                     }
                 }
             };
-            showOrFocusDialog(chrome, DIALOG_KEY_TERMINAL, DIALOG_TITLE_TERMINAL, factory, onClose);
+            showOrFocusDialog(chrome, DialogType.TERMINAL, factory, onClose);
         }));
         toolsMenu.add(terminalItem);
 
@@ -598,7 +602,7 @@ public class MenuBar {
                     return fallback;
                 };
             }
-            showOrFocusDialog(chrome, DIALOG_KEY_PULL_REQUESTS, DIALOG_TITLE_PULL_REQUESTS, factory, null);
+            showOrFocusDialog(chrome, DialogType.PULL_REQUESTS, factory, null);
         }));
         toolsMenu.add(prsItem);
 
@@ -608,7 +612,7 @@ public class MenuBar {
             // Create GitLogTab and request a larger preferred size so the dialog opens bigger by default.
             GitLogTab gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
             gitLogTab.setPreferredSize(new Dimension(1000, 700));
-            showOrFocusDialog(chrome, DIALOG_KEY_GIT_CHANGES, DIALOG_TITLE_GIT_CHANGES, gitLogTab, null);
+            showOrFocusDialog(chrome, DialogType.GIT_CHANGES, gitLogTab, null);
         }));
         toolsMenu.add(logItem);
 
@@ -623,7 +627,7 @@ public class MenuBar {
             } else {
                 factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
             }
-            showOrFocusDialog(chrome, DIALOG_KEY_GIT_COMMIT, DIALOG_TITLE_GIT_COMMIT, factory, null);
+            showOrFocusDialog(chrome, DialogType.GIT_COMMIT, factory, null);
         }));
         toolsMenu.add(commitItem);
 
@@ -633,7 +637,7 @@ public class MenuBar {
             // Chrome does not expose a public getGitWorktreeTab() in all builds; always create a fresh dialog-backed
             // tab.
             Supplier<JComponent> factory = () -> new GitWorktreeTab(chrome, chrome.getContextManager());
-            showOrFocusDialog(chrome, DIALOG_KEY_WORKTREES, DIALOG_TITLE_WORKTREES, factory, null);
+            showOrFocusDialog(chrome, DialogType.WORKTREES, factory, null);
         }));
         toolsMenu.add(worktreesItem);
 
