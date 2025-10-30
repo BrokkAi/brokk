@@ -18,16 +18,29 @@ public class ProjectFile implements BrokkFile {
     private final transient Path root;
     private final transient Path relPath;
 
-    /** root must be pre-normalized; we will normalize relPath if it is not already
-    * Note: This public constructor is intended for programmatic callers and is
-    * lenient (it will accept and normalize relative roots). It is intentionally
-    * NOT annotated for JSON deserialization so that Jackson will use the strict
-    * {@link #forJson} factory method annotated with {@code @JsonCreator}.
-    */
+    /**
+     * Public constructor for programmatic use only.
+     *
+     * <p>This constructor is intentionally lenient: it accepts relative roots and
+     * normalizes the provided paths for convenience when constructing
+     * {@code ProjectFile} instances programmatically (for example, in tests or
+     * platform-specific code).</p>
+     *
+     * <p><strong>Important:</strong> this constructor is NOT intended to be used
+     * by Jackson for JSON deserialization. JSON deserialization MUST go through the
+     * strict {@link #forJson(Path, Path)} static factory (annotated with
+     * {@code @JsonCreator}) which enforces that the JSON-supplied {@code root} is
+     * absolute and applies the necessary validation rules.</p>
+     *
+     * <p>Do NOT add {@code @JsonProperty} annotations to this constructor's
+     * parameters — doing so would cause Jackson to treat this constructor as a
+     * creator, potentially selecting it over {@code forJson} and thereby bypassing
+     * the validation performed by {@link #forJson(Path, Path)}.</p>
+     */
     public ProjectFile(Path root, Path relPath) {
-    if (relPath.toString().contains("%s")) {
-    throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
-    }
+        if (relPath.toString().contains("%s")) {
+            throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
+        }
 
         // Accept relative roots (e.g., platform- or test-provided paths) by converting to an absolute,
         // normalized root. This keeps the constructor robust across platforms (Windows test fixtures that
