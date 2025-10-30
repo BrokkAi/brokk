@@ -75,8 +75,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile String unfilledTooltipHtml = null;
 
     // Stored warning metadata for tooltip rendering
-    private volatile int warningSuccessRate = -1;
-    private volatile boolean warningIsTested = false;
+    private volatile int lastSuccessRate = -1;
+    private volatile boolean rateIsTested = false;
 
     public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
@@ -221,8 +221,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
      * for display in warning tooltips and extrapolation notes.
      */
     public void setWarningMetadata(int successRate, boolean isTested) {
-        this.warningSuccessRate = successRate;
-        this.warningIsTested = isTested;
+        this.lastSuccessRate = successRate;
+        this.rateIsTested = isTested;
     }
 
     public void setOnClick(@Nullable Runnable onClick) {
@@ -323,8 +323,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             modelName = StringEscapeUtils.escapeHtml4(modelName);
 
             int usedTokens = computeUsedTokens();
-            int successRate = this.warningSuccessRate;
-            boolean isTested = this.warningIsTested;
+            int successRate = this.lastSuccessRate;
+            boolean isTested = this.rateIsTested;
 
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
