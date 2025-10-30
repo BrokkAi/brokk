@@ -552,13 +552,7 @@ public class MenuBar {
         // Issues
         var issuesItem = new JMenuItem("Issues");
         issuesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            var existing = chrome.getIssuesPanel();
-            Supplier<JComponent> factory;
-            if (existing != null && existing.getParent() == null) {
-                factory = () -> existing;
-            } else {
-                factory = () -> new GitIssuesTab(chrome, chrome.getContextManager());
-            }
+            Supplier<JComponent> factory = () -> new GitIssuesTab(chrome, chrome.getContextManager());
             showOrFocusDialog(chrome, DialogType.ISSUES, factory, null);
         }));
         toolsMenu.add(issuesItem);
@@ -590,19 +584,14 @@ public class MenuBar {
         var prsItem = new JMenuItem("Pull Requests");
         prsItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             var existing = chrome.getPullRequestsPanel();
-            Supplier<JComponent> factory;
-            if (existing != null && existing.getParent() == null) {
-                // Reuse the panel if it's not currently parented in the main UI.
-                factory = () -> existing;
+            if (existing != null) {
+                Supplier<JComponent> factory = () -> existing;
+                showOrFocusDialog(chrome, DialogType.PULL_REQUESTS, factory, null);
             } else {
-                // Avoid calling chrome.getGitLogTab() (not available in all builds). Show a safe fallback.
-                factory = () -> {
-                    var fallback = new JPanel(new BorderLayout());
-                    fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
-                    return fallback;
-                };
+                var fallback = new JPanel(new BorderLayout());
+                fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
+                showOrFocusDialog(chrome, DialogType.PULL_REQUESTS, fallback, null);
             }
-            showOrFocusDialog(chrome, DialogType.PULL_REQUESTS, factory, null);
         }));
         toolsMenu.add(prsItem);
 
@@ -619,14 +608,7 @@ public class MenuBar {
         // Commit (Git Commit tab) - open GitCommitTab in a dialog (modeless), similar to Issues/Pull Requests
         var commitItem = new JMenuItem("Commit");
         commitItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            var existing = chrome.getGitCommitTab();
-            Supplier<JComponent> factory;
-            if (existing != null && existing.getParent() == null) {
-                // Reuse the panel if it's not currently parented in the main UI.
-                factory = () -> existing;
-            } else {
-                factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
-            }
+            Supplier<JComponent> factory = () -> new GitCommitTab(chrome, chrome.getContextManager());
             showOrFocusDialog(chrome, DialogType.GIT_COMMIT, factory, null);
         }));
         toolsMenu.add(commitItem);
