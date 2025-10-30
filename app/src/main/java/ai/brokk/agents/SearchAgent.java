@@ -527,6 +527,8 @@ public class SearchAgent {
         // Text-based search
         names.add("searchSubstrings");
         names.add("searchGitCommitMessages");
+        names.add("addAllGithubIssuesAsFragment");
+        names.add("addGithubIssueAsFragment");
         names.add("searchFilenames");
         names.add("getFileContents");
         names.add("getFileSummaries");
@@ -635,7 +637,13 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
+            case "searchSymbols",
+                    "getUsages",
+                    "searchSubstrings",
+                    "searchFilenames",
+                    "searchGitCommitMessages",
+                    "addAllGithubIssuesAsFragment",
+                    "addGithubIssueAsFragment" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
 

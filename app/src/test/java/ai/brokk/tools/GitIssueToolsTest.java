@@ -1,12 +1,12 @@
 package ai.brokk.tools;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IProject;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.issues.Comment;
 import ai.brokk.issues.FilterOptions;
-import ai.brokk.issues.GitHubFilterOptions;
 import ai.brokk.issues.IssueCaptureBuilder;
 import ai.brokk.issues.IssueDetails;
 import ai.brokk.issues.IssueHeader;
@@ -21,29 +21,44 @@ import java.util.List;
 import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 class GitIssueToolsTest {
 
     private static class FakeProject implements IProject {
         private final Path root;
-        FakeProject(Path root) { this.root = root; }
-        @Override public Path getRoot() { return root; }
-        @Override public boolean isGitHubRepo() { return true; }
+
+        FakeProject(Path root) {
+            this.root = root;
+        }
+
+        @Override
+        public Path getRoot() {
+            return root;
+        }
+
+        @Override
+        public boolean isGitHubRepo() {
+            return true;
+        }
     }
 
     private static class TestContextManager extends ContextManager {
         private final List<ContextFragment> added = new ArrayList<>();
+
         public TestContextManager(IProject project) {
             super(project);
         }
+
         public List<ContextFragment> getAdded() {
             return added;
         }
-        @Override public void addVirtualFragment(ContextFragment.VirtualFragment fragment) {
+
+        @Override
+        public void addVirtualFragment(ContextFragment.VirtualFragment fragment) {
             added.add(fragment);
         }
-        @Override public void addVirtualFragments(java.util.Collection<? extends ContextFragment.VirtualFragment> fragments) {
+
+        @Override
+        public void addVirtualFragments(java.util.Collection<? extends ContextFragment.VirtualFragment> fragments) {
             added.addAll(fragments);
         }
     }
@@ -51,18 +66,31 @@ class GitIssueToolsTest {
     private static class FakeIssueService implements IssueService {
         private final List<IssueHeader> headers;
         private final IssueDetails details;
+
         FakeIssueService(List<IssueHeader> headers, IssueDetails details) {
             this.headers = headers;
             this.details = details;
         }
-        @Override public List<IssueHeader> listIssues(FilterOptions filterOptions) {
+
+        @Override
+        public List<IssueHeader> listIssues(FilterOptions filterOptions) {
             return headers;
         }
-        @Override public IssueDetails loadDetails(String issueId) {
+
+        @Override
+        public IssueDetails loadDetails(String issueId) {
             return details;
         }
-        @Override public OkHttpClient httpClient() { return new OkHttpClient(); }
-        @Override public List<String> listAvailableStatuses() { return List.of(); }
+
+        @Override
+        public OkHttpClient httpClient() {
+            return new OkHttpClient();
+        }
+
+        @Override
+        public List<String> listAvailableStatuses() {
+            return List.of();
+        }
     }
 
     @Test
@@ -71,8 +99,17 @@ class GitIssueToolsTest {
         var project = new FakeProject(Path.of("/tmp/" + repoName));
         var cm = new TestContextManager(project);
 
-        var h1 = new IssueHeader("1", "First", "alice", new Date(), List.of(), List.of(), "Open", URI.create("https://example.com/1"));
-        var h2 = new IssueHeader("2", "Second", "bob", new Date(), List.of("bug"), List.of("carol"), "Closed", URI.create("https://example.com/2"));
+        var h1 = new IssueHeader(
+                "1", "First", "alice", new Date(), List.of(), List.of(), "Open", URI.create("https://example.com/1"));
+        var h2 = new IssueHeader(
+                "2",
+                "Second",
+                "bob",
+                new Date(),
+                List.of("bug"),
+                List.of("carol"),
+                "Closed",
+                URI.create("https://example.com/2"));
         var headers = List.of(h1, h2);
         var fakeDetails = new IssueDetails(h1, "ignored", List.of(), List.of());
         var service = new FakeIssueService(headers, fakeDetails);
@@ -99,12 +136,19 @@ class GitIssueToolsTest {
         var project = new FakeProject(Path.of("/tmp/" + repoName));
         var cm = new TestContextManager(project);
 
-        var header = new IssueHeader("123", "Fix bug", "alice", new Date(), List.of("bug"), List.of("bob"), "Open", URI.create("https://github.com/owner/" + repoName + "/issues/123"));
+        var header = new IssueHeader(
+                "123",
+                "Fix bug",
+                "alice",
+                new Date(),
+                List.of("bug"),
+                List.of("bob"),
+                "Open",
+                URI.create("https://github.com/owner/" + repoName + "/issues/123"));
         var comments = List.of(
                 new Comment("bob", "Looks good", new Date()),
                 new Comment("carol", "   ", new Date()), // skipped
-                new Comment("dave", "Ship it", new Date())
-        );
+                new Comment("dave", "Ship it", new Date()));
         var details = new IssueDetails(header, "Main body", comments, List.of());
         var service = new FakeIssueService(List.of(header), details);
 

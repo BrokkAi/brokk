@@ -66,6 +66,8 @@ public class ToolRegistry {
             Map.entry("getCallGraphTo", "Getting call graph TO"),
             Map.entry("getCallGraphFrom", "Getting call graph FROM"),
             Map.entry("searchGitCommitMessages", "Searching git commits"),
+            Map.entry("addAllGithubIssuesAsFragment", "Capturing GitHub issues (summary)"),
+            Map.entry("addGithubIssueAsFragment", "Capturing GitHub issue"),
             Map.entry("listFiles", "Listing files"),
             Map.entry("getFiles", "Finding files for classes"),
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),

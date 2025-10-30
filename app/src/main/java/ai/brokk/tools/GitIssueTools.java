@@ -10,7 +10,6 @@ import ai.brokk.issues.IssueCaptureBuilder;
 import ai.brokk.issues.IssueDetails;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.issues.IssueService;
-import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.JiraIssueService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -48,125 +47,134 @@ import org.apache.logging.log4j.Logger;
  */
 public class GitIssueTools {
 
-  private static final Logger logger = LogManager.getLogger(GitIssueTools.class);
+    private static final Logger logger = LogManager.getLogger(GitIssueTools.class);
 
-  private final ContextManager contextManager;
-  // Test-only injection hook; when set, getIssueService() will return this instead of creating a real service.
-  private transient IssueService testIssueService;
+    private final ContextManager contextManager;
+    // Test-only injection hook; when set, getIssueService() will return this instead of creating a real service.
+    private transient IssueService testIssueService;
 
-  public GitIssueTools(ContextManager cm) {
-    this.contextManager = cm;
-  }
-
-  // Package-private for tests
-  void setIssueServiceForTests(IssueService s) {
-    this.testIssueService = s;
-  }
-
-  @Tool(
-      "Add a compact summary of all issues for the given GitHub repository URL to the Workspace as a Markdown fragment.")
-  public String addAllGithubIssuesAsFragment(
-      @P("GitHub repository URL (e.g., 'https://github.com/{owner}/{repo}', 'github.com/{owner}/{repo}', or 'git@github.com:{owner}/{repo}.git'). The URL is parsed via GitUiUtil.parseOwnerRepoFromUrl.") String repoUrl) {
-    try {
-      var ownerRepo = parseRepoUrlOrThrow(repoUrl);
-
-      IssueService service = getIssueService();
-      // Per instructions, use "ALL" and empty query string
-      var filter = new GitHubFilterOptions("ALL", null, null, null, "");
-      List<IssueHeader> headers = service.listIssues(filter);
-
-      String markdown =
-          IssueCaptureBuilder.buildCompactListMarkdown(headers, ownerRepo.owner(), ownerRepo.repo());
-      String description = "GitHub Issues: " + ownerRepo.owner() + "/" + ownerRepo.repo() + " (summary)";
-      ContextFragment.StringFragment fragment =
-          new ContextFragment.StringFragment(contextManager, markdown, description, "md");
-      contextManager.addVirtualFragment(fragment);
-
-      return "Added summary for " + headers.size() + " issues from " + ownerRepo.owner() + "/" + ownerRepo.repo() + ".";
-    } catch (Exception e) {
-      logger.error("Failed to add GitHub issues summary for URL {}: {}", repoUrl, e.getMessage(), e);
-      return "Error: Failed to add GitHub issues summary: " + e.getMessage();
+    public GitIssueTools(ContextManager cm) {
+        this.contextManager = cm;
     }
-  }
 
-  @Tool(
-      "Add a full GitHub issue (and comments) for the given repository URL and issue ID to the Workspace as fragments.")
-  public String addGithubIssueAsFragment(
-      @P("GitHub repository URL (e.g., 'https://github.com/{owner}/{repo}', 'github.com/{owner}/{repo}', or 'git@github.com:{owner}/{repo}.git')") String repoUrl,
-      @P("Issue ID or number (e.g., '123' or '#123'). A leading '#' will be stripped automatically.") String issueId) {
-    try {
-      var ownerRepo = parseRepoUrlOrThrow(repoUrl);
-
-      IssueService service = getIssueService();
-      var normalizedIssueId = issueId.startsWith("#") ? issueId.substring(1) : issueId;
-      IssueDetails details = service.loadDetails(normalizedIssueId);
-
-      // Issue main content
-      List<ChatMessage> issueTextMessages = IssueCaptureBuilder.buildIssueTextMessages(service, details);
-      String issueTitle = details.header().title();
-      String issueFragmentDescription = "Issue " + details.header().id() + ": " + issueTitle;
-      ContextFragment.TaskFragment issueTextFragment =
-          new ContextFragment.TaskFragment(contextManager, issueTextMessages, issueFragmentDescription, false);
-      contextManager.addVirtualFragment(issueTextFragment);
-
-      // Comments, if any
-      List<Comment> comments = details.comments();
-      List<ChatMessage> commentMessages = IssueCaptureBuilder.buildCommentMessages(service, comments);
-      if (!commentMessages.isEmpty()) {
-        String commentsDescription = "Issue " + details.header().id() + ": Comments";
-        ContextFragment.TaskFragment commentsFragment =
-            new ContextFragment.TaskFragment(contextManager, commentMessages, commentsDescription, false);
-        contextManager.addVirtualFragment(commentsFragment);
-      }
-
-      return "Captured issue " + details.header().id()
-          + " (" + issueTitle + ") with " + comments.size() + " comment(s).";
-    } catch (Exception e) {
-      logger.error(
-          "Failed to add GitHub issue as fragment for URL {} and issueId {}: {}",
-          repoUrl, issueId, e.getMessage(), e);
-      return "Error: Failed to add GitHub issue: " + e.getMessage();
+    // Package-private for tests
+    void setIssueServiceForTests(IssueService s) {
+        this.testIssueService = s;
     }
-  }
 
-  private IssueService getIssueService() {
-    if (testIssueService != null) {
-      return testIssueService;
-    }
-    var project = contextManager.getProject();
-    var providerType = project.getIssuesProvider().type();
-    return switch (providerType) {
-      case JIRA -> new JiraIssueService(project);
-      default -> new GitHubIssueService(project);
-    };
-  }
+    @Tool(
+            "Add a compact summary of all issues for the given GitHub repository URL to the Workspace as a Markdown fragment.")
+    public String addAllGithubIssuesAsFragment(
+            @P(
+                            "GitHub repository URL (e.g., 'https://github.com/{owner}/{repo}', 'github.com/{owner}/{repo}', or 'git@github.com:{owner}/{repo}.git'). The URL is parsed via GitUiUtil.parseOwnerRepoFromUrl.")
+                    String repoUrl) {
+        try {
+            var ownerRepo = parseRepoUrlOrThrow(repoUrl);
 
-  private GitUiUtil.OwnerRepo parseRepoUrlOrThrow(String repoUrl) {
-    var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
-    if (ownerRepo == null) {
-      throw new IllegalArgumentException("Could not parse owner/repo from URL: " + repoUrl);
-    }
-    // Ensure the provided repo matches the current project's GitHub repo configuration
-    validateProjectMatchesRepoOrThrow(ownerRepo.owner(), ownerRepo.repo());
-    return ownerRepo;
-  }
+            IssueService service = getIssueService();
+            // Per instructions, use "ALL" and empty query string
+            var filter = new GitHubFilterOptions("ALL", null, null, null, "");
+            List<IssueHeader> headers = service.listIssues(filter);
 
-  /**
-   * v1 validation:
-   * - Ensure the project is a GitHub repo.
-   * - Ensure the provided repo name matches the project folder name.
-   */
-  private void validateProjectMatchesRepoOrThrow(String owner, String repo) {
-    var project = contextManager.getProject();
-    if (!project.isGitHubRepo()) {
-      throw new IllegalArgumentException("Current project is not configured as a GitHub repository.");
+            String markdown =
+                    IssueCaptureBuilder.buildCompactListMarkdown(headers, ownerRepo.owner(), ownerRepo.repo());
+            String description = "GitHub Issues: " + ownerRepo.owner() + "/" + ownerRepo.repo() + " (summary)";
+            ContextFragment.StringFragment fragment =
+                    new ContextFragment.StringFragment(contextManager, markdown, description, "md");
+            contextManager.addVirtualFragment(fragment);
+
+            return "Added summary for " + headers.size() + " issues from " + ownerRepo.owner() + "/" + ownerRepo.repo()
+                    + ".";
+        } catch (Exception e) {
+            logger.error("Failed to add GitHub issues summary for URL {}: {}", repoUrl, e.getMessage(), e);
+            return "Error: Failed to add GitHub issues summary: " + e.getMessage();
+        }
     }
-    Path projectRoot = project.getRoot();
-    String projectFolderName = projectRoot.getFileName().toString();
-    if (!repo.equals(projectFolderName)) {
-      throw new IllegalArgumentException(
-          "Provided repository '" + owner + "/" + repo + "' does not appear to match current project folder '"
-              + projectFolderName + "'. Cross-repo capture is not yet supported.");
+
+    @Tool(
+            "Add a full GitHub issue (and comments) for the given repository URL and issue ID to the Workspace as fragments.")
+    public String addGithubIssueAsFragment(
+            @P(
+                            "GitHub repository URL (e.g., 'https://github.com/{owner}/{repo}', 'github.com/{owner}/{repo}', or 'git@github.com:{owner}/{repo}.git')")
+                    String repoUrl,
+            @P("Issue ID or number (e.g., '123' or '#123'). A leading '#' will be stripped automatically.")
+                    String issueId) {
+        try {
+            var ownerRepo = parseRepoUrlOrThrow(repoUrl);
+
+            IssueService service = getIssueService();
+            var normalizedIssueId = issueId.startsWith("#") ? issueId.substring(1) : issueId;
+            IssueDetails details = service.loadDetails(normalizedIssueId);
+
+            // Issue main content
+            List<ChatMessage> issueTextMessages = IssueCaptureBuilder.buildIssueTextMessages(service, details);
+            String issueTitle = details.header().title();
+            String issueFragmentDescription = "Issue " + details.header().id() + ": " + issueTitle;
+            ContextFragment.TaskFragment issueTextFragment = new ContextFragment.TaskFragment(
+                    contextManager, issueTextMessages, issueFragmentDescription, false);
+            contextManager.addVirtualFragment(issueTextFragment);
+
+            // Comments, if any
+            List<Comment> comments = details.comments();
+            List<ChatMessage> commentMessages = IssueCaptureBuilder.buildCommentMessages(service, comments);
+            if (!commentMessages.isEmpty()) {
+                String commentsDescription = "Issue " + details.header().id() + ": Comments";
+                ContextFragment.TaskFragment commentsFragment =
+                        new ContextFragment.TaskFragment(contextManager, commentMessages, commentsDescription, false);
+                contextManager.addVirtualFragment(commentsFragment);
+            }
+
+            return "Captured issue " + details.header().id() + " (" + issueTitle + ") with " + comments.size()
+                    + " comment(s).";
+        } catch (Exception e) {
+            logger.error(
+                    "Failed to add GitHub issue as fragment for URL {} and issueId {}: {}",
+                    repoUrl,
+                    issueId,
+                    e.getMessage(),
+                    e);
+            return "Error: Failed to add GitHub issue: " + e.getMessage();
+        }
     }
-  }
+
+    private IssueService getIssueService() {
+        if (testIssueService != null) {
+            return testIssueService;
+        }
+        var project = contextManager.getProject();
+        var providerType = project.getIssuesProvider().type();
+        return switch (providerType) {
+            case JIRA -> new JiraIssueService(project);
+            default -> new GitHubIssueService(project);
+        };
+    }
+
+    private GitUiUtil.OwnerRepo parseRepoUrlOrThrow(String repoUrl) {
+        var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
+        if (ownerRepo == null) {
+            throw new IllegalArgumentException("Could not parse owner/repo from URL: " + repoUrl);
+        }
+        // Ensure the provided repo matches the current project's GitHub repo configuration
+        validateProjectMatchesRepoOrThrow(ownerRepo.owner(), ownerRepo.repo());
+        return ownerRepo;
+    }
+
+    /**
+     * v1 validation:
+     * - Ensure the project is a GitHub repo.
+     * - Ensure the provided repo name matches the project folder name.
+     */
+    private void validateProjectMatchesRepoOrThrow(String owner, String repo) {
+        var project = contextManager.getProject();
+        if (!project.isGitHubRepo()) {
+            throw new IllegalArgumentException("Current project is not configured as a GitHub repository.");
+        }
+        Path projectRoot = project.getRoot();
+        String projectFolderName = projectRoot.getFileName().toString();
+        if (!repo.equals(projectFolderName)) {
+            throw new IllegalArgumentException(
+                    "Provided repository '" + owner + "/" + repo + "' does not appear to match current project folder '"
+                            + projectFolderName + "'. Cross-repo capture is not yet supported.");
+        }
+    }
 }

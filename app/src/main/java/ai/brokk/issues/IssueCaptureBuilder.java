@@ -109,9 +109,7 @@ public final class IssueCaptureBuilder {
             return "*No issues found.*";
         }
 
-        return headers.stream()
-                .map(IssueCaptureBuilder::toCompactLine)
-                .collect(Collectors.joining("\n"));
+        return headers.stream().map(IssueCaptureBuilder::toCompactLine).collect(Collectors.joining("\n"));
     }
 
     private static boolean isJira(IssueService service) {
