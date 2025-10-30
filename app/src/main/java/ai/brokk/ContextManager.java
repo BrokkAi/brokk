@@ -1706,15 +1706,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * should only be called with Frozen contexts, so that calling its methods doesn't cause an expensive Analyzer
-     * operation on the EDT
+     * Notifies all registered context listeners of a context change.
+     *
+     * <p>Contexts passed here may be live (containing dynamic fragments with ComputedValue futures)
+     * or previously frozen. Listeners should use non-blocking access methods (ComputedValue.tryGet()
+     * or ComputedValue.await()) to retrieve fragment values without blocking the EDT.
      */
     private void notifyContextListeners(@Nullable Context ctx) {
         if (ctx == null) {
             logger.warn("notifyContextListeners called with null context");
             return;
         }
-        assert !ctx.containsDynamicFragments();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
         }
