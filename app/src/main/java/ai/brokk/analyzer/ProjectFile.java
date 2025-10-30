@@ -18,64 +18,25 @@ public class ProjectFile implements BrokkFile {
     private final transient Path root;
     private final transient Path relPath;
 
-    /**
-     * Programmatic constructor; not a JSON creator.
-     *
-     * <p>This constructor is intentionally lenient: it accepts relative roots and
-     * normalizes the provided paths for convenience when constructing
-     * {@code ProjectFile} instances programmatically (for example, in tests or
-     * platform-specific code). JSON deserialization MUST go through the strict
-     * {@link #forJson(Path, Path)} static factory (annotated with
-     * {@code @JsonCreator}) which enforces that the JSON-supplied {@code root} is
-     * absolute and applies the necessary validation rules.</p>
-     *
-     * <p>Do NOT add {@code @JsonProperty} annotations to this constructor's
-     * parameters — doing so would cause Jackson to treat this constructor as a
-     * creator, potentially selecting it over {@code forJson} and thereby bypassing
-     * the validation performed by {@link #forJson(Path, Path)}.</p>
-     */
-    public ProjectFile(Path root, Path relPath) {
+    /** root must be pre-normalized; we will normalize relPath if it is not already */
+    @JsonCreator
+    public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
         if (relPath.toString().contains("%s")) {
             throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
         }
-
-        // Accept relative roots (e.g., platform- or test-provided paths) by converting to an absolute,
-        // normalized root. This keeps the constructor robust across platforms (Windows test fixtures that
-        // use backslash paths) while preserving the invariant that stored root is absolute and normalized.
-        var normalizedRoot = root;
+        // Validation and normalization
         if (!root.isAbsolute()) {
-            normalizedRoot = root.toAbsolutePath().normalize();
-        } else {
-            normalizedRoot = root.normalize();
+            throw new IllegalArgumentException("Root must be absolute, got " + root);
         }
-
-        // Validation
-        if (!normalizedRoot.equals(normalizedRoot.normalize())) {
-            throw new IllegalArgumentException("Root must be normalized, got " + normalizedRoot);
+        if (!root.equals(root.normalize())) {
+            throw new IllegalArgumentException("Root must be normalized, got " + root);
         }
         if (relPath.isAbsolute()) {
             throw new IllegalArgumentException("RelPath must be relative, got " + relPath);
         }
 
-        this.root = normalizedRoot;
+        this.root = root;
         this.relPath = relPath.normalize();
-    }
-
-    /**
-     * Json factory used during deserialization. This method enforces that JSON-supplied root values are absolute,
-     * ensuring legacy/deserialized data must explicitly present an absolute repo root. Programmatic callers may still
-     * use the public constructor which will accept and normalize relative roots for convenience.
-     */
-    @JsonCreator
-    public static ProjectFile forJson(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
-        if (root == null) {
-            throw new IllegalArgumentException("Root must not be null");
-        }
-        if (!root.isAbsolute()) {
-            throw new IllegalArgumentException("Root must be absolute, got " + root);
-        }
-        // Delegate to the constructor which will perform normalization/validation of relPath
-        return new ProjectFile(root, relPath);
     }
 
     public ProjectFile(Path root, String relName) {
