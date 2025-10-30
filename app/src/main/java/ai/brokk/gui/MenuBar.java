@@ -579,13 +579,35 @@ public class MenuBar {
                 windowMenu.add(testsItem);
 
                 if (chrome.getProject().hasGit()) {
-                    var gitItem = new JMenuItem("Commit");
-                    gitItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-                    gitItem.addActionListener(actionEvent -> {
+                    var changesItem = new JMenuItem("Changes");
+                    changesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+                    changesItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
                     });
-                    windowMenu.add(gitItem);
+                    windowMenu.add(changesItem);
+
+                    var logItem = new JMenuItem("Log");
+                    logItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                    logItem.addActionListener(actionEvent -> {
+                        var gitLogTab = chrome.getGitLogTab();
+                        if (gitLogTab != null) {
+                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitLogTab);
+                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        }
+                    });
+                    windowMenu.add(logItem);
+
+                    var worktreesItem = new JMenuItem("Worktrees");
+                    worktreesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    worktreesItem.addActionListener(actionEvent -> {
+                        var gitWorktreeTab = chrome.getGitWorktreeTab();
+                        if (gitWorktreeTab != null) {
+                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitWorktreeTab);
+                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        }
+                    });
+                    windowMenu.add(worktreesItem);
                 }
 
                 if (chrome.getProject().isGitHubRepo() && chrome.getProject().hasGit()) {
