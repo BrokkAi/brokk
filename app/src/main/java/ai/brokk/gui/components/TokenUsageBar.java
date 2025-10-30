@@ -216,13 +216,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Store the success rate and tested flag for use in tooltip rendering.
+     * Store the success rate, tested flag, and model config for use in tooltip rendering.
      * This is called after the token computation completes to make the metadata available
      * for display in warning tooltips and extrapolation notes.
      */
-    public void setWarningMetadata(int successRate, boolean isTested) {
+    public void setWarningMetadata(int successRate, boolean isTested, Service.ModelConfig config) {
         this.lastSuccessRate = successRate;
         this.rateIsTested = isTested;
+        this.modelConfig = config;
     }
 
     public void setOnClick(@Nullable Runnable onClick) {

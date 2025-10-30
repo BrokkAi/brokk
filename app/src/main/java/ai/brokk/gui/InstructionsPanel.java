@@ -996,7 +996,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             return;
                         }
                         // make metadata available to TokenUsageBar for tooltip/warning rendering
-                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested);
+                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
