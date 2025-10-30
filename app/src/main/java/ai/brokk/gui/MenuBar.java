@@ -631,7 +631,6 @@ public class MenuBar {
                     windowMenu.add(issuesItem);
                 }
 
-
                 windowMenu.addSeparator();
 
                 Window currentChromeWindow = chrome.getFrame();

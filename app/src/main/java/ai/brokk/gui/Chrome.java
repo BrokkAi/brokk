@@ -1383,7 +1383,6 @@ public class Chrome
             }
         });
 
-
         // Cmd/Ctrl+T => switch to terminal tab
         KeyStroke switchToTerminalTabKeyStroke = GlobalUiSettings.getKeybinding(
                 "drawer.switchToTerminal",
@@ -2844,7 +2843,8 @@ public class Chrome
                     var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
                     var ks = GlobalUiSettings.getKeybinding(
                             "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-                    gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+                    gitTabLabel = createSquareTabLabel(
+                            gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
                     leftTabbedPanel.setTabComponentAt(idx, gitTabLabel);
                     final int tabIdx = idx;
                     gitTabLabel.addMouseListener(new MouseAdapter() {

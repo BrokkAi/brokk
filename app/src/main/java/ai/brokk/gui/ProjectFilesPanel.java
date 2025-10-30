@@ -83,7 +83,7 @@ public class ProjectFilesPanel extends JPanel {
         searchBarPanel.add(buttonPanel, BorderLayout.EAST);
 
         add(searchBarPanel, BorderLayout.NORTH);
-        
+
         // Create split pane: ProjectTree (top) | Dependencies (bottom, initially hidden)
         var projectTreeScrollPane = new JScrollPane(projectTree);
         contentSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
@@ -93,16 +93,16 @@ public class ProjectFilesPanel extends JPanel {
         contentSplitPane.setDividerSize(5); // Show divider
         contentSplitPane.setDividerLocation(0.7); // Set initial position
         dependenciesPanel.addNotify(); // Trigger initialization
-        
+
         add(contentSplitPane, BorderLayout.CENTER);
         updateBorderTitle(); // Set initial title with branch name
     }
-    
+
     private void toggleDependenciesPanel() {
         dependenciesVisible = !dependenciesVisible;
         if (dependenciesVisible) {
-            contentSplitPane.setDividerSize(contentSplitPane.getDividerSize() > 0 ? 
-                contentSplitPane.getDividerSize() : 5);
+            contentSplitPane.setDividerSize(
+                    contentSplitPane.getDividerSize() > 0 ? contentSplitPane.getDividerSize() : 5);
             contentSplitPane.setDividerLocation(0.7);
             dependenciesPanel.addNotify(); // Trigger initialization
         } else {
