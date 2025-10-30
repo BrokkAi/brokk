@@ -92,8 +92,9 @@ public final class MainProject extends AbstractProject {
 
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS =
-            Map.of("Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)));
+    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)),
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -434,6 +435,16 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setCodeModelConfig(ModelConfig config) {
         setModelConfigInternal("Code", config);
+    }
+
+    @Override
+    public ModelConfig getArchitectModelConfig() {
+        return getModelConfigInternal("Architect");
+    }
+
+    @Override
+    public void setArchitectModelConfig(ModelConfig config) {
+        setModelConfigInternal("Architect", config);
     }
 
     @Override

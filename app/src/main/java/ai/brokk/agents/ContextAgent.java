@@ -376,6 +376,20 @@ public class ContextAgent {
             if (!pruneRec.reasoning().isBlank())
                 reasoning.append(pruneRec.reasoning()).append('\n');
 
+            // Re-estimate tokens for the filtered set post-pruning for observability
+            int postPruneTokens;
+            if (type == GroupType.ANALYZED) {
+                var allowed = new HashSet<>(workingFiles);
+                postPruneTokens = Messages.getApproximateTokens(allSummariesForAnalyzed.entrySet().stream()
+                        .filter(e -> allowed.contains(e.getKey().source()))
+                        .map(Map.Entry::getValue)
+                        .toList());
+            } else {
+                var contentsMap = readFileContents(workingFiles);
+                postPruneTokens = Messages.getApproximateTokens(contentsMap.values());
+            }
+            logger.debug("{} group post-prune token estimate: ~{}", type, postPruneTokens);
+
             if (workingFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
                 return new LlmRecommendation(
@@ -412,7 +426,16 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? allSummariesForAnalyzed : Map.of();
+            Map<CodeUnit, String> summaries;
+            if (type == GroupType.ANALYZED) {
+                // Filter analyzed summaries by the pruned/halved file set during evaluation to respect pruning.
+                var allowedFiles = new HashSet<>(current);
+                summaries = allSummariesForAnalyzed.entrySet().stream()
+                        .filter(e -> allowedFiles.contains(e.getKey().source()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+            } else {
+                summaries = Map.of();
+            }
 
             Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
 
@@ -819,6 +842,10 @@ public class ContextAgent {
         var tokenUsage = result.tokenUsage();
         if (result.error() != null) {
             var error = result.error();
+            // Special case: propagate ContextTooLargeException so caller can retry with halving
+            if (error instanceof ContextTooLargeException) {
+                throw (ContextTooLargeException) error;
+            }
             logger.warn("Error from LLM during context recommendation: {}. Returning empty", error.getMessage());
             return LlmRecommendation.EMPTY;
         }

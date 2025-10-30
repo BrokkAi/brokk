@@ -2079,6 +2079,31 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setTaskInProgress(inProgress));
     }
 
+    /**
+     * Opens the current output in a new window. If a task is in progress, opens a streaming window;
+     * otherwise, opens a window with the currently selected context. Safe to call from any thread.
+     */
+    public void openOutputInNewWindow() {
+        Runnable action = () -> {
+            if (llmStreamArea.taskInProgress()) {
+                openOutputWindowStreaming();
+            } else {
+                var context = contextManager.selectedContext();
+                if (context == null) {
+                    logger.warn("Cannot open output in new window: current context is null.");
+                    return;
+                }
+                openOutputWindowFromContext(context);
+            }
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
+        } else {
+            SwingUtilities.invokeLater(action);
+        }
+    }
+
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
         TaskEntry mainTask = null;

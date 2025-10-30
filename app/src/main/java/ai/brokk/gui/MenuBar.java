@@ -13,6 +13,12 @@ import ai.brokk.gui.dialogs.BlitzForgeDialog;
 import ai.brokk.gui.dialogs.FeedbackDialog;
 import ai.brokk.gui.dialogs.SessionsDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.git.GitCommitTab;
+import ai.brokk.gui.git.GitIssuesTab;
+import ai.brokk.gui.git.GitLogTab;
+import ai.brokk.gui.git.GitWorktreeTab;
+import ai.brokk.gui.terminal.TerminalPanel;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.Environment;
@@ -24,6 +30,8 @@ import java.awt.desktop.PreferencesHandler;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -34,12 +42,105 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
+import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
+    /**
+     * Creates and shows a modeless dialog with the given title and content.
+     * A new dialog is created on each call (no reuse/tracking).
+     *
+     * @param chrome the Chrome instance providing the owner frame and theme
+     * @param title the dialog title
+     * @param content the component to display in the dialog
+     * @param onClose optional callback to run when the dialog is closed
+     */
+    private static void showDialog(Chrome chrome, String title, JComponent content, @Nullable Runnable onClose) {
+        Runnable task = () -> {
+            // Create new modeless dialog
+            JDialog dialog = new JDialog(chrome.getFrame(), title, false);
+            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+            dialog.getContentPane().add(content);
+
+            // Calculate size with reasonable minimums
+            Dimension prefSize = content.getPreferredSize();
+            int width = Math.max(prefSize.width, 600);
+            int height = Math.max(prefSize.height, 300);
+            dialog.setSize(width, height);
+
+            // Center relative to main frame
+            JFrame mainFrame = chrome.getFrame();
+            int x = mainFrame.getX() + (mainFrame.getWidth() - width) / 2;
+            int y = mainFrame.getY() + (mainFrame.getHeight() - height) / 2;
+            dialog.setLocation(x, y);
+
+            // Apply application icon
+            Chrome.applyIcon(dialog);
+
+            // Apply theme if content supports it
+            if (content instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(chrome.getTheme());
+            }
+
+            // Add window listener for cleanup and callback
+            final AtomicBoolean cleanupInvoked = new AtomicBoolean(false);
+            dialog.addWindowListener(new WindowAdapter() {
+                private void runCleanup() {
+                    if (!cleanupInvoked.compareAndSet(false, true)) {
+                        return;
+                    }
+
+                    // If an explicit onClose handler was provided (e.g. to dispose resources like TerminalPanel),
+                    // run it. Otherwise best-effort cleanup for known resource-holding panels.
+                    if (onClose != null) {
+                        try {
+                            onClose.run();
+                        } catch (Throwable ignored) {
+                        }
+                        return;
+                    }
+
+                    // Best-effort cleanup for known dialog-backed panels that manage OS resources.
+                    // Avoid calling generic dispose/close on arbitrary components to prevent
+                    // accidentally closing shared/reused components owned elsewhere.
+                    try {
+                        if (content instanceof TerminalPanel) {
+                            try {
+                                ((TerminalPanel) content).dispose();
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    runCleanup();
+                }
+
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    runCleanup();
+                }
+            });
+
+            // Make visible
+            dialog.setVisible(true);
+        };
+
+        // Ensure execution on EDT
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
     /**
      * Builds the menu bar
      *
@@ -380,7 +481,75 @@ public class MenuBar {
         upgradeAgentItem.setEnabled(true);
         toolsMenu.add(upgradeAgentItem);
 
-        // Let Chrome manage this item’s enabled state during long-running actions
+        // Issues
+        var issuesItem = new JMenuItem("Issues");
+        issuesItem.addActionListener(e -> {
+            var content = new GitIssuesTab(chrome, chrome.getContextManager());
+            showDialog(chrome, "Issues", content, null);
+        });
+        toolsMenu.add(issuesItem);
+
+        // Terminal (create a fresh terminal panel with proper cleanup)
+        var terminalItem = new JMenuItem("Terminal");
+        terminalItem.addActionListener(e -> {
+            var terminalPanel = new TerminalPanel(
+                    chrome, () -> {}, true, chrome.getProject().getRoot());
+            showDialog(chrome, "Terminal", terminalPanel, terminalPanel::dispose);
+        });
+        toolsMenu.add(terminalItem);
+
+        // Git submenu
+        var gitMenu = new JMenu("Git");
+
+        // Pull Requests
+        var prsItem = new JMenuItem("Pull Requests");
+        prsItem.addActionListener(e -> {
+            var existing = chrome.getPullRequestsPanel();
+            if (existing != null) {
+                showDialog(chrome, "Pull Requests", existing, null);
+            } else {
+                var fallback = new JPanel(new BorderLayout());
+                fallback.add(new JLabel("Pull Requests not available for this project."), BorderLayout.CENTER);
+                showDialog(chrome, "Pull Requests", fallback, null);
+            }
+        });
+        gitMenu.add(prsItem);
+
+        // Log (Git Log)
+        var logItem = new JMenuItem("Log");
+        logItem.addActionListener(e -> {
+            var gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
+            gitLogTab.setPreferredSize(new Dimension(1000, 700));
+            showDialog(chrome, "Log", gitLogTab, null);
+        });
+        gitMenu.add(logItem);
+
+        // Changes (Git Commit tab)
+        var commitItem = new JMenuItem("Changes");
+        commitItem.addActionListener(e -> {
+            var content = new GitCommitTab(chrome, chrome.getContextManager());
+            showDialog(chrome, "Changes", content, null);
+        });
+        gitMenu.add(commitItem);
+
+        // Worktrees
+        var worktreesItem = new JMenuItem("Worktrees");
+        worktreesItem.addActionListener(e -> {
+            var content = new GitWorktreeTab(chrome, chrome.getContextManager());
+            showDialog(chrome, "Worktrees", content, null);
+        });
+        gitMenu.add(worktreesItem);
+
+        toolsMenu.add(gitMenu);
+
+        // Open Output in New Window
+        var openOutputItem = new JMenuItem("Open Output in New Window");
+        openOutputItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            chrome.getHistoryOutputPanel().openOutputInNewWindow();
+        }));
+        toolsMenu.add(openOutputItem);
+
+        // Let Chrome manage BlitzForge item’s enabled state during long-running actions
         chrome.setBlitzForgeMenuItem(upgradeAgentItem);
         if (toolsMenu.getItemCount() > 0) { // Should always be true since BlitzForge is present.
             menuBar.add(toolsMenu);
