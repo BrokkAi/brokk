@@ -1082,8 +1082,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     if (sourceEditableIds.contains(fragment.id())
                             && fragment instanceof ContextFragment.ProjectPathFragment ppf) {
                         pathsToAdd.add(ppf);
-                    } else if (sourceVirtualIds.contains(fragment.id())
-                            && fragment instanceof VirtualFragment vf) {
+                    } else if (sourceVirtualIds.contains(fragment.id()) && fragment instanceof VirtualFragment vf) {
                         if (!(vf instanceof ContextFragment.HistoryFragment)) {
                             virtualFragmentsToAdd.add(vf);
                         }
@@ -2388,8 +2387,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Context newContextFrom(Context sourceFrozenContext) {
         // Source context should already be live from migration logic
         assert !sourceFrozenContext.containsDynamicFragments()
-                || !sourceFrozenContext.allFragments()
-                        .anyMatch(f -> f instanceof FrozenFragment)
+                        || !sourceFrozenContext.allFragments().anyMatch(f -> f instanceof FrozenFragment)
                 : "Context should not contain FrozenFragment instances";
 
         var newActionDescription = "New session (from: " + sourceFrozenContext.getAction() + ")";

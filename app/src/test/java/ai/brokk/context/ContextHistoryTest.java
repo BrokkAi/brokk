@@ -1,18 +1,17 @@
 package ai.brokk.context;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.TaskEntry;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.UserMessage;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration tests for ContextHistory and its DiffService, verifying that diffs between contexts
@@ -39,34 +38,34 @@ public class ContextHistoryTest {
     @Test
     public void testDiffServiceComputesDiffsBetweenLiveContexts() {
         // Create initial context with a string fragment
-        var initialFragment = new ContextFragment.StringFragment(
-                contextManager,
-                "Initial content",
-                "Test Fragment",
-                "text/plain");
+        var initialFragment =
+                new ContextFragment.StringFragment(contextManager, "Initial content", "Test Fragment", "text/plain");
 
-        var initialContext = new Context(contextManager, List.of(initialFragment), List.of(), null,
+        var initialContext = new Context(
+                contextManager,
+                List.of(initialFragment),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Initial"));
 
         // Create history with initial context
         var history = new ContextHistory(initialContext);
 
         // Verify that the context is live (not frozen)
-        assertFalse(initialContext.containsFrozenFragments(),
-                "Initial context should not contain frozen fragments");
+        assertFalse(initialContext.containsFrozenFragments(), "Initial context should not contain frozen fragments");
 
         // Create a second context with modified content
         var modifiedFragment = new ContextFragment.StringFragment(
-                contextManager,
-                "Modified content with more text",
-                "Test Fragment",
-                "text/plain");
+                contextManager, "Modified content with more text", "Test Fragment", "text/plain");
 
-        var modifiedContext = new Context(contextManager, List.of(modifiedFragment), List.of(), null,
+        var modifiedContext = new Context(
+                contextManager,
+                List.of(modifiedFragment),
+                List.of(),
+                null,
                 CompletableFuture.completedFuture("Modified"));
 
-        assertFalse(modifiedContext.containsFrozenFragments(),
-                "Modified context should not contain frozen fragments");
+        assertFalse(modifiedContext.containsFrozenFragments(), "Modified context should not contain frozen fragments");
 
         // Push the modified context to history
         history.pushLive(modifiedContext);
@@ -85,8 +84,7 @@ public class ContextHistoryTest {
 
         // Verify that the diff contains the modified fragment
         var diffEntry = diffs.get(0);
-        assertEquals(modifiedFragment.id(), diffEntry.fragment().id(),
-                "Diff should reference the modified fragment");
+        assertEquals(modifiedFragment.id(), diffEntry.fragment().id(), "Diff should reference the modified fragment");
         assertFalse(diffEntry.diff().isEmpty(), "Diff output should not be empty");
     }
 
@@ -97,28 +95,21 @@ public class ContextHistoryTest {
     @Test
     public void testDiffServiceDetectsAddedFragments() {
         // Create initial context with one fragment
-        var fragment1 = new ContextFragment.StringFragment(
-                contextManager,
-                "Fragment 1 content",
-                "Fragment 1",
-                "text/plain");
+        var fragment1 =
+                new ContextFragment.StringFragment(contextManager, "Fragment 1 content", "Fragment 1", "text/plain");
 
-        var initialContext = new Context(contextManager, List.of(fragment1), List.of(), null,
-                CompletableFuture.completedFuture("Initial"));
+        var initialContext = new Context(
+                contextManager, List.of(fragment1), List.of(), null, CompletableFuture.completedFuture("Initial"));
 
         var history = new ContextHistory(initialContext);
 
         // Create second context with an additional fragment (different description so it's a new source)
-        var fragment2 = new ContextFragment.StringFragment(
-                contextManager,
-                "Fragment 2 content",
-                "New Fragment",
-                "text/plain");
+        var fragment2 =
+                new ContextFragment.StringFragment(contextManager, "Fragment 2 content", "New Fragment", "text/plain");
 
         var extendedContext = initialContext.addVirtualFragment(fragment2);
 
-        assertFalse(extendedContext.containsFrozenFragments(),
-                "Extended context should not contain frozen fragments");
+        assertFalse(extendedContext.containsFrozenFragments(), "Extended context should not contain frozen fragments");
 
         history.pushLive(extendedContext);
 
@@ -129,8 +120,7 @@ public class ContextHistoryTest {
         // Verify that diff detects the new fragment was added
         assertNotNull(diffs, "Diffs should be computed");
         // The new fragment should appear in the diffs
-        var hasNewFragment = diffs.stream()
-                .anyMatch(de -> de.fragment().id().equals(fragment2.id()));
+        var hasNewFragment = diffs.stream().anyMatch(de -> de.fragment().id().equals(fragment2.id()));
         assertTrue(hasNewFragment, "Diff should include the newly added fragment");
     }
 
@@ -141,20 +131,24 @@ public class ContextHistoryTest {
     @Test
     public void testDiffServiceHandlesUnchangedContexts() {
         // Create context with a fragment
-        var fragment = new ContextFragment.StringFragment(
-                contextManager,
-                "Static content",
-                "Test Fragment",
-                "text/plain");
+        var fragment =
+                new ContextFragment.StringFragment(contextManager, "Static content", "Test Fragment", "text/plain");
 
-        var context = new Context(contextManager, List.of(fragment), List.of(), null,
+        var context = new Context(
+                contextManager,
+                List.of(fragment),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action"));
 
         var history = new ContextHistory(context);
 
         // Push the same context (no actual changes)
-        var contextCopy = new Context(contextManager, context.allFragments().toList(),
-                context.getTaskHistory(), null,
+        var contextCopy = new Context(
+                contextManager,
+                context.allFragments().toList(),
+                context.getTaskHistory(),
+                null,
                 CompletableFuture.completedFuture("Action"));
 
         history.pushLive(contextCopy);
@@ -165,7 +159,8 @@ public class ContextHistoryTest {
 
         // For identical content, we expect either no diffs or diffs with empty diff strings
         if (!diffs.isEmpty()) {
-            diffs.forEach(de -> assertTrue(de.diff().isEmpty() || de.diff().equals("[image changed]"),
+            diffs.forEach(de -> assertTrue(
+                    de.diff().isEmpty() || de.diff().equals("[image changed]"),
                     "Unchanged fragments should have empty or image diffs"));
         }
     }
@@ -178,14 +173,11 @@ public class ContextHistoryTest {
     @Test
     public void testDiffServiceDetectsModifiedFragmentContent() {
         // Create initial context with a fragment
-        var fragment1 = new ContextFragment.StringFragment(
-                contextManager,
-                "Original content",
-                "Test Fragment",
-                "text/plain");
+        var fragment1 =
+                new ContextFragment.StringFragment(contextManager, "Original content", "Test Fragment", "text/plain");
 
-        var initialContext = new Context(contextManager, List.of(fragment1), List.of(), null,
-                CompletableFuture.completedFuture("Initial"));
+        var initialContext = new Context(
+                contextManager, List.of(fragment1), List.of(), null, CompletableFuture.completedFuture("Initial"));
 
         var history = new ContextHistory(initialContext);
 
@@ -194,11 +186,11 @@ public class ContextHistoryTest {
         var fragment2 = new ContextFragment.StringFragment(
                 contextManager,
                 "Modified content with more text",
-                "Test Fragment",  // Same description
-                "text/plain");    // Same syntax style
+                "Test Fragment", // Same description
+                "text/plain"); // Same syntax style
 
-        var modifiedContext = new Context(contextManager, List.of(fragment2), List.of(), null,
-                CompletableFuture.completedFuture("Modified"));
+        var modifiedContext = new Context(
+                contextManager, List.of(fragment2), List.of(), null, CompletableFuture.completedFuture("Modified"));
 
         history.pushLive(modifiedContext);
 
@@ -212,8 +204,8 @@ public class ContextHistoryTest {
 
         var diffEntry = diffs.get(0);
         assertFalse(diffEntry.diff().isEmpty(), "Diff output should show content change");
-        assertTrue(diffEntry.linesAdded() > 0 || diffEntry.linesDeleted() > 0,
-                "Diff should show lines added or deleted");
+        assertTrue(
+                diffEntry.linesAdded() > 0 || diffEntry.linesDeleted() > 0, "Diff should show lines added or deleted");
     }
 
     /**
@@ -222,23 +214,24 @@ public class ContextHistoryTest {
      */
     @Test
     public void testDiffServiceNonBlockingPeek() {
-        var fragment = new ContextFragment.StringFragment(
-                contextManager,
-                "Content",
-                "Test Fragment",
-                "text/plain");
+        var fragment = new ContextFragment.StringFragment(contextManager, "Content", "Test Fragment", "text/plain");
 
-        var context1 = new Context(contextManager, List.of(fragment), List.of(), null,
+        var context1 = new Context(
+                contextManager,
+                List.of(fragment),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action 1"));
         var history = new ContextHistory(context1);
 
-        var fragment2 = new ContextFragment.StringFragment(
-                contextManager,
-                "Modified content",
-                "Test Fragment",
-                "text/plain");
+        var fragment2 =
+                new ContextFragment.StringFragment(contextManager, "Modified content", "Test Fragment", "text/plain");
 
-        var context2 = new Context(contextManager, List.of(fragment2), List.of(), null,
+        var context2 = new Context(
+                contextManager,
+                List.of(fragment2),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action 2"));
         history.pushLive(context2);
 
@@ -263,26 +256,27 @@ public class ContextHistoryTest {
      */
     @Test
     public void testDiffServiceWithTaskHistoryChanges() {
-        var fragment = new ContextFragment.StringFragment(
-                contextManager,
-                "Content",
-                "Test Fragment",
-                "text/plain");
+        var fragment = new ContextFragment.StringFragment(contextManager, "Content", "Test Fragment", "text/plain");
 
-        var initialContext = new Context(contextManager, List.of(fragment), List.of(), null,
+        var initialContext = new Context(
+                contextManager,
+                List.of(fragment),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Initial"));
 
         var history = new ContextHistory(initialContext);
 
         // Create a second context with added task history
-        var taskFragment = new ContextFragment.TaskFragment(contextManager,
-                List.of(new UserMessage("Test task")), "Test Session");
+        var taskFragment =
+                new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
 
-        var contextWithHistory = initialContext.addHistoryEntry(taskEntry, null,
-                java.util.concurrent.CompletableFuture.completedFuture("Action"));
+        var contextWithHistory = initialContext.addHistoryEntry(
+                taskEntry, null, java.util.concurrent.CompletableFuture.completedFuture("Action"));
 
-        assertFalse(contextWithHistory.containsFrozenFragments(),
+        assertFalse(
+                contextWithHistory.containsFrozenFragments(),
                 "Context with task history should not contain frozen fragments");
 
         history.pushLive(contextWithHistory);
@@ -303,24 +297,24 @@ public class ContextHistoryTest {
      */
     @Test
     public void testDiffServiceWarmUp() {
-        var fragment1 = new ContextFragment.StringFragment(
-                contextManager,
-                "Content 1",
-                "Fragment 1",
-                "text/plain");
+        var fragment1 = new ContextFragment.StringFragment(contextManager, "Content 1", "Fragment 1", "text/plain");
 
-        var context1 = new Context(contextManager, List.of(fragment1), List.of(), null,
+        var context1 = new Context(
+                contextManager,
+                List.of(fragment1),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action 1"));
 
         var history = new ContextHistory(context1);
 
-        var fragment2 = new ContextFragment.StringFragment(
-                contextManager,
-                "Content 2",
-                "Fragment 2",
-                "text/plain");
+        var fragment2 = new ContextFragment.StringFragment(contextManager, "Content 2", "Fragment 2", "text/plain");
 
-        var context2 = new Context(contextManager, List.of(fragment2), List.of(), null,
+        var context2 = new Context(
+                contextManager,
+                List.of(fragment2),
+                List.of(),
+                null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action 2"));
         history.pushLive(context2);
 
@@ -338,8 +332,7 @@ public class ContextHistoryTest {
             if (history.previousOf(ctx) != null) {
                 // Either already computed or in progress
                 diffService.diff(ctx).join();
-                assertTrue(diffService.peek(ctx).isPresent(),
-                        "After join, diff should be cached");
+                assertTrue(diffService.peek(ctx).isPresent(), "After join, diff should be cached");
             }
         }
     }

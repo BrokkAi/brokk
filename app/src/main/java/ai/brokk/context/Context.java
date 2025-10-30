@@ -139,7 +139,6 @@ public class Context {
             String oldContent,
             String newContent) {}
 
-
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
     }
@@ -551,7 +550,6 @@ public class Context {
                 sourceContext.getGroupId(),
                 sourceContext.getGroupLabel());
     }
-
 
     @Override
     public boolean equals(@Nullable Object o) {
@@ -965,10 +963,7 @@ public class Context {
             // For any new fragment (file or virtual), diff against empty
             var newContent = extractFragmentContent(thisFragment, true);
             var result = ContentDiffUtils.computeDiffResult(
-                    "",
-                    newContent,
-                    "old/" + thisFragment.shortDescription(),
-                    "new/" + thisFragment.shortDescription());
+                    "", newContent, "old/" + thisFragment.shortDescription(), "new/" + thisFragment.shortDescription());
             if (result.diff().isEmpty()) {
                 return null;
             }
