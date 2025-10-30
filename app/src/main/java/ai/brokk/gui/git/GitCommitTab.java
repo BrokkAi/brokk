@@ -25,6 +25,8 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.UncheckedIOException;
+import javax.swing.border.Border;
+import javax.swing.border.TitledBorder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -76,6 +78,13 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     @Nullable
     private MergeAgent.MergeConflict currentConflict = null;
 
+    // Store references for theme updates
+    @Nullable
+    private JPanel titledPanel = null;
+
+    @Nullable
+    private JPopupMenu uncommittedContextMenu = null;
+
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -111,7 +120,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         });
 
         // Popup menu
-        var uncommittedContextMenu = new JPopupMenu();
+        uncommittedContextMenu = new JPopupMenu();
         uncommittedFilesTable.setComponentPopupMenu(uncommittedContextMenu);
 
         var captureDiffItem = new JMenuItem("Capture Diff");
@@ -310,7 +319,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
             }
         });
 
-        JPanel titledPanel = new JPanel(new BorderLayout());
+        titledPanel = new JPanel(new BorderLayout());
         titledPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
         titledPanel.add(fileStatusPane, BorderLayout.CENTER);
         titledPanel.add(buttonPanel, BorderLayout.SOUTH);
@@ -1040,68 +1049,80 @@ Would you like to resolve these conflicts with the Merge Agent?
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        try {
-            Color panelBg = UIManager.getColor("Panel.background");
-            Color tableBg = UIManager.getColor("Table.background");
-            Color fg = UIManager.getColor("Label.foreground");
+        Color panelBg = UIManager.getColor("Panel.background");
+        Color tableBg = UIManager.getColor("Table.background");
+        Color fg = UIManager.getColor("Label.foreground");
 
-            setBackground(panelBg != null ? panelBg : getBackground());
+        setBackground(panelBg != null ? panelBg : getBackground());
 
-            if (fileStatusPane != null) {
-                try {
-                    fileStatusPane.setBackground(panelBg != null ? panelBg : fileStatusPane.getBackground());
-                } catch (Exception ignored) {
-                }
-                if (fileStatusPane instanceof ThemeAware) {
-                    try {
-                        ((ThemeAware) fileStatusPane).applyTheme(guiTheme);
-                    } catch (Exception ex) {
-                        logger.debug("fileStatusPane.applyTheme failed", ex);
-                    }
-                }
+        // Update FileStatusPane with theme support
+        if (fileStatusPane != null) {
+            fileStatusPane.setBackground(panelBg != null ? panelBg : fileStatusPane.getBackground());
+            if (fileStatusPane instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
             }
-
-            if (uncommittedFilesTable != null) {
-                uncommittedFilesTable.setBackground(tableBg != null ? tableBg : uncommittedFilesTable.getBackground());
-                uncommittedFilesTable.setForeground(fg != null ? fg : uncommittedFilesTable.getForeground());
-                var header = uncommittedFilesTable.getTableHeader();
-                if (header != null) {
-                    header.setBackground(panelBg != null ? panelBg : header.getBackground());
-                    header.setForeground(fg != null ? fg : header.getForeground());
-                }
-            }
-
-            if (commitButton != null) {
-                try {
-                    // Keep primary styling consistent with application convention
-                    SwingUtil.applyPrimaryButtonStyle(commitButton);
-                } catch (Exception ex) {
-                    // Fallback to basic UIManager colors
-                    commitButton.setBackground(UIManager.getColor("Button.background"));
-                    commitButton.setForeground(UIManager.getColor("Button.foreground"));
-                }
-            }
-
-            if (stashButton != null) {
-                stashButton.setBackground(UIManager.getColor("Button.background"));
-                stashButton.setForeground(UIManager.getColor("Button.foreground"));
-            }
-
-            if (resolveConflictsButton != null) {
-                resolveConflictsButton.setBackground(UIManager.getColor("Button.background"));
-                resolveConflictsButton.setForeground(UIManager.getColor("Button.foreground"));
-            }
-
-            if (buttonPanel != null) {
-                buttonPanel.setBackground(panelBg != null ? panelBg : buttonPanel.getBackground());
-            }
-        } catch (Exception ex) {
-            logger.debug("applyTheme failed for GitCommitTab", ex);
-        } finally {
-            SwingUtilities.invokeLater(() -> {
-                revalidate();
-                repaint();
-            });
         }
+
+        // Update table colors
+        if (uncommittedFilesTable != null) {
+            uncommittedFilesTable.setBackground(tableBg != null ? tableBg : uncommittedFilesTable.getBackground());
+            uncommittedFilesTable.setForeground(fg != null ? fg : uncommittedFilesTable.getForeground());
+            var header = uncommittedFilesTable.getTableHeader();
+            if (header != null) {
+                header.setBackground(panelBg != null ? panelBg : header.getBackground());
+                header.setForeground(fg != null ? fg : header.getForeground());
+            }
+        }
+
+        // Update button styling
+        if (commitButton != null) {
+            SwingUtil.applyPrimaryButtonStyle(commitButton);
+        }
+        if (stashButton != null) {
+            stashButton.setBackground(UIManager.getColor("Button.background"));
+            stashButton.setForeground(UIManager.getColor("Button.foreground"));
+        }
+        if (resolveConflictsButton != null) {
+            resolveConflictsButton.setBackground(UIManager.getColor("Button.background"));
+            resolveConflictsButton.setForeground(UIManager.getColor("Button.foreground"));
+        }
+
+        // Update button panel
+        if (buttonPanel != null) {
+            buttonPanel.setBackground(panelBg != null ? panelBg : buttonPanel.getBackground());
+        }
+
+        // Update titled border
+        if (titledPanel != null) {
+            titledPanel.setBackground(panelBg != null ? panelBg : titledPanel.getBackground());
+            Border border = titledPanel.getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                Color titleFg = UIManager.getColor("TitledBorder.titleColor");
+                if (titleFg != null) {
+                    titledBorder.setTitleColor(titleFg);
+                }
+            }
+        }
+
+        // Update popup menu
+        if (uncommittedContextMenu != null) {
+            uncommittedContextMenu.setBackground(UIManager.getColor("PopupMenu.background"));
+            uncommittedContextMenu.setForeground(UIManager.getColor("PopupMenu.foreground"));
+            // Update all menu items in the popup
+            for (int i = 0; i < uncommittedContextMenu.getComponentCount(); i++) {
+                Component comp = uncommittedContextMenu.getComponent(i);
+                if (comp instanceof JMenuItem menuItem) {
+                    menuItem.setBackground(UIManager.getColor("PopupMenu.background"));
+                    menuItem.setForeground(UIManager.getColor("PopupMenu.foreground"));
+                }
+            }
+        }
+
+        // Perform complete UI tree update
+        SwingUtilities.invokeLater(() -> {
+            SwingUtilities.updateComponentTreeUI(this);
+            revalidate();
+            repaint();
+        });
     }
 }
