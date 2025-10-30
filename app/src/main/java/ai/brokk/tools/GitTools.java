@@ -2,7 +2,6 @@ package ai.brokk.tools;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.exception.LlmException;
 import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.MergePrompts;
@@ -123,25 +122,20 @@ public class GitTools {
                     ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT, linesPerFile)
                     : diff;
 
-            try {
-                Llm.StreamingResult response;
-                if (detailed) {
-                    var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
-                    response = llm.sendRequest(messages);
-                } else {
-                    var messages = SummarizerPrompts.instance.collectMessages(preprocessedDiff, 100);
-                    response = llm.sendRequest(messages);
-                }
+            Llm.StreamingResult response;
+            if (detailed) {
+                var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
+                response = llm.sendRequest(messages);
+            } else {
+                var messages = SummarizerPrompts.instance.collectMessages(preprocessedDiff, 100);
+                response = llm.sendRequest(messages);
+            }
 
-                if (response.error() != null) {
-                    throw new LlmException(
-                            "LLM error while " + (detailed ? "explaining" : "summarizing")
-                                    + " commit %s".formatted(revision),
-                            response.error());
-                }
-
+            if (response.error() == null) {
                 return response.text().trim();
-            } catch (ContextTooLargeException e) {
+            }
+
+            if (response.error() instanceof ContextTooLargeException e) {
                 if (linesPerFile <= 100) {
                     logger.debug("Context still too large with minimum lines-per-file (50); giving up.");
                     throw e;
@@ -150,7 +144,12 @@ public class GitTools {
                 logger.debug(
                         "Context too large for commit explanation; halving lines-per-file to {} and retrying.",
                         linesPerFile);
+                continue;
             }
+
+            throw new RuntimeException(
+                    "LLM error while " + (detailed ? "explaining" : "summarizing") + " commit %s".formatted(revision),
+                    response.error());
         }
     }
 
