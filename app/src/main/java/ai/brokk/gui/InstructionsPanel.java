@@ -924,7 +924,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
-    private void updateTokenCostIndicator() {
+    void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
