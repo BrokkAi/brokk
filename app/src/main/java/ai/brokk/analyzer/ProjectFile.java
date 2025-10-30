@@ -19,7 +19,6 @@ public class ProjectFile implements BrokkFile {
     private final transient Path relPath;
 
     /** root must be pre-normalized; we will normalize relPath if it is not already */
-    @JsonCreator
     public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
         if (relPath.toString().contains("%s")) {
             throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
@@ -45,6 +44,23 @@ public class ProjectFile implements BrokkFile {
 
         this.root = normalizedRoot;
         this.relPath = relPath.normalize();
+    }
+
+    /**
+     * Json factory used during deserialization. This method enforces that JSON-supplied root values are absolute,
+     * ensuring legacy/deserialized data must explicitly present an absolute repo root. Programmatic callers may still
+     * use the public constructor which will accept and normalize relative roots for convenience.
+     */
+    @JsonCreator
+    public static ProjectFile forJson(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
+        if (root == null) {
+            throw new IllegalArgumentException("Root must not be null");
+        }
+        if (!root.isAbsolute()) {
+            throw new IllegalArgumentException("Root must be absolute, got " + root);
+        }
+        // Delegate to the constructor which will perform normalization/validation of relPath
+        return new ProjectFile(root, relPath);
     }
 
     public ProjectFile(Path root, String relName) {
