@@ -10,6 +10,8 @@ import ai.brokk.issues.IssueCaptureBuilder;
 import ai.brokk.issues.IssueDetails;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.issues.IssueService;
+import ai.brokk.issues.IssueProviderType;
+import ai.brokk.issues.JiraIssueService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessage;
@@ -41,12 +43,7 @@ public class GitIssueTools {
   public String addAllGithubIssuesAsFragment(
       @P("GitHub repository URL (e.g., 'https://github.com/owner/repo' or 'git@github.com:owner/repo.git')") String repoUrl) {
     try {
-      var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
-      if (ownerRepo == null) {
-        return "Error: Could not parse owner/repo from URL: " + repoUrl;
-      }
-
-      validateProjectMatchesRepoOrThrow(ownerRepo.owner(), ownerRepo.repo());
+      var ownerRepo = parseRepoUrlOrThrow(repoUrl);
 
       IssueService service = getIssueService();
       // Per instructions, use "ALL" and empty query string
@@ -73,12 +70,7 @@ public class GitIssueTools {
       @P("GitHub repository URL (e.g., 'https://github.com/owner/repo' or 'git@github.com:owner/repo.git')") String repoUrl,
       @P("Issue ID or number (e.g., '123')") String issueId) {
     try {
-      var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
-      if (ownerRepo == null) {
-        return "Error: Could not parse owner/repo from URL: " + repoUrl;
-      }
-
-      validateProjectMatchesRepoOrThrow(ownerRepo.owner(), ownerRepo.repo());
+      var ownerRepo = parseRepoUrlOrThrow(repoUrl);
 
       IssueService service = getIssueService();
       IssueDetails details = service.loadDetails(issueId);
@@ -112,8 +104,22 @@ public class GitIssueTools {
   }
 
   private IssueService getIssueService() {
-    // For v1 tools we target GitHub explicitly.
-    return new GitHubIssueService(contextManager.getProject());
+    var project = contextManager.getProject();
+    var providerType = project.getIssuesProvider().type();
+    return switch (providerType) {
+      case JIRA -> new JiraIssueService(project);
+      default -> new GitHubIssueService(project);
+    };
+  }
+
+  private GitUiUtil.OwnerRepo parseRepoUrlOrThrow(String repoUrl) {
+    var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
+    if (ownerRepo == null) {
+      throw new IllegalArgumentException("Could not parse owner/repo from URL: " + repoUrl);
+    }
+    // Ensure the provided repo matches the current project's GitHub repo configuration
+    validateProjectMatchesRepoOrThrow(ownerRepo.owner(), ownerRepo.repo());
+    return ownerRepo;
   }
 
   /**
@@ -131,7 +137,7 @@ public class GitIssueTools {
     if (!repo.equals(projectFolderName)) {
       throw new IllegalArgumentException(
           "Provided repository '" + owner + "/" + repo + "' does not appear to match current project folder '"
-              + projectFolderName + "'.");
+              + projectFolderName + "'. Cross-repo capture is not yet supported.");
     }
   }
 }
