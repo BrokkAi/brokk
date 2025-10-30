@@ -18,11 +18,16 @@ public class ProjectFile implements BrokkFile {
     private final transient Path root;
     private final transient Path relPath;
 
-    /** root must be pre-normalized; we will normalize relPath if it is not already */
-    public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
-        if (relPath.toString().contains("%s")) {
-            throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
-        }
+    /** root must be pre-normalized; we will normalize relPath if it is not already
+    * Note: This public constructor is intended for programmatic callers and is
+    * lenient (it will accept and normalize relative roots). It is intentionally
+    * NOT annotated for JSON deserialization so that Jackson will use the strict
+    * {@link #forJson} factory method annotated with {@code @JsonCreator}.
+    */
+    public ProjectFile(Path root, Path relPath) {
+    if (relPath.toString().contains("%s")) {
+    throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
+    }
 
         // Accept relative roots (e.g., platform- or test-provided paths) by converting to an absolute,
         // normalized root. This keeps the constructor robust across platforms (Windows test fixtures that
