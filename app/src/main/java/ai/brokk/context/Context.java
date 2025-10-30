@@ -961,20 +961,18 @@ public class Context {
                 .orElse(null);
 
         if (otherFragment == null) {
-            // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff against empty
-            if (isNewFileInGitAndText(thisFragment)) {
-                var newContent = extractFragmentContent(thisFragment, true);
-                var result = ContentDiffUtils.computeDiffResult(
-                        "",
-                        newContent,
-                        "old/" + thisFragment.shortDescription(),
-                        "new/" + thisFragment.shortDescription());
-                if (result.diff().isEmpty()) {
-                    return null;
-                }
-                return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+            // No matching fragment in 'other'; fragment is either new or was removed
+            // For any new fragment (file or virtual), diff against empty
+            var newContent = extractFragmentContent(thisFragment, true);
+            var result = ContentDiffUtils.computeDiffResult(
+                    "",
+                    newContent,
+                    "old/" + thisFragment.shortDescription(),
+                    "new/" + thisFragment.shortDescription());
+            if (result.diff().isEmpty()) {
+                return null;
             }
-            return null;
+            return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
         }
 
         // Extract content from both fragments
