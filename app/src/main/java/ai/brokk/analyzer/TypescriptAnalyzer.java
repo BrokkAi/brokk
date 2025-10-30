@@ -479,6 +479,52 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+        var skeletonType = getSkeletonTypeForCapture(captureName);
+
+        // For function-like and field-like nodes in classes, check if they have "static" modifier
+        if (skeletonType == SkeletonType.FUNCTION_LIKE || skeletonType == SkeletonType.FIELD_LIKE) {
+            // Check if this is a method/field inside a class (not top-level)
+            TSNode parent = definitionNode.getParent();
+            if (parent != null && !parent.isNull()) {
+                String parentType = parent.getType();
+                // Check if parent is class_body (methods/fields are children of class_body)
+                if ("class_body".equals(parentType)) {
+                    // Check for "static" modifier among the children of definitionNode
+                    if (hasStaticModifier(definitionNode)) {
+                        return fqName + "$static";
+                    }
+                }
+            }
+        }
+
+        return fqName;
+    }
+
+    /**
+     * Checks if a node has a "static" modifier as one of its children.
+     *
+     * @param node the node to check
+     * @return true if the node has a "static" child, false otherwise
+     */
+    private boolean hasStaticModifier(TSNode node) {
+        if (node == null || node.isNull()) {
+            return false;
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && !child.isNull()) {
+                if ("static".equals(child.getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         // Classes, interfaces, enums, modules/namespaces all use '}'
         if (cu.isClass()) { // isClass is true for all CLASS_LIKE CUs

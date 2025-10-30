@@ -1227,8 +1227,9 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedDeprecated.contains("async getUser"), "Method source should include method definition");
 
         // Test static method with annotations
+        // Note: Static methods now have $static suffix to distinguish from instance methods with same name
         Optional<String> validateConfigSource =
-                AnalyzerUtil.getMethodSource(analyzer, "UserService.validateConfig", true);
+                AnalyzerUtil.getMethodSource(analyzer, "UserService.validateConfig$static", true);
         assertTrue(validateConfigSource.isPresent(), "validateConfig static method should be found");
 
         String normalizedStatic = normalize.apply(validateConfigSource.get());
@@ -1512,5 +1513,73 @@ public class TypescriptAnalyzerTest {
 
         assertTrue(hasGreeterClass, "Should include Greeter class at top level");
         assertFalse(hasGreeterGreet, "Should not include Greeter.greet method at top level");
+    }
+
+    @Test
+    void testStaticInstanceMemberOverlap() {
+        // Test that static and instance members with the same name generate different FQNames
+        // This prevents false duplicate warnings for legitimate TypeScript patterns
+
+        ProjectFile testFile = new ProjectFile(project.getRoot(), "StaticInstanceOverlap.ts");
+
+        // Use getDeclarations to get all CodeUnits including class members
+        Set<CodeUnit> allDeclarations = analyzer.getDeclarations(testFile);
+        assertFalse(allDeclarations.isEmpty(), "Declarations list for StaticInstanceOverlap.ts should not be empty.");
+
+        // Get all CodeUnits for the Color class members
+        List<CodeUnit> colorUnits = allDeclarations.stream()
+                .filter(cu -> cu.fqName().startsWith("Color."))
+                .collect(Collectors.toList());
+
+        // Find instance and static versions of "transparent"
+        Optional<CodeUnit> instanceTransparent = colorUnits.stream()
+                .filter(cu -> cu.fqName().equals("Color.transparent"))
+                .findFirst();
+
+        Optional<CodeUnit> staticTransparent = colorUnits.stream()
+                .filter(cu -> cu.fqName().equals("Color.transparent$static"))
+                .findFirst();
+
+        assertTrue(instanceTransparent.isPresent(),
+                "Instance method 'transparent' should be found with FQName 'Color.transparent'. Found units: "
+                        + colorUnits.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        assertTrue(staticTransparent.isPresent(),
+                "Static property 'transparent' should be found with FQName 'Color.transparent$static'. Found units: "
+                        + colorUnits.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        // Verify both are function-like or field-like as appropriate
+        assertTrue(instanceTransparent.get().isFunction(),
+                "Instance transparent should be a function (method)");
+        assertTrue(staticTransparent.get().isField(),
+                "Static transparent should be a field (property)");
+
+        // Test normalize methods (instance vs static)
+        Optional<CodeUnit> instanceNormalize = colorUnits.stream()
+                .filter(cu -> cu.fqName().equals("Color.normalize"))
+                .findFirst();
+
+        Optional<CodeUnit> staticNormalize = colorUnits.stream()
+                .filter(cu -> cu.fqName().equals("Color.normalize$static"))
+                .findFirst();
+
+        assertTrue(instanceNormalize.isPresent(),
+                "Instance method 'normalize' should be found");
+        assertTrue(staticNormalize.isPresent(),
+                "Static method 'normalize' should be found");
+
+        // Test count properties (instance vs static)
+        Optional<CodeUnit> instanceCount = colorUnits.stream()
+                .filter(cu -> cu.fqName().equals("Color.count"))
+                .findFirst();
+
+        Optional<CodeUnit> staticCount = colorUnits.stream()
+                .filter(cu -> cu.fqName().equals("Color.count$static"))
+                .findFirst();
+
+        assertTrue(instanceCount.isPresent(),
+                "Instance property 'count' should be found");
+        assertTrue(staticCount.isPresent(),
+                "Static property 'count' should be found");
     }
 }
