@@ -2171,10 +2171,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
-        private TaskScope(boolean compressResults) {
-            this(compressResults, null);
-        }
-
         private TaskScope(boolean compressResults, @Nullable String groupLabel) {
             this.compressResults = compressResults;
             this.groupLabel = groupLabel;

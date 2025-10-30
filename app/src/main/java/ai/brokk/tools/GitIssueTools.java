@@ -33,9 +33,16 @@ public class GitIssueTools {
   private static final Logger logger = LogManager.getLogger(GitIssueTools.class);
 
   private final ContextManager contextManager;
+  // Test-only injection hook; when set, getIssueService() will return this instead of creating a real service.
+  private transient IssueService testIssueService;
 
   public GitIssueTools(ContextManager cm) {
     this.contextManager = cm;
+  }
+
+  // Package-private for tests
+  void setIssueServiceForTests(IssueService s) {
+    this.testIssueService = s;
   }
 
   @Tool(
@@ -104,6 +111,9 @@ public class GitIssueTools {
   }
 
   private IssueService getIssueService() {
+    if (testIssueService != null) {
+      return testIssueService;
+    }
     var project = contextManager.getProject();
     var providerType = project.getIssuesProvider().type();
     return switch (providerType) {
