@@ -19,6 +19,8 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ResponsiveButtonPanel;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.widgets.FileStatusTable;
+import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.theme.GuiTheme;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -42,7 +44,7 @@ import org.jetbrains.annotations.Nullable;
  * Panel for the "Changes" tab (formerly "Commit" tab) in the Git Panel. Handles displaying uncommitted changes,
  * staging, committing, and stashing.
  */
-public class GitCommitTab extends JPanel {
+public class GitCommitTab extends JPanel implements ThemeAware {
 
     private static final Logger logger = LogManager.getLogger(GitCommitTab.class);
 
@@ -1034,5 +1036,72 @@ Would you like to resolve these conflicts with the Merge Agent?
                 }
             });
         });
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        try {
+            Color panelBg = UIManager.getColor("Panel.background");
+            Color tableBg = UIManager.getColor("Table.background");
+            Color fg = UIManager.getColor("Label.foreground");
+
+            setBackground(panelBg != null ? panelBg : getBackground());
+
+            if (fileStatusPane != null) {
+                try {
+                    fileStatusPane.setBackground(panelBg != null ? panelBg : fileStatusPane.getBackground());
+                } catch (Exception ignored) {
+                }
+                if (fileStatusPane instanceof ThemeAware) {
+                    try {
+                        ((ThemeAware) fileStatusPane).applyTheme(guiTheme);
+                    } catch (Exception ex) {
+                        logger.debug("fileStatusPane.applyTheme failed", ex);
+                    }
+                }
+            }
+
+            if (uncommittedFilesTable != null) {
+                uncommittedFilesTable.setBackground(tableBg != null ? tableBg : uncommittedFilesTable.getBackground());
+                uncommittedFilesTable.setForeground(fg != null ? fg : uncommittedFilesTable.getForeground());
+                var header = uncommittedFilesTable.getTableHeader();
+                if (header != null) {
+                    header.setBackground(panelBg != null ? panelBg : header.getBackground());
+                    header.setForeground(fg != null ? fg : header.getForeground());
+                }
+            }
+
+            if (commitButton != null) {
+                try {
+                    // Keep primary styling consistent with application convention
+                    SwingUtil.applyPrimaryButtonStyle(commitButton);
+                } catch (Exception ex) {
+                    // Fallback to basic UIManager colors
+                    commitButton.setBackground(UIManager.getColor("Button.background"));
+                    commitButton.setForeground(UIManager.getColor("Button.foreground"));
+                }
+            }
+
+            if (stashButton != null) {
+                stashButton.setBackground(UIManager.getColor("Button.background"));
+                stashButton.setForeground(UIManager.getColor("Button.foreground"));
+            }
+
+            if (resolveConflictsButton != null) {
+                resolveConflictsButton.setBackground(UIManager.getColor("Button.background"));
+                resolveConflictsButton.setForeground(UIManager.getColor("Button.foreground"));
+            }
+
+            if (buttonPanel != null) {
+                buttonPanel.setBackground(panelBg != null ? panelBg : buttonPanel.getBackground());
+            }
+        } catch (Exception ex) {
+            logger.debug("applyTheme failed for GitCommitTab", ex);
+        } finally {
+            SwingUtilities.invokeLater(() -> {
+                revalidate();
+                repaint();
+            });
+        }
     }
 }
