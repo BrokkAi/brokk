@@ -528,6 +528,8 @@ public class MenuBar {
         var commitItem = new JMenuItem("Changes");
         commitItem.addActionListener(e -> {
             var content = new GitCommitTab(chrome, chrome.getContextManager());
+            // Start an initial refresh so the dialog is populated with repository status
+            content.updateCommitPanel();
             showDialog(chrome, "Changes", content, null);
         });
         gitMenu.add(commitItem);
