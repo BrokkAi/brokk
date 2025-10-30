@@ -558,147 +558,148 @@ public class MenuBar {
         // Window menu
         var windowMenu = new JMenu("Window");
         windowMenu.addMenuListener(new MenuListener() {
-        @Override
-        public void menuSelected(MenuEvent e) {
-        windowMenu.removeAll();
-        
-        // Add IntelliJ-style sidebar panel switching shortcuts
-        var projectFilesItem = new JMenuItem("Project Files");
-        projectFilesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        projectFilesItem.addActionListener(actionEvent -> {
-        chrome.getLeftTabbedPanel().setSelectedIndex(0);
-        });
-        windowMenu.add(projectFilesItem);
-        
-        var testsItem = new JMenuItem("Tests");
-        testsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-        testsItem.addActionListener(actionEvent -> {
-        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getTestRunnerPanel());
-        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
-        });
-        windowMenu.add(testsItem);
-        
-        // Only show advanced Git-related entries when Advanced Mode is ON.
-        boolean advanced = GlobalUiSettings.isAdvancedMode();
-        
-        if (advanced && chrome.getProject().hasGit()) {
-        var changesItem = new JMenuItem("Changes");
-        changesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-        changesItem.addActionListener(actionEvent -> {
-        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
-        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
-        });
-        windowMenu.add(changesItem);
-        
-        var logItem = new JMenuItem("Log");
-        logItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-        logItem.addActionListener(actionEvent -> {
-        var gitLogTab = chrome.getGitLogTab();
-        if (gitLogTab != null) {
-        var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitLogTab);
-        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
-        }
-        });
-        windowMenu.add(logItem);
-        
-        var worktreesItem = new JMenuItem("Worktrees");
-        worktreesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-        worktreesItem.addActionListener(actionEvent -> {
-        var gitWorktreeTab = chrome.getGitWorktreeTab();
-        if (gitWorktreeTab != null) {
-        var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitWorktreeTab);
-        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
-        }
-        });
-        windowMenu.add(worktreesItem);
-        }
-        
-        if (advanced) {
-        if (chrome.getProject().isGitHubRepo() && chrome.getProject().hasGit()) {
-        var pullRequestsItem = new JMenuItem("Pull Requests");
-        pullRequestsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
-        pullRequestsItem.addActionListener(actionEvent -> {
-        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
-        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
-        });
-        windowMenu.add(pullRequestsItem);
-        }
-        
-        if (chrome.getProject().getIssuesProvider().type() != IssueProviderType.NONE
-        && chrome.getProject().hasGit()) {
-        var issuesItem = new JMenuItem("Issues");
-        issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
-        issuesItem.addActionListener(actionEvent -> {
-        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
-        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
-        });
-        windowMenu.add(issuesItem);
-        }
-        }
-        
-        windowMenu.addSeparator();
-        
-        Window currentChromeWindow = chrome.getFrame();
-        List<JMenuItem> menuItemsList = new ArrayList<>();
-        
-        for (Window window : Window.getWindows()) {
-        if (!window.isVisible()) {
-        continue;
-        }
-        
-        // We are interested in Frames and non-modal Dialogs
-        if (!(window instanceof Frame || window instanceof Dialog)) {
-        continue;
-        }
-        
-        if (window instanceof JDialog dialog && dialog.isModal()) {
-        continue;
-        }
-        
-        String title = null;
-        if (window instanceof Frame frame) {
-        title = frame.getTitle();
-        } else {
-        title = ((Dialog) window).getTitle();
-        }
-        
-        if (title == null || title.trim().isEmpty()) {
-        continue;
-        }
-        
-        JMenuItem menuItem;
-        if (window == currentChromeWindow) {
-        menuItem = new JCheckBoxMenuItem(title, true);
-        menuItem.setEnabled(false); // Current window item is selected but disabled
-        } else {
-        menuItem = new JMenuItem(title);
-        final Window windowToFocus = window; // final variable for lambda
-        menuItem.addActionListener(actionEvent -> {
-        if (windowToFocus instanceof Frame frame) {
-        frame.setState(Frame.NORMAL);
-        }
-        windowToFocus.toFront();
-        windowToFocus.requestFocus();
-        });
-        }
-        menuItemsList.add(menuItem);
-        }
-        
-        menuItemsList.sort(Comparator.comparing(JMenuItem::getText));
-        for (JMenuItem item : menuItemsList) {
-        windowMenu.add(item);
-        }
-        }
-        
-        @Override
-        public void menuDeselected(MenuEvent e) {
-        // No action needed
-        }
-        
-        @Override
-        public void menuCanceled(MenuEvent e) {
-        // No action needed
-        }
+            @Override
+            public void menuSelected(MenuEvent e) {
+                windowMenu.removeAll();
+
+                // Add IntelliJ-style sidebar panel switching shortcuts
+                var projectFilesItem = new JMenuItem("Project Files");
+                projectFilesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+                projectFilesItem.addActionListener(actionEvent -> {
+                    chrome.getLeftTabbedPanel().setSelectedIndex(0);
+                });
+                windowMenu.add(projectFilesItem);
+
+                var testsItem = new JMenuItem("Tests");
+                testsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+                testsItem.addActionListener(actionEvent -> {
+                    var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getTestRunnerPanel());
+                    if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                });
+                windowMenu.add(testsItem);
+
+                // Only show advanced Git-related entries when Advanced Mode is ON.
+                boolean advanced = GlobalUiSettings.isAdvancedMode();
+
+                if (advanced && chrome.getProject().hasGit()) {
+                    var changesItem = new JMenuItem("Changes");
+                    changesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+                    changesItem.addActionListener(actionEvent -> {
+                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
+                        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                    });
+                    windowMenu.add(changesItem);
+
+                    var logItem = new JMenuItem("Log");
+                    logItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                    logItem.addActionListener(actionEvent -> {
+                        var gitLogTab = chrome.getGitLogTab();
+                        if (gitLogTab != null) {
+                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitLogTab);
+                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        }
+                    });
+                    windowMenu.add(logItem);
+
+                    var worktreesItem = new JMenuItem("Worktrees");
+                    worktreesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    worktreesItem.addActionListener(actionEvent -> {
+                        var gitWorktreeTab = chrome.getGitWorktreeTab();
+                        if (gitWorktreeTab != null) {
+                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitWorktreeTab);
+                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        }
+                    });
+                    windowMenu.add(worktreesItem);
+                }
+
+                if (advanced) {
+                    if (chrome.getProject().isGitHubRepo()
+                            && chrome.getProject().hasGit()) {
+                        var pullRequestsItem = new JMenuItem("Pull Requests");
+                        pullRequestsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+                        pullRequestsItem.addActionListener(actionEvent -> {
+                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
+                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        });
+                        windowMenu.add(pullRequestsItem);
+                    }
+
+                    if (chrome.getProject().getIssuesProvider().type() != IssueProviderType.NONE
+                            && chrome.getProject().hasGit()) {
+                        var issuesItem = new JMenuItem("Issues");
+                        issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                        issuesItem.addActionListener(actionEvent -> {
+                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
+                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        });
+                        windowMenu.add(issuesItem);
+                    }
+                }
+
+                windowMenu.addSeparator();
+
+                Window currentChromeWindow = chrome.getFrame();
+                List<JMenuItem> menuItemsList = new ArrayList<>();
+
+                for (Window window : Window.getWindows()) {
+                    if (!window.isVisible()) {
+                        continue;
+                    }
+
+                    // We are interested in Frames and non-modal Dialogs
+                    if (!(window instanceof Frame || window instanceof Dialog)) {
+                        continue;
+                    }
+
+                    if (window instanceof JDialog dialog && dialog.isModal()) {
+                        continue;
+                    }
+
+                    String title = null;
+                    if (window instanceof Frame frame) {
+                        title = frame.getTitle();
+                    } else {
+                        title = ((Dialog) window).getTitle();
+                    }
+
+                    if (title == null || title.trim().isEmpty()) {
+                        continue;
+                    }
+
+                    JMenuItem menuItem;
+                    if (window == currentChromeWindow) {
+                        menuItem = new JCheckBoxMenuItem(title, true);
+                        menuItem.setEnabled(false); // Current window item is selected but disabled
+                    } else {
+                        menuItem = new JMenuItem(title);
+                        final Window windowToFocus = window; // final variable for lambda
+                        menuItem.addActionListener(actionEvent -> {
+                            if (windowToFocus instanceof Frame frame) {
+                                frame.setState(Frame.NORMAL);
+                            }
+                            windowToFocus.toFront();
+                            windowToFocus.requestFocus();
+                        });
+                    }
+                    menuItemsList.add(menuItem);
+                }
+
+                menuItemsList.sort(Comparator.comparing(JMenuItem::getText));
+                for (JMenuItem item : menuItemsList) {
+                    windowMenu.add(item);
+                }
+            }
+
+            @Override
+            public void menuDeselected(MenuEvent e) {
+                // No action needed
+            }
+
+            @Override
+            public void menuCanceled(MenuEvent e) {
+                // No action needed
+            }
         });
         menuBar.add(windowMenu);
 
