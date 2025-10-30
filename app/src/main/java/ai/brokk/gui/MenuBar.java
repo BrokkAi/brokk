@@ -41,12 +41,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
@@ -63,8 +59,7 @@ public class MenuBar {
      * @param content the component to display in the dialog
      * @param onClose optional callback to run when the dialog is closed
      */
-    private static void showDialog(
-            Chrome chrome, String title, JComponent content, @Nullable Runnable onClose) {
+    private static void showDialog(Chrome chrome, String title, JComponent content, @Nullable Runnable onClose) {
         Runnable task = () -> {
             // Create new modeless dialog
             JDialog dialog = new JDialog(chrome.getFrame(), title, false);
@@ -497,7 +492,8 @@ public class MenuBar {
         // Terminal (create a fresh terminal panel with proper cleanup)
         var terminalItem = new JMenuItem("Terminal");
         terminalItem.addActionListener(e -> {
-            var terminalPanel = new TerminalPanel(chrome, () -> {}, true, chrome.getProject().getRoot());
+            var terminalPanel = new TerminalPanel(
+                    chrome, () -> {}, true, chrome.getProject().getRoot());
             showDialog(chrome, "Terminal", terminalPanel, terminalPanel::dispose);
         });
         toolsMenu.add(terminalItem);
@@ -519,20 +515,20 @@ public class MenuBar {
         });
         gitMenu.add(prsItem);
 
-        // Changes (Git Log)
-        var logItem = new JMenuItem("Changes");
+        // Log (Git Log)
+        var logItem = new JMenuItem("Log");
         logItem.addActionListener(e -> {
             var gitLogTab = new GitLogTab(chrome, chrome.getContextManager());
             gitLogTab.setPreferredSize(new Dimension(1000, 700));
-            showDialog(chrome, "Changes", gitLogTab, null);
+            showDialog(chrome, "Log", gitLogTab, null);
         });
         gitMenu.add(logItem);
 
-        // Commit (Git Commit tab)
-        var commitItem = new JMenuItem("Commit");
+        // Changes (Git Commit tab)
+        var commitItem = new JMenuItem("Changes");
         commitItem.addActionListener(e -> {
             var content = new GitCommitTab(chrome, chrome.getContextManager());
-            showDialog(chrome, "Commit", content, null);
+            showDialog(chrome, "Changes", content, null);
         });
         gitMenu.add(commitItem);
 
