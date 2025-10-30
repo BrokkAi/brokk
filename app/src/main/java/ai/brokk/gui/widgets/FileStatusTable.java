@@ -3,6 +3,9 @@ package ai.brokk.gui.widgets;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
+import java.awt.Color;
 import java.awt.Component;
 import java.util.*;
 import java.util.List;
@@ -14,8 +17,10 @@ import javax.swing.table.DefaultTableModel;
 /**
  * Scroll-pane component that displays a list of files plus their git status. The underlying JTable is exposed via
  * {@link #getTable()} for callers that need to add listeners or context menus.
+ *
+ * Implements ThemeAware so dialogs and other containers can apply the current GuiTheme.
  */
-public final class FileStatusTable extends JScrollPane {
+public final class FileStatusTable extends JScrollPane implements ThemeAware {
 
     private final JTable table;
     private final Map<ProjectFile, String> statusMap = new HashMap<>();
@@ -167,5 +172,41 @@ public final class FileStatusTable extends JScrollPane {
      */
     public String statusFor(ProjectFile pf) {
         return statusMap.getOrDefault(pf, "");
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        try {
+            Color panelBg = UIManager.getColor("Panel.background");
+            Color tableBg = UIManager.getColor("Table.background");
+            Color fg = UIManager.getColor("Label.foreground");
+
+            // Apply to scroll pane (this) and the embedded table
+            setBackground(panelBg != null ? panelBg : getBackground());
+            table.setBackground(tableBg != null ? tableBg : table.getBackground());
+            table.setForeground(fg != null ? fg : table.getForeground());
+
+            var header = table.getTableHeader();
+            if (header != null) {
+                header.setBackground(panelBg != null ? panelBg : header.getBackground());
+                header.setForeground(fg != null ? fg : header.getForeground());
+            }
+
+            // Ensure any nested ThemeAware children (unlikely here) get themed as well
+            Component view = getViewport().getView();
+            if (view instanceof ThemeAware) {
+                try {
+                    ((ThemeAware) view).applyTheme(guiTheme);
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception ex) {
+            // Defensive: don't let theme failures propagate
+        } finally {
+            SwingUtilities.invokeLater(() -> {
+                revalidate();
+                repaint();
+            });
+        }
     }
 }
