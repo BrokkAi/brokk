@@ -122,12 +122,14 @@ public class Context {
 
     public Map<CodeUnit, String> buildRelatedIdentifiers(int k) throws InterruptedException {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
-        return buildRelatedIdentifiers(contextManager.getAnalyzer(), candidates);
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+        return candidates.parallelStream()
+                .flatMap(c -> buildRelatedIdentifiers(analyzer, c).entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
-    public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, List<ProjectFile> candidates) {
-        return candidates.parallelStream()
-                .flatMap(c -> analyzer.getTopLevelDeclarations(c).stream())
+    public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
+        return analyzer.getTopLevelDeclarations(file).stream()
                 .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getSubDeclarations(cu).stream()
                         .map(CodeUnit::shortName)
                         .distinct()
