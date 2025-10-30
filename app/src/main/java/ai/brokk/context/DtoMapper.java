@@ -530,11 +530,7 @@ public class DtoMapper {
         ProjectFileDto pfd =
                 new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
         return new CodeUnitDto(
-                pfd,
-                codeUnit.kind().name(),
-                codeUnit.packageName(),
-                codeUnit.shortName(),
-                codeUnit.signature());
+                pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName(), codeUnit.signature());
     }
 
     private static TaskEntry _fromTaskEntryDto(

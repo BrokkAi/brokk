@@ -149,10 +149,26 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns the (optional) signature associated with this CodeUnit. This is nullable and may be absent for legacy
-     * serialized CodeUnits or for code units where no explicit signature was recorded.
+     * Returns the (optional) signature associated with this CodeUnit.
      *
-     * @return the signature or null if absent.
+     * <p>
+     * This field contains an optional, analyzer-populated canonical "signature" for callable code units
+     * (functions / methods). The signature is a language-specific representation of the callable's
+     * parameter list and signature-relevant qualifiers used for overload disambiguation. It may be
+     * {@code null} for legacy items or when an analyzer cannot produce a canonical signature.
+     * </p>
+     *
+     * <p><strong>Migration notes for analyzers and maintainers:</strong></p>
+     * <ul>
+     *   <li><strong>Purpose:</strong> {@code signature} supplements (but does not replace) the existing {@code shortName}-based identity.
+     *       For now, {@link #fqName()} continues to be derived from {@code packageName} + {@code shortName}.</li>
+     *   <li><strong>Populate both:</strong> analyzers SHOULD continue to populate {@code shortName} exactly as before and,
+     *       when available, also populate {@code signature}. Passing {@code null} preserves backward compatibility.</li>
+     *   <li><strong>Backwards compatibility:</strong> {@code signature} may be {@code null} for historical data; {@code equals()}
+     *       and {@code hashCode()} intentionally do NOT depend on {@code signature}.</li>
+     * </ul>
+     *
+     * @return the signature string, or {@code null} if absent.
      */
     @org.jetbrains.annotations.Nullable
     public String signature() {

@@ -263,11 +263,7 @@ public class FragmentDtos {
 
     /** DTO for CodeUnit - represents a named code element. */
     public record CodeUnitDto(
-            ProjectFileDto sourceFile,
-            String kind,
-            String packageName,
-            String shortName,
-            @Nullable String signature) {
+            ProjectFileDto sourceFile, String kind, String packageName, String shortName, @Nullable String signature) {
         public CodeUnitDto {
             if (kind.isEmpty()) {
                 throw new IllegalArgumentException("kind cannot be null or empty");

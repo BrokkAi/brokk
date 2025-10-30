@@ -1,15 +1,13 @@
 package ai.brokk.context;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests to verify backward-compatible deserialization when CodeUnitDto lacks the optional 'signature' field,
@@ -19,7 +17,8 @@ public class CodeUnitDtoBackwardCompatTest {
 
     @Test
     public void jacksonDeserializesMissingSignatureAsNull() throws Exception {
-        var json = """
+        var json =
+                """
                 {
                   "sourceFile": { "id": "0", "repoRoot": "/repo/root", "relPath": "src/A.cpp" },
                   "kind": "FUNCTION",
@@ -74,11 +73,7 @@ public class CodeUnitDtoBackwardCompatTest {
         FragmentDtos.ProjectFileDto pfd = new FragmentDtos.ProjectFileDto(
                 "0", pf.getRoot().toString(), pf.getRelPath().toString());
         FragmentDtos.CodeUnitDto dto = new FragmentDtos.CodeUnitDto(
-                pfd,
-                original.kind().name(),
-                original.packageName(),
-                original.shortName(),
-                original.signature());
+                pfd, original.kind().name(), original.packageName(), original.shortName(), original.signature());
 
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
@@ -88,23 +83,25 @@ public class CodeUnitDtoBackwardCompatTest {
         FragmentDtos.CodeUnitDto dto2 = mapper.readValue(json, FragmentDtos.CodeUnitDto.class);
 
         // Reconstruct a CodeUnit from the deserialized DTO
-        ProjectFile pf2 = new ProjectFile(Path.of(dto2.sourceFile().repoRoot()), Path.of(dto2.sourceFile().relPath()));
+        ProjectFile pf2 = new ProjectFile(
+                Path.of(dto2.sourceFile().repoRoot()), Path.of(dto2.sourceFile().relPath()));
         CodeUnit roundTripped = new CodeUnit(
-                pf2,
-                CodeUnitType.valueOf(dto2.kind()),
-                dto2.packageName(),
-                dto2.shortName(),
-                dto2.signature());
+                pf2, CodeUnitType.valueOf(dto2.kind()), dto2.packageName(), dto2.shortName(), dto2.signature());
 
         // Assertions: signature preserved, fqName still derived from shortName
         assertEquals(original.signature(), dto2.signature(), "DTO should contain the signature after round-trip");
-        assertEquals(original.signature(), roundTripped.signature(), "Reconstructed CodeUnit should preserve the signature");
-        assertEquals(original.fqName(), roundTripped.fqName(), "FQ name derivation must remain based on packageName+shortName");
+        assertEquals(
+                original.signature(), roundTripped.signature(), "Reconstructed CodeUnit should preserve the signature");
+        assertEquals(
+                original.fqName(),
+                roundTripped.fqName(),
+                "FQ name derivation must remain based on packageName+shortName");
     }
 
     @Test
     public void codeUnitFromDtoWithoutSignatureProducesNullSignature() throws Exception {
-        var json = """
+        var json =
+                """
                 {
                   "sourceFile": { "id": "0", "repoRoot": "/repo/root", "relPath": "src/A.cpp" },
                   "kind": "FUNCTION",
@@ -119,8 +116,10 @@ public class CodeUnitDtoBackwardCompatTest {
         FragmentDtos.CodeUnitDto dto = mapper.readValue(json, FragmentDtos.CodeUnitDto.class);
 
         // Construct CodeUnit using dto.signature() which should be null for legacy JSON
-        ProjectFile pf = new ProjectFile(Path.of(dto.sourceFile().repoRoot()), Path.of(dto.sourceFile().relPath()));
-        CodeUnit cu = new CodeUnit(pf, CodeUnitType.valueOf(dto.kind()), dto.packageName(), dto.shortName(), dto.signature());
+        ProjectFile pf = new ProjectFile(
+                Path.of(dto.sourceFile().repoRoot()), Path.of(dto.sourceFile().relPath()));
+        CodeUnit cu =
+                new CodeUnit(pf, CodeUnitType.valueOf(dto.kind()), dto.packageName(), dto.shortName(), dto.signature());
 
         assertNull(cu.signature(), "Missing signature in DTO should produce a null CodeUnit.signature()");
         // fqName should still be derived from packageName + shortName
