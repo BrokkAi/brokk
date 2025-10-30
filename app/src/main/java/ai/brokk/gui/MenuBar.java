@@ -502,6 +502,9 @@ public class MenuBar {
         });
         toolsMenu.add(terminalItem);
 
+        // Git submenu
+        var gitMenu = new JMenu("Git");
+
         // Pull Requests
         var prsItem = new JMenuItem("Pull Requests");
         prsItem.addActionListener(e -> {
@@ -514,7 +517,7 @@ public class MenuBar {
                 showDialog(chrome, "Pull Requests", fallback, null);
             }
         });
-        toolsMenu.add(prsItem);
+        gitMenu.add(prsItem);
 
         // Changes (Git Log)
         var logItem = new JMenuItem("Changes");
@@ -523,7 +526,7 @@ public class MenuBar {
             gitLogTab.setPreferredSize(new Dimension(1000, 700));
             showDialog(chrome, "Changes", gitLogTab, null);
         });
-        toolsMenu.add(logItem);
+        gitMenu.add(logItem);
 
         // Commit (Git Commit tab)
         var commitItem = new JMenuItem("Commit");
@@ -531,7 +534,7 @@ public class MenuBar {
             var content = new GitCommitTab(chrome, chrome.getContextManager());
             showDialog(chrome, "Commit", content, null);
         });
-        toolsMenu.add(commitItem);
+        gitMenu.add(commitItem);
 
         // Worktrees
         var worktreesItem = new JMenuItem("Worktrees");
@@ -539,9 +542,11 @@ public class MenuBar {
             var content = new GitWorktreeTab(chrome, chrome.getContextManager());
             showDialog(chrome, "Worktrees", content, null);
         });
-        toolsMenu.add(worktreesItem);
+        gitMenu.add(worktreesItem);
 
-        // Open Output in New Window (reuse existing behavior)
+        toolsMenu.add(gitMenu);
+
+        // Open Output in New Window
         var openOutputItem = new JMenuItem("Open Output in New Window");
         openOutputItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
             chrome.getHistoryOutputPanel().openOutputInNewWindow();
