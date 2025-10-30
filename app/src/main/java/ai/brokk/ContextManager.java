@@ -31,6 +31,7 @@ import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.GitTools;
+import ai.brokk.tools.GitIssueTools;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
@@ -258,6 +259,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .builder()
                 .register(new SearchTools(this))
                 .register(new GitTools(this))
+                .register(new GitIssueTools(this))
                 .build();
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
