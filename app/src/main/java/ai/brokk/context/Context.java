@@ -152,7 +152,9 @@ public class Context {
     }
 
     public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
-        var toAdd = paths.stream().filter(p -> !fragments.contains(p)).toList();
+        var toAdd = paths.stream()
+                .filter(p -> !fragments.stream().anyMatch(p::hasSameSource))
+                .toList();
         if (toAdd.isEmpty()) {
             return this;
         }
@@ -590,16 +592,33 @@ public class Context {
     }
 
     public boolean workspaceContentEquals(Context other) {
-        assert !this.containsDynamicFragments();
-        assert !other.containsDynamicFragments();
+        var thisFragments = allFragments().toList();
+        var otherFragments = other.allFragments().toList();
 
-        return allFragments().toList().equals(other.allFragments().toList());
+        if (thisFragments.size() != otherFragments.size()) {
+            return false;
+        }
+
+        // Check semantic equivalence using hasSameSource for all fragments
+        for (var thisFragment : thisFragments) {
+            boolean found = otherFragments.stream().anyMatch(thisFragment::hasSameSource);
+            if (!found) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public boolean containsFrozenFragments() {
         return allFragments().anyMatch(f -> f instanceof FrozenFragment);
     }
 
+    /**
+     * Checks if any fragments in this context are dynamic (compute values asynchronously).
+     * Note: In the new live-context design, dynamic fragments are expected and should be
+     * accessed via ComputedValue APIs (tryGet/await) rather than direct text() calls.
+     */
     public boolean containsDynamicFragments() {
         return allFragments().anyMatch(ContextFragment::isDynamic);
     }
@@ -615,8 +634,8 @@ public class Context {
      */
     public Context union(Context other) {
         // we're going to do some casting that's not valid if FF is involved
-        assert !containsFrozenFragments();
-        assert !other.containsFrozenFragments();
+        assert !containsFrozenFragments() : "Context.union: This context contains frozen fragments";
+        assert !other.containsFrozenFragments() : "Context.union: The other context contains frozen fragments";
 
         if (this.fragments.isEmpty()) {
             return other;
@@ -1088,10 +1107,6 @@ public class Context {
      */
     private byte @Nullable [] extractImageBytes(ContextFragment fragment) {
         try {
-            if (fragment instanceof FrozenFragment ff && !ff.isText()) {
-                return ff.imageBytesContent();
-            }
-
             if (fragment instanceof ContextFragment.ImageFragment imgFrag
                     && fragment instanceof ContextFragment.ComputedFragment cf) {
                 var computedImageBytes = cf.computedImageBytes();

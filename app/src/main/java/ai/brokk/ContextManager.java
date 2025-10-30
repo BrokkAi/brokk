@@ -839,6 +839,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (fragments.isEmpty()) {
             return;
         }
+        // addPathFragments already handles semantic deduplication via hasSameSource
         pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
         String message = "Edit " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -1068,29 +1069,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 List<ContextFragment.ProjectPathFragment> pathsToAdd = new ArrayList<>();
                 List<VirtualFragment> virtualFragmentsToAdd = new ArrayList<>();
 
-                Set<String> sourceEditableIds = sourceFrozenContext
-                        .fileFragments()
-                        .map(ContextFragment::id)
-                        .collect(Collectors.toSet());
-                Set<String> sourceVirtualIds = sourceFrozenContext
+                List<ContextFragment> sourceEditableFragments =
+                        sourceFrozenContext.fileFragments().toList();
+                List<ContextFragment> sourceVirtualFragments = sourceFrozenContext
                         .virtualFragments()
-                        .map(ContextFragment::id)
-                        .collect(Collectors.toSet());
+                        .map(ContextFragment.class::cast)
+                        .toList();
 
                 for (ContextFragment fragment : fragmentsToKeep) {
-                    // Fragments should already be live from migration logic
-                    if (sourceEditableIds.contains(fragment.id())
-                            && fragment instanceof ContextFragment.ProjectPathFragment ppf) {
+                    // Use semantic comparison (hasSameSource) to identify which category this fragment belongs to
+                    boolean isEditableMatch = sourceEditableFragments.stream().anyMatch(fragment::hasSameSource);
+                    boolean isVirtualMatch = sourceVirtualFragments.stream()
+                            .anyMatch(
+                                    f -> !(f instanceof ContextFragment.HistoryFragment) && fragment.hasSameSource(f));
+
+                    if (isEditableMatch && fragment instanceof ContextFragment.ProjectPathFragment ppf) {
                         pathsToAdd.add(ppf);
-                    } else if (sourceVirtualIds.contains(fragment.id()) && fragment instanceof VirtualFragment vf) {
-                        if (!(vf instanceof ContextFragment.HistoryFragment)) {
-                            virtualFragmentsToAdd.add(vf);
-                        }
+                    } else if (isVirtualMatch && fragment instanceof VirtualFragment vf) {
+                        virtualFragmentsToAdd.add(vf);
                     } else if (fragment instanceof ContextFragment.HistoryFragment) {
                         // Handled by selectedHistoryFragmentOpt
-                    } else {
+                    } else if (!isEditableMatch && !isVirtualMatch) {
                         logger.warn(
-                                "Fragment '{}' (ID: {}) from fragmentsToKeep could not be categorized. Type: {}",
+                                "Fragment '{}' (ID: {}) from fragmentsToKeep does not match any source fragments. Type: {}",
                                 fragment.description(),
                                 fragment.id(),
                                 fragment.getClass().getSimpleName());
