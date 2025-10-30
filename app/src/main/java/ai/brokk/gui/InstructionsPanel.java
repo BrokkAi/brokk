@@ -1000,9 +1000,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+                        
+                        // Compute shared tooltip for both TokenUsageBar and ModelSelector
+                        String sharedTooltip = TokenUsageBar.computeWarningTooltip(
+                            stat.isTested,
+                            stat.config,
+                            stat.warningLevel,
+                            stat.successRate,
+                            stat.approxTokens,
+                            stat.toolTipHtml);
+                        
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(stat.toolTipHtml);
-                        modelSelector.getComponent().setToolTipText(stat.toolTipHtml);
+                        contextAreaContainer.setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
+                        modelSelector.getComponent().setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);

@@ -314,11 +314,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return modelConfig;
     }
 
-    @Override
-    public String getToolTipText(MouseEvent event) {
+    public static String computeWarningTooltip(
+            boolean rateIsTested,
+            @Nullable Service.ModelConfig modelConfig,
+            WarningLevel warningLevel,
+            int successRate,
+            int usedTokens,
+            @Nullable String unfilledTooltipHtml) {
         // First priority: show "beyond tested range" warning if extrapolated
         if (!rateIsTested && modelConfig != null) {
-            int usedTokens = computeUsedTokens();
             return String.format(
                     "<html><body style='width: 320px'>"
                             + "<b style='color: #FF4444;'>⚠️ Warning: Beyond tested range</b><br/><br/>"
@@ -337,8 +341,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             }
             modelName = StringEscapeUtils.escapeHtml4(modelName);
 
-            int successRate = this.lastSuccessRate;
-
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
                     : "a very low success rate (&lt;30%)";
@@ -352,7 +354,25 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     modelName, reason, successRate);
         }
 
-        // Fallback: segment-based and unfilled tooltips
+        // Fallback: return unfilled tooltip
+        return unfilledTooltipHtml;
+    }
+
+    @Override
+    public String getToolTipText(MouseEvent event) {
+        String primaryTooltip = computeWarningTooltip(
+                rateIsTested,
+                modelConfig,
+                warningLevel,
+                lastSuccessRate,
+                computeUsedTokens(),
+                unfilledTooltipHtml);
+
+        if (primaryTooltip != null) {
+            return primaryTooltip;
+        }
+
+        // Fallback: segment-based tooltips
         try {
             int width = getWidth();
             // Ensure segments correspond to current size
@@ -362,10 +382,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (x >= s.startX && x < s.startX + s.widthPx) {
                     return s.tooltipHtml;
                 }
-            }
-            // Any position not on a segment (including gaps and trailing unfilled) uses the unfilled tooltip
-            if (unfilledTooltipHtml != null) {
-                return unfilledTooltipHtml;
             }
         } catch (Exception e) {
             logger.trace("Failed to compute tooltip for token bar position", e);
