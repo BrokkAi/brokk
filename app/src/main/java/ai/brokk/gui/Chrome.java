@@ -2801,6 +2801,10 @@ public class Chrome
 
             // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
             if (!advanced) {
+                if (gitCommitTab != null) {
+                    int idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                }
                 if (gitLogTab != null) {
                     int idx = leftTabbedPanel.indexOfComponent(gitLogTab);
                     if (idx != -1) leftTabbedPanel.removeTabAt(idx);
@@ -2827,6 +2831,25 @@ public class Chrome
                 }
             } else {
                 // Advanced ON: re-add tabs if applicable and not already present
+
+                // Changes tab (GitCommitTab)
+                if (gitCommitTab != null && leftTabbedPanel.indexOfComponent(gitCommitTab) == -1) {
+                    var commitIcon = Icons.COMMIT;
+                    gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
+                    leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
+                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                    var ks = GlobalUiSettings.getKeybinding(
+                            "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+                    gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+                    leftTabbedPanel.setTabComponentAt(idx, gitTabLabel);
+                    final int tabIdx = idx;
+                    gitTabLabel.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            handleTabToggle(tabIdx);
+                        }
+                    });
+                }
 
                 // Log tab
                 if (gitLogTab != null && leftTabbedPanel.indexOfComponent(gitLogTab) == -1) {
