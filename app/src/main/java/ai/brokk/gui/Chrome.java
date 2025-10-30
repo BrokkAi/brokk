@@ -340,10 +340,10 @@ public class Chrome
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
 
-        // Create workspace panel and project files panel
+        // Create workspace panel, dependencies panel, and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
@@ -364,22 +364,6 @@ public class Chrome
             }
         });
 
-        // Add Dependencies tab
-        var dependenciesIcon = Icons.MANAGE_DEPENDENCIES;
-        leftTabbedPanel.addTab(null, dependenciesIcon, dependenciesPanel);
-        var dependenciesTabIdx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-        var dependenciesShortcut =
-                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-        var dependenciesTabLabel =
-                createSquareTabLabel(dependenciesIcon, "Dependencies (" + dependenciesShortcut + ")");
-        leftTabbedPanel.setTabComponentAt(dependenciesTabIdx, dependenciesTabLabel);
-        dependenciesTabLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                handleTabToggle(dependenciesTabIdx);
-            }
-        });
-
         // Add Git tabs (Changes, Worktrees, Log) if available
         if (getProject().hasGit()) {
             gitCommitTab = new GitCommitTab(this, contextManager);
@@ -392,7 +376,7 @@ public class Chrome
             leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
             var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
             var changesShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
             gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
             gitTabLabel.addMouseListener(new MouseAdapter() {
@@ -408,7 +392,7 @@ public class Chrome
                 leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
                 var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
                 var worktreesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                 var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
                 leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
                 worktreeTabLabel.addMouseListener(new MouseAdapter() {
@@ -425,7 +409,7 @@ public class Chrome
                 leftTabbedPanel.addTab(null, logIcon, gitLogTab);
                 var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
                 var logShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
                 var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
                 leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
                 logTabLabel.addMouseListener(new MouseAdapter() {
@@ -476,7 +460,7 @@ public class Chrome
                 leftTabbedPanel.addTab(null, issIcon, issuesPanel);
                 var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
                 var issuesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                 var issLabel = createSquareTabLabel(issIcon, "Issues (" + issuesShortcut + ")");
                 leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
                 issLabel.addMouseListener(new MouseAdapter() {
@@ -494,7 +478,7 @@ public class Chrome
             leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
             var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
             var testsShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_8));
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
             var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
             leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
             testsTabLabel.addMouseListener(new MouseAdapter() {
@@ -1295,15 +1279,14 @@ public class Chrome
             }
         });
 
-        // Alt/Cmd+2 for Dependencies
+        // Alt/Cmd+2 for Dependencies toggle in ProjectFilesPanel
         KeyStroke switchToDependencies = GlobalUiSettings.getKeybinding(
                 "panel.switchToDependencies", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
         bindKey(rootPane, switchToDependencies, "switchToDependencies");
         rootPane.getActionMap().put("switchToDependencies", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var idx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                showDependenciesTab();
             }
         });
 
@@ -1410,19 +1393,6 @@ public class Chrome
             }
         });
 
-        // Cmd/Ctrl+Shift+D => toggle dependencies tab
-        KeyStroke toggleDependenciesTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.toggleDependencies",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_D,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleDependenciesTabKeyStroke, "toggleDependenciesTab");
-        rootPane.getActionMap().put("toggleDependenciesTab", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                showDependenciesTab();
-            }
-        });
 
         // Cmd/Ctrl+T => switch to terminal tab
         KeyStroke switchToTerminalTabKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1917,12 +1887,13 @@ public class Chrome
         }
     }
 
-    /** Shows the dependencies tab. If the tab is already visible, it collapses the sidebar. */
+    /** Shows the dependencies tab by selecting Project Files and toggling the Dependencies panel. */
     public void showDependenciesTab() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        int dependenciesTabIndex = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-        if (dependenciesTabIndex != -1) {
-            handleTabToggle(dependenciesTabIndex);
+        int projectFilesTabIndex = leftTabbedPanel.indexOfComponent(projectFilesPanel);
+        if (projectFilesTabIndex != -1) {
+            leftTabbedPanel.setSelectedIndex(projectFilesTabIndex);
+            SwingUtilities.invokeLater(() -> projectFilesPanel.toggleDependencies());
         }
     }
 
@@ -2925,7 +2896,7 @@ public class Chrome
                     leftTabbedPanel.addTab(null, issIcon, issuesPanel);
                     var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
                     var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+                            "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                     var tooltip = "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(issIcon, tooltip);
                     leftTabbedPanel.setTabComponentAt(idx, label);
