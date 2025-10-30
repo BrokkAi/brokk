@@ -37,7 +37,8 @@ class InstructionsPanelIntegrationTest {
     void extrapolated_exceeding131k_setsRed() {
         // Setup: 131,072 tokens (beyond tested max of 131,071)
         int approxTokens = 131_072;
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
+        var rateResult =
+                ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
         // Verify: isTested should be false (extrapolated)
         assertEquals(false, rateResult.isTested(), "Token count 131,072 should be marked as not tested");
@@ -56,7 +57,8 @@ class InstructionsPanelIntegrationTest {
     void tested_highSuccess93_setsNone() {
         // Setup: gpt-5 DEFAULT @20k tokens has 93% success rate
         int approxTokens = 20_000;
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
+        var rateResult =
+                ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
         // Verify: within tested range
         assertEquals(true, rateResult.isTested(), "Token count 20,000 should be marked as tested");
@@ -76,7 +78,8 @@ class InstructionsPanelIntegrationTest {
     void tested_mediumSuccess34_setsYellow() {
         // Setup: gpt-5-mini DEFAULT @70k tokens has 34% success rate
         int approxTokens = 70_000;
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting("gpt-5-mini", Service.ReasoningLevel.DEFAULT, approxTokens);
+        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
+                "gpt-5-mini", Service.ReasoningLevel.DEFAULT, approxTokens);
 
         // Verify: within tested range
         assertEquals(true, rateResult.isTested(), "Token count 70,000 should be marked as tested");
@@ -96,7 +99,8 @@ class InstructionsPanelIntegrationTest {
     void tested_lowSuccess17_setsRed() {
         // Setup: gemini-2.5-flash DEFAULT @70k tokens has 17% success rate
         int approxTokens = 70_000;
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting("gemini-2.5-flash", Service.ReasoningLevel.DEFAULT, approxTokens);
+        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
+                "gemini-2.5-flash", Service.ReasoningLevel.DEFAULT, approxTokens);
 
         // Verify: within tested range
         assertEquals(true, rateResult.isTested(), "Token count 70,000 should be marked as tested");
@@ -117,7 +121,8 @@ class InstructionsPanelIntegrationTest {
         // Setup: gpt-5 DEFAULT @131071 tokens (exact boundary, still tested)
         // gpt-5 DEFAULT @131071 falls in 65K-131K range: 50% success rate is at threshold for NONE
         int approxTokens = 131_071;
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
+        var rateResult =
+                ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
         // Verify: at boundary, should be tested
         assertEquals(true, rateResult.isTested(), "Token count 131,071 should be marked as tested (at boundary)");
@@ -137,7 +142,8 @@ class InstructionsPanelIntegrationTest {
     void extrapolated_200k_setsRed() {
         // Setup: 200,000 tokens (well beyond tested range)
         int approxTokens = 200_000;
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
+        var rateResult =
+                ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
         // Verify: isTested should be false (extrapolated)
         assertEquals(false, rateResult.isTested(), "Token count 200,000 should be marked as not tested");

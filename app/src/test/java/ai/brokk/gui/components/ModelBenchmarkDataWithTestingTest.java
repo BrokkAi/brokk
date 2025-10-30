@@ -88,8 +88,8 @@ class ModelBenchmarkDataWithTestingTest {
 
     @Test
     void successRate_correct_for_tested_case_gemini_25pro() {
-        var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
-                "gemini-2.5-pro", Service.ReasoningLevel.DEFAULT, 50000);
+        var rateResult =
+                ModelBenchmarkData.getSuccessRateWithTesting("gemini-2.5-pro", Service.ReasoningLevel.DEFAULT, 50000);
         assertTrue(rateResult.isTested(), "Token count 50000 should be marked as tested");
         assertEquals(94, rateResult.successRate(), "gemini-2.5-pro DEFAULT @50k should be 94%");
     }
