@@ -315,41 +315,43 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     @Override
     public String getToolTipText(MouseEvent event) {
-        if (warningLevel != WarningLevel.NONE && modelConfig != null) {
+        // First priority: show "beyond tested range" warning if extrapolated
+        if (!rateIsTested && modelConfig != null) {
+            int usedTokens = computeUsedTokens();
+            return String.format(
+                    "<html><body style='width: 320px'>"
+                            + "<b style='color: #FF4444;'>⚠️ Warning: Beyond tested range</b><br/><br/>"
+                            + "Tested up to <b>131,071 tokens</b>.<br/><br/>"
+                            + "Your context is <b>%,d tokens</b>.<br/><br/>"
+                            + "<i>Performance at this scale is not backed by benchmarks and may be unreliable.</i>"
+                            + "</body></html>",
+                    usedTokens);
+        }
+
+        // Second priority: show performance-based warning if tested and issue detected
+        if (warningLevel != WarningLevel.NONE && modelConfig != null && rateIsTested) {
             String modelName = modelConfig.name();
             if (modelName.contains("-nothink")) {
                 modelName = modelName.replace("-nothink", "");
             }
             modelName = StringEscapeUtils.escapeHtml4(modelName);
 
-            int usedTokens = computeUsedTokens();
             int successRate = this.lastSuccessRate;
-            boolean isTested = this.rateIsTested;
 
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
                     : "a very low success rate (&lt;30%)";
-
-            // Indicate if we're extrapolating beyond tested ranges
-            String extrapolationNote = "";
-            if (!isTested) {
-                extrapolationNote =
-                        "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
-            } else if (usedTokens < 4096) {
-                extrapolationNote =
-                        "<br/><br/><i>Note: This success rate is extrapolated from the smallest tested range (&lt;4K tokens).</i>";
-            }
 
             return String.format(
                     "<html><body style='width: 300px'>"
                             + "<b>Warning: Potential performance issue</b><br/><br/>"
                             + "The model <b>%s</b> might perform poorly at this token count due to %s.<br/><br/>"
                             + "Observed success rate from benchmarks: <b>%d%%</b>"
-                            + "%s"
                             + "</body></html>",
-                    modelName, reason, successRate, extrapolationNote);
+                    modelName, reason, successRate);
         }
 
+        // Fallback: segment-based and unfilled tooltips
         try {
             int width = getWidth();
             // Ensure segments correspond to current size
