@@ -941,7 +941,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
-                                100);
+                                100,
+                                true);
                     }
 
                     var fullText = new StringBuilder();
@@ -964,9 +965,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
 
-                    int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
+                    var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(config, approxTokens);
+                    int successRate = rateResult.successRate();
+                    boolean isTested = rateResult.isTested();
                     TokenUsageBar.WarningLevel warningLevel;
-                    if (successRate == -1) {
+                    if (!isTested) {
+                        // Untested (extrapolated) token count — always warn RED
+                        warningLevel = TokenUsageBar.WarningLevel.RED;
+                    } else if (successRate == -1) {
                         // Unknown/untested combination: don't warn
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     } else if (successRate < 30) {
@@ -980,7 +986,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String tooltipHtml =
                             buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -1010,7 +1016,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int approxTokens,
             TokenUsageBar.WarningLevel warningLevel,
             Service.ModelConfig config,
-            int successRate) {}
+            int successRate,
+            boolean isTested) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
