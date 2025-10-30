@@ -130,12 +130,12 @@ public abstract class ArchitectPrompts extends CodePrompts {
         """;
     }
 
-    public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int minInputTokenLimit) {
+    public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int maxInputTokens) {
         String workspaceWarning = "";
-        if (minInputTokenLimit > 0) {
-            double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit;
-            double warningLimit = WORKSPACE_WARNING_THRESHOLD * minInputTokenLimit;
-            double percentage = (double) workspaceTokenSize / minInputTokenLimit * 100;
+        if (maxInputTokens > 0) {
+            double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * maxInputTokens;
+            double warningLimit = WORKSPACE_WARNING_THRESHOLD * maxInputTokens;
+            double percentage = (double) workspaceTokenSize / maxInputTokens * 100;
 
             if (workspaceTokenSize > criticalLimit) {
                 workspaceWarning =
@@ -152,7 +152,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
                     A lean, focused workspace is essential for complex tasks.
                     """
-                                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
+                                .formatted(workspaceTokenSize, maxInputTokens, percentage);
             } else if (workspaceTokenSize > warningLimit) {
                 workspaceWarning =
                         """
@@ -168,7 +168,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
                     A lean, focused workspace is crucial for complex tasks.
                     """
-                                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
+                                .formatted(workspaceTokenSize, maxInputTokens, percentage);
             }
         }
 

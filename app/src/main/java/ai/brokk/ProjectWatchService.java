@@ -148,7 +148,13 @@ public class ProjectWatchService implements IWatchService {
 
             // convert to ProjectFile
             Path eventPath = watchPath.resolve(ctx);
-            batch.files.add(new ProjectFile(root, root.relativize(eventPath)));
+            Path relativized;
+            try {
+                relativized = root.relativize(eventPath);
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Failed to relativize path: %s to %s".formatted(eventPath, root), e);
+            }
+            batch.files.add(new ProjectFile(root, relativized));
 
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {

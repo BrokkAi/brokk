@@ -27,12 +27,13 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             "return_type", // returnTypeFieldName (for return type declaration)
             "", // typeParametersFieldName (PHP doesn't have generics)
             Map.of( // captureConfiguration
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "interface.definition", SkeletonType.CLASS_LIKE,
-                    "trait.definition", SkeletonType.CLASS_LIKE,
-                    "function.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE,
-                    "attribute.definition", SkeletonType.UNSUPPORTED // Attributes are handled by getPrecedingDecorators
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.TRAIT_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
+                    CaptureNames.ATTRIBUTE_DEFINITION,
+                            SkeletonType.UNSUPPORTED // Attributes are handled by getPrecedingDecorators
                     ),
             "", // asyncKeywordNodeType (PHP has no async/await keywords for functions)
             Set.of(
@@ -96,15 +97,15 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         return switch (captureName) {
-            case "class.definition", "interface.definition", "trait.definition" -> {
+            case CaptureNames.CLASS_DEFINITION, CaptureNames.INTERFACE_DEFINITION, CaptureNames.TRAIT_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
-            case "function.definition" -> { // Covers global functions and class methods
+            case CaptureNames.FUNCTION_DEFINITION -> { // Covers global functions and class methods
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
-            case "field.definition" -> { // Covers class properties, class constants, and global constants
+            case CaptureNames.FIELD_DEFINITION -> { // Covers class properties, class constants, and global constants
                 String finalShortName;
                 if (classChain.isEmpty()) { // Global constant
                     finalShortName = "_module_." + simpleName;
@@ -118,8 +119,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 // Namespace definitions are used by determinePackageName.
                 // The "namespace.name" capture from the main query is now part of getIgnoredCaptures
                 // as namespace processing is handled by computeFilePackageName with its own query.
-                if (!"attribute.definition".equals(captureName)
-                        && !"namespace.definition".equals(captureName)
+                if (!CaptureNames.ATTRIBUTE_DEFINITION.equals(captureName)
+                        && !CaptureNames.NAMESPACE_DEFINITION.equals(captureName)
                         && // Main query's namespace.definition
                         !"namespace.name".equals(captureName)) { // Main query's namespace.name
                     log.debug(
@@ -325,6 +326,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // namespace.definition and namespace.name from the main query are ignored
         // as namespace processing is now handled by computeFilePackageName.
         // attribute.definition is handled by decorator logic in base class.
-        return Set.of("namespace.definition", "namespace.name", "attribute.definition");
+        return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
     }
 }

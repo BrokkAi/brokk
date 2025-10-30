@@ -496,7 +496,7 @@ public class ContextAgent {
         return coalescedClasses.parallelStream()
                 .map(cu -> {
                     final String skeleton = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu.fqName()))
+                            .flatMap(skp -> skp.getSkeleton(cu))
                             .orElse("");
                     return Map.entry(cu, skeleton);
                 })
@@ -876,6 +876,7 @@ public class ContextAgent {
         return files.stream()
                 .distinct()
                 .parallel()
+                .filter(file -> !file.isBinary())
                 .map(file -> {
                     var content = file.read().orElse("");
                     return Map.entry(file, content);

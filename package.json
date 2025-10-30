@@ -9,6 +9,7 @@
     "version": "1.0.0",
     "jdeploy": {
         "jdk": false,
+        "jdkProvider": "jbr",
         "args": [],
         "fallbackToUniversal": false,
         "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",

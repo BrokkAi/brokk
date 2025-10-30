@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,7 +54,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSource() {
-        final var sourceOpt = analyzer.getMethodSource("A.method2", true);
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.method2", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim();
         final String expected =
@@ -74,7 +75,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSourceNested() {
-        final var sourceOpt = analyzer.getMethodSource("A.AInner.AInnerInner.method7", true);
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.AInner.AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim();
 
@@ -91,7 +92,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void extractMethodSourceConstructor() {
-        final var sourceOpt = analyzer.getMethodSource("B.B", true); // TODO: Should we handle <init>?
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim();
 
@@ -108,7 +109,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceTest() {
-        final var sourceOpt = analyzer.getClassSource("A", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "A", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains class definition and methods
@@ -119,7 +120,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A.AInner", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "A.AInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains inner class definition
@@ -139,7 +140,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceTwiceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A.AInner.AInnerInner", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "A.AInner.AInnerInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains inner class definition
@@ -157,19 +158,19 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceNotFoundTest() {
-        var opt = analyzer.getClassSource("A.NonExistent", true);
+        var opt = AnalyzerUtil.getClassSource(analyzer, "A.NonExistent", true);
         assertTrue(opt.isEmpty());
     }
 
     @Test
     public void getClassSourceNonexistentTest() {
-        var opt = analyzer.getClassSource("NonExistentClass", true);
+        var opt = AnalyzerUtil.getClassSource(analyzer, "NonExistentClass", true);
         assertTrue(opt.isEmpty());
     }
 
     @Test
     public void getSkeletonTestA() {
-        final var skeletonOpt = analyzer.getSkeleton("A");
+        final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "A");
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim();
 
@@ -200,7 +201,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getSkeletonTestD() {
-        final var skeletonOpt = analyzer.getSkeleton("D");
+        final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "D");
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim();
 
@@ -223,7 +224,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getSkeletonTestEnum() {
-        final var skeletonOpt = analyzer.getSkeleton("EnumClass");
+        final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "EnumClass");
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim();
 
@@ -240,7 +241,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getGetSkeletonHeaderTest() {
-        final var skeletonOpt = analyzer.getSkeletonHeader("D");
+        final var skeletonOpt = AnalyzerUtil.getSkeletonHeader(analyzer, "D");
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim();
 
@@ -297,7 +298,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getDeclarationsInFileTest() {
-        final var maybeFile = analyzer.getFileFor("D");
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
         final var file = maybeFile.get();
         final var classes = analyzer.getDeclarations(file);
@@ -363,8 +364,9 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMembersInClassTest() {
-        final var members = analyzer.getMembersInClass("D").stream().sorted().toList();
-        final var maybeFile = analyzer.getFileFor("D");
+        final var members =
+                AnalyzerUtil.getMembersInClass(analyzer, "D").stream().sorted().toList();
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
         final var file = maybeFile.get();
 
@@ -387,7 +389,7 @@ public class JavaAnalyzerTest {
     public void getDirectClassChildren() {
         final var maybeClassD = analyzer.getDefinition("D");
         assertTrue(maybeClassD.isPresent());
-        final var maybeFile = analyzer.getFileFor("D");
+        final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
 
         final var children =
@@ -412,7 +414,7 @@ public class JavaAnalyzerTest {
     @Test
     public void testSummarizeClassWithDefaultMethods() {
         // Test skeleton generation for the interface with default methods
-        var interfaceSkeleton = analyzer.getSkeleton("ServiceInterface");
+        var interfaceSkeleton = AnalyzerUtil.getSkeleton(analyzer, "ServiceInterface");
         assertTrue(
                 interfaceSkeleton.isPresent(),
                 "ServiceInterface skeleton should be available via JavaTreeSitterAnalyzer");
@@ -439,7 +441,7 @@ public class JavaAnalyzerTest {
         assertTrue(interfaceSkeletonStr.contains("String getVersion()"), "Should contain static method signature");
 
         // Test skeleton generation for the implementing class
-        var classSkeleton = analyzer.getSkeleton("ServiceImpl");
+        var classSkeleton = AnalyzerUtil.getSkeleton(analyzer, "ServiceImpl");
         assertTrue(classSkeleton.isPresent(), "ServiceImpl skeleton should be available via JavaTreeSitterAnalyzer");
         var classSkeletonStr = classSkeleton.get();
 
@@ -462,7 +464,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void debugAnnotatedClassSourceTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
 
@@ -476,7 +478,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceWithJavadocsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
         System.out.println(source);
@@ -507,7 +509,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceWithAnnotationsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
 
@@ -539,7 +541,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceWithInnerClassJavadocsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass.InnerHelper", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass.InnerHelper", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass.InnerHelper");
         final var source = sourceOpt.get();
 
@@ -560,7 +562,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMethodSourceWithJavadocsTest() {
-        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.toString", true);
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.toString", true);
         assertTrue(sourceOpt.isPresent(), "Should find toString method");
         final var source = sourceOpt.get();
 
@@ -581,7 +583,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getMethodSourceWithGenericJavadocsTest() {
-        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.processValue", true);
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.processValue", true);
         assertTrue(sourceOpt.isPresent(), "Should find processValue method");
         final var source = sourceOpt.get();
 
@@ -604,7 +606,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getClassSourceCustomAnnotationTest() {
-        final var sourceOpt = analyzer.getClassSource("CustomAnnotation", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "CustomAnnotation", true);
         assertTrue(sourceOpt.isPresent(), "Should find CustomAnnotation");
         final var source = sourceOpt.get();
 
@@ -635,16 +637,19 @@ public class JavaAnalyzerTest {
 
         // Class lookup with generics on the type
         assertTrue(
-                analyzer.getClassSource("A<String>", false).isPresent(), "Class lookup with generics should normalize");
+                AnalyzerUtil.getClassSource(analyzer, "A<String>", false).isPresent(),
+                "Class lookup with generics should normalize");
 
         // Method lookup with generics on the containing class
         assertTrue(
-                analyzer.getMethodSource("A<Integer>.method1", false).isPresent(),
+                AnalyzerUtil.getMethodSource(analyzer, "A<Integer>.method1", false)
+                        .isPresent(),
                 "Method lookup with class generics should normalize");
 
         // Nested classes with generics on each segment
         assertTrue(
-                analyzer.getMethodSource("A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
+                AnalyzerUtil.getMethodSource(
+                                analyzer, "A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
                         .isPresent(),
                 "Nested class method with generics should normalize");
     }
@@ -653,12 +658,12 @@ public class JavaAnalyzerTest {
     public void testNormalizationHandlesAnonymousAndLocationSuffix() {
         // Location suffix without anon
         assertTrue(
-                analyzer.getMethodSource("A.method1:16", false).isPresent(),
+                AnalyzerUtil.getMethodSource(analyzer, "A.method1:16", false).isPresent(),
                 "Location suffix alone should normalize for method source lookup");
 
         // Anonymous with just digits
         assertTrue(
-                analyzer.getMethodSource("A.method6$1", false).isPresent(),
+                AnalyzerUtil.getMethodSource(analyzer, "A.method6$1", false).isPresent(),
                 "Anonymous digit suffix should normalize for method source lookup");
     }
 
@@ -666,16 +671,17 @@ public class JavaAnalyzerTest {
     public void testDefinitionAndSourcesWithNormalizedConstructorNames() {
         // Based on log example: Type.Type for constructor (and possibly with generics on the type)
         assertTrue(
-                analyzer.getMethodSource("B<B>.B", true).isPresent(),
+                AnalyzerUtil.getMethodSource(analyzer, "B<B>.B", true).isPresent(),
                 "Constructor lookup with generics on the type should normalize and resolve");
 
         // Also ensure plain constructor lookup works (control)
-        assertTrue(analyzer.getMethodSource("B.B", true).isPresent(), "Constructor lookup should resolve");
+        assertTrue(
+                AnalyzerUtil.getMethodSource(analyzer, "B.B", true).isPresent(), "Constructor lookup should resolve");
     }
 
     @Test
     public void testTopLevelCodeUnitsOfFileWithSingleClass() {
-        var maybeFile = analyzer.getFileFor("D");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
@@ -689,7 +695,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testTopLevelCodeUnitsOfFileWithNestedClasses() {
-        var maybeFile = analyzer.getFileFor("A");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
@@ -715,7 +721,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testTopLevelCodeUnitsOfEnum() {
-        var maybeFile = analyzer.getFileFor("EnumClass");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "EnumClass");
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 
@@ -729,7 +735,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testTopLevelCodeUnitsOfInterface() {
-        var maybeFile = analyzer.getFileFor("ServiceInterface");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "ServiceInterface");
         assertTrue(maybeFile.isPresent());
         var file = maybeFile.get();
 

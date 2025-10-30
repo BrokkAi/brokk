@@ -2,6 +2,7 @@ package ai.brokk.analyzer.imports;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.IProject;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -30,7 +31,7 @@ public class JavaScriptImportTest {
                         "foo.js")
                 .build()) {
             var analyzer = createAnalyzer(testProject);
-            var file = analyzer.getFileFor("foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of(
                     "import { Something, AnotherThing as AT } from './another-module';",

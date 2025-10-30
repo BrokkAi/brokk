@@ -1354,13 +1354,13 @@ public interface ContextFragment {
             var scp = maybeSourceCodeProvider.get();
 
             if (unit.isFunction()) {
-                var code = scp.getMethodSource(unit.fqName(), true).orElse("");
+                var code = scp.getMethodSource(unit, true).orElse("");
                 if (!code.isEmpty()) {
                     return new AnalyzerUtil.CodeWithSource(code, unit).text();
                 }
                 return "No source found for method: " + unit.fqName();
             } else {
-                var code = scp.getClassSource(unit.fqName(), true).orElse("");
+                var code = scp.getClassSource(unit, true).orElse("");
                 if (!code.isEmpty()) {
                     return new AnalyzerUtil.CodeWithSource(code, unit).text();
                 }
@@ -1439,17 +1439,22 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
+            var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
+
+            if (methodCodeUnit.isEmpty()) {
+                return "Method not found: " + methodName;
+            }
+
             final Map<String, List<CallSite>> graphData = new HashMap<>();
             final var maybeCallGraphProvider = analyzer.as(CallGraphProvider.class);
 
             if (maybeCallGraphProvider.isPresent()) {
-                maybeCallGraphProvider.ifPresent(cpg -> {
-                    if (isCalleeGraph) {
-                        graphData.putAll(cpg.getCallgraphFrom(methodName, depth));
-                    } else {
-                        graphData.putAll(cpg.getCallgraphTo(methodName, depth));
-                    }
-                });
+                var cpg = maybeCallGraphProvider.get();
+                if (isCalleeGraph) {
+                    graphData.putAll(cpg.getCallgraphFrom(methodCodeUnit.get(), depth));
+                } else {
+                    graphData.putAll(cpg.getCallgraphTo(methodCodeUnit.get(), depth));
+                }
             } else {
                 return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
             }
@@ -1660,7 +1665,7 @@ public interface ContextFragment {
                 switch (summaryType) {
                     case CODEUNIT_SKELETON -> {
                         analyzer.getDefinition(targetIdentifier).ifPresent(cu -> {
-                            skeletonProvider.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
+                            skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
                         });
                     }
                     case FILE_SKELETONS -> {

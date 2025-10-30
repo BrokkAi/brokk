@@ -95,7 +95,13 @@ public class Brokk {
     }
 
     private static void setupSystemPropertiesAndIcon() {
-        if (!Environment.isMacOs()) {
+        // Detect JetBrains Runtime (JBR) and defer to its HiDPI handling if present
+        var vmVendor = System.getProperty("java.vm.vendor", "");
+        var runtimeName = System.getProperty("java.runtime.name", "");
+        boolean isJbr = vmVendor.toLowerCase(Locale.ROOT).contains("jetbrains")
+                || runtimeName.toLowerCase(Locale.ROOT).contains("jetbrains");
+
+        if (!Environment.isMacOs() && !isJbr) {
             var existing = System.getProperty("sun.java2d.uiScale");
             if (existing != null) {
                 logger.info("sun.java2d.uiScale already set to {}. Respecting user override.", existing);

@@ -418,6 +418,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize mode indicator
         refreshModeIndicator();
+
+        // Subscribe to service reload events to update button states
+        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -1413,12 +1416,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Determine stop details based on the response
         if (response != null) {
-            if (response.error() != null) {
-                String explanation = Objects.requireNonNullElse(response.error().getMessage(), "Unknown LLM error");
-                stop = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, explanation);
-            } else {
-                stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-            }
+            stop = TaskResult.StopDetails.fromResponse(response);
         }
 
         // construct TaskResult
@@ -1809,9 +1807,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-            // Action button reflects current running state
-            if (isActionRunning()) {
+            // Check if service is online
+            var service = contextManager.getService();
+            boolean serviceIsOnline = service != null && service.isOnline();
+
+            if (!serviceIsOnline) {
+                // Service is offline: show offline state
+                actionButton.showOfflineMode();
+            } else if (isActionRunning()) {
+                // Service is online but action is running: show stop mode
+                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
                 Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
@@ -1822,7 +1827,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+                actionButton.setEnabled(true);
             } else {
+                // Service is online and no action running: show normal mode
+                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                 actionButton.showNormalMode();
                 // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
                 actionButton.updateTooltip();
@@ -1834,14 +1842,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+                actionButton.setEnabled(true);
             }
-            actionButton.setEnabled(true);
 
-            // Enable/disable wand depending on running state
-            wandButton.setEnabled(!isActionRunning());
+            // Enable/disable wand depending on running state and service availability
+            wandButton.setEnabled(serviceIsOnline && !isActionRunning());
 
             // Ensure storedAction is consistent with split button's selected mode
-            storedAction = actionButton.getSelectedMode();
+            if (serviceIsOnline) {
+                storedAction = actionButton.getSelectedMode();
+            }
 
             chrome.enableHistoryPanel();
         });
@@ -2341,6 +2351,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             setIcon(Icons.ARROW_WARM_UP);
             updateButtonText();
             repaint();
+        }
+
+        public void showOfflineMode() {
+            SwingUtilities.invokeLater(() -> {
+                setText("Offline");
+                setToolTipText("Unable to connect to Brokk");
+                setEnabled(false);
+                setIcon(null);
+                repaint();
+            });
         }
 
         private void updateButtonText() {

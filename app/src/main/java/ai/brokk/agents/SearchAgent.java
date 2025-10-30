@@ -1,13 +1,10 @@
 package ai.brokk.agents;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -187,11 +184,11 @@ public class SearchAgent {
             // Decide next action(s)
             io.llmOutput("\n**Brokk Search** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-            if (result.error() != null || result.isEmpty()) {
-                var details =
-                        result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details);
-                return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, details));
+            if (result.error() != null) {
+                var details = TaskResult.StopDetails.fromResponse(result);
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
+                return errorResult(details);
             }
 
             // Record turn
@@ -202,46 +199,24 @@ public class SearchAgent {
             var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(new TaskResult.StopDetails(
-                        TaskResult.StopReason.LLM_ERROR, "No tool requests found in LLM response."));
-            }
-            var next = parseResponseToRequests(ai, tr);
-            if (next.isEmpty()) {
-                // If everything got filtered (e.g., only terminal tool kept), force beast mode next turn if needed
-                beastMode = true;
-                continue;
+                        TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."));
             }
 
             // Start tracking this turn (only after successful LLM planning)
             Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
             metrics.startTurn();
 
-            // Final tools are executed only when they are the sole requested action in a turn.
-            // This ensures research results are evaluated by the LLM before finalization.
-
-            String executedFinalTool = null;
-            String executedFinalText = "";
-            boolean executedWorkspaceResearch = false;
-            boolean executedNonWorkspaceResearch = false;
+            boolean executedResearch = false;
             Context contextAtTurnStart = context;
-
             try {
                 // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
-                var sortedCalls = next.stream()
+                var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
+                        .filter(req -> categorizeTool(req.name()) != ToolCategory.TERMINAL)
                         .sorted(Comparator.comparingInt(req -> priority(req.name())))
                         .toList();
 
-                for (var req : sortedCalls) {
-                    // Record tool call
-                    metrics.recordToolCall(req.name());
-
-                    ToolExecutionResult exec;
-                    try {
-                        exec = tr.executeTool(req);
-                        context = wst.getContext();
-                    } catch (Exception e) {
-                        logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-                        exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
-                    }
+                for (var req : sortedNonterminalCalls) {
+                    ToolExecutionResult exec = executeTool(req, tr, wst);
 
                     // Summarize large results
                     var display = exec.resultText();
@@ -261,45 +236,53 @@ public class SearchAgent {
                     // Track research categories to decide later if finalization is permitted
                     var category = categorizeTool(req.name());
                     if (category == ToolCategory.RESEARCH) {
-                        if (isWorkspaceTool(req, tr)) {
-                            executedWorkspaceResearch = true;
-                        } else {
-                            executedNonWorkspaceResearch = true;
+                        if (!isWorkspaceTool(req, tr)) {
+                            executedResearch = true;
                         }
                     }
+                }
 
-                    // Track if we executed a final tool; finalize after the loop
-                    if (req.name().equals("answer")
-                            || req.name().equals("createTaskList")
-                            || req.name().equals("workspaceComplete")
-                            || req.name().equals("abortSearch")) {
-                        executedFinalTool = req.name();
-                        executedFinalText = display;
+                // allow terminals if workspace has not changed and we did no new research
+                var terminal = ai.toolExecutionRequests().stream()
+                        .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
+                        .min(Comparator.comparingInt(req -> priority(req.name())));
+                if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
+                    var termReq = terminal.get();
+                    var termExec = executeTool(termReq, tr, wst);
+
+                    var display = termExec.resultText();
+                    sessionMessages.add(ToolExecutionResultMessage.from(termReq, display));
+
+                    if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
+                        return errorResult(new TaskResult.StopDetails(
+                                TaskResult.StopReason.TOOL_ERROR,
+                                "Terminal tool '" + termReq.name() + "' failed: " + display));
                     }
+
+                    if (termReq.name().equals("abortSearch")) {
+                        return errorResult(
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display));
+                    }
+                    return createResult(termReq.name(), goal);
                 }
             } finally {
                 // End turn tracking after tool execution - always called even on exceptions
                 endTurnAndRecordFileChanges(filesBeforeSet);
             }
-
-            // If we executed a final tool, finalize appropriately
-            if (executedFinalTool != null) {
-                if (executedFinalTool.equals("abortSearch")) {
-                    var explain = executedFinalText.isBlank() ? "No explanation provided by agent." : executedFinalText;
-                    return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explain));
-                } else {
-                    boolean contextChanged = !context.equals(contextAtTurnStart);
-                    if (executedNonWorkspaceResearch) {
-                        logger.info("Deferring finalization; non-workspace research tools were executed this turn.");
-                    } else if (executedWorkspaceResearch && contextChanged) {
-                        logger.info("Deferring finalization; workspace changed during this turn.");
-                    } else {
-                        io.llmOutput("\n\n**Brokk Search** Context is complete.\n", ChatMessageType.AI, true, false);
-                        return createResult("Brokk Search: " + goal, goal);
-                    }
-                }
-            }
         }
+    }
+
+    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst) {
+        ToolExecutionResult termExec;
+        try {
+            metrics.recordToolCall(req.name());
+            termExec = registry.executeTool(req);
+            context = wst.getContext();
+        } catch (Exception e) {
+            logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
+            termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
+        }
+        return termExec;
     }
 
     // =======================
@@ -635,61 +618,9 @@ public class SearchAgent {
         try {
             var vi = tr.validateTool(request);
             return vi.instance() instanceof WorkspaceTools;
-        } catch (Exception e) {
-            // If validation fails, fall back to conservative assumption (not a workspace tool)
+        } catch (ToolRegistry.ToolValidationException e) {
             return false;
         }
-    }
-
-    private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response, ToolRegistry tr) {
-        if (!response.hasToolExecutionRequests()) {
-            return List.of();
-        }
-
-        var terminals = new ArrayList<ToolExecutionRequest>();
-        var hygiene = new ArrayList<ToolExecutionRequest>();
-        var researchOrBlocking = new ArrayList<ToolExecutionRequest>();
-
-        for (var r : response.toolExecutionRequests()) {
-            switch (categorizeTool(r.name())) {
-                case TERMINAL -> terminals.add(r);
-                case WORKSPACE_HYGIENE -> hygiene.add(r);
-                case RESEARCH -> researchOrBlocking.add(r);
-            }
-        }
-
-        // Rule: Terminal actions can coexist with workspace hygiene, but not with research/blocking tools.
-        // This ensures research results are evaluated before finalization.
-        if (!researchOrBlocking.isEmpty()) {
-            boolean allWorkspace = researchOrBlocking.stream().allMatch(r -> isWorkspaceTool(r, tr));
-            if (allWorkspace && !terminals.isEmpty()) {
-                // Allow terminal to coexist with workspace tools; finalization will occur only if no net changes are
-                // made.
-                var result = new ArrayList<>(researchOrBlocking);
-                result.addAll(hygiene);
-                result.add(terminals.getFirst());
-                return result;
-            }
-
-            if (!terminals.isEmpty()) {
-                logger.info(
-                        "Final tool requested alongside research/blocking tools; deferring final to a later turn. Finals present: {}",
-                        terminals.stream().map(ToolExecutionRequest::name).toList());
-            }
-            var result = new ArrayList<>(researchOrBlocking);
-            result.addAll(hygiene);
-            return result;
-        }
-
-        // Only hygiene and/or terminals present: allow terminal with hygiene
-        if (!terminals.isEmpty()) {
-            var result = new ArrayList<>(hygiene);
-            result.add(terminals.get(0)); // Keep the first terminal
-            return result;
-        }
-
-        // Only hygiene: return it
-        return hygiene;
     }
 
     private int priority(String toolName) {
@@ -703,7 +634,10 @@ public class SearchAgent {
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
-            case "answer", "createTaskList", "workspaceComplete", "abortSearch" -> 100;
+
+            case "createTaskList" -> 100;
+            case "answer", "workspaceComplete" -> 101; // should never co-occur
+            case "abortSearch" -> 200;
             default -> 9;
         };
     }

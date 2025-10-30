@@ -85,18 +85,18 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return Optional.empty(); // Return empty for test purposes
-    }
-
-    @Override
-    public Optional<String> getSkeletonHeader(String className) {
-        return Optional.empty(); // Return empty for test purposes
-    }
-
-    @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         return Map.of(); // Return empty map for test purposes
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        return Optional.empty(); // Return empty for test purposes
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
+        return Optional.empty(); // Return empty for test purposes
     }
 
     @Override

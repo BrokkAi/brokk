@@ -33,19 +33,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
         var config = new HashMap<String, SkeletonType>();
-        config.put("namespace.definition", SkeletonType.CLASS_LIKE);
-        config.put("class.definition", SkeletonType.CLASS_LIKE);
-        config.put("struct.definition", SkeletonType.CLASS_LIKE);
-        config.put("union.definition", SkeletonType.CLASS_LIKE);
-        config.put("enum.definition", SkeletonType.CLASS_LIKE);
-        config.put("function.definition", SkeletonType.FUNCTION_LIKE);
-        config.put("method.definition", SkeletonType.FUNCTION_LIKE);
-        config.put("constructor.definition", SkeletonType.FUNCTION_LIKE);
-        config.put("destructor.definition", SkeletonType.FUNCTION_LIKE);
-        config.put("variable.definition", SkeletonType.FIELD_LIKE);
-        config.put("field.definition", SkeletonType.FIELD_LIKE);
-        config.put("typedef.definition", SkeletonType.FIELD_LIKE);
-        config.put("using.definition", SkeletonType.FIELD_LIKE);
+        config.put(CaptureNames.NAMESPACE_DEFINITION, SkeletonType.CLASS_LIKE);
+        config.put(CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE);
+        config.put(CaptureNames.STRUCT_DEFINITION, SkeletonType.CLASS_LIKE);
+        config.put(CaptureNames.UNION_DEFINITION, SkeletonType.CLASS_LIKE);
+        config.put(CaptureNames.ENUM_DEFINITION, SkeletonType.CLASS_LIKE);
+        config.put(CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE);
+        config.put(CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE);
+        config.put(CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE);
+        config.put(CaptureNames.DESTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE);
+        config.put(CaptureNames.VARIABLE_DEFINITION, SkeletonType.FIELD_LIKE);
+        config.put(CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE);
+        config.put(CaptureNames.TYPEDEF_DEFINITION, SkeletonType.FIELD_LIKE);
+        config.put(CaptureNames.USING_DEFINITION, SkeletonType.FIELD_LIKE);
         config.put("access.specifier", SkeletonType.MODULE_STATEMENT);
         return config;
     }
@@ -138,7 +138,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         var type =
                 switch (skeletonType) {
                     case CLASS_LIKE -> {
-                        if ("namespace.definition".equals(captureName)) {
+                        if (CaptureNames.NAMESPACE_DEFINITION.equals(captureName)) {
                             yield CodeUnitType.MODULE;
                         } else {
                             yield CodeUnitType.CLASS;
@@ -157,7 +157,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String buildParentFqName(String packageName, String classChain) {
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        String packageName = cu.packageName();
         String correctedClassChain = classChain;
         if (!packageName.isEmpty() && classChain.equals(packageName)) {
             correctedClassChain = "";

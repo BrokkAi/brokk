@@ -3,7 +3,7 @@ package ai.brokk.analyzer.source;
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
@@ -35,9 +35,7 @@ public class ScalaSourceCodeTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var scp = analyzer.as(SourceCodeProvider.class)
-                    .orElseGet(() -> fail("Analyzer does not support source code extraction!"));
-            scp.getClassSource("ai.brokk.Foo", false)
+            AnalyzerUtil.getClassSource(analyzer, "ai.brokk.Foo", false)
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -57,7 +55,7 @@ public class ScalaSourceCodeTest {
                                     source),
                             () -> fail("Could not find source code for 'Foo'!"));
 
-            scp.getMethodSource("ai.brokk.Foo.foo1", false)
+            AnalyzerUtil.getMethodSource(analyzer, "ai.brokk.Foo.foo1", false)
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """
@@ -69,7 +67,7 @@ public class ScalaSourceCodeTest {
                                     source),
                             () -> fail("Could not find source code for 'Foo.foo1'!"));
 
-            scp.getMethodSource("ai.brokk.foo2", false)
+            AnalyzerUtil.getMethodSource(analyzer, "ai.brokk.foo2", false)
                     .ifPresentOrElse(
                             source -> assertEquals(
                                     """

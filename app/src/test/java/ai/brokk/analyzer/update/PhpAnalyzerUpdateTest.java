@@ -2,6 +2,7 @@ package ai.brokk.analyzer.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -50,7 +51,7 @@ class PhpAnalyzerUpdateTest {
                 function bar(): int { return 2; }
                 """);
 
-        var file = analyzer.getFileFor("foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
 
         assertTrue(analyzer.getDefinition("bar").isPresent());
@@ -69,7 +70,7 @@ class PhpAnalyzerUpdateTest {
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("baz").isPresent());
 
-        var file = analyzer.getFileFor("foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo").isEmpty());

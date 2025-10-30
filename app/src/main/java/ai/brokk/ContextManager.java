@@ -121,13 +121,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
             }
+            logger.error("Uncaught exception in executor", th);
 
             // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
             if (OomShutdownHandler.isOomError(th)) {
                 OomShutdownHandler.shutdownWithRecovery();
             }
 
-            logger.error("Uncaught exception in executor", th);
             var thread = Thread.currentThread();
             var message = "Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
                     .formatted(thread.getName(), getStackTraceAsString(th));
@@ -1306,16 +1306,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
         localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
             for (var element : stacktrace.getFrames()) {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
-                var methodSource = sourceCodeProvider.getMethodSource(methodFullName, true);
-                if (methodSource.isPresent()) {
-                    String className = CodeUnit.toClassname(methodFullName);
-                    localAnalyzer
-                            .getDefinition(className)
-                            .filter(CodeUnit::isClass)
-                            .ifPresent(sources::add);
-                    content.append(methodFullName).append(":\n");
-                    content.append(methodSource.get()).append("\n\n");
-                }
+                localAnalyzer
+                        .getDefinition(methodFullName)
+                        .filter(CodeUnit::isFunction)
+                        .ifPresent(methodCu -> {
+                            var methodSource = sourceCodeProvider.getMethodSource(methodCu, true);
+                            if (methodSource.isPresent()) {
+                                String className = CodeUnit.toClassname(methodFullName);
+                                localAnalyzer
+                                        .getDefinition(className)
+                                        .filter(CodeUnit::isClass)
+                                        .ifPresent(sources::add);
+                                content.append(methodFullName).append(":\n");
+                                content.append(methodSource.get()).append("\n\n");
+                            }
+                        });
             }
         });
 
@@ -1993,13 +1998,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var tokens = 0;
                 int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
                 for (var file : topClasses) {
+                    if (file.isBinary()) {
+                        continue;
+                    }
                     String chunk; // Declare chunk once outside the try-catch
+                    var contentOpt = file.read();
                     // Use project root for relative path display if possible
                     var relativePath =
                             project.getRoot().relativize(file.absPath()).toString();
-                    var contentOpt = file.read();
                     if (contentOpt.isEmpty()) {
-                        logger.debug("Skipping unreadable file {} for style guide", relativePath);
+                        logger.warn("Skipping unreadable file {} for style guide", relativePath);
                         continue;
                     }
                     chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());

@@ -1,6 +1,7 @@
 package ai.brokk.tools;
 
 import ai.brokk.AbstractProject;
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.analyzer.*;
@@ -103,15 +104,34 @@ public class WorkspaceTools {
             }
         }
 
-        var fragments = context.getContextManager().toPathFragments(projectFiles);
+        // Determine already-present files and files-to-add based on current workspace state
+        var workspaceFiles = currentWorkspaceFiles();
+        var distinctRequested = new HashSet<>(projectFiles);
+        var toAddFiles = distinctRequested.stream()
+                .filter(f -> !workspaceFiles.contains(f))
+                .toList();
+        var alreadyPresent = distinctRequested.stream()
+                .filter(workspaceFiles::contains)
+                .map(ProjectFile::toString)
+                .sorted()
+                .toList();
+
+        var fragments = context.getContextManager().toPathFragments(toAddFiles);
         context = context.addPathFragments(fragments);
-        String fileNames = projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
+
+        String addedNames =
+                toAddFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
         String result = "";
-        if (!fileNames.isEmpty()) {
-            result += "Added %s to the workspace. ".formatted(fileNames);
+        if (addedNames.isEmpty()) {
+            result += "No new files added.\n";
+        } else {
+            result += "Added to the workspace: %s\n".formatted(addedNames);
+        }
+        if (!alreadyPresent.isEmpty()) {
+            result += "Already present (no-op): %s.\n".formatted(String.join(", ", alreadyPresent));
         }
         if (!errors.isEmpty()) {
-            result += "Errors were [%s]".formatted(String.join(", ", errors));
+            result += "Errors were: [%s]\n".formatted(String.join(", ", errors));
         }
         return result;
     }
@@ -397,7 +417,7 @@ public class WorkspaceTools {
                 notFoundClasses.add("<blank or null>");
                 return;
             }
-            var fileOpt = analyzer.getFileFor(className);
+            var fileOpt = AnalyzerUtil.getFileFor(analyzer, className);
             if (fileOpt.isPresent()) {
                 foundFiles.add(fileOpt.get().toString());
             } else {
@@ -422,8 +442,9 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
-    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this ONLY to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
+    public String appendNote(
+            @P("Markdown content to append to Task Notes. NOT for speculating about implementation!") String markdown) {
         if (markdown.isBlank()) {
             return "Ignoring empty Note";
         }
@@ -480,6 +501,13 @@ public class WorkspaceTools {
                 new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
             return reader.lines().collect(Collectors.joining("\n"));
         }
+    }
+
+    private java.util.Set<ProjectFile> currentWorkspaceFiles() {
+        return context.fileFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
     }
 
     private IAnalyzer getAnalyzer() {

@@ -13,7 +13,7 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnit> getMembersInClass(String fqClass) {
+    public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
         return Collections.emptyList();
     }
 

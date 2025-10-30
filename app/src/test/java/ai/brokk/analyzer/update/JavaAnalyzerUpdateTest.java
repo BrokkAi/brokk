@@ -2,6 +2,7 @@ package ai.brokk.analyzer.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JavaAnalyzer;
@@ -60,7 +61,7 @@ class JavaAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("A.method2").isEmpty());
 
         // update ONLY this file
-        var maybeFile = analyzer.getFileFor("A");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
@@ -99,7 +100,7 @@ class JavaAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("A.method4").isPresent());
 
         // delete file – analyzer should drop symbols
-        var maybeFile = analyzer.getFileFor("A");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
         assertTrue(maybeFile.isPresent());
         Files.deleteIfExists(maybeFile.get().absPath());
 

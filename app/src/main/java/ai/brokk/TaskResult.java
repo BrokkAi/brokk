@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import java.util.List;
 
 /**
@@ -72,12 +73,12 @@ public record TaskResult(
         READ_ONLY_EDIT,
         /** Unable to write new file contents */
         IO_ERROR,
-        /** the LLM called answer() but did not provide a result */
-        SEARCH_INVALID_ANSWER,
         /** the LLM determined that it was not possible to fulfil the request */
         LLM_ABORTED,
         /** an error occurred while executing a tool */
-        TOOL_ERROR
+        TOOL_ERROR,
+        /** the LLM exceeded the context size limit */
+        LLM_CONTEXT_SIZE
     }
 
     public record StopDetails(StopReason reason, String explanation) {
@@ -91,6 +92,17 @@ public record TaskResult(
                 return reason.toString();
             }
             return "%s:\n%s".formatted(reason.toString(), explanation);
+        }
+
+        public static StopDetails fromResponse(Llm.StreamingResult response) {
+            if (response.error() == null) {
+                return new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            }
+            if (response.error() instanceof ContextTooLargeException) {
+                return new TaskResult.StopDetails(StopReason.LLM_CONTEXT_SIZE, "Context limit exceeded");
+            }
+            return new TaskResult.StopDetails(
+                    TaskResult.StopReason.LLM_ERROR, response.error().getMessage());
         }
     }
 }

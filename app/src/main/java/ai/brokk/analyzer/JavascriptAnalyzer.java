@@ -28,9 +28,9 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             "", // returnTypeFieldName (JS doesn't have a standard named child for return type)
             "", // typeParametersFieldName (JS doesn't have type parameters)
             Map.of( // captureConfiguration
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "function.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
             );
@@ -67,11 +67,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         return switch (captureName) {
-            case "class.definition" -> {
+            case CaptureNames.CLASS_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
-            case "function.definition" -> {
+            case CaptureNames.FUNCTION_DEFINITION -> {
                 String finalShortName;
                 if (!classChain.isEmpty()) { // It's a method within a class structure
                     finalShortName = classChain + "." + simpleName;
@@ -80,7 +80,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 }
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
-            case "field.definition" -> { // For class fields or top-level variables
+            case CaptureNames.FIELD_DEFINITION -> { // For class fields or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
                     // For top-level variables, use filename as a prefix to ensure uniqueness
@@ -110,6 +110,21 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String bodyPlaceholder() {
         return "...";
+    }
+
+    @Override
+    protected boolean shouldUnwrapExportStatements() {
+        return true;
+    }
+
+    @Override
+    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
+        return skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE;
+    }
+
+    @Override
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return true;
     }
 
     @Override

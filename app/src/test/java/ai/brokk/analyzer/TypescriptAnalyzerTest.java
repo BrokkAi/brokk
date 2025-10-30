@@ -1,7 +1,9 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -129,13 +131,13 @@ public class TypescriptAnalyzerTest {
         assertTrue(declarations.contains(CodeUnit.field(helloTsFile, "", "Color.Red")));
 
         // Test getSkeleton for individual items
-        Optional<String> stringOrNumberSkeleton = analyzer.getSkeleton("_module_.StringOrNumber");
+        Optional<String> stringOrNumberSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.StringOrNumber");
         assertTrue(stringOrNumberSkeleton.isPresent());
         assertEquals(
                 normalize.apply("export type StringOrNumber = string | number"),
                 normalize.apply(stringOrNumberSkeleton.get()));
 
-        Optional<String> greetMethodSkeleton = analyzer.getSkeleton("Greeter.greet");
+        Optional<String> greetMethodSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Greeter.greet");
         assertTrue(greetMethodSkeleton.isPresent());
         // Note: getSkeleton for a method might only return its own line if it's not a top-level CU.
         // The full class skeleton is obtained by getSkeleton("Greeter").
@@ -146,7 +148,7 @@ public class TypescriptAnalyzerTest {
         // Let's test `getSkeleton` on a top-level item:
         assertEquals(
                 normalize.apply("export function globalFunc(num: number): number { ... }"),
-                normalize.apply(analyzer.getSkeleton("globalFunc").orElse("")));
+                normalize.apply(AnalyzerUtil.getSkeleton(analyzer, "globalFunc").orElse("")));
     }
 
     @Test
@@ -244,7 +246,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(skeletons.get(topLevelGenericAlias)));
 
         // Check a nested item via getSkeleton
-        Optional<String> innerClassSkel = analyzer.getSkeleton("MyModule.InnerClass");
+        Optional<String> innerClassSkel = AnalyzerUtil.getSkeleton(analyzer, "MyModule.InnerClass");
         assertTrue(innerClassSkel.isPresent());
         // When getting skeleton for a nested CU, it should be part of the parent's reconstruction.
         // The current `getSkeleton` will reconstruct from the top-level parent of that CU.
@@ -257,7 +259,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(innerClassSkel.get()),
                 "getSkeleton for nested class should return the reconstructed parent skeleton.");
 
-        Optional<String> innerTypeAliasSkelViaParent = analyzer.getSkeleton("MyModule.InnerTypeAlias");
+        Optional<String> innerTypeAliasSkelViaParent = AnalyzerUtil.getSkeleton(analyzer, "MyModule.InnerTypeAlias");
         assertTrue(
                 innerTypeAliasSkelViaParent.isPresent(),
                 "Skeleton for MyModule.InnerTypeAlias should be part of MyModule's skeleton");
@@ -464,17 +466,17 @@ public class TypescriptAnalyzerTest {
         assertEquals(1, fetchFuncCount, "fetch function should only be captured once");
 
         // Test getSkeleton for individual ambient declarations
-        Optional<String> dollarSkeleton = analyzer.getSkeleton("_module_.$");
+        Optional<String> dollarSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.$");
         assertTrue(dollarSkeleton.isPresent(), "Should be able to get skeleton for ambient var $");
         assertEquals(normalize.apply("declare var $: any"), normalize.apply(dollarSkeleton.get()));
 
-        Optional<String> fetchSkeleton = analyzer.getSkeleton("fetch");
+        Optional<String> fetchSkeleton = AnalyzerUtil.getSkeleton(analyzer, "fetch");
         assertTrue(fetchSkeleton.isPresent(), "Should be able to get skeleton for ambient function fetch");
         assertEquals(
                 normalize.apply("declare function fetch(url:string): Promise<any>;"),
                 normalize.apply(fetchSkeleton.get()));
 
-        Optional<String> thirdPartySkeleton = analyzer.getSkeleton("ThirdPartyLib");
+        Optional<String> thirdPartySkeleton = AnalyzerUtil.getSkeleton(analyzer, "ThirdPartyLib");
         assertTrue(thirdPartySkeleton.isPresent(), "Should be able to get skeleton for ambient namespace");
         assertEquals(normalize.apply(expectedThirdPartyNamespace), normalize.apply(thirdPartySkeleton.get()));
     }
@@ -543,27 +545,27 @@ public class TypescriptAnalyzerTest {
     @Test
     void testGetMethodSource() throws IOException {
         // From Hello.ts
-        Optional<String> greetSource = analyzer.getMethodSource("Greeter.greet", true);
+        Optional<String> greetSource = AnalyzerUtil.getMethodSource(analyzer, "Greeter.greet", true);
         assertTrue(greetSource.isPresent());
         assertEquals(
                 normalize.apply("greet(): string {\n    return \"Hello, \" + this.greeting;\n}"),
                 normalize.apply(greetSource.get()));
 
-        Optional<String> constructorSource = analyzer.getMethodSource("Greeter.constructor", true);
+        Optional<String> constructorSource = AnalyzerUtil.getMethodSource(analyzer, "Greeter.constructor", true);
         assertTrue(constructorSource.isPresent());
         assertEquals(
                 normalize.apply("constructor(message: string) {\n    this.greeting = message;\n}"),
                 normalize.apply(constructorSource.get()));
 
         // From Vars.ts (arrow function)
-        Optional<String> arrowSource = analyzer.getMethodSource("anArrowFunc", true);
+        Optional<String> arrowSource = AnalyzerUtil.getMethodSource(analyzer, "anArrowFunc", true);
         assertTrue(arrowSource.isPresent());
         assertEquals(
                 normalize.apply("const anArrowFunc = (msg: string): void => {\n    console.log(msg);\n};"),
                 normalize.apply(arrowSource.get()));
 
         // From Advanced.ts (async named function)
-        Optional<String> asyncNamedSource = analyzer.getMethodSource("asyncNamedFunc", true);
+        Optional<String> asyncNamedSource = AnalyzerUtil.getMethodSource(analyzer, "asyncNamedFunc", true);
         assertTrue(asyncNamedSource.isPresent());
         assertEquals(
                 normalize.apply(
@@ -572,7 +574,7 @@ public class TypescriptAnalyzerTest {
 
         // Test getMethodSource for overloaded function (processInput from Advanced.ts)
         // It should return all signatures and the implementation concatenated.
-        Optional<String> overloadedSource = analyzer.getMethodSource("processInput", true);
+        Optional<String> overloadedSource = AnalyzerUtil.getMethodSource(analyzer, "processInput", true);
         assertTrue(overloadedSource.isPresent(), "Source for overloaded function processInput should be present.");
 
         // Check the actual format returned by TreeSitterAnalyzer
@@ -723,8 +725,8 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testGetClassSource() throws IOException {
-        String greeterSource =
-                normalize.apply(analyzer.getClassSource("Greeter", true).get());
+        String greeterSource = normalize.apply(
+                AnalyzerUtil.getClassSource(analyzer, "Greeter", true).get());
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
         assertTrue(greeterSource.contains("greeting: string;"));
@@ -732,8 +734,8 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.endsWith("}"));
 
         // Test with Point interface - could be from Hello.ts or Advanced.ts
-        String pointSource =
-                normalize.apply(analyzer.getClassSource("Point", true).get());
+        String pointSource = normalize.apply(
+                AnalyzerUtil.getClassSource(analyzer, "Point", true).get());
         assertNotNull(pointSource);
         assertTrue(
                 pointSource.contains("x: number") && pointSource.contains("y: number"),
@@ -791,7 +793,8 @@ public class TypescriptAnalyzerTest {
                 helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
 
         // With distinct CodeUnits, getClassSource should work correctly without corruption
-        String pointSource = analyzer.getClassSource("Point", true).get();
+        String pointSource =
+                AnalyzerUtil.getClassSource(analyzer, "Point", true).get();
 
         // The source should be a valid Point interface, not corrupted
         assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
@@ -1190,7 +1193,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with JSDoc annotations
-        Optional<String> userServiceSource = analyzer.getClassSource("UserService", true);
+        Optional<String> userServiceSource = AnalyzerUtil.getClassSource(analyzer, "UserService", true);
         assertTrue(userServiceSource.isPresent(), "UserService class should be found");
 
         String normalizedService = normalize.apply(userServiceSource.get());
@@ -1201,7 +1204,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedService.contains("class UserService"), "Class source should include class definition");
 
         // Test method with comprehensive JSDoc annotations
-        Optional<String> getUserByIdSource = analyzer.getMethodSource("UserService.getUserById", true);
+        Optional<String> getUserByIdSource = AnalyzerUtil.getMethodSource(analyzer, "UserService.getUserById", true);
         assertTrue(getUserByIdSource.isPresent(), "getUserById method should be found");
 
         String normalizedGetUserById = normalize.apply(getUserByIdSource.get());
@@ -1214,7 +1217,7 @@ public class TypescriptAnalyzerTest {
                 normalizedGetUserById.contains("async getUserById"), "Method source should include method definition");
 
         // Test deprecated method with @deprecated annotation
-        Optional<String> getUserDeprecatedSource = analyzer.getMethodSource("UserService.getUser", true);
+        Optional<String> getUserDeprecatedSource = AnalyzerUtil.getMethodSource(analyzer, "UserService.getUser", true);
         assertTrue(getUserDeprecatedSource.isPresent(), "getUser deprecated method should be found");
 
         String normalizedDeprecated = normalize.apply(getUserDeprecatedSource.get());
@@ -1224,7 +1227,8 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedDeprecated.contains("async getUser"), "Method source should include method definition");
 
         // Test static method with annotations
-        Optional<String> validateConfigSource = analyzer.getMethodSource("UserService.validateConfig", true);
+        Optional<String> validateConfigSource =
+                AnalyzerUtil.getMethodSource(analyzer, "UserService.validateConfig", true);
         assertTrue(validateConfigSource.isPresent(), "validateConfig static method should be found");
 
         String normalizedStatic = normalize.apply(validateConfigSource.get());
@@ -1245,7 +1249,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test generic class with template annotations
-        Optional<String> repositorySource = analyzer.getClassSource("Repository", true);
+        Optional<String> repositorySource = AnalyzerUtil.getClassSource(analyzer, "Repository", true);
         assertTrue(repositorySource.isPresent(), "Repository generic class should be found");
 
         String normalizedRepo = normalize.apply(repositorySource.get());
@@ -1255,7 +1259,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(normalizedRepo.contains("class Repository"), "Class source should include class definition");
 
         // Test method with experimental annotation
-        Optional<String> batchProcessSource = analyzer.getMethodSource("Repository.batchProcess", true);
+        Optional<String> batchProcessSource = AnalyzerUtil.getMethodSource(analyzer, "Repository.batchProcess", true);
         assertTrue(batchProcessSource.isPresent(), "batchProcess method should be found");
 
         String normalizedBatch = normalize.apply(batchProcessSource.get());
@@ -1276,7 +1280,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test function overloads with individual JSDoc annotations
-        Optional<String> processDataSource = analyzer.getMethodSource("processData", true);
+        Optional<String> processDataSource = AnalyzerUtil.getMethodSource(analyzer, "processData", true);
         assertTrue(processDataSource.isPresent(), "processData overloaded function should be found");
 
         String normalizedProcessData = normalize.apply(processDataSource.get());
@@ -1290,7 +1294,7 @@ public class TypescriptAnalyzerTest {
                 "Function source should include function definitions");
 
         // Test async function with comprehensive annotations
-        Optional<String> fetchWithRetrySource = analyzer.getMethodSource("fetchWithRetry", true);
+        Optional<String> fetchWithRetrySource = AnalyzerUtil.getMethodSource(analyzer, "fetchWithRetry", true);
         assertTrue(fetchWithRetrySource.isPresent(), "fetchWithRetry function should be found");
 
         String normalizedFetch = normalize.apply(fetchWithRetrySource.get());
@@ -1315,7 +1319,7 @@ public class TypescriptAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test interface with JSDoc annotations
-        Optional<String> userConfigSource = analyzer.getClassSource("UserConfig", true);
+        Optional<String> userConfigSource = AnalyzerUtil.getClassSource(analyzer, "UserConfig", true);
         if (userConfigSource.isPresent()) {
             String normalizedConfig = normalize.apply(userConfigSource.get());
             assertTrue(
@@ -1326,7 +1330,7 @@ public class TypescriptAnalyzerTest {
         }
 
         // Test enum with annotations
-        Optional<String> userRoleSource = analyzer.getClassSource("UserRole", true);
+        Optional<String> userRoleSource = AnalyzerUtil.getClassSource(analyzer, "UserRole", true);
         if (userRoleSource.isPresent()) {
             String normalizedRole = normalize.apply(userRoleSource.get());
             assertTrue(
@@ -1337,7 +1341,7 @@ public class TypescriptAnalyzerTest {
         }
 
         // Test User interface with member annotations
-        Optional<String> userSource = analyzer.getClassSource("User", true);
+        Optional<String> userSource = AnalyzerUtil.getClassSource(analyzer, "User", true);
         if (userSource.isPresent()) {
             String normalizedUser = normalize.apply(userSource.get());
             assertTrue(

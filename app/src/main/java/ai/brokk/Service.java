@@ -1059,6 +1059,15 @@ public class Service implements IExceptionReportingService {
         return !(sttModel instanceof UnavailableSTT);
     }
 
+    /**
+     * Checks whether the service is online and capable of handling chat requests.
+     */
+    public boolean isOnline() {
+        boolean hasUsableModel = modelLocations.keySet().stream().anyMatch(name -> !UNAVAILABLE.equals(name));
+        boolean quickModelAvailable = !(quickModel instanceof UnavailableStreamingModel);
+        return hasUsableModel && quickModelAvailable;
+    }
+
     /** Interface for speech-to-text operations. Can remain static as it's just an interface definition. */
     public interface SpeechToTextModel {
         /** Transcribes audio, with optional context symbols. */

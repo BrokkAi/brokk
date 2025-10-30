@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -257,7 +258,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetSkeleton_TopLevelFunction() {
         // From declarations.go: package declpkg; func MyTopLevelFunction(param int) string { ... }
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg.MyTopLevelFunction");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.MyTopLevelFunction");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyTopLevelFunction should be found.");
         // Note: paramsText might be raw like "(param int)" or just "param int" depending on TSA. Adjust if needed.
         // The returnTypeText should be "string".
@@ -269,7 +270,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetSkeleton_AnotherFunction() {
         // From declarations.go: package declpkg; func anotherFunc() {}
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg.anotherFunc");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.anotherFunc");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.anotherFunc should be found.");
         String expected = "func anotherFunc() { ... }"; // No params, no return type in source
         assertEquals(expected.trim(), skeleton.get().trim());
@@ -278,7 +279,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetSkeleton_InterfaceWithMethods() {
         // From declarations.go: package declpkg; type MyInterface interface { DoSomething() }
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg.MyInterface");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.MyInterface");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyInterface should be found.");
         String expected =
                 """
@@ -290,7 +291,7 @@ public class GoAnalyzerTest {
 
     @Test
     void testGetSkeletonHeader_Function() {
-        Optional<String> header = analyzer.getSkeletonHeader("declpkg.MyTopLevelFunction");
+        Optional<String> header = AnalyzerUtil.getSkeletonHeader(analyzer, "declpkg.MyTopLevelFunction");
         assertTrue(header.isPresent(), "Skeleton header for declpkg.MyTopLevelFunction should be found.");
         // For functions without children, getSkeletonHeader is the same as getSkeleton
         String expected = "func MyTopLevelFunction(param int) string { ... }";
@@ -299,7 +300,7 @@ public class GoAnalyzerTest {
 
     @Test
     void testGetSkeletonHeader_Type() {
-        Optional<String> headerStruct = analyzer.getSkeletonHeader("declpkg.MyStruct");
+        Optional<String> headerStruct = AnalyzerUtil.getSkeletonHeader(analyzer, "declpkg.MyStruct");
         assertTrue(headerStruct.isPresent(), "Skeleton header for declpkg.MyStruct should be found.");
         String expectedStruct =
                 """
@@ -310,7 +311,7 @@ public class GoAnalyzerTest {
                 """;
         assertEquals(expectedStruct.trim(), headerStruct.get().trim());
 
-        Optional<String> headerInterface = analyzer.getSkeletonHeader("declpkg.MyInterface");
+        Optional<String> headerInterface = AnalyzerUtil.getSkeletonHeader(analyzer, "declpkg.MyInterface");
         assertTrue(headerInterface.isPresent(), "Skeleton header for declpkg.MyInterface should be found.");
         String expectedInterface =
                 """
@@ -324,7 +325,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetSkeleton_PackageLevelVar() {
         // From declarations.go: var MyGlobalVar int = 42
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg._module_.MyGlobalVar");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalVar");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalVar should be found.");
         // The skeleton will be the text of the var_spec node
         assertEquals("MyGlobalVar int = 42", skeleton.get().trim());
@@ -333,7 +334,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetSkeleton_PackageLevelConst() {
         // From declarations.go: const MyGlobalConst = "hello_const"
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg._module_.MyGlobalConst");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalConst");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalConst should be found.");
         // The skeleton will be the text of the const_spec node
         assertEquals("MyGlobalConst = \"hello_const\"", skeleton.get().trim());
@@ -360,7 +361,7 @@ public class GoAnalyzerTest {
     void testGetSkeleton_Method() {
         // MyStruct.GetFieldA in declarations.go
         // FQN is now declpkg.MyStruct.GetFieldA
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg.MyStruct.GetFieldA");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.MyStruct.GetFieldA");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyStruct.GetFieldA should be found.");
         String expected = "func (s MyStruct) GetFieldA() int { ... }";
         assertEquals(expected.trim(), skeleton.get().trim());
@@ -369,7 +370,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetSkeleton_StructWithMethodsAndFields() {
         // MyStruct in declarations.go
-        Optional<String> skeleton = analyzer.getSkeleton("declpkg.MyStruct");
+        Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.MyStruct");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyStruct should be found.");
 
         // Now expecting fields and methods.
@@ -387,7 +388,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetMembersInClass_StructMethodsAndFields() {
         ProjectFile pf = declarationsGoFile;
-        List<CodeUnit> members = analyzer.getMembersInClass("declpkg.MyStruct");
+        List<CodeUnit> members = AnalyzerUtil.getMembersInClass(analyzer, "declpkg.MyStruct");
         assertNotNull(members, "Members list for MyStruct should not be null.");
         assertFalse(members.isEmpty(), "Members list for MyStruct should not be empty.");
 
@@ -413,7 +414,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetMembersInClass_InterfaceMethods() {
         ProjectFile pf = declarationsGoFile;
-        List<CodeUnit> members = analyzer.getMembersInClass("declpkg.MyInterface");
+        List<CodeUnit> members = AnalyzerUtil.getMembersInClass(analyzer, "declpkg.MyInterface");
         assertNotNull(members, "Members list for MyInterface should not be null.");
         assertFalse(members.isEmpty(), "Members list for MyInterface should not be empty.");
 
@@ -438,7 +439,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoStruct() {
         // MyStruct in declarations.go
-        final var sourceOpt = analyzer.getClassSource("declpkg.MyStruct", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "declpkg.MyStruct", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         assertNotNull(source, "Source for declpkg.MyStruct should not be null");
@@ -449,7 +450,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoInterface() {
         // MyInterface in declarations.go
-        final var sourceOpt = analyzer.getClassSource("declpkg.MyInterface", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "declpkg.MyInterface", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         assertNotNull(source, "Source for declpkg.MyInterface should not be null");
@@ -460,7 +461,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetMethodSource_GoFunction() {
         // MyTopLevelFunction in declarations.go
-        Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyTopLevelFunction", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "declpkg.MyTopLevelFunction", true);
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyTopLevelFunction should be present.");
         String expectedSource = "func MyTopLevelFunction(param int) string {\n\treturn \"hello\"\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(sourceOpt.get()));
@@ -470,7 +471,7 @@ public class GoAnalyzerTest {
     void testGetMethodSource_GoMethod() {
         // GetFieldA method of MyStruct in declarations.go
         // FQN is now declpkg.MyStruct.GetFieldA
-        Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyStruct.GetFieldA", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "declpkg.MyStruct.GetFieldA", true);
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyStruct.GetFieldA method should be present.");
         String expectedSource =
                 "// Add this method for MyStruct\nfunc (s MyStruct) GetFieldA() int {\n\treturn s.FieldA\n}";
@@ -479,13 +480,13 @@ public class GoAnalyzerTest {
 
     @Test
     void testGetClassSource_NonExistent() {
-        var srcOpt = analyzer.getClassSource("declpkg.NonExistentClass", true);
+        var srcOpt = AnalyzerUtil.getClassSource(analyzer, "declpkg.NonExistentClass", true);
         assertTrue(srcOpt.isEmpty());
     }
 
     @Test
     void testGetMethodSource_NonExistent() {
-        Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.NonExistentFunction", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "declpkg.NonExistentFunction", true);
         assertFalse(sourceOpt.isPresent(), "Source for a non-existent function should be empty.");
     }
 

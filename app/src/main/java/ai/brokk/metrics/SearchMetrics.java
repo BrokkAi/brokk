@@ -67,7 +67,7 @@ public interface SearchMetrics {
      *
      * @param fragmentDescriptions list of fragment descriptions (type, id, description, files)
      */
-    void recordFinalWorkspaceFragments(java.util.List<FragmentInfo> fragmentDescriptions);
+    void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions);
 
     /**
      * Serialize metrics along with the basic result fields into JSON.
@@ -176,7 +176,7 @@ public interface SearchMetrics {
             this.contextScanFilesAdded = filesAdded;
             this.contextScanTimeMs = timeMs;
             this.contextScanSkipped = skipped;
-            this.contextScanFilesAddedPaths = new java.util.HashSet<>(filesAddedPaths);
+            this.contextScanFilesAddedPaths = new HashSet<>(filesAddedPaths);
         }
 
         @Override
@@ -229,21 +229,9 @@ public interface SearchMetrics {
         public synchronized void recordOutcome(TaskResult.StopReason reason, int workspaceSize) {
             this.stopReason = reason.toString();
             this.finalWorkspaceSize = workspaceSize;
-
-            // Classify failure type
             this.failureType = switch (reason) {
                 case SUCCESS -> null;
-                case INTERRUPTED -> "interrupted";
-                case LLM_ERROR -> "llm_error";
-                case PARSE_ERROR -> "parse_error";
-                case APPLY_ERROR -> "apply_error";
-                case BUILD_ERROR -> "build_error";
-                case LINT_ERROR -> "lint_error";
-                case READ_ONLY_EDIT -> "read_only_edit";
-                case IO_ERROR -> "io_error";
-                case SEARCH_INVALID_ANSWER -> "search_invalid_answer";
-                case LLM_ABORTED -> "llm_aborted";
-                case TOOL_ERROR -> "tool_error";
+                default -> reason.toString().toLowerCase();
             };
         }
 
@@ -255,11 +243,6 @@ public interface SearchMetrics {
         @Override
         public synchronized void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions) {
             this.finalWorkspaceFragments = new ArrayList<>(fragmentDescriptions);
-        }
-
-        /** Get the final workspace files that were recorded. Used by BrokkCli to infer the found file. */
-        public synchronized @Nullable Set<String> getFinalWorkspaceFiles() {
-            return finalWorkspaceFiles;
         }
 
         /** Get the turn history with files added per turn. Used by BrokkCli to determine the last file added. */
@@ -378,7 +361,7 @@ public interface SearchMetrics {
                 return turn;
             }
 
-            public java.util.List<String> getTool_calls() {
+            public List<String> getTool_calls() {
                 return tool_calls;
             }
 

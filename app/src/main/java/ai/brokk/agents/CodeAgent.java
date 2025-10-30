@@ -548,9 +548,8 @@ public class CodeAgent {
         // Determine stop reason based on LLM response
         TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
-            String errorMessage = Objects.toString(result.error().getMessage(), "Unknown LLM error during quick edit");
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMessage);
-            io.toolError("Quick edit failed: " + errorMessage);
+            stopDetails = TaskResult.StopDetails.fromResponse(result);
+            io.toolError("Quick edit failed: " + stopDetails.explanation());
         } else {
             // Success from LLM perspective
             pendingHistory.add(result.aiMessage());
@@ -604,9 +603,9 @@ public class CodeAgent {
         if (llmError != null) {
             // If there's no usable text, this is a fatal error
             if (streamingResultFromLlm.isEmpty()) {
-                String message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
-                TaskResult.StopDetails fatalDetails = new TaskResult.StopDetails(
-                        TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
+                var fatalDetails = TaskResult.StopDetails.fromResponse(streamingResultFromLlm);
+                String message =
+                        "LLM returned an error even after retries: " + fatalDetails.explanation() + ". Ending task";
                 io.toolError(message);
                 return new Step.Fatal(fatalDetails);
             }

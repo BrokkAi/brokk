@@ -7,6 +7,7 @@ import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterJava;
@@ -61,15 +62,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             "type", // return type field name
             "type_parameters", // type parameters field name
             Map.of( // capture configuration
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "interface.definition", SkeletonType.CLASS_LIKE,
-                    "enum.definition", SkeletonType.CLASS_LIKE,
-                    "record.definition", SkeletonType.CLASS_LIKE,
-                    "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
-                    "method.definition", SkeletonType.FUNCTION_LIKE,
-                    "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE,
-                    "lambda.definition", SkeletonType.FUNCTION_LIKE),
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.ENUM_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.RECORD_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.ANNOTATION_DEFINITION, SkeletonType.CLASS_LIKE, // for @interface
+                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
+                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -80,7 +81,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(
+    protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
