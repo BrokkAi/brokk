@@ -763,7 +763,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // preserving HISTORY fragments (task history).
         try {
             JMenuItem dropOther = new JMenuItem("Drop Others");
-            dropOther.setToolTipText("Remove all workspace fragments except this one (history fragments are preserved).");
             try {
                 dropOther.getAccessibleContext().setAccessibleName("Drop Others");
             } catch (Exception ignored) {
@@ -793,7 +792,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 }
                 boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
                 if (!onLatest) {
-                    chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
 
