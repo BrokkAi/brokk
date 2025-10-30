@@ -819,6 +819,10 @@ public class ContextAgent {
         var tokenUsage = result.tokenUsage();
         if (result.error() != null) {
             var error = result.error();
+            // Special case: propagate ContextTooLargeException so caller can retry with halving
+            if (error instanceof ContextTooLargeException) {
+                throw (ContextTooLargeException) error;
+            }
             logger.warn("Error from LLM during context recommendation: {}. Returning empty", error.getMessage());
             return LlmRecommendation.EMPTY;
         }
