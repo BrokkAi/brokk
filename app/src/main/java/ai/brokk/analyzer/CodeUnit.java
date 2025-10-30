@@ -20,6 +20,10 @@ public class CodeUnit implements Comparable<CodeUnit> {
     @JsonProperty("packageName")
     private final String packageName;
 
+    @JsonProperty("signature")
+    @org.jetbrains.annotations.Nullable
+    private final String signature;
+
     private final transient String fqName;
 
     @JsonCreator
@@ -27,7 +31,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("source") ProjectFile source,
             @JsonProperty("kind") CodeUnitType kind,
             @JsonProperty("packageName") String packageName,
-            @JsonProperty("shortName") String shortName) {
+            @JsonProperty("shortName") String shortName,
+            @JsonProperty("signature") @org.jetbrains.annotations.Nullable String signature) {
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }
@@ -35,7 +40,16 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this.kind = kind;
         this.packageName = packageName;
         this.shortName = shortName;
+        this.signature = signature;
         this.fqName = packageName.isEmpty() ? shortName : packageName + "." + shortName;
+    }
+
+    public CodeUnit(
+            @JsonProperty("source") ProjectFile source,
+            @JsonProperty("kind") CodeUnitType kind,
+            @JsonProperty("packageName") String packageName,
+            @JsonProperty("shortName") String shortName) {
+        this(source, kind, packageName, shortName, null);
     }
 
     /** Return the FQCN corresponding to the given FQMN */
@@ -81,7 +95,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * <ul>
      *   <li>For {@link CodeUnitType#CLASS}, this is the simple class name (e.g., "MyClass", "Outer$Inner").
      *   <li>For {@link CodeUnitType#FUNCTION} or {@link CodeUnitType#FIELD}, this is "className.memberName" (e.g.,
-     *       "MyClass.myMethod") or just "functionName".
+     *       "MyClass.myMethod", "Outer$Inner.myMethod") or just "functionName".
      *   <li>For {@link CodeUnitType#MODULE}, this is typically a placeholder like "_module_" or a file-derived name.
      * </ul>
      *
@@ -132,6 +146,26 @@ public class CodeUnit implements Comparable<CodeUnit> {
      */
     public ProjectFile source() {
         return source;
+    }
+
+    /**
+     * Returns the (optional) signature associated with this CodeUnit. This is nullable and may be absent for legacy
+     * serialized CodeUnits or for code units where no explicit signature was recorded.
+     *
+     * @return the signature or null if absent.
+     */
+    @org.jetbrains.annotations.Nullable
+    public String signature() {
+        return signature;
+    }
+
+    /**
+     * Convenience to test presence of a signature.
+     *
+     * @return true if a signature string was recorded for this CodeUnit.
+     */
+    public boolean hasSignature() {
+        return signature != null;
     }
 
     /**
