@@ -2939,14 +2939,14 @@ public class Chrome
                     });
                 }
             }
-            
+
             // Update badge count immediately after adding tabs so the Changes tab badged icon reflects current state
             try {
-            updateGitTabBadge(getModifiedFiles().size());
+                updateGitTabBadge(getModifiedFiles().size());
             } catch (Exception ex) {
-            logger.debug("Failed to update Git tab badge after advanced-mode toggle", ex);
+                logger.debug("Failed to update Git tab badge after advanced-mode toggle", ex);
             }
-            
+
             leftTabbedPanel.revalidate();
             leftTabbedPanel.repaint();
 
