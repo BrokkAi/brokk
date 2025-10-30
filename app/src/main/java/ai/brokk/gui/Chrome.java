@@ -367,11 +367,28 @@ public class Chrome
             }
         });
 
-        // Add Git tabs (Changes, Worktrees, Log) if available
+        // --- New top-level Tests tab moved up (second position) ---
+        {
+            var testsIcon = Icons.SCIENCE;
+            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
+            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+            var testsShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+            var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
+            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
+            testsTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(testsTabIdx);
+                }
+            });
+        }
+
+        // Add Git tabs (Changes, Log, Worktrees) if available (in the requested visual order)
         if (getProject().hasGit() && GlobalUiSettings.isAdvancedMode()) {
             gitCommitTab = new GitCommitTab(this, contextManager);
-            gitWorktreeTab = new GitWorktreeTab(this, contextManager);
             gitLogTab = new GitLogTab(this, contextManager);
+            gitWorktreeTab = new GitWorktreeTab(this, contextManager);
 
             // Changes tab (with badge)
             var commitIcon = Icons.COMMIT;
@@ -389,7 +406,22 @@ public class Chrome
                 }
             });
 
-            // Worktrees tab
+            // Log tab (after Changes)
+            var logIcon = Icons.FLOWSHEET;
+            leftTabbedPanel.addTab(null, logIcon, gitLogTab);
+            var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
+            var logShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+            var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
+            leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
+            logTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(logTabIdx);
+                }
+            });
+
+            // Worktrees tab (after Log)
             var worktreeIcon = Icons.FLOWCHART;
             if (GlobalUiSettings.isAdvancedMode()) {
                 leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
@@ -402,23 +434,6 @@ public class Chrome
                     @Override
                     public void mousePressed(MouseEvent e) {
                         handleTabToggle(worktreeTabIdx);
-                    }
-                });
-            }
-
-            // Log tab
-            var logIcon = Icons.FLOWSHEET;
-            if (GlobalUiSettings.isAdvancedMode()) {
-                leftTabbedPanel.addTab(null, logIcon, gitLogTab);
-                var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                var logShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-                var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
-                logTabLabel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        handleTabToggle(logTabIdx);
                     }
                 });
             }
@@ -473,23 +488,6 @@ public class Chrome
                     }
                 });
             }
-        }
-
-        // --- New top-level Tests panel (always last) ---
-        {
-            var testsIcon = Icons.SCIENCE;
-            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
-            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-            var testsShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
-            var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
-            testsTabLabel.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    handleTabToggle(testsTabIdx);
-                }
-            });
         }
 
         /*
