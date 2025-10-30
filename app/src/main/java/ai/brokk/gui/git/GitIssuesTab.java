@@ -33,10 +33,8 @@ import ai.brokk.issues.IssueService;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
 import ai.brokk.util.Environment;
-import ai.brokk.util.HtmlUtil;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
@@ -1088,35 +1086,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private List<ChatMessage> buildIssueTextContentFromDetails(IssueDetails details) {
-        IssueHeader header = details.header();
-        String bodyForCapture = details.markdownBody(); // This is HTML from Jira, Markdown from GitHub
-        if (this.issueService instanceof JiraIssueService) {
-            bodyForCapture = HtmlUtil.convertToMarkdown(bodyForCapture);
-        }
-        bodyForCapture = bodyForCapture.isBlank() ? "*No description provided.*" : bodyForCapture;
-        String content = String.format(
-                """
-                                       # Issue #%s: %s
-
-                                       **Author:** %s
-                                       **Status:** %s
-                                       **URL:** %s
-                                       **Labels:** %s
-                                       **Assignees:** %s
-
-                                       ---
-
-                                       %s
-                                       """,
-                header.id(),
-                header.title(),
-                header.author(),
-                header.status(),
-                header.htmlUrl(),
-                header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
-                header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
-                bodyForCapture);
-        return List.of(UserMessage.from(header.author(), content));
+        return IssueCaptureBuilder.buildIssueTextMessages(this.issueService, details);
     }
 
     private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(
@@ -1127,21 +1097,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
-        List<ChatMessage> chatMessages = new ArrayList<>();
-
-        for (Comment comment : dtoComments) {
-            String author = comment.author().isBlank() ? "unknown" : comment.author();
-            String originalCommentBody = comment.markdownBody(); // HTML from Jira, Markdown from GitHub
-            String commentBodyForCapture = originalCommentBody;
-            if (this.issueService instanceof JiraIssueService) {
-                commentBodyForCapture = HtmlUtil.convertToMarkdown(originalCommentBody);
-            }
-
-            if (!commentBodyForCapture.isBlank()) {
-                chatMessages.add(UserMessage.from(author, commentBodyForCapture));
-            }
-        }
-        return chatMessages;
+        return IssueCaptureBuilder.buildCommentMessages(this.issueService, dtoComments);
     }
 
     private ContextFragment.TaskFragment createCommentsFragmentFromDetails(
