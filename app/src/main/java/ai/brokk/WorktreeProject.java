@@ -106,6 +106,16 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public Service.ModelConfig getArchitectModelConfig() {
+        return parent.getArchitectModelConfig();
+    }
+
+    @Override
+    public void setArchitectModelConfig(Service.ModelConfig config) {
+        parent.setArchitectModelConfig(config);
+    }
+
+    @Override
     public boolean isDataShareAllowed() {
         return parent.isDataShareAllowed();
     }

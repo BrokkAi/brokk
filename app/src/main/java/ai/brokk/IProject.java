@@ -272,6 +272,14 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default Service.ModelConfig getArchitectModelConfig() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setArchitectModelConfig(Service.ModelConfig config) {
+        throw new UnsupportedOperationException();
+    }
+
     default String getCommitMessageFormat() {
         throw new UnsupportedOperationException();
     }
