@@ -162,8 +162,8 @@ public class ArchitectAgent {
                     ? "CodeAgent finished! Details are in the Workspace messages."
                     : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild
-                    && !context.freeze().getDiff(initialContext.freeze()).isEmpty();
+            codeAgentJustSucceeded =
+                    !deferBuild && !context.getChangedFiles(initialContext).isEmpty();
             return resultString;
         }
 

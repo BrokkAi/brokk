@@ -600,64 +600,6 @@ public class Context {
                 sourceContext.getGroupLabel());
     }
 
-    public record FreezeResult(Context liveContext, Context frozenContext) {}
-
-    /**
-     * @return a FreezeResult with the (potentially modified to exclude invalid Fragments) liveContext + frozenContext
-     */
-    public FreezeResult freezeAndCleanup() {
-        assert !containsFrozenFragments();
-
-        var liveFragments = new ArrayList<ContextFragment>();
-        var frozenFragments = new ArrayList<ContextFragment>();
-
-        for (var fragment : this.fragments) {
-            try {
-                var frozen = FrozenFragment.freeze(fragment, contextManager);
-                liveFragments.add(fragment);
-                frozenFragments.add(frozen);
-            } catch (IOException e) {
-                logger.warn("Failed to freeze fragment {}: {}", fragment.description(), e.getMessage());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        Context liveContext;
-        if (!liveFragments.equals(fragments)) {
-            liveContext = new Context(
-                    newContextId(),
-                    this.contextManager,
-                    liveFragments,
-                    this.taskHistory,
-                    this.parsedOutput,
-                    this.action,
-                    this.groupId,
-                    this.groupLabel);
-        } else {
-            liveContext = this;
-        }
-
-        var frozenContext = new Context(
-                this.id,
-                this.contextManager,
-                frozenFragments,
-                this.taskHistory,
-                this.parsedOutput,
-                this.action,
-                this.groupId,
-                this.groupLabel);
-
-        return new FreezeResult(liveContext, frozenContext);
-    }
-
-    public Context freeze() {
-        if (!containsDynamicFragments()) {
-            return this;
-        }
-        return freezeAndCleanup().frozenContext;
-    }
-
     @SuppressWarnings("unchecked")
     public static <T extends ContextFragment> T unfreezeFragmentIfNeeded(T fragment, IContextManager contextManager) {
         if (fragment instanceof FrozenFragment frozen) {
@@ -1083,7 +1025,10 @@ public class Context {
             if (isNewFileInGitAndText(thisFragment)) {
                 var newContent = extractFragmentContent(thisFragment, true);
                 var result = ContentDiffUtils.computeDiffResult(
-                        "", newContent, "old/" + thisFragment.shortDescription(), "new/" + thisFragment.shortDescription());
+                        "",
+                        newContent,
+                        "old/" + thisFragment.shortDescription(),
+                        "new/" + thisFragment.shortDescription());
                 if (result.diff().isEmpty()) {
                     return null;
                 }
@@ -1128,8 +1073,7 @@ public class Context {
         }
 
         // Store live fragment directly in DiffEntry
-        return new DiffEntry(
-                thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+        return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
     }
 
     /**
@@ -1303,7 +1247,6 @@ public class Context {
                 oldImageBytes != null ? "[image]" : "",
                 newImageBytes != null ? "[image]" : "");
     }
-
 
     /**
      * Compute the set of ProjectFile objects that differ between this (new/right) context and {@code other} (old/left).

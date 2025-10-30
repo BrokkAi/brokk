@@ -996,10 +996,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 var newLive = Context.createFrom(
                         targetFrozenContext, liveContext(), liveContext().getTaskHistory());
-                var fr = newLive.freezeAndCleanup();
-                contextHistory.pushLive(fr.frozenContext());
-                contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
-                SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
+                contextHistory.pushLive(newLive);
+                contextHistory.addResetEdge(targetFrozenContext, newLive);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace to historical state");
             } catch (CancellationException cex) {
@@ -1017,10 +1016,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 var newLive =
                         Context.createFrom(targetFrozenContext, liveContext(), targetFrozenContext.getTaskHistory());
-                var fr = newLive.freezeAndCleanup();
-                contextHistory.pushLive(fr.frozenContext());
-                contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
-                SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
+                contextHistory.pushLive(newLive);
+                contextHistory.addResetEdge(targetFrozenContext, newLive);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Reset workspace and history to historical state");
@@ -2190,8 +2188,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             // If there is literally nothing to record (no messages and no context/file changes), skip
-            if (result.output().messages().isEmpty()
-                    && result.context().freeze().equals(topContext())) {
+            // Compare live contexts directly; use workspaceContentEquals for structural comparison
+            if (result.output().messages().isEmpty() && result.context().workspaceContentEquals(topContext())) {
                 logger.debug("Empty TaskResult");
                 return result.context();
             }
