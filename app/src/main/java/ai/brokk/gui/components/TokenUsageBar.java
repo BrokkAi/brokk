@@ -74,6 +74,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile String unfilledTooltipHtml = null;
 
+    // Stored warning metadata for tooltip rendering
+    private volatile int warningSuccessRate = -1;
+    private volatile boolean warningIsTested = false;
+
     public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
@@ -211,6 +215,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         repaint();
     }
 
+    /**
+     * Store the success rate and tested flag for use in tooltip rendering.
+     * This is called after the token computation completes to make the metadata available
+     * for display in warning tooltips and extrapolation notes.
+     */
+    public void setWarningMetadata(int successRate, boolean isTested) {
+        this.warningSuccessRate = successRate;
+        this.warningIsTested = isTested;
+    }
+
     public void setOnClick(@Nullable Runnable onClick) {
         this.onClick = onClick;
         setCursor(onClick != null ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -309,7 +323,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             modelName = StringEscapeUtils.escapeHtml4(modelName);
 
             int usedTokens = computeUsedTokens();
-            int successRate = ModelBenchmarkData.getSuccessRate(modelConfig, usedTokens);
+            int successRate = this.warningSuccessRate;
+            boolean isTested = this.warningIsTested;
 
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
@@ -317,7 +332,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
             // Indicate if we're extrapolating beyond tested ranges
             String extrapolationNote = "";
-            if (usedTokens > 131071) {
+            if (!isTested) {
                 extrapolationNote =
                         "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
             } else if (usedTokens < 4096) {
