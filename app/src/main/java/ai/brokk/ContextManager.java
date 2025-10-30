@@ -121,13 +121,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
             }
+            logger.error("Uncaught exception in executor", th);
 
             // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
             if (OomShutdownHandler.isOomError(th)) {
                 OomShutdownHandler.shutdownWithRecovery();
             }
 
-            logger.error("Uncaught exception in executor", th);
             var thread = Thread.currentThread();
             var message = "Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
                     .formatted(thread.getName(), getStackTraceAsString(th));
