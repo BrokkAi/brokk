@@ -352,6 +352,8 @@ public class Chrome
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+        // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
+        leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
         var projectIcon = Icons.FOLDER_CODE;
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
@@ -2937,7 +2939,14 @@ public class Chrome
                     });
                 }
             }
-
+            
+            // Update badge count immediately after adding tabs so the Changes tab badged icon reflects current state
+            try {
+            updateGitTabBadge(getModifiedFiles().size());
+            } catch (Exception ex) {
+            logger.debug("Failed to update Git tab badge after advanced-mode toggle", ex);
+            }
+            
             leftTabbedPanel.revalidate();
             leftTabbedPanel.repaint();
 
