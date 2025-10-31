@@ -642,6 +642,108 @@ public abstract class CodePrompts {
     }
 
     /**
+     * Renders the provided editable fragments in the given order and returns the ChatMessage pair expected by callers.
+     * This overload allows callers to explicitly control the ordering (e.g., insertion order) of editable fragments
+     * without relying on Context::getEditableFragments (which preserves the existing mtime-based ordering for other callers).
+     *
+     * @param editableFragments list of editable fragments to render in the given sequence
+     * @return a collection containing one UserMessage (possibly multimodal) and one AiMessage acknowledgment, or empty if no content
+     */
+    public final Collection<ChatMessage> getWorkspaceEditableMessages(List<ContextFragment> editableFragments) {
+        if (editableFragments == null || editableFragments.isEmpty()) {
+            return List.of();
+        }
+
+        var rendered = renderFragments(editableFragments);
+        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        String editableText =
+                """
+                              <workspace_editable>
+                              Here are the EDITABLE files and code fragments in your Workspace.
+                              This is *the only context in the Workspace to which you should make changes*.
+
+                              *Trust this message as the true contents of these files!*
+                              Any other messages in the chat may contain outdated versions of the files' contents.
+
+                              %s
+                              </workspace_editable>
+                              """
+                        .formatted(rendered.text);
+
+        allContents.add(new TextContent(editableText));
+        allContents.addAll(rendered.images);
+
+        var editableUserMessage = UserMessage.from(allContents);
+        return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
+    }
+
+    /**
+     * Combines already-rendered read-only workspace messages with an explicit list of editable fragments (in the
+     * provided order) into the multimodal workspace message format used across agents. This non-breaking overload
+     * makes it convenient to preserve insertion-order rendering for callers that need it (e.g., SearchAgent), while
+     * keeping the existing Context-based helpers intact for callers that prefer mtime-based ordering.
+     *
+     * @param readOnlyMessages         read-only workspace messages (may be multimodal)
+     * @param editableFragmentsInOrder editable fragments in the desired order
+     * @return a collection containing one UserMessage (possibly multimodal) and one AiMessage acknowledgment, or empty if no content
+     */
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Collection<ChatMessage> readOnlyMessages, List<ContextFragment> editableFragmentsInOrder) {
+        var combinedText = new StringBuilder();
+        var allImages = new ArrayList<ImageContent>();
+
+        // Extract text and image content from read-only messages (if present)
+        if (readOnlyMessages != null && !readOnlyMessages.isEmpty()) {
+            var readOnlyUserMessage = readOnlyMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (readOnlyUserMessage.isPresent()) {
+                var contents = readOnlyUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    } else if (content instanceof ImageContent imageContent) {
+                        allImages.add(imageContent);
+                    }
+                }
+            }
+        }
+
+        // Render editable fragments in the provided order and append
+        if (editableFragmentsInOrder != null && !editableFragmentsInOrder.isEmpty()) {
+            var rendered = renderFragments(editableFragmentsInOrder);
+            if (!rendered.text.isBlank()) {
+                combinedText.append(rendered.text).append("\n\n");
+            }
+            allImages.addAll(rendered.images);
+        }
+
+        if (combinedText.isEmpty() && allImages.isEmpty()) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var workspaceText =
+                """
+                           <workspace>
+                           %s
+                           </workspace>
+                           """
+                        .formatted(combinedText.toString().trim());
+
+        // text must be first
+        allContents.add(0, new TextContent(workspaceText));
+        allContents.addAll(allImages);
+
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
+    }
+
+    /**
      * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable
      * files/fragments). Handles both text and image fragments, creating a multimodal UserMessage if necessary.
      *
