@@ -2024,10 +2024,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
 
-        // 3. Derive modifier keywords (export, static, async, etc.) using the pre-captured `capturedModifierKeywords`.
-        //    These keywords are already sorted by start byte during `analyzeFileDeclarations`.
-        String exportPrefix =
-                capturedModifierKeywords.isEmpty() ? "" : String.join(" ", capturedModifierKeywords) + " ";
+        // 3. Derive modifier keywords (export, static, async, etc.).
+        //    If the query captured modifiers, use them directly.
+        //    Otherwise, fall back to synthesizing from the AST via getVisibilityPrefix.
+        var modifierTokens = new LinkedHashSet<String>();
+        
+        if (!capturedModifierKeywords.isEmpty()) {
+            // Use query-captured modifiers (already sorted by start byte)
+            modifierTokens.addAll(capturedModifierKeywords);
+        } else {
+            // Fallback: synthesize modifiers from AST
+            String fallbackPrefix = getVisibilityPrefix(nodeForSignature, src);
+            if (!fallbackPrefix.isEmpty()) {
+                for (String token : Splitter.on(Pattern.compile("\\s+"))
+                        .omitEmptyStrings()
+                        .split(fallbackPrefix.strip())) {
+                    modifierTokens.add(token);
+                }
+            }
+        }
+        
+        String exportPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
 
         // 4. Build main signature based on type, using nodeForContent and the derived exportPrefix.
         switch (refined) {
