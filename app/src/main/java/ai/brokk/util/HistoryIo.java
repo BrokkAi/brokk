@@ -12,7 +12,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
 import ai.brokk.context.FrozenFragment;
-import ai.brokk.util.migrationv4.HistoryV4Migrator;
+import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,11 +75,18 @@ public final class HistoryIo {
             }
         }
 
-        if (isV3) {
-            HistoryV4Migrator.migrate(zip, mgr);
+        if (isV4) {
             return readZipV4(zip, mgr);
-        } else if (isV4) {
-            return readZipV4(zip, mgr);
+        } else if (isV3) {
+            try {
+                // Try reading as V4 first (supports migrated zips that still use the V3 filename)
+                return readZipV4(zip, mgr);
+            } catch (Exception ex) {
+                logger.debug(
+                        "Failed to read history zip as V4 (under V3 filename), falling back to V3 reader: {}",
+                        ex.toString());
+                return V3_HistoryIo.readZip(zip, mgr);
+            }
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }
