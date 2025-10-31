@@ -1,4 +1,2 @@
-@NullMarked
-package ai.brokk.annotations;
-
-import org.jspecify.annotations.NullMarked;
+@org.jspecify.annotations.NullMarked
+package ai.brokk.errorprone;
