@@ -26,8 +26,8 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p><strong>Contract:</strong> Contexts stored in this history are <em>live</em> (contain dynamic fragments with
  * {@link ai.brokk.util.ComputedValue} futures). This class does NOT freeze contexts before storing them. For
- * serialization, use {@link #ensureFilesSnapshot(Context, java.time.Duration)} to materialize computed values as
- * needed without blocking the UI.
+ * serialization, use {@link #applySnapshotToWorkspace(Context, IConsoleIO)} (Context, java.time.Duration)} to
+ * materialize computed values as needed without blocking the UI.
  */
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
@@ -153,6 +153,7 @@ public class ContextHistory {
 
     /** Push {@code ctx}, select it, and clear redo stack. */
     public synchronized void pushLive(Context ctx) {
+        ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -165,6 +166,7 @@ public class ContextHistory {
      */
     public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
+        newLive.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
@@ -454,27 +456,6 @@ public class ContextHistory {
 
     /* ────────────────────────── private helpers ─────────────────────────── */
 
-    /**
-     * Best-effort materialization of computed values for all fragments in a context.
-     *
-     * <p>Uses bounded timeouts to avoid blocking indefinitely. Useful before serialization to ensure
-     * {@link ai.brokk.util.ComputedValue} futures are resolved. Timeouts do not cause errors; fragments that
-     * exceed the timeout are serialized with their current state.
-     *
-     * @param ctx the context whose computed values should be materialized
-     * @param timeout the maximum time to wait for each computed value
-     */
-    private void ensureFilesSnapshot(Context ctx, Duration timeout) {
-        for (var fragment : ctx.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                cf.computedDescription().await(timeout);
-                cf.computedSyntaxStyle().await(timeout);
-                cf.computedText().await(timeout);
-                // Image content (if any) will be handled via ImageFragment.image() when needed.
-            }
-        }
-    }
-
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
@@ -549,26 +530,37 @@ public class ContextHistory {
 
                     var pf = fragment.files().iterator().next();
                     try {
-                        String newContent;
                         if (fragment instanceof ContextFragment.ComputedFragment df) {
-                            newContent = df.computedText().tryGet().orElse(fragment.text());
+                            df.computedText().onComplete((newContent, ex) -> {
+                                if (ex != null) {
+                                    io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
+                                } else {
+                                    try {
+                                        applyFragmentSnapshotToWorkspace(newContent, pf, io);
+                                    } catch (IOException e) {
+                                        io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
+                                    }
+                                }
+                            });
                         } else {
-                            newContent = fragment.text();
-                        }
-                        var currentContent = pf.exists() ? pf.read().orElse("") : "";
-
-                        if (!newContent.equals(currentContent)) {
-                            pf.write(newContent);
-                            var restoredFiles = new ArrayList<String>();
-                            restoredFiles.add(pf.toString());
-                            io.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    "Restored files: " + String.join(", ", restoredFiles));
-                            io.updateWorkspace();
+                            applyFragmentSnapshotToWorkspace(fragment.text(), pf, io);
                         }
                     } catch (IOException e) {
                         io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
                     }
                 });
+    }
+
+    private void applyFragmentSnapshotToWorkspace(String newContent, ProjectFile pf, IConsoleIO io) throws IOException {
+        var currentContent = pf.exists() ? pf.read().orElse("") : "";
+
+        if (!newContent.equals(currentContent)) {
+            pf.write(newContent);
+            var restoredFiles = new ArrayList<String>();
+            restoredFiles.add(pf.toString());
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
+            io.updateWorkspace();
+        }
     }
 }

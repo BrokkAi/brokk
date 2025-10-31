@@ -11,6 +11,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.ZipFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,7 +31,6 @@ public class HistoryV4Migrator {
             "git_states.json",
             "entry_infos.json");
     private static final String CONTENT_DIR_PREFIX = "content/";
-    private static final String IMAGES_DIR_PREFIX = "images/";
 
     public static void migrate(Path zip, IContextManager mgr) throws IOException {
         logger.info("Migrating history file to V4 format: {}", zip);
@@ -73,7 +73,7 @@ public class HistoryV4Migrator {
 
     private static Map<String, byte[]> readOtherFiles(Path zip) throws IOException {
         var otherFiles = new HashMap<String, byte[]>();
-        try (var zf = new java.util.zip.ZipFile(zip.toFile())) {
+        try (var zf = new ZipFile(zip.toFile())) {
             var entries = zf.entries();
             while (entries.hasMoreElements()) {
                 var entry = entries.nextElement();
@@ -82,9 +82,7 @@ public class HistoryV4Migrator {
                 }
                 String name = entry.getName();
 
-                if (!V3_HISTORY_FILES.contains(name)
-                        && !name.startsWith(CONTENT_DIR_PREFIX)
-                        && !name.startsWith(IMAGES_DIR_PREFIX)) {
+                if (!V3_HISTORY_FILES.contains(name) && !name.startsWith(CONTENT_DIR_PREFIX)) {
                     try (var is = zf.getInputStream(entry)) {
                         otherFiles.put(name, is.readAllBytes());
                     }

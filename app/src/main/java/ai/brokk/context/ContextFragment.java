@@ -4,22 +4,8 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.*;
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.AnalyzerUtil.CodeWithSource;
-import ai.brokk.ContextManager;
-import ai.brokk.IContextManager;
-import ai.brokk.IProject;
-import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.*;
-import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.analyzer.CallGraphProvider;
-import ai.brokk.analyzer.CallSite;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
-import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -27,10 +13,7 @@ import ai.brokk.annotations.BlockingOperation;
 import ai.brokk.annotations.CheapOperation;
 import ai.brokk.annotations.NonBlockingOperation;
 import ai.brokk.prompts.EditBlockParser;
-import ai.brokk.util.ComputedValue;
-import ai.brokk.util.FragmentUtils;
-import ai.brokk.util.LoggingExecutorService;
-import ai.brokk.util.Messages;
+import ai.brokk.util.*;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.io.IOException;
@@ -38,13 +21,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -1003,7 +980,7 @@ public interface ContextFragment {
                         "iff-image-" + id(),
                         () -> {
                             try {
-                                return FrozenFragment.imageToBytes(image());
+                                return ImageUtil.imageToBytes(image());
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);
                             }
@@ -1467,9 +1444,7 @@ public interface ContextFragment {
         @Nullable
         private static byte[] imageToBytes(@Nullable Image image) {
             try {
-                // Assuming FrozenFragment.imageToBytes will be made public
-                // TODO: [Migration4] FrozenFragments are to be phased out in migration v4
-                return FrozenFragment.imageToBytes(image);
+                return ImageUtil.imageToBytes(image);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }

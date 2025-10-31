@@ -10,10 +10,9 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.FragmentUtils;
+import ai.brokk.util.ImageUtil;
 import java.awt.*;
-import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
@@ -370,7 +369,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             } else {
                 try {
                     var image = liveFragment.image();
-                    imageBytesContent = imageToBytes(image);
+                    imageBytesContent = ImageUtil.imageToBytes(image);
                 } catch (UncheckedIOException e) {
                     // If image can't be read, treat as empty image data
                     logger.warn(
@@ -617,35 +616,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     /** Clears the internal intern pool. For testing purposes only. */
     public static void clearInternPoolForTesting() {
         INTERN_POOL.clear();
-    }
-
-    /**
-     * Converts an Image to a byte array in PNG format.
-     *
-     * @param image The image to convert
-     * @return PNG bytes, or null if image is null
-     * @throws IOException If conversion fails
-     */
-    @Nullable
-    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
-        if (image == null) {
-            return null;
-        }
-
-        BufferedImage bufferedImage;
-        if (image instanceof BufferedImage bi) {
-            bufferedImage = bi;
-        } else {
-            bufferedImage = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-            var g = bufferedImage.createGraphics();
-            g.drawImage(image, 0, 0, null);
-            g.dispose();
-        }
-
-        try (var baos = new ByteArrayOutputStream()) {
-            ImageIO.write(bufferedImage, "PNG", baos);
-            return baos.toByteArray();
-        }
     }
 
     /**
