@@ -78,43 +78,18 @@
   (type_alias_declaration
     name: (type_identifier) @typealias.name) @typealias.definition)
 
-; Export arrow functions in const/let declarations
-; Matches: export const myFunc = () => { }, export let asyncFunc = async (x) => x
+; Export variable declarations (unified for all value types)
+; Matches: export const myFunc = () => {}, export let PI = 3.14, export var x = 1
+; Arrow functions will be reclassified as FUNCTION_LIKE by TypescriptAnalyzer.refineSkeletonType
 (export_statement
-  "export" @keyword.modifier
   (lexical_declaration
-    ["const" "let"] @keyword.modifier
     (variable_declarator
-      name: (identifier) @function.name
-      value: (arrow_function)))) @function.definition
+      name: (identifier) @value.name)) @value.definition)
 
-; Export variable declarations (non-arrow functions)
-; Matches: export const PI = 3.14, export let name = "John"
-; Note: Explicitly excludes arrow functions which are handled by the pattern above
 (export_statement
-  "export" @keyword.modifier
-  (lexical_declaration
-    ["const" "let"] @keyword.modifier
-    (variable_declarator
-      name: (identifier) @value.name
-      value: [
-        (number) (string) (template_string) (true) (false) (null) (undefined) 
-        (identifier) (member_expression) (subscript_expression)
-        (call_expression) (new_expression) (await_expression)
-        (object) (array) (regex) (binary_expression) (unary_expression)
-        (update_expression) (ternary_expression) (assignment_expression)
-        (parenthesized_expression) (sequence_expression)
-      ]))) @value.definition
-
-; Export var declarations
-; Matches: export var legacyVar = "value"
-(export_statement
-  "export" @keyword.modifier
   (variable_declaration
-    "var" @keyword.modifier
     (variable_declarator
-      name: (identifier) @value.name
-      value: (_)))) @value.definition
+      name: (identifier) @value.name)) @value.definition)
 
 ; ============================================================================
 ; TOP-LEVEL DECLARATIONS (NON-EXPORTED)
@@ -157,40 +132,18 @@
   (type_alias_declaration
     name: (type_identifier) @typealias.name) @typealias.definition)
 
-; Top-level arrow functions in const/let declarations (non-export)
-; Matches: const myFunc = () => { }, let compute = (x: number) => x * 2
+; Top-level variable declarations (unified for all value types)
+; Matches: const myFunc = () => {}, let PI = 3.14, var x = 1
+; Arrow functions will be reclassified as FUNCTION_LIKE by TypescriptAnalyzer.refineSkeletonType
 (program
   (lexical_declaration
-    ["const" "let"] @keyword.modifier
     (variable_declarator
-      name: (identifier) @function.name
-      value: (arrow_function))) @function.definition)
+      name: (identifier) @value.name)) @value.definition)
 
-; Top-level variable declarations (non-arrow, non-export)
-; Matches: const PI = 3.14, let config = { host: "localhost" }
-; Note: The extensive value list ensures we don't accidentally match arrow functions
-(program
-  (lexical_declaration
-    ["const" "let"] @keyword.modifier
-    (variable_declarator
-      name: (identifier) @value.name
-      value: [
-        (number) (string) (template_string) (true) (false) (null) (undefined) 
-        (identifier) (member_expression) (subscript_expression)
-        (call_expression) (new_expression) (await_expression)
-        (object) (array) (regex) (binary_expression) (unary_expression)
-        (update_expression) (ternary_expression) (assignment_expression)
-        (parenthesized_expression) (sequence_expression)
-      ])) @value.definition)
-
-; Top-level var declarations (non-export)
-; Matches: var oldStyle = "legacy"
 (program
   (variable_declaration
-    "var" @keyword.modifier
     (variable_declarator
-      name: (identifier) @value.name
-      value: (_))) @value.definition)
+      name: (identifier) @value.name)) @value.definition)
 
 ; ============================================================================
 ; AMBIENT DECLARATIONS
