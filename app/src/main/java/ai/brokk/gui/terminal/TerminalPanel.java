@@ -430,7 +430,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme) {
         // Refresh the entire component tree to apply theme changes
         SwingUtilities.updateComponentTreeUI(this);
-        
+
         boolean dark = guiTheme.isDarkTheme();
         if (widget != null) {
             applyTerminalColors(dark);
