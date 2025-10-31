@@ -1,11 +1,15 @@
 package ai.brokk.tools;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractProject;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
+import ai.brokk.testutil.TestProject;
+import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +17,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.eclipse.jgit.api.Git;
+import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,8 +38,31 @@ public class SearchToolsTest {
     private Path projectRoot;
     private GitRepo repo;
     private SearchTools searchTools;
-    /** mutable set returned from the project-proxy’s getAllFiles() */
+    /** mutable set returned from the project-proxy's getAllFiles() */
     private Set<ProjectFile> mockProjectFiles;
+
+    // For analyzer-dependent tests
+    @Nullable
+    private static JavaAnalyzer javaAnalyzer;
+
+    @Nullable
+    private static TestProject javaTestProject;
+
+    @BeforeAll
+    static void setupAnalyzer() throws IOException {
+        Path javaTestPath =
+                Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
+        assertTrue(Files.exists(javaTestPath), "Test resource directory 'testcode-java' not found.");
+        javaTestProject = new TestProject(javaTestPath, Languages.JAVA);
+        javaAnalyzer = new JavaAnalyzer(javaTestProject);
+    }
+
+    @AfterAll
+    static void teardownAnalyzer() {
+        if (javaTestProject != null) {
+            javaTestProject.close();
+        }
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -183,5 +213,63 @@ public class SearchToolsTest {
         assertTrue(
                 resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
                 "Should find file with regex pattern");
+    }
+
+    @Test
+    void testGetClassSkeletons() {
+        // Create a context manager that provides the Java analyzer
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> javaAnalyzer;
+                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
+                        case "getProject" -> javaTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        // Test 1: Valid class names - verify skeleton structure
+        String result = tools.getClassSkeletons(List.of("A", "D"));
+        assertFalse(result.isEmpty(), "Result should not be empty for valid classes");
+
+        // Split by double newline to get individual skeletons
+        String[] skeletons = result.split("\n\n");
+        assertTrue(skeletons.length >= 2, "Should have at least 2 skeletons");
+
+        // Verify that skeletons contain class declarations
+        boolean foundA = false;
+        boolean foundD = false;
+        for (String skeleton : skeletons) {
+            if (skeleton.contains("class A") && !skeleton.contains("class AB")) {
+                foundA = true;
+                // Verify it's a skeleton (should not contain method bodies)
+                assertFalse(skeleton.contains("System.out"), "Skeleton should not contain method body");
+            }
+            if (skeleton.contains("class D")) {
+                foundD = true;
+                assertFalse(skeleton.contains("System.out"), "Skeleton should not contain method body");
+            }
+        }
+        assertTrue(foundA, "Should find skeleton for class A");
+        assertTrue(foundD, "Should find skeleton for class D");
+
+        // Test 2: Mix of valid and invalid class names
+        String result2 = tools.getClassSkeletons(List.of("A", "NonExistent"));
+        assertFalse(result2.isEmpty(), "Should return results even with some invalid names");
+        assertTrue(result2.contains("class A"), "Should still contain skeleton for valid class A");
+
+        // Test 3: Non-existent class only
+        String result3 = tools.getClassSkeletons(List.of("CompletelyFake"));
+        assertTrue(
+                result3.contains("No classes found") || result3.isEmpty(),
+                "Should handle non-existent class gracefully");
+
+        // Test 4: Verify CodeUnit-native API is used (not String-based)
+        // This is implicitly tested by the fact that the method works correctly
+        // The refactored code uses getDefinition(String) -> filter(isClass) -> getSkeleton(CodeUnit)
+        String result4 = tools.getClassSkeletons(List.of("A"));
+        assertTrue(result4.contains("class A"), "CodeUnit-native API should work correctly");
     }
 }

@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static ai.brokk.testutil.TestProject.*;
+import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.IProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -79,7 +82,7 @@ class SqlAnalyzerTest {
         assertEquals(1, fileDecls.size());
         assertTrue(fileDecls.contains(tableCu));
 
-        Optional<ProjectFile> pfOpt = analyzer.getFileFor("my_table");
+        Optional<ProjectFile> pfOpt = AnalyzerUtil.getFileFor(analyzer, "my_table");
         assertTrue(pfOpt.isPresent());
         assertEquals(projectFile, pfOpt.get());
 
@@ -87,11 +90,11 @@ class SqlAnalyzerTest {
         assertTrue(defOpt.isPresent());
         assertEquals(tableCu, defOpt.get());
 
-        Optional<String> skeletonOpt = analyzer.getSkeleton("my_table");
+        Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "my_table");
         assertTrue(skeletonOpt.isPresent());
         assertEquals(sqlContent, skeletonOpt.get().trim());
 
-        Optional<String> skeletonHeaderOpt = analyzer.getSkeletonHeader("my_table");
+        Optional<String> skeletonHeaderOpt = AnalyzerUtil.getSkeletonHeader(analyzer, "my_table");
         assertTrue(skeletonHeaderOpt.isPresent());
         assertEquals(sqlContent, skeletonHeaderOpt.get().trim());
     }
@@ -115,7 +118,7 @@ class SqlAnalyzerTest {
         assertEquals("my_schema.my_view", viewCu.fqName());
         assertTrue(viewCu.isClass(), "View should be treated as class-like.");
 
-        Optional<String> skeletonOpt = analyzer.getSkeleton("my_schema.my_view");
+        Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "my_schema.my_view");
         assertTrue(skeletonOpt.isPresent());
         assertEquals(sqlContent, skeletonOpt.get().trim());
     }
@@ -204,11 +207,11 @@ class SqlAnalyzerTest {
         assertEquals(sqlContent.getBytes(StandardCharsets.UTF_8).length, r2.endByte(), "v_two end byte");
 
         // Test skeleton extraction based on these ranges
-        Optional<String> skel1 = analyzer.getSkeleton("tbl_one");
+        Optional<String> skel1 = AnalyzerUtil.getSkeleton(analyzer, "tbl_one");
         assertTrue(skel1.isPresent());
         assertEquals(line1, skel1.get().trim());
 
-        Optional<String> skel2 = analyzer.getSkeleton("v_two");
+        Optional<String> skel2 = AnalyzerUtil.getSkeleton(analyzer, "v_two");
         assertTrue(skel2.isPresent());
         assertEquals(line2, skel2.get().trim());
     }

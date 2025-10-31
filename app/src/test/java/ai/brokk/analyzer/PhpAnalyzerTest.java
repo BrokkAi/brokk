@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.IProject;
 import java.io.IOException;
 import java.util.Optional;
@@ -89,7 +90,7 @@ public class PhpAnalyzerTest {
     void testGetSkeletons_FooClass() {
         ProjectFile fooFile = new ProjectFile(testProject.getRoot(), "Foo.php");
         CodeUnit fooClassCU = CodeUnit.cls(fooFile, "My.Lib", "Foo");
-        Optional<String> skeletonOpt = analyzer.getSkeleton(fooClassCU.fqName());
+        Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, fooClassCU.fqName());
         assertTrue(skeletonOpt.isPresent(), "Skeleton for Foo class should exist.");
 
         String expectedSkeleton =
@@ -122,7 +123,7 @@ public class PhpAnalyzerTest {
     void testGetSkeletons_GlobalFunction() {
         ProjectFile fooFile = new ProjectFile(testProject.getRoot(), "Foo.php");
         CodeUnit utilFuncCU = CodeUnit.fn(fooFile, "My.Lib", "util_func");
-        Optional<String> skeletonOpt = analyzer.getSkeleton(utilFuncCU.fqName());
+        Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, utilFuncCU.fqName());
         assertTrue(skeletonOpt.isPresent(), "Skeleton for util_func should exist.");
         String expectedSkeleton = "function util_func(): void { ... }"; // Return type was missing.
         assertEquals(expectedSkeleton.trim(), skeletonOpt.get().trim(), "util_func skeleton mismatch.");
@@ -133,7 +134,7 @@ public class PhpAnalyzerTest {
         ProjectFile varsFile = new ProjectFile(testProject.getRoot(), "Vars.php");
         // For global constants, CodeUnit is _module_.CONST_NAME
         CodeUnit constCU = CodeUnit.field(varsFile, "", "_module_.TOP_LEVEL_CONST");
-        Optional<String> skeletonOpt = analyzer.getSkeleton(constCU.fqName());
+        Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, constCU.fqName());
         assertTrue(skeletonOpt.isPresent(), "Skeleton for TOP_LEVEL_CONST should exist.");
         // The SCM query for (const_declaration (const_element name value)) @field.definition
         // `buildSignatureString` for FIELD_LIKE uses `textSlice(nodeForContent, src)`
@@ -162,13 +163,13 @@ public class PhpAnalyzerTest {
         ProjectFile fooFile = new ProjectFile(testProject.getRoot(), "Foo.php");
 
         CodeUnit interfaceCU = CodeUnit.cls(fooFile, "My.Lib", "IFoo");
-        Optional<String> iFooOpt = analyzer.getSkeleton(interfaceCU.fqName());
+        Optional<String> iFooOpt = AnalyzerUtil.getSkeleton(analyzer, interfaceCU.fqName());
         assertTrue(iFooOpt.isPresent(), "Skeleton for IFoo interface should exist.");
         assertEquals(
                 "interface IFoo { }", iFooOpt.get().trim()); // Adjusted PhpAnalyzer to output this for empty bodies
 
         CodeUnit traitCU = CodeUnit.cls(fooFile, "My.Lib", "MyTrait");
-        Optional<String> traitOpt = analyzer.getSkeleton(traitCU.fqName());
+        Optional<String> traitOpt = AnalyzerUtil.getSkeleton(analyzer, traitCU.fqName());
         assertTrue(traitOpt.isPresent(), "Skeleton for MyTrait should exist.");
         String expectedTraitSkeleton =
                 """
@@ -199,7 +200,7 @@ public class PhpAnalyzerTest {
 
     @Test
     void testGetMethodSource() {
-        Optional<String> sourceOpt = analyzer.getMethodSource("My.Lib.Foo.getValue", true);
+        Optional<String> sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "My.Lib.Foo.getValue", true);
         assertTrue(sourceOpt.isPresent());
         String expectedSource =
                 """
@@ -212,7 +213,7 @@ public class PhpAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
         assertEquals(normalize.apply(expectedSource), normalize.apply(sourceOpt.get()));
 
-        Optional<String> constructorSourceOpt = analyzer.getMethodSource("My.Lib.Foo.__construct", true);
+        Optional<String> constructorSourceOpt = AnalyzerUtil.getMethodSource(analyzer, "My.Lib.Foo.__construct", true);
         assertTrue(constructorSourceOpt.isPresent());
         String expectedConstructorSource =
                 """
@@ -228,7 +229,7 @@ public class PhpAnalyzerTest {
     void testGetClassSource() {
         Optional<CodeUnit> fooClassCUOpt = analyzer.getDefinition("My.Lib.Foo");
         assertTrue(fooClassCUOpt.isPresent());
-        final var sourceOpt = analyzer.getClassSource("My.Lib.Foo", true);
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "My.Lib.Foo", true);
         assertTrue(sourceOpt.isPresent());
         final var classSource = sourceOpt.get();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";

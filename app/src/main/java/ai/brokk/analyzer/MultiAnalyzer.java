@@ -1,13 +1,16 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.IProject;
-import com.google.common.io.Files;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+public class MultiAnalyzer
+        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
+    private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -35,6 +38,36 @@ public class MultiAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodePro
                                 list1.stream(), list2.stream())
                         .distinct()
                         .collect(Collectors.toList())));
+    }
+
+    /**
+     * Get the delegate analyzer for the language of the given CodeUnit.
+     *
+     * @param cu The CodeUnit whose language to detect
+     * @return The delegate analyzer for that language, or empty if no delegate exists
+     */
+    private Optional<IAnalyzer> delegateFor(CodeUnit cu) {
+        var lang = Languages.fromExtension(cu.source().extension());
+        var delegate = delegates.get(lang);
+        if (delegate == null) {
+            log.debug("No delegate found for language {} (from file {})", lang, cu.source());
+        }
+        return Optional.ofNullable(delegate);
+    }
+
+    /**
+     * Get the delegate analyzer for the language of the given ProjectFile.
+     *
+     * @param file The ProjectFile whose language to detect
+     * @return The delegate analyzer for that language, or empty if no delegate exists
+     */
+    private Optional<IAnalyzer> delegateFor(ProjectFile file) {
+        var lang = Languages.fromExtension(file.extension());
+        var delegate = delegates.get(lang);
+        if (delegate == null) {
+            log.debug("No delegate found for language {} (from file {})", lang, file);
+        }
+        return Optional.ofNullable(delegate);
     }
 
     @Override
@@ -67,55 +100,60 @@ public class MultiAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodePro
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return findFirst(analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(fqName)));
+    public Map<String, List<CallSite>> getCallgraphTo(CodeUnit method, int depth) {
+        return delegateFor(method)
+                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
+                .map(cgp -> cgp.getCallgraphTo(method, depth))
+                .orElse(Collections.emptyMap());
     }
 
     @Override
-    public Optional<String> getSkeletonHeader(String className) {
-        return findFirst(
-                analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(className)));
+    public Map<String, List<CallSite>> getCallgraphFrom(CodeUnit method, int depth) {
+        return delegateFor(method)
+                .flatMap(delegate -> delegate.as(CallGraphProvider.class))
+                .map(cgp -> cgp.getCallgraphFrom(method, depth))
+                .orElse(Collections.emptyMap());
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        return delegateFor(cu)
+                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
+                .flatMap(skp -> skp.getSkeleton(cu));
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(CodeUnit classUnit) {
+        return delegateFor(classUnit)
+                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
+                .flatMap(skp -> skp.getSkeletonHeader(classUnit));
     }
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getTopLevelDeclarations(file);
-        }
-        return List.of();
+        return delegateFor(file)
+                .map(delegate -> delegate.getTopLevelDeclarations(file))
+                .orElse(List.of());
     }
 
     @Override
     public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        var lang = Languages.fromExtension(
-                Files.getFileExtension(cu.source().absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getSubDeclarations(cu);
-        }
-        return List.of();
+        return delegateFor(cu).map(delegate -> delegate.getSubDeclarations(cu)).orElse(List.of());
     }
 
     @Override
-    public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
-                        .map(scp -> scp.getMethodSources(fqName, includeComments))
-                        .filter(sources -> !sources.isEmpty()))
+    public Set<String> getMethodSources(CodeUnit method, boolean includeComments) {
+        return delegateFor(method)
+                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
+                .map(scp -> scp.getMethodSources(method, includeComments))
                 .orElse(Collections.emptySet());
     }
 
     @Override
-    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
-        for (var delegate : delegates.values()) {
-            final var maybeSource =
-                    delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
-            if (maybeSource.isPresent()) {
-                return maybeSource;
-            }
-        }
-        return Optional.empty();
+    public Optional<String> getClassSource(CodeUnit classUnit, boolean includeComments) {
+        return delegateFor(classUnit)
+                .flatMap(delegate -> delegate.as(SourceCodeProvider.class))
+                .flatMap(scp -> scp.getClassSource(classUnit, includeComments));
     }
 
     @Override
@@ -126,24 +164,17 @@ public class MultiAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodePro
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate == null) {
-            return Collections.emptyMap();
-        } else {
-            return delegate.as(SkeletonProvider.class)
-                    .map(sk -> sk.getSkeletons(file))
-                    .orElse(Collections.emptyMap());
-        }
+        return delegateFor(file)
+                .flatMap(delegate -> delegate.as(SkeletonProvider.class))
+                .map(sk -> sk.getSkeletons(file))
+                .orElse(Collections.emptyMap());
     }
 
     @Override
-    public List<CodeUnit> getMembersInClass(String fqClass) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> analyzer.getMembersInClass(fqClass).stream())
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
+    public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
+        return delegateFor(classUnit)
+                .map(delegate -> delegate.getMembersInClass(classUnit))
+                .orElse(List.of());
     }
 
     @Override
@@ -157,27 +188,12 @@ public class MultiAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodePro
 
     @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
-        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
-        var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getDeclarations(file);
-        }
-        return Set.of();
-    }
-
-    @Override
-    public Optional<ProjectFile> getFileFor(String fqName) {
-        return findFirst(analyzer -> analyzer.getFileFor(fqName));
+        return delegateFor(file).map(delegate -> delegate.getDeclarations(file)).orElse(Set.of());
     }
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return findFirst(analyzer -> analyzer.getDefinition(fqName));
-    }
-
-    @Override
-    public boolean isDefinitionAvailable(String fqName) {
-        return delegates.values().stream().anyMatch(analyzer -> analyzer.isDefinitionAvailable(fqName));
     }
 
     @Override

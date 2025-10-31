@@ -176,7 +176,7 @@ public class ContextMenuBuilder {
             var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
             var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
             if (analyzer != null
-                    && analyzer.isDefinitionAvailable(fqn)
+                    && analyzer.getDefinition(fqn).isPresent()
                     && analyzer.as(SourceCodeProvider.class).isPresent()) {
                 var captureSourceItem = new JMenuItem("Capture Class Source");
                 captureSourceItem.addActionListener(e -> captureClassSource(context));

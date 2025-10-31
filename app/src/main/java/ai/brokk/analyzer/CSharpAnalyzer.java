@@ -35,10 +35,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "type",
             "type_parameter_list", // typeParametersFieldName (C# generics)
             Map.of(
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "function.definition", SkeletonType.FUNCTION_LIKE,
-                    "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "",
             Set.of());
 
@@ -74,19 +74,19 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         CodeUnit result;
         try {
             result = switch (captureName) {
-                case "class.definition" -> {
+                case CaptureNames.CLASS_DEFINITION -> {
                     String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                     yield CodeUnit.cls(file, packageName, finalShortName);
                 }
-                case "function.definition" -> {
+                case CaptureNames.FUNCTION_DEFINITION -> {
                     String finalShortName = classChain + "." + simpleName;
                     yield CodeUnit.fn(file, packageName, finalShortName);
                 }
-                case "constructor.definition" -> {
+                case CaptureNames.CONSTRUCTOR_DEFINITION -> {
                     String finalShortName = classChain + ".<init>";
                     yield CodeUnit.fn(file, packageName, finalShortName);
                 }
-                case "field.definition" -> {
+                case CaptureNames.FIELD_DEFINITION -> {
                     String finalShortName = classChain + "." + simpleName;
                     yield CodeUnit.field(file, packageName, finalShortName);
                 }

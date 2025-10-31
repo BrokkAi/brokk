@@ -11,7 +11,6 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -736,7 +735,7 @@ public class EditBlock {
         var scp = scpOpt.get();
 
         if ("CLASS".equals(kind)) {
-            Optional<String> opt = scp.getClassSource(fqName, true);
+            Optional<String> opt = AnalyzerUtil.getClassSource(analyzer, fqName, true);
             if (opt.isEmpty()) {
                 var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                 var suggestions = analyzer.searchDefinitions(shortName).stream()
@@ -752,12 +751,7 @@ public class EditBlock {
             }
             return opt.get();
         } else {
-            Set<String> sources;
-            try {
-                sources = scp.getMethodSources(fqName, true);
-            } catch (ai.brokk.analyzer.SymbolNotFoundException e) {
-                sources = Collections.emptySet();
-            }
+            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
             if (sources.isEmpty()) {
                 var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                 var suggestions = analyzer.searchDefinitions(methodKey).stream()

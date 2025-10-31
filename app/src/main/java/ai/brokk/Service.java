@@ -226,6 +226,7 @@ public class Service implements IExceptionReportingService {
 
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
+    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_MINI = "gpt-5-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -1041,7 +1042,7 @@ public class Service implements IExceptionReportingService {
 
     /** Returns a model optimized for scanning tasks. */
     public StreamingChatModel getScanModel() {
-        var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
+        var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GPT_5_MINI;
         var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {
             logger.error("Failed to get scan model '{}'", modelName);
@@ -1057,6 +1058,15 @@ public class Service implements IExceptionReportingService {
      */
     public boolean hasSttModel() {
         return !(sttModel instanceof UnavailableSTT);
+    }
+
+    /**
+     * Checks whether the service is online and capable of handling chat requests.
+     */
+    public boolean isOnline() {
+        boolean hasUsableModel = modelLocations.keySet().stream().anyMatch(name -> !UNAVAILABLE.equals(name));
+        boolean quickModelAvailable = !(quickModel instanceof UnavailableStreamingModel);
+        return hasUsableModel && quickModelAvailable;
     }
 
     /** Interface for speech-to-text operations. Can remain static as it's just an interface definition. */

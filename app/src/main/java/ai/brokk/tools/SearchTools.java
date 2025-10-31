@@ -261,7 +261,7 @@ public class SearchTools {
 
         var result = classNames.stream()
                 .distinct()
-                .map(fqcn -> ((SkeletonProvider) getAnalyzer()).getSkeleton(fqcn))
+                .map(fqcn -> AnalyzerUtil.getSkeleton(getAnalyzer(), fqcn))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .collect(Collectors.joining("\n\n"));

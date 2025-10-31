@@ -8,6 +8,10 @@ on:
     branches: [ 'master-snapshot', 'jdeploy-test' ]
   workflow_dispatch:
 
+concurrency:
+  group: jdeploy-release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   build:
     permissions:

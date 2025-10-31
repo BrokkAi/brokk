@@ -103,13 +103,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     @Nullable
-    private JRadioButton uiScaleAutoRadio; // Hidden on macOS
+    private JRadioButton uiScaleAutoRadio; // Hidden on macOS or with the JBR
 
     @Nullable
-    private JRadioButton uiScaleCustomRadio; // Hidden on macOS
+    private JRadioButton uiScaleCustomRadio; // Hidden on macOS or with the JBR
 
     @Nullable
-    private JComboBox<String> uiScaleCombo; // Hidden on macOS
+    private JComboBox<String> uiScaleCombo; // Hidden on macOS or with the JBR
 
     // JVM memory settings controls (General tab)
     private JRadioButton memoryAutoRadio = new JRadioButton("Automatic (recommended)");
@@ -849,9 +849,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         appearancePanel.add(wordWrapCheckbox, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
+        //
+        // Detect JetBrains Runtime (JBR) and defer to its HiDPI handling if present
+        var vmVendor = System.getProperty("java.vm.vendor", "");
+        var runtimeName = System.getProperty("java.runtime.name", "");
+        boolean isJbr = vmVendor.toLowerCase(Locale.ROOT).contains("jetbrains")
+                || runtimeName.toLowerCase(Locale.ROOT).contains("jetbrains");
 
         // UI Scale controls (hidden on macOS)
-        if (!Environment.isMacOs()) {
+        if (!Environment.isMacOs() && !isJbr) {
             gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
             gbc.gridx = 0;
             gbc.gridy = row;

@@ -45,7 +45,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         var effectiveSimpleName = simpleName;
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        if ("constructor.definition".equals(captureName)) {
+        if (CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
             // This is a primary constructor, which is matched against the class name. This constructor is "implicit"
             // and needs to be created explicitly as follows.
             effectiveSimpleName = simpleName + "." + simpleName;
@@ -148,14 +148,14 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             "return_type", // return type field name
             "type_parameters", // type parameters field name
             Map.of( // capture configuration
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "object.definition", SkeletonType.CLASS_LIKE,
-                    "trait.definition", SkeletonType.CLASS_LIKE,
-                    "enum.definition", SkeletonType.CLASS_LIKE,
-                    "method.definition", SkeletonType.FUNCTION_LIKE,
-                    "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE,
-                    "lambda.definition", SkeletonType.FUNCTION_LIKE),
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.OBJECT_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.TRAIT_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.ENUM_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
+                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );

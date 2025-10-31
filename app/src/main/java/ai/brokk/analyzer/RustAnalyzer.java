@@ -33,10 +33,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             "return_type", // e.g., function_item.return_type
             "type_parameters", // Rust generics
             Map.of(
-                    "class.definition", SkeletonType.CLASS_LIKE,
-                    "impl.definition", SkeletonType.CLASS_LIKE,
-                    "function.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.IMPL_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "",
             Set.of(VISIBILITY_MODIFIER));
 
@@ -173,14 +173,15 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             // "class.definition" is for struct, trait, enum.
             // "impl.definition" is for impl blocks. Both create class-like CodeUnits.
             // simpleName for "impl.definition" will be the type being implemented (e.g., "Point").
-            case "class.definition", "impl.definition" -> CodeUnit.cls(file, packageName, simpleName);
-            case "function.definition" -> {
+            case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION ->
+                CodeUnit.cls(file, packageName, simpleName);
+            case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
                 // For free functions, classChain will be empty.
                 String fqSimpleName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 yield CodeUnit.fn(file, packageName, fqSimpleName);
             }
-            case "field.definition" -> {
+            case CaptureNames.FIELD_DEFINITION -> {
                 // For struct fields, classChain is the struct name.
                 // For top-level const/static, classChain is empty.
                 String fieldShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;

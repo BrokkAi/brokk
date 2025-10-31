@@ -1,7 +1,9 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -123,7 +125,7 @@ public final class JavascriptAnalyzerTest {
 
         assertEquals(
                 expectedExportedArrowFnSkeleton.trim(),
-                jsAnalyzer.getSkeleton(jsxArrowFn.fqName()).get().trim(),
+                jsAnalyzer.getSkeleton(jsxArrowFn).get().trim(),
                 "getSkeleton mismatch for JsxArrowFnComponent FQ name");
 
         var skelJs = jsAnalyzer.getSkeletons(helloJsFile);
@@ -288,7 +290,7 @@ public final class JavascriptAnalyzerTest {
         assertEquals(expectedMuSkeleton.trim(), skeletons.get(muCU).trim(), "modifyUser skeleton mismatch.");
 
         // Verify getSkeleton for one of the CUs
-        Optional<String> mecSkeletonOpt = jsAnalyzer.getSkeleton(mecCU.fqName());
+        Optional<String> mecSkeletonOpt = jsAnalyzer.getSkeleton(mecCU);
         assertTrue(mecSkeletonOpt.isPresent(), "getSkeleton should find MyExportedComponent by FQ name.");
         assertEquals(
                 expectedMecSkeleton.trim(),
@@ -356,7 +358,7 @@ public final class JavascriptAnalyzerTest {
     @Test
     void testGetSkeletonHeader() {
         // Test case 1: Class in JSX
-        Optional<String> jsxClassHeader = jsAnalyzer.getSkeletonHeader("JsxClass");
+        Optional<String> jsxClassHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "JsxClass");
         assertTrue(jsxClassHeader.isPresent(), "Skeleton header for JsxClass should be defined.");
         assertEquals(
                 """
@@ -368,71 +370,71 @@ public final class JavascriptAnalyzerTest {
                 jsxClassHeader.get().trim());
 
         // Test case 2: Arrow function component in JSX
-        Optional<String> jsxArrowFnHeader = jsAnalyzer.getSkeletonHeader("JsxArrowFnComponent");
+        Optional<String> jsxArrowFnHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "JsxArrowFnComponent");
         assertTrue(jsxArrowFnHeader.isPresent(), "Skeleton header for JsxArrowFnComponent should be defined.");
         assertEquals(
                 "export JsxArrowFnComponent({ name }): JSX.Element => ...",
                 jsxArrowFnHeader.get().trim());
 
         // Test case 3: Regular function in JS
-        Optional<String> utilFuncHeader = jsAnalyzer.getSkeletonHeader("util"); // From Hello.js
+        Optional<String> utilFuncHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "util"); // From Hello.js
         assertTrue(utilFuncHeader.isPresent(), "Skeleton header for util function should be defined.");
         assertEquals("export function util() ...", utilFuncHeader.get().trim());
 
         // Test case 4: Non-existent FQ name
-        Optional<String> nonExistentHeader = jsAnalyzer.getSkeletonHeader("NonExistentSymbol");
+        Optional<String> nonExistentHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "NonExistentSymbol");
         assertTrue(nonExistentHeader.isEmpty(), "Skeleton header for a non-existent symbol should be empty.");
     }
 
     @Test
     void testGetMembersInClass() {
         // Test case 1: JsxClass in Hello.jsx
-        List<CodeUnit> jsxClassMembers = jsAnalyzer.getMembersInClass("JsxClass");
+        List<CodeUnit> jsxClassMembers = AnalyzerUtil.getMembersInClass(jsAnalyzer, "JsxClass");
         assertFalse(jsxClassMembers.isEmpty(), "JsxClass should have members.");
         CodeUnit renderMethod = CodeUnit.fn(helloJsxFile, "", "JsxClass.render");
         assertTrue(jsxClassMembers.contains(renderMethod), "JsxClass members should include render method.");
         assertEquals(1, jsxClassMembers.size(), "JsxClass should have 1 member (render).");
 
         // Test case 2: Hello class in Hello.js
-        List<CodeUnit> helloClassMembers = jsAnalyzer.getMembersInClass("Hello");
+        List<CodeUnit> helloClassMembers = AnalyzerUtil.getMembersInClass(jsAnalyzer, "Hello");
         assertFalse(helloClassMembers.isEmpty(), "Hello class should have members.");
         CodeUnit greetMethod = CodeUnit.fn(helloJsFile, "", "Hello.greet");
         assertTrue(helloClassMembers.contains(greetMethod), "Hello class members should include greet method.");
         assertEquals(1, helloClassMembers.size(), "Hello class should have 1 member (greet).");
 
         // Test case 3: Non-class FQ name (e.g., a function)
-        List<CodeUnit> functionMembers = jsAnalyzer.getMembersInClass("util"); // 'util' is a function
+        List<CodeUnit> functionMembers = AnalyzerUtil.getMembersInClass(jsAnalyzer, "util"); // 'util' is a function
         assertTrue(functionMembers.isEmpty(), "A function should not have members in this context.");
 
         // Test case 4: Non-existent FQ name
-        List<CodeUnit> nonExistentMembers = jsAnalyzer.getMembersInClass("NonExistentClass");
+        List<CodeUnit> nonExistentMembers = AnalyzerUtil.getMembersInClass(jsAnalyzer, "NonExistentClass");
         assertTrue(nonExistentMembers.isEmpty(), "A non-existent class should have no members.");
     }
 
     @Test
     void testGetFileFor() {
         // Test case 1: Function in Hello.js
-        Optional<ProjectFile> utilFile = jsAnalyzer.getFileFor("util");
+        Optional<ProjectFile> utilFile = AnalyzerUtil.getFileFor(jsAnalyzer, "util");
         assertTrue(utilFile.isPresent(), "File for 'util' function should be found.");
         assertEquals(helloJsFile, utilFile.get());
 
         // Test case 2: Class in Hello.jsx
-        Optional<ProjectFile> jsxClassFile = jsAnalyzer.getFileFor("JsxClass");
+        Optional<ProjectFile> jsxClassFile = AnalyzerUtil.getFileFor(jsAnalyzer, "JsxClass");
         assertTrue(jsxClassFile.isPresent(), "File for 'JsxClass' should be found.");
         assertEquals(helloJsxFile, jsxClassFile.get());
 
         // Test case 3: Method in Hello.jsx (JsxClass.render)
-        Optional<ProjectFile> renderMethodFile = jsAnalyzer.getFileFor("JsxClass.render");
+        Optional<ProjectFile> renderMethodFile = AnalyzerUtil.getFileFor(jsAnalyzer, "JsxClass.render");
         assertTrue(renderMethodFile.isPresent(), "File for 'JsxClass.render' method should be found.");
         assertEquals(helloJsxFile, renderMethodFile.get());
 
         // Test case 4: Top-level variable in Vars.js
-        Optional<ProjectFile> topConstJsFile = jsAnalyzer.getFileFor("Vars.js.TOP_CONST_JS");
+        Optional<ProjectFile> topConstJsFile = AnalyzerUtil.getFileFor(jsAnalyzer, "Vars.js.TOP_CONST_JS");
         assertTrue(topConstJsFile.isPresent(), "File for 'Vars.js.TOP_CONST_JS' should be found.");
         assertEquals(varsJsFile, topConstJsFile.get());
 
         // Test case 5: Non-existent FQ name
-        Optional<ProjectFile> nonExistentFile = jsAnalyzer.getFileFor("NonExistentSymbol");
+        Optional<ProjectFile> nonExistentFile = AnalyzerUtil.getFileFor(jsAnalyzer, "NonExistentSymbol");
         assertTrue(nonExistentFile.isEmpty(), "File for a non-existent symbol should not be found.");
     }
 
@@ -584,7 +586,7 @@ public final class JavascriptAnalyzerTest {
     @Test
     void testGetClassSource_Js() {
         // Test case 1: Valid class from Hello.js
-        final var helloSourceOpt = jsAnalyzer.getClassSource("Hello", true);
+        final var helloSourceOpt = AnalyzerUtil.getClassSource(jsAnalyzer, "Hello", true);
         assertTrue(helloSourceOpt.isPresent());
         final var helloClassSource = helloSourceOpt.get();
         String expectedHelloClassSource =
@@ -595,7 +597,7 @@ public final class JavascriptAnalyzerTest {
         assertEquals(expectedHelloClassSource.trim(), helloClassSource.trim());
 
         // Test case 2: Valid class from Hello.jsx
-        final var jsxClassSourceOpt = jsAnalyzer.getClassSource("JsxClass", true);
+        final var jsxClassSourceOpt = AnalyzerUtil.getClassSource(jsAnalyzer, "JsxClass", true);
         assertTrue(jsxClassSourceOpt.isPresent());
         final var jsxClassSource = jsxClassSourceOpt.get();
         String expectedJsxClassSource =
@@ -609,24 +611,26 @@ public final class JavascriptAnalyzerTest {
 
         // Test case 3: Non-existent class
         assertTrue(
-                jsAnalyzer.getClassSource("NonExistentClass", true).isEmpty(),
+                AnalyzerUtil.getClassSource(jsAnalyzer, "NonExistentClass", true)
+                        .isEmpty(),
                 "Requesting source for a non-existent class should return Optional.empty().");
 
         // Test case 4: Existing symbol that is a function, not a class
         assertTrue(
-                jsAnalyzer.getClassSource("util", true).isEmpty(),
+                AnalyzerUtil.getClassSource(jsAnalyzer, "util", true).isEmpty(),
                 "Requesting class source for a function symbol should return Optional.empty().");
 
         // Test case 5: Existing symbol that is a field, not a class
         assertTrue(
-                jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS", true).isEmpty(),
+                AnalyzerUtil.getClassSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true)
+                        .isEmpty(),
                 "Requesting class source for a field symbol should return Optional.empty().");
     }
 
     @Test
     void testGetMethodSource_Js() {
         // Test case 1: Method in Hello.js
-        Optional<String> greetMethodSourceOpt = jsAnalyzer.getMethodSource("Hello.greet", true);
+        Optional<String> greetMethodSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "Hello.greet", true);
         assertTrue(greetMethodSourceOpt.isPresent(), "Source for 'Hello.greet' should be found.");
         String expectedGreetMethodSource = """
         greet() { console.log("hi"); }""";
@@ -634,7 +638,7 @@ public final class JavascriptAnalyzerTest {
                 expectedGreetMethodSource.trim(), greetMethodSourceOpt.get().trim());
 
         // Test case 2: Method in Hello.jsx
-        Optional<String> renderMethodSourceOpt = jsAnalyzer.getMethodSource("JsxClass.render", true);
+        Optional<String> renderMethodSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "JsxClass.render", true);
         assertTrue(renderMethodSourceOpt.isPresent(), "Source for 'JsxClass.render' should be found.");
         String expectedRenderMethodSource =
                 """
@@ -645,14 +649,14 @@ public final class JavascriptAnalyzerTest {
                 expectedRenderMethodSource.trim(), renderMethodSourceOpt.get().trim());
 
         // Test case 3: Exported function in Hello.js
-        Optional<String> utilFuncSourceOpt = jsAnalyzer.getMethodSource("util", true);
+        Optional<String> utilFuncSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "util", true);
         assertTrue(utilFuncSourceOpt.isPresent(), "Source for 'util' function should be found.");
         String expectedUtilFuncSource = """
         export function util() { return 42; }""";
         assertEquals(expectedUtilFuncSource.trim(), utilFuncSourceOpt.get().trim());
 
         // Test case 4: Exported arrow function in Hello.jsx
-        Optional<String> jsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("JsxArrowFnComponent", true);
+        Optional<String> jsxArrowFnSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "JsxArrowFnComponent", true);
         assertTrue(jsxArrowFnSourceOpt.isPresent(), "Source for 'JsxArrowFnComponent' should be found.");
         // Note: The source for an arrow function assigned to a const/let is just the arrow function part.
         String expectedJsxArrowFnSource =
@@ -667,7 +671,7 @@ public final class JavascriptAnalyzerTest {
         assertEquals(expectedJsxArrowFnSource.trim(), jsxArrowFnSourceOpt.get().trim());
 
         // Test case 5: Local (non-exported) arrow function in Hello.jsx
-        Optional<String> localJsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("LocalJsxArrowFn", true);
+        Optional<String> localJsxArrowFnSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "LocalJsxArrowFn", true);
         assertTrue(localJsxArrowFnSourceOpt.isPresent(), "Source for 'LocalJsxArrowFn' should be found.");
         String expectedLocalJsxArrowFnSource = """
         () => <button>Click Me</button>""";
@@ -676,7 +680,7 @@ public final class JavascriptAnalyzerTest {
                 localJsxArrowFnSourceOpt.get().trim());
 
         // Test case 6: Local (non-exported) plain function in Hello.jsx
-        Optional<String> plainJsxFuncSourceOpt = jsAnalyzer.getMethodSource("PlainJsxFunc", true);
+        Optional<String> plainJsxFuncSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "PlainJsxFunc", true);
         assertTrue(plainJsxFuncSourceOpt.isPresent(), "Source for 'PlainJsxFunc' should be found.");
         String expectedPlainJsxFuncSource =
                 """
@@ -687,19 +691,21 @@ public final class JavascriptAnalyzerTest {
                 expectedPlainJsxFuncSource.trim(), plainJsxFuncSourceOpt.get().trim());
 
         // Test case 7: Non-existent method
-        Optional<String> nonExistentMethodSourceOpt = jsAnalyzer.getMethodSource("NonExistent.method", true);
+        Optional<String> nonExistentMethodSourceOpt =
+                AnalyzerUtil.getMethodSource(jsAnalyzer, "NonExistent.method", true);
         assertTrue(
                 nonExistentMethodSourceOpt.isEmpty(),
                 "Requesting source for a non-existent method should return Option.empty().");
 
         // Test case 8: Existing symbol that is a class, not a function
-        Optional<String> classAsMethodSourceOpt = jsAnalyzer.getMethodSource("Hello", true);
+        Optional<String> classAsMethodSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "Hello", true);
         assertTrue(
                 classAsMethodSourceOpt.isEmpty(),
                 "Requesting method source for a class symbol should return Option.empty().");
 
         // Test case 9: Existing symbol that is a field, not a function
-        Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("Vars.js.TOP_CONST_JS", true);
+        Optional<String> fieldAsMethodSourceOpt =
+                AnalyzerUtil.getMethodSource(jsAnalyzer, "Vars.js.TOP_CONST_JS", true);
         assertTrue(
                 fieldAsMethodSourceOpt.isEmpty(),
                 "Requesting method source for a field symbol should return Option.empty().");

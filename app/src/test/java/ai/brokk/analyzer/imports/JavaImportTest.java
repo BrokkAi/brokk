@@ -3,6 +3,7 @@ package ai.brokk.analyzer.imports;
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
@@ -23,7 +24,7 @@ public class JavaImportTest {
                         "Foo.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var file = analyzer.getFileFor("Foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.Baz;", "import Bar;");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
@@ -41,7 +42,7 @@ public class JavaImportTest {
                         "Foo.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var file = analyzer.getFileFor("Foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import static foo.bar.Baz.method;");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");
@@ -59,7 +60,7 @@ public class JavaImportTest {
                         "Foo.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            var file = analyzer.getFileFor("Foo").get();
+            var file = AnalyzerUtil.getFileFor(analyzer, "Foo").get();
             var imports = analyzer.importStatementsOf(file);
             var expected = Set.of("import foo.bar.*;");
             assertEquals(expected, new HashSet<>(imports), "Imports should be identical");

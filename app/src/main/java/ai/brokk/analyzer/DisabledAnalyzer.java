@@ -13,7 +13,7 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnit> getMembersInClass(String fqClass) {
+    public List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
         return Collections.emptyList();
     }
 
@@ -50,5 +50,15 @@ public class DisabledAnalyzer implements IAnalyzer {
     @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         return Optional.empty();
+    }
+
+    @Override
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        return update();
+    }
+
+    @Override
+    public IAnalyzer update() {
+        return new DisabledAnalyzer();
     }
 }

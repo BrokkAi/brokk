@@ -30,7 +30,7 @@ Brokk documentation is at https://brokk.ai/documentation/.
 # Contributing
 
 Brokk uses Gradle with Scala support. To build Brokk,
-1. Ensure you have JDK 21 or newer
+1. Ensure you have JDK 21 or newer. Note the JetBrains Runtime is the preferred JDK.
 2. Run Gradle commands directly: `./gradlew <command>`
 3. Available commands: `run`, `test`, `build`, `shadowJar`, `tidy`, etc.
 

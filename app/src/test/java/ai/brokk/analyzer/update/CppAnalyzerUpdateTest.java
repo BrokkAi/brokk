@@ -2,6 +2,7 @@ package ai.brokk.analyzer.update;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CppAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -46,7 +47,7 @@ class CppAnalyzerUpdateTest {
                 int bar() { return 2; }
                 """);
 
-        var maybeFile = analyzer.getFileFor("foo");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "foo");
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
@@ -65,7 +66,7 @@ class CppAnalyzerUpdateTest {
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("baz").isPresent());
 
-        var file = analyzer.getFileFor("foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
         assertTrue(analyzer.getDefinition("foo").isEmpty());

@@ -441,6 +441,10 @@ public class TreeSitterRepoRunner {
                 .forEach(file -> System.out.println("  " + file.absPath().toString() + " (exists: "
                         + file.absPath().toFile().exists() + ")"));
 
+        if (files.size() > 5) {
+            System.out.println("  ...");
+        }
+
         try {
             var result = runProjectBaseline(testProject != null ? testProject : "custom", testLanguage);
 

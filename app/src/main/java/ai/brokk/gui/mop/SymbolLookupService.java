@@ -1,5 +1,6 @@
 package ai.brokk.gui.mop;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ClassNameExtractor;
 import ai.brokk.analyzer.CodeUnit;
@@ -314,7 +315,7 @@ public class SymbolLookupService {
             }
 
             // Fallback: Try partial matching via class name extraction
-            var extractedClassName = analyzer.extractClassName(trimmed);
+            var extractedClassName = AnalyzerUtil.extractClassName(analyzer, trimmed);
             if (extractedClassName.isPresent()) {
                 var rawClassName = extractedClassName.get();
                 logger.trace("Extracted class name '{}' from '{}'", rawClassName, trimmed);

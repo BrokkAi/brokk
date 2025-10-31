@@ -72,7 +72,6 @@ public class ModelSelector {
         for (var listener : selectionListeners) {
             listener.accept(fm.config());
         }
-        chrome.getProject().setCodeModelConfig(lastSelected.config());
     }
 
     public JComponent getComponent() {
@@ -195,7 +194,6 @@ public class ModelSelector {
                 for (var listener : selectionListeners) {
                     listener.accept(lastSelected.config());
                 }
-                chrome.getProject().setCodeModelConfig(lastSelected.config());
             } else {
                 // No new favorite created: restore prior selection (or default)
                 revertSelection(priorSelection);

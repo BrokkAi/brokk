@@ -10,7 +10,27 @@ import java.util.Locale;
 import java.util.Optional;
 
 public interface BrokkFile extends Comparable<BrokkFile> {
-    /** Heuristic binary detection: presence of NUL within the first few KB. */
+    /** Heuristic binary detection: presence of NUL within the first few KB, reading from disk without loading full file. */
+    default boolean isBinary() {
+        try {
+            var path = absPath();
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                return false;
+            }
+            try (var in = Files.newInputStream(path)) {
+                byte[] buf = new byte[8192];
+                int n = in.read(buf);
+                if (n <= 0) return false;
+                for (int i = 0; i < n; i++) {
+                    if (buf[i] == 0) return true;
+                }
+                return false;
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     static boolean isBinary(String content) {
         int limit = Math.min(content.length(), 8192);
         for (int i = 0; i < limit; i++) {

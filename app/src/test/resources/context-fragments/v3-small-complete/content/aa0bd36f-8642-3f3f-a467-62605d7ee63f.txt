@@ -1,0 +1,44 @@
+Of course. Based on the code you've provided, here is an analysis of the key components and their interactions, which seem to revolve around user input completion and file path resolution.
+
+### The `Completions` Utility Class
+
+The central piece of functionality across all the provided files is the `io.github.jbellis.brokk.Completions` class. This appears to be a core utility responsible for two main tasks:
+
+1.  **Symbol Autocompletion (`completeSymbols`)**: It provides suggestions for code symbols (like classes, methods, etc.) based on a partial user input string. The tests in `CompletionsTest.java` reveal that its matching logic is quite sophisticated, supporting:
+    *   Simple prefix matching (`arch` -> `a.b.Architect`).
+    *   Camel case matching (`CC` -> `test.CamelClass`).
+    *   Unqualified, case-insensitive matching on the simple name (`do` -> `a.b.Do`).
+    *   Resolution of nested classes (`Re` -> `a.b.Do.Re`).
+
+2.  **File Path Expansion and Scoring (`expandPath`, `expandPatternToPaths`, `scoreShortAndLong`)**: It resolves file paths that may contain glob patterns (`*`, `**`).
+    *   `expandPath` is used by the agent tools to turn a user-provided pattern like `"src/main/**/*.java"` into a concrete list of `BrokkFile` objects.
+    *   `scoreShortAndLong` is a generic and powerful method used by UI completion providers. It takes a list of candidates and scores them against a user's pattern, using separate functions for short-form matching (e.g., just the filename) and long-form matching (e.g., the full path). This allows it to rank more relevant results higher.
+
+This class is a great example of centralizing complex, reusable logic, which keeps the GUI and Tooling code cleaner and focused on their primary responsibilities.
+
+### Usage in GUI Panels for Autocompletion
+
+Several UI components leverage the `Completions` class to provide a rich autocompletion experience. Each panel's `CompletionProvider` uses it in a slightly different, context-aware way:
+
+*   **`InstructionsPanel`**: This is the most dynamic implementation. It intelligently switches between file and symbol completion. If the user types a path separator (`/` or `\`), it uses `Completions.scoreShortAndLong` to suggest project files. Otherwise, it uses `Completions.completeSymbols` to suggest code symbols. This provides a seamless experience in a free-form text area.
+
+*   **`FileSelectionPanel` & `ProjectFilesPanel`**: These panels are specialized for file input and use `Completions.scoreShortAndLong` to provide ranked suggestions from a set of candidate files (either all tracked git files or a pre-configured list).
+
+*   **`SymbolSelectionPanel` & `MultiFileSelectionDialog`**: These dialogs are for selecting code symbols and use `Completions.completeSymbols` to populate their suggestion lists, filtering for specific kinds of symbols (e.g., only classes).
+
+### Usage in Agent Tools
+
+The agent tools (`SearchTools`, `WorkspaceTools`) use the file expansion capabilities of the `Completions` class to make their functions more powerful and user-friendly.
+
+*   Both `getFileSummaries` and `addFileSummariesToWorkspace` accept a list of strings representing file paths.
+*   They use `Completions.expandPath` to process these strings, automatically resolving any glob patterns.
+*   This allows a user to specify a broad pattern like `['src/main/java/com/example/util/*.java']` instead of having to list every single file, which is a significant usability improvement. The tools can then operate on the fully resolved list of `ProjectFile`s.
+
+### Testing Strategy
+
+The `CompletionsTest.java` file demonstrates a solid unit testing approach for the symbol completion logic.
+
+*   **Mocking**: It uses a `MockAnalyzer` to provide a consistent set of symbols for testing. This isolates the `Completions` class from the complexities of a real code analysis engine, ensuring the tests are fast, reliable, and focused purely on the matching and filtering logic.
+*   **Scenario Coverage**: The tests cover a good range of common user input scenarios, from simple prefixes to more complex camel case and unqualified name matching.
+
+Overall, the code demonstrates a well-designed architecture where a central utility provides powerful string-matching and path-resolution services to various parts of the application, from user-facing GUI components to backend agent tools.

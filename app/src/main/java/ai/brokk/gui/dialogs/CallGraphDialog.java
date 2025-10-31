@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.analyzer.CallGraphProvider;
 import ai.brokk.analyzer.CallSite;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.gui.components.MaterialButton;
@@ -151,11 +152,13 @@ public class CallGraphDialog extends JDialog {
         final Map<String, List<CallSite>> callGraph = new HashMap<>();
         try {
             analyzer.as(CallGraphProvider.class).ifPresent(cgp -> {
-                if (isCallerGraph) {
-                    callGraph.putAll(cgp.getCallgraphTo(methodName, depth));
-                } else {
-                    callGraph.putAll(cgp.getCallgraphFrom(methodName, depth));
-                }
+                analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).ifPresent(methodCu -> {
+                    if (isCallerGraph) {
+                        callGraph.putAll(cgp.getCallgraphTo(methodCu, depth));
+                    } else {
+                        callGraph.putAll(cgp.getCallgraphFrom(methodCu, depth));
+                    }
+                });
             });
 
             // Count total call sites

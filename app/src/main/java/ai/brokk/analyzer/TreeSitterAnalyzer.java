@@ -94,6 +94,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     });
     private final ThreadLocal<TSQuery> query;
 
+    /**
+     * Gets the thread-local query for use in subclass overrides.
+     * @return the thread-local query instance
+     */
+    protected TSQuery getThreadLocalQuery() {
+        return query.get();
+    }
+
     // transferable snapshot of analyzer state
     private volatile AnalyzerState state;
 
@@ -512,8 +520,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getSkeletonHeader(String fqName) {
-        return getSkeletonImpl(fqName, true);
+    public Optional<String> getSkeletonHeader(CodeUnit cu) {
+        return Optional.of(reconstructFullSkeleton(cu, true));
     }
 
     @Override
@@ -529,11 +537,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst();
-    }
-
-    @Override
-    public boolean isDefinitionAvailable(String fqName) {
-        return allCodeUnits().anyMatch(cu -> cu.fqName().equals(fqName));
     }
 
     @Override
@@ -779,19 +782,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return getSkeletonImpl(fqName, false);
-    }
-
-    public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
-        final var cuOpt = getDefinition(fqName);
-        if (cuOpt.isPresent()) {
-            var skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
-            log.trace("getSkeleton: fqName='{}', found=true", fqName);
-            return Optional.of(skeleton);
-        }
-        log.trace("getSkeleton: fqName='{}', found=false", fqName);
-        return Optional.empty();
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        var skeleton = reconstructFullSkeleton(cu, false);
+        log.trace("getSkeleton: fqName='{}', found=true", cu.fqName());
+        return Optional.of(skeleton);
     }
 
     private static boolean containsAnyHierarchySeparator(String s) {
@@ -832,12 +826,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<String> getClassSource(String fqName, boolean includeComments) {
-        var cuOpt = getDefinition(fqName).filter(CodeUnit::isClass);
-        if (cuOpt.isEmpty()) {
+    public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
+        if (!cu.isClass()) {
             return Optional.empty();
         }
-        var cu = cuOpt.get();
 
         var ranges = rangesOf(cu);
         if (ranges.isEmpty()) {
@@ -861,65 +853,57 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<String> getMethodSources(String fqName, boolean includeComments) {
-        return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
-                // overloads)
-                .filter(CodeUnit::isFunction)
-                .map(cu -> {
-                    List<Range> rangesForOverloads = rangesOf(cu);
-                    if (rangesForOverloads.isEmpty()) {
-                        log.warn(
-                                "No source ranges found for CU {} (fqName {}) although definition was found.",
-                                cu,
-                                fqName);
-                        return Collections.<String>emptySet();
-                    }
+    public Set<String> getMethodSources(CodeUnit cu, boolean includeComments) {
+        if (!cu.isFunction()) {
+            return Collections.emptySet();
+        }
 
-                    var fileContentOpt = cu.source().read();
-                    if (fileContentOpt.isEmpty()) {
-                        log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
-                        return Collections.<String>emptySet();
-                    }
-                    String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
+        List<Range> rangesForOverloads = rangesOf(cu);
+        if (rangesForOverloads.isEmpty()) {
+            log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, cu.fqName());
+            return Collections.emptySet();
+        }
 
-                    var methodSources = new LinkedHashSet<String>();
-                    for (Range range : rangesForOverloads) {
-                        // Choose start byte based on includeComments parameter
-                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-                        String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, extractStartByte, range.endByte());
-                        if (!methodSource.isEmpty()) {
-                            methodSources.add(methodSource);
-                        } else {
-                            log.warn(
-                                    "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    extractStartByte,
-                                    range.endByte(),
-                                    cu,
-                                    fqName);
-                        }
-                    }
-                    if (methodSources.isEmpty()) {
-                        log.warn(
-                                "After processing ranges, no valid method sources found for CU {} (fqName {}).",
-                                cu,
-                                fqName);
-                    }
-                    return methodSources;
-                })
-                .orElse(Collections.emptySet());
+        var fileContentOpt = cu.source().read();
+        if (fileContentOpt.isEmpty()) {
+            log.warn("Could not read source for CU {} (fqName {}): {}", cu, cu.fqName(), "unreadable");
+            return Collections.emptySet();
+        }
+        String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
+
+        var methodSources = new LinkedHashSet<String>();
+        for (Range range : rangesForOverloads) {
+            // Choose start byte based on includeComments parameter
+            int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+            String methodSource =
+                    ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, extractStartByte, range.endByte());
+            if (!methodSource.isEmpty()) {
+                methodSources.add(methodSource);
+            } else {
+                log.warn(
+                        "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                        extractStartByte,
+                        range.endByte(),
+                        cu,
+                        cu.fqName());
+            }
+        }
+        if (methodSources.isEmpty()) {
+            log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
+        }
+        return methodSources;
     }
 
     @Override
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
+            Set<String> sources = getMethodSources(codeUnit, includeComments);
             if (sources.isEmpty()) {
                 return Optional.empty();
             }
             return Optional.of(String.join("\n\n", sources));
         } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName(), includeComments);
+            return getClassSource(codeUnit, includeComments);
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }
@@ -1036,11 +1020,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Builds the parent FQName from package name and class chain for parent-child relationship lookup. Override this
+     * Builds the parent FQName from class chain for parent-child relationship lookup. Override this
      * method to apply language-specific FQName correction logic.
      */
-    protected String buildParentFqName(String packageName, String classChain) {
-        return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        return Stream.of(cu.packageName(), classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 
     /**
@@ -1056,6 +1040,200 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected String getLanguageSpecificIndent() {
         return "  ";
     } // Default
+
+    /**
+     * Checks if a node should be skipped for top-level processing.
+     * Default implementation returns false (no skipping).
+     * Language-specific analyzers can override this to filter out certain nodes.
+     */
+    protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
+        return false;
+    }
+
+    /**
+     * Determines whether a duplicate CodeUnit with the same FQN should replace the existing one.
+     * Default behavior is to keep the first definition and reject duplicates.
+     *
+     * @param cu the new CodeUnit that would be a duplicate
+     * @return true if duplicates should replace existing (Python "last wins"), false otherwise
+     */
+    protected boolean shouldReplaceOnDuplicate(CodeUnit cu) {
+        return false;
+    }
+
+    /**
+     * Determines whether decorators are wrapped in a parent node vs appearing as preceding siblings.
+     * Python wraps decorators in a decorated_definition node containing both decorators and the definition.
+     * Other languages (TypeScript, Java) have decorators as preceding sibling nodes.
+     *
+     * @return true if decorators are wrapped in a parent node, false if they precede the definition
+     */
+    protected boolean hasWrappingDecoratorNode() {
+        return false;
+    }
+
+    /**
+     * Extracts the actual definition node from a decorator-wrapping node and collects decorator text.
+     * Only called if hasWrappingDecoratorNode() returns true.
+     *
+     * @param decoratedNode the wrapping node (e.g., Python's decorated_definition)
+     * @param outDecoratorLines list to append decorator text to
+     * @param srcBytes source code bytes
+     * @param profile language syntax profile for identifying decorator and definition node types
+     * @return the unwrapped definition node
+     */
+    protected TSNode extractContentFromDecoratedNode(
+            TSNode decoratedNode, List<String> outDecoratorLines, byte[] srcBytes, LanguageSyntaxProfile profile) {
+        return decoratedNode; // default: no unwrapping needed
+    }
+
+    /**
+     * Determines whether export statements should be unwrapped to access the inner declaration.
+     * JavaScript/TypeScript wrap exported declarations in export_statement nodes.
+     *
+     * @return true if this language uses export statement wrappers that need unwrapping
+     */
+    protected boolean shouldUnwrapExportStatements() {
+        return false;
+    }
+
+    /**
+     * Determines whether variable declarations need unwrapping to find specific declarators.
+     * JavaScript/TypeScript use lexical_declaration (const/let) and variable_declaration (var)
+     * which contain variable_declarator nodes that might hold arrow functions or const values.
+     *
+     * @param node the node to check
+     * @param skeletonType the expected skeleton type
+     * @return true if unwrapping is needed
+     */
+    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
+        return false;
+    }
+
+    /**
+     * Determines whether multiple signatures with the same FQN should be merged.
+     * JavaScript/TypeScript allow function overloads and prefer exported versions.
+     *
+     * @return true if signatures should be merged when FQNs match
+     */
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return false;
+    }
+
+    /**
+     * Extracts receiver type for method definitions in languages that support receivers.
+     * Examples: Go methods, Rust impl blocks, C++ member functions.
+     *
+     * @param node the method definition node
+     * @param primaryCaptureName the primary capture name (e.g., "method.definition")
+     * @param fileBytes source code bytes
+     * @return the receiver type name (with leading * removed for pointers), or empty if no receiver
+     */
+    protected Optional<String> extractReceiverType(TSNode node, String primaryCaptureName, byte[] fileBytes) {
+        return Optional.empty();
+    }
+
+    /**
+     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
+     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
+     */
+    private void addTopLevelCodeUnit(
+            CodeUnit cu,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            ProjectFile file) {
+
+        boolean alreadyExists =
+                localTopLevelCUs.stream().anyMatch(existing -> existing.fqName().equals(cu.fqName()));
+
+        if (!alreadyExists) {
+            localTopLevelCUs.add(cu);
+        } else if (shouldReplaceOnDuplicate(cu)) {
+            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
+            CodeUnit oldCu = localTopLevelCUs.stream()
+                    .filter(existing -> existing.fqName().equals(cu.fqName()))
+                    .findFirst()
+                    .orElse(null);
+
+            localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+            localTopLevelCUs.add(cu);
+
+            // Recursively remove the old definition and all its descendants from all maps
+            // This prevents orphaned children from appearing in the final result
+            if (oldCu != null) {
+                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
+            }
+        } else {
+            // Unexpected duplicate for languages that don't allow replacement
+            log.error(
+                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={})",
+                    file.getFileName(),
+                    cu.fqName(),
+                    cu.kind());
+        }
+    }
+
+    /**
+     * Recursively removes a CodeUnit and all its descendants from the analysis maps.
+     * Used when replacing Python duplicates to ensure children of the old definition don't appear in results.
+     */
+    private void removeCodeUnitAndDescendants(
+            CodeUnit cu,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+
+        log.trace("Removing CodeUnit from maps: {} (kind={})", cu.fqName(), cu.kind());
+
+        // Get children before removing from map
+        List<CodeUnit> children = localChildren.get(cu);
+
+        // Remove this CodeUnit from all maps
+        localChildren.remove(cu);
+        localSignatures.remove(cu);
+        localSourceRanges.remove(cu);
+
+        // Recursively remove all descendants
+        if (children != null) {
+            log.trace("  Removing {} children of {}", children.size(), cu.fqName());
+            for (CodeUnit child : children) {
+                removeCodeUnitAndDescendants(child, localChildren, localSignatures, localSourceRanges);
+            }
+        }
+    }
+
+    /**
+     * Adds a child CodeUnit to its parent's children list.
+     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
+     * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
+     */
+    private void addChildCodeUnit(
+            CodeUnit cu,
+            CodeUnit parentCu,
+            List<CodeUnit> kids,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            ProjectFile file) {
+
+        if (!kids.contains(cu)) {
+            kids.add(cu);
+        } else if (shouldReplaceOnDuplicate(cu)) {
+            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
+            CodeUnit oldCu = kids.stream().filter(k -> k.equals(cu)).findFirst().orElse(null);
+
+            if (oldCu != null) {
+                kids.remove(oldCu);
+                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
+                kids.add(cu);
+            }
+        } else {
+            // For languages that don't allow replacement, just skip the duplicate
+            log.trace("Skipping duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
+        }
+    }
 
     /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
@@ -1081,15 +1259,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             TSParser localParser,
             @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
         log.trace("analyzeFileContent: Parsing file: {}", file);
-        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
-
-        String src = new String(fileBytes, StandardCharsets.UTF_8);
-
-        // Check if file is binary early and skip processing if so
-        if (BrokkFile.isBinary(src)) {
-            log.debug("Skipping binary file: {}", file);
+        // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
+        if (fileBytes.length == 0) {
+            log.trace("Skipping binary/empty file: {}", file);
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
         }
+
+        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
+        String src = new String(fileBytes, StandardCharsets.UTF_8);
 
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
@@ -1313,67 +1490,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String classChain = String.join(".", enclosingClassNames);
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
-            // Adjust simpleName and classChain for Go methods to correctly include the receiver type
-            if (language == Languages.GO && "method.definition".equals(primaryCaptureName)) {
-                // The SCM query for Go methods captures `@method.receiver.type` and `@method.identifier`
-                // `simpleName` at this point is from `@method.identifier` (e.g., "MyMethod")
-                // We need to find the receiver type from the original captures for this match
-                // The `capturedNodes` map (re-populated per match earlier in the loop) is not directly available here.
-                // We need to re-access the specific captures for the current `match` associated with `node`.
-                // This requires finding the original TSQueryMatch or passing its relevant parts.
-                // For now, let's assume `node` is the `method_declaration` node, and we can query its children.
-                // A more robust way would be to pass `capturedNodes` from the outer loop or re-query for this specific
-                // `node`.
+            // Adjust simpleName and classChain for methods with receivers (e.g., Go methods)
+            Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, fileBytes);
+            if (receiverType.isPresent()) {
+                String receiverTypeText = receiverType.get();
+                simpleName = receiverTypeText + "." + simpleName;
+                classChain = receiverTypeText; // For methods with receivers, classChain is the receiver type
+                log.trace("Adjusted method with receiver: simpleName='{}', classChain='{}'", simpleName, classChain);
+            }
 
-                TSNode receiverNode;
-                // TSNode methodIdentifierNode = null; // This would be `node.getChildByFieldName("name")` for
-                // method_declaration
-                // or more reliably, the node associated with captureName.replace(".definition", ".name")
-                // simpleName is already derived from method.identifier.
-
-                // Re-evaluate captures specific to this `node` (method_definition)
-                // This is a simplified re-querying logic. A more efficient approach might involve
-                // passing the full `capturedNodes` map associated with the `match` that led to this `node`.
-                TSQueryCursor an_cursor = new TSQueryCursor();
-                TSQuery currentThreadQueryForNode = this.query.get(); // Get thread-specific query for this operation
-                an_cursor.exec(currentThreadQueryForNode, node); // Execute query only on the current definition node
-                TSQueryMatch an_match = new TSQueryMatch();
-                Map<String, TSNode> localCaptures = new HashMap<>();
-                if (an_cursor.nextMatch(an_match)) { // Should find one match for the definition node itself
-                    for (TSQueryCapture capture : an_match.getCaptures()) {
-                        String capName = currentThreadQueryForNode.getCaptureNameForId(capture.getIndex());
-                        localCaptures.put(capName, capture.getNode());
-                    }
-                }
-
-                receiverNode = localCaptures.get("method.receiver.type");
-
-                if (receiverNode != null && !receiverNode.isNull()) {
-                    String receiverTypeText = textSlice(receiverNode, fileBytes).trim();
-                    if (receiverTypeText.startsWith("*")) {
-                        receiverTypeText = receiverTypeText.substring(1).trim();
-                    }
-                    if (!receiverTypeText.isEmpty()) {
-                        simpleName = receiverTypeText + "." + simpleName;
-                        classChain = receiverTypeText; // For Go methods, classChain is the receiver type
-                        log.trace("Adjusted Go method: simpleName='{}', classChain='{}'", simpleName, classChain);
-                    } else {
-                        log.warn(
-                                "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
-                                textSlice(receiverNode, fileBytes));
-                    }
-                } else {
-                    log.warn(
-                            "Go method: Could not find capture for @method.receiver.type for method '{}'. FQN might be incorrect.",
-                            simpleName);
-                }
+            // Check if this node should be skipped for top-level processing
+            if (shouldSkipNode(node, primaryCaptureName, fileBytes)) {
+                log.trace(
+                        "Skipping node {} ({}) in file {} due to language-specific filtering",
+                        simpleName,
+                        primaryCaptureName,
+                        file.getFileName());
+                continue;
             }
 
             CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
-                log.warn("createCodeUnit returned null for node {} ({})", simpleName, primaryCaptureName);
+                log.trace(
+                        "createCodeUnit returned null for node {} ({}) in file {}",
+                        simpleName,
+                        primaryCaptureName,
+                        file.getFileName());
                 continue;
             }
 
@@ -1394,22 +1538,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     signature.isBlank()
                             ? "BLANK"
                             : signature.lines().findFirst().orElse("EMPTY"));
-
-            if (file.getFileName().equals("vars.py") && primaryCaptureName.equals("field.definition")) {
-                log.trace(
-                        "[vars.py DEBUG] Processing entry for vars.py field: Node Type='{}', SimpleName='{}', CaptureName='{}', PackageName='{}', ClassChain='{}'",
-                        node.getType(),
-                        simpleName,
-                        primaryCaptureName,
-                        packageName,
-                        classChain);
-                log.trace(
-                        "[vars.py DEBUG] CU created: {}, Signature: [{}]",
-                        cu,
-                        signature.isBlank()
-                                ? "BLANK_SIG"
-                                : signature.lines().findFirst().orElse("EMPTY_SIG"));
-            }
 
             if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual
@@ -1434,7 +1562,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
-                    && (language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)) {
+                    && shouldMergeSignaturesForSameFqn()) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1445,7 +1573,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     log.warn(
                             "Replacing non-exported CU/signature list for {} with new EXPORTED signature.",
                             cu.fqName());
-                    localSignatures.remove(existingCUforKeyLookup); // Remove old CU's signatures
+                    // Remove old CU from all maps to ensure clean replacement
+                    localSignatures.remove(existingCUforKeyLookup);
+                    localSourceRanges.remove(existingCUforKeyLookup);
+                    localChildren.remove(existingCUforKeyLookup);
                     // The new signature for `cu` will be added below.
                 } else if (!newIsExported && oldIsExported) {
                     log.trace(
@@ -1492,9 +1623,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        if (!kids.contains(cu)) {
-                            kids.add(cu);
-                        }
+                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, file);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -1506,23 +1635,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
-                    localTopLevelCUs.add(cu);
+                    // Top-level CU - use helper to handle duplicates appropriately
+                    addTopLevelCodeUnit(cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
                 } else {
                     // Parent's shortName is the classChain string itself.
-                    String parentFqName = buildParentFqName(cu.packageName(), classChain);
+                    String parentFqName = buildParentFqName(cu, classChain);
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        if (!kids.contains(cu)) { // Prevent adding duplicate children
-                            kids.add(cu);
-                        }
+                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, file);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
                                 cu,
                                 parentFqName,
                                 classChain);
-                        localTopLevelCUs.add(cu); // Fallback
+                        // Fallback: add as top-level, but use helper to handle duplicates
+                        addTopLevelCodeUnit(
+                                cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
                     }
                 }
             }
@@ -1643,10 +1773,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         TSNode nodeForContent = definitionNode;
         TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
 
-        // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
+        // 1. Handle language-specific structural unwrapping (e.g., export statements)
         // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
-        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
-                && "export_statement".equals(definitionNode.getType())) {
+        if (shouldUnwrapExportStatements() && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
                 // Check if the inner declaration's type matches what's expected for the skeletonType
@@ -1658,7 +1787,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         typeMatch = profile.functionLikeNodeTypes().contains(innerType)
                                 ||
                                 // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                                ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
+                                (shouldUnwrapExportStatements()
                                         && ("lexical_declaration".equals(innerType)
                                                 || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
@@ -1683,10 +1812,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
+        if (needsVariableDeclaratorUnwrapping(nodeForContent, skeletonType)
                 && ("lexical_declaration".equals(nodeForContent.getType())
-                        || "variable_declaration".equals(nodeForContent.getType()))
-                && (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
+                        || "variable_declaration".equals(nodeForContent.getType()))) {
             // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator
             // by name
             log.trace(
@@ -1728,22 +1856,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
 
-        if (language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
-            // Python's decorated_definition: decorators and actual def are children.
-            // Process decorators directly here and identify the actual content node.
-            for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
-                TSNode child = definitionNode.getNamedChild(i);
-                if (profile.decoratorNodeTypes().contains(child.getType())) {
-                    signatureLines.add(textSlice(child, srcBytes).stripLeading());
-                } else if (profile.functionLikeNodeTypes().contains(child.getType())
-                        || profile.classLikeNodeTypes().contains(child.getType())) {
-                    nodeForContent = child;
-                }
-            }
-        }
-        // 2. Handle decorators for languages where they precede the definition
-        //    (Skip if Python already handled its specific decorator structure)
-        if (!(language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
+        // 1. Handle decorators: check if language wraps them in a parent node or if they precede the definition
+        if (hasWrappingDecoratorNode()) {
+            // Language wraps decorators in a parent node (e.g., Python's decorated_definition)
+            nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, srcBytes, profile);
+        } else {
+            // 2. Handle decorators for languages where they precede the definition as siblings
             List<TSNode> decorators =
                     getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {
@@ -2488,6 +2606,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private byte[] readFileBytes(ProjectFile pf, @Nullable ConstructionTiming timing) {
         long __readStart = System.nanoTime();
         try {
+            if (pf.isBinary()) {
+                log.trace("Detected binary file during read, skipping: {}", pf);
+                return new byte[0];
+            }
+
             int attempt = 0;
             while (true) {
                 attempt++;

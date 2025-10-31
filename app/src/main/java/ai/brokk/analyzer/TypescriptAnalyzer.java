@@ -80,12 +80,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             "type_parameters", // Standard field name for type parameters in TS
             // captureConfiguration - using unified naming convention
             Map.of(
-                    "type.definition", SkeletonType.CLASS_LIKE, // Classes, interfaces, enums, namespaces
-                    "function.definition", SkeletonType.FUNCTION_LIKE, // Functions, methods
-                    "value.definition", SkeletonType.FIELD_LIKE, // Variables, fields, constants
-                    "typealias.definition", SkeletonType.ALIAS_LIKE, // Type aliases
-                    "decorator.definition", SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
-                    "keyword.modifier", SkeletonType.UNSUPPORTED),
+                    CaptureNames.TYPE_DEFINITION,
+                    SkeletonType.CLASS_LIKE, // Classes, interfaces, enums, namespaces
+                    CaptureNames.FUNCTION_DEFINITION,
+                    SkeletonType.FUNCTION_LIKE, // Functions, methods
+                    CaptureNames.VALUE_DEFINITION,
+                    SkeletonType.FIELD_LIKE, // Variables, fields, constants
+                    CaptureNames.TYPEALIAS_DEFINITION,
+                    SkeletonType.ALIAS_LIKE, // Type aliases
+                    CaptureNames.DECORATOR_DEFINITION,
+                    SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
+                    "keyword.modifier",
+                    SkeletonType.UNSUPPORTED),
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
             // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
@@ -142,7 +148,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(
+    protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         // Adjust FQN based on capture type and context
         String finalShortName;
@@ -458,6 +464,21 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean shouldUnwrapExportStatements() {
+        return true;
+    }
+
+    @Override
+    protected boolean needsVariableDeclaratorUnwrapping(TSNode node, SkeletonType skeletonType) {
+        return skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE;
+    }
+
+    @Override
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return true;
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         // Classes, interfaces, enums, modules/namespaces all use '}'
         if (cu.isClass()) { // isClass is true for all CLASS_LIKE CUs
@@ -518,6 +539,42 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             parent = parent.getParent();
         }
         return false;
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        // Find the top-level parent to get the full namespace skeleton
+        CodeUnit topLevel = findTopLevelParent(cu);
+
+        // Get skeleton through getSkeletons() which applies TypeScript-specific cleanup
+        Map<CodeUnit, String> skeletons = getSkeletons(topLevel.source());
+        String skeleton = skeletons.get(topLevel);
+
+        return Optional.ofNullable(skeleton);
+    }
+
+    /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
+    private CodeUnit findTopLevelParent(CodeUnit cu) {
+        // Build parent chain without caching
+        CodeUnit current = cu;
+        CodeUnit parent = findDirectParent(current);
+        while (parent != null) {
+            current = parent;
+            parent = findDirectParent(current);
+        }
+        return current;
+    }
+
+    /** Find direct parent of a CodeUnit by looking in childrenByParent map */
+    private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
+        for (var entry : withCodeUnitProperties(Map::entrySet)) {
+            CodeUnit parent = entry.getKey();
+            List<CodeUnit> children = entry.getValue().children();
+            if (children.contains(cu)) {
+                return parent;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -724,54 +781,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected TSLanguage createTSLanguage() {
         return new TreeSitterTypescript();
-    }
-
-    @Override
-    public Optional<String> getSkeleton(String fqName) {
-        // Find the CodeUnit for this FQN - optimize with early termination
-        CodeUnit foundCu = null;
-        for (CodeUnit cu : withCodeUnitProperties(Map::keySet)) {
-            if (cu.fqName().equals(fqName)) {
-                foundCu = cu;
-                break;
-            }
-        }
-
-        if (foundCu != null) {
-            // Find the top-level parent for this CodeUnit
-            CodeUnit topLevelParent = findTopLevelParent(foundCu);
-
-            // Get the skeleton from getSkeletons and apply our cleanup
-            Map<CodeUnit, String> skeletons = getSkeletons(topLevelParent.source());
-            String skeleton = skeletons.get(topLevelParent);
-
-            return Optional.ofNullable(skeleton);
-        }
-        return Optional.empty();
-    }
-
-    /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
-    private CodeUnit findTopLevelParent(CodeUnit cu) {
-        // Build parent chain without caching
-        CodeUnit current = cu;
-        CodeUnit parent = findDirectParent(current);
-        while (parent != null) {
-            current = parent;
-            parent = findDirectParent(current);
-        }
-        return current;
-    }
-
-    /** Find direct parent of a CodeUnit by looking in childrenByParent map */
-    private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
-        for (var entry : withCodeUnitProperties(Map::entrySet)) {
-            CodeUnit parent = entry.getKey();
-            List<CodeUnit> children = entry.getValue().children();
-            if (children.contains(cu)) {
-                return parent;
-            }
-        }
-        return null;
     }
 
     @Override
