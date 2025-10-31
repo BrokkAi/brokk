@@ -442,8 +442,9 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
-    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this ONLY to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
+    public String appendNote(
+            @P("Markdown content to append to Task Notes. NOT for speculating about implementation!") String markdown) {
         if (markdown.isBlank()) {
             return "Ignoring empty Note";
         }

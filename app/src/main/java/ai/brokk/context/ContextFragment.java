@@ -141,9 +141,7 @@ public interface ContextFragment {
      * IDs don't collide with loaded numeric IDs.
      */
     static void setMinimumId(int value) {
-        if (value > nextId.get()) {
-            nextId.set(value);
-        }
+        nextId.accumulateAndGet(value, Math::max);
     }
 
     /**
@@ -700,7 +698,7 @@ public interface ContextFragment {
             // ensure nextId is updated for future dynamic fragments.
             try {
                 int numericId = Integer.parseInt(existingId);
-                ContextFragment.setMinimumId(numericId);
+                ContextFragment.setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
                 if (isDynamic()) {
                     throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
@@ -995,6 +993,7 @@ public interface ContextFragment {
         private static byte[] imageToBytes(@Nullable Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
+                // TODO: [Migration4] FrozenFragments are to be phased out in migration v4
                 return FrozenFragment.imageToBytes(image);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);

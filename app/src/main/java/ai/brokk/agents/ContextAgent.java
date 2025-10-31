@@ -29,6 +29,8 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -206,10 +208,9 @@ public class ContextAgent {
             logger.debug("Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
         }
 
-        // Group by analyzed (summarizable via SkeletonProvider) vs un-analyzed (need full content)
-        var allSummaries = Context.buildRelatedIdentifiers(analyzer, candidates);
-        Set<ProjectFile> analyzedFileSet =
-                allSummaries.keySet().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        Set<ProjectFile> analyzedFileSet = candidates.stream()
+                .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
+                .collect(Collectors.toSet());
         List<ProjectFile> analyzedFiles =
                 candidates.stream().filter(analyzedFileSet::contains).sorted().toList();
         List<ProjectFile> unAnalyzedFiles = candidates.stream()
@@ -235,7 +236,7 @@ public class ContextAgent {
         int groupCount = (analyzedFiles.isEmpty() ? 0 : 1) + (unAnalyzedFiles.isEmpty() ? 0 : 1);
         var io = cm.getIo();
         switch (groupCount) {
-            case 0 -> {} // No message needed
+            case 0 -> {}
             case 1 ->
                 io.llmOutput(
                         "\nProcessing " + (analyzedFiles.isEmpty() ? "**unanalyzed**" : "**analyzed**") + " files…\n\n",
@@ -259,7 +260,6 @@ public class ContextAgent {
                 results[0] = processGroup(
                         GroupType.ANALYZED,
                         analyzedFiles,
-                        allSummaries,
                         workspaceRepresentation,
                         evalBudgetRemaining,
                         pruneBudgetRemaining,
@@ -275,7 +275,6 @@ public class ContextAgent {
                 results[1] = processGroup(
                         GroupType.UNANALYZED,
                         unAnalyzedFiles,
-                        Map.of(),
                         workspaceRepresentation,
                         evalBudgetRemaining,
                         pruneBudgetRemaining,
@@ -309,7 +308,7 @@ public class ContextAgent {
         var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
         mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
 
-        // Display unanalyzed reasoning here (if not blank)
+        // we streamed the analyzed reasoning; we'll append this afterwards so they don't get mixed together
         if (!unAnalyzedRec.reasoning().isBlank()) {
             io.llmOutput(
                     "\n\nUnanalyzed files reasoning:\n\n" + unAnalyzedRec.reasoning(), ChatMessageType.AI, false, true);
@@ -326,12 +325,16 @@ public class ContextAgent {
         return new RecommendationResult(success, result, combinedReasoning, combinedUsage);
     }
 
+    private int estimateAnalyzedTokens(Collection<ProjectFile> files) {
+        var summariesByFile = getCachedSummaries(files);
+        return Messages.getApproximateTokens(summariesByFile.values());
+    }
+
     // --- Group processing ---
 
     private LlmRecommendation processGroup(
             GroupType type,
             List<ProjectFile> groupFiles,
-            Map<CodeUnit, String> allSummariesForAnalyzed,
             Collection<ChatMessage> workspaceRepresentation,
             int evalBudgetRemaining,
             int pruneBudgetRemaining,
@@ -347,7 +350,7 @@ public class ContextAgent {
         // Build initial payload preview for token estimation
         int initialTokens;
         if (type == GroupType.ANALYZED) {
-            initialTokens = Messages.getApproximateTokens(allSummariesForAnalyzed.values());
+            initialTokens = estimateAnalyzedTokens(groupFiles);
         } else {
             var contentsMap = readFileContents(groupFiles);
             initialTokens = Messages.getApproximateTokens(contentsMap.values());
@@ -376,6 +379,15 @@ public class ContextAgent {
             if (!pruneRec.reasoning().isBlank())
                 reasoning.append(pruneRec.reasoning()).append('\n');
 
+            int postPruneTokens;
+            if (type == GroupType.ANALYZED) {
+                postPruneTokens = estimateAnalyzedTokens(workingFiles);
+            } else {
+                var contentsMap = readFileContents(workingFiles);
+                postPruneTokens = Messages.getApproximateTokens(contentsMap.values());
+            }
+            logger.debug("{} group post-prune token estimate: ~{}", type, postPruneTokens);
+
             if (workingFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
                 return new LlmRecommendation(
@@ -385,8 +397,7 @@ public class ContextAgent {
 
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
         // If we still get a context-window error, iteratively cut off the least important half.
-        LlmRecommendation evalRec =
-                evaluateWithHalving(type, workingFiles, allSummariesForAnalyzed, workspaceRepresentation, llm);
+        LlmRecommendation evalRec = evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm);
         usage = addTokenUsage(usage, evalRec.tokenUsage());
         if (!reasoning.isEmpty()) {
             evalRec = new LlmRecommendation(
@@ -402,18 +413,16 @@ public class ContextAgent {
         return evalRec;
     }
 
+    /**
+     * Evaluates relevance for the current file set, halving on context overflow.
+     */
     private LlmRecommendation evaluateWithHalving(
-            GroupType type,
-            List<ProjectFile> files,
-            Map<CodeUnit, String> allSummariesForAnalyzed,
-            Collection<ChatMessage> workspaceRepresentation,
-            Llm llm)
+            GroupType type, List<ProjectFile> files, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? allSummariesForAnalyzed : Map.of();
-
+            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? getCachedSummaries(current) : Map.of();
             Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
 
             try {
@@ -425,11 +434,20 @@ public class ContextAgent {
                 }
                 // Sort by importance and cut off least-important half
                 var sorted = GitDistance.sortByImportance(current, cm.getRepo());
-                int keep = max(1, (sorted.size() + 1) / 2); // keep top half (round up)
+                int keep = Math.max(1, (sorted.size() + 1) / 2);
                 current = new ArrayList<>(sorted.subList(0, keep));
                 logger.debug("{} group context too large; halving to {} files and retrying.", type, current.size());
             }
         }
+    }
+
+    private final ConcurrentMap<ProjectFile, Map<CodeUnit, String>> identifiersByFile = new ConcurrentHashMap<>();
+
+    private Map<CodeUnit, String> getCachedSummaries(Collection<ProjectFile> candidates) {
+        return candidates.parallelStream()
+                .map(c -> identifiersByFile.computeIfAbsent(c, c_ -> Context.buildRelatedIdentifiers(analyzer, c_)))
+                .flatMap(m -> m.entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
     // --- Result assembly ---
@@ -749,11 +767,16 @@ public class ContextAgent {
         var userMessageText = new StringBuilder();
 
         if (!summaries.isEmpty()) {
-            var summariesText = summaries.entrySet().stream()
-                    .map(entry -> {
-                        var cu = entry.getKey();
-                        var body = entry.getValue();
-                        return "<class fqcn='%s' file='%s'>\n%s\n</class>".formatted(cu.fqName(), cu.source(), body);
+            var summariesByFile = summaries.entrySet().stream()
+                    .collect(Collectors.groupingBy(e -> e.getKey().source(), Collectors.toList()));
+            var summariesText = summariesByFile.entrySet().stream()
+                    .map(fileEntry -> {
+                        var file = fileEntry.getKey();
+                        var classes = fileEntry.getValue().stream()
+                                .map(entry -> "<class fqcn='%s'>\n%s\n</class>"
+                                        .formatted(entry.getKey().fqName(), entry.getValue()))
+                                .collect(Collectors.joining("\n\n"));
+                        return "<file path='%s'>\n%s\n</file>".formatted(file, classes);
                     })
                     .collect(Collectors.joining("\n\n"));
             userMessageText
@@ -819,6 +842,10 @@ public class ContextAgent {
         var tokenUsage = result.tokenUsage();
         if (result.error() != null) {
             var error = result.error();
+            // Special case: propagate ContextTooLargeException so caller can retry with halving
+            if (error instanceof ContextTooLargeException) {
+                throw (ContextTooLargeException) error;
+            }
             logger.warn("Error from LLM during context recommendation: {}. Returning empty", error.getMessage());
             return LlmRecommendation.EMPTY;
         }

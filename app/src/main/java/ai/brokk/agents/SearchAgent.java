@@ -4,7 +4,10 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.ModelSpec;
+import ai.brokk.TaskMeta;
 import ai.brokk.TaskResult;
+import ai.brokk.TaskType;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -93,7 +96,6 @@ public class SearchAgent {
             String goal,
             StreamingChatModel model,
             Set<Terminal> allowedTerminals,
-            SearchMetrics metrics,
             ContextManager.TaskScope scope) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
@@ -102,11 +104,13 @@ public class SearchAgent {
         this.io = cm.getIo();
         this.llm = cm.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
         this.llm.setOutput(io);
-        this.summarizer = cm.getLlm(cm.getService().getScanModel(), "Summarizer: " + goal);
+        this.summarizer = cm.getLlm(cm.getService().quickModel(), "Summarizer: " + goal);
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
-        this.metrics = metrics;
+        this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
+                ? SearchMetrics.tracking()
+                : SearchMetrics.noOp();
         this.scope = scope;
 
         var mcpConfig = cm.getProject().getMcpConfig();
@@ -125,11 +129,26 @@ public class SearchAgent {
     /** Entry point. Runs until answer/abort or interruption. */
     public TaskResult execute() {
         try {
-            return executeInternal();
+            var tr = executeInternal();
+            if (metrics instanceof SearchMetrics.Tracking) {
+                var json = metrics.toJson(
+                        goal,
+                        countTurns(tr.output().messages()),
+                        tr.stopDetails().reason() == TaskResult.StopReason.SUCCESS);
+                System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
+            }
+            return tr;
         } catch (InterruptedException e) {
             logger.debug("Search interrupted", e);
             return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+    }
+
+    private static int countTurns(List<ChatMessage> messages) {
+        // Count AI messages as turns
+        return (int) messages.stream()
+                .filter(msg -> msg.type() == ChatMessageType.AI)
+                .count();
     }
 
     private TaskResult executeInternal() throws InterruptedException {
@@ -143,7 +162,7 @@ public class SearchAgent {
 
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
+            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -181,9 +200,22 @@ public class SearchAgent {
             allAllowed.addAll(globalTerminals);
             var toolSpecs = tr.getTools(allAllowed);
 
+            // Start tracking this turn before LLM call
+            metrics.startTurn();
+            long turnStartTime = System.currentTimeMillis();
+
             // Decide next action(s)
             io.llmOutput("\n**Brokk Search** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+
+            long llmTimeMs = System.currentTimeMillis() - turnStartTime;
+            var tokenUsage = result.tokenUsage();
+            int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
+            int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
+            int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
+            int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
+            metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+
             if (result.error() != null) {
                 var details = TaskResult.StopDetails.fromResponse(result);
                 io.showNotification(
@@ -202,9 +234,8 @@ public class SearchAgent {
                         TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."));
             }
 
-            // Start tracking this turn (only after successful LLM planning)
+            // Get workspace snapshot for file diff tracking
             Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
-            metrics.startTurn();
 
             boolean executedResearch = false;
             Context contextAtTurnStart = context;
@@ -266,7 +297,7 @@ public class SearchAgent {
                     return createResult(termReq.name(), goal);
                 }
             } finally {
-                // End turn tracking after tool execution - always called even on exceptions
+                // End turn tracking - always called even on exceptions
                 endTurnAndRecordFileChanges(filesBeforeSet);
             }
         }
@@ -642,7 +673,7 @@ public class SearchAgent {
         };
     }
 
-    private void performInitialPruningTurn() throws InterruptedException {
+    private void performInitialPruningTurn(StreamingChatModel model) throws InterruptedException {
         // Skip if workspace is empty
         if (context.isEmpty()) {
             return;
@@ -655,7 +686,7 @@ public class SearchAgent {
         var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
-        var jLlm = cm.getLlm(new Llm.Options(cm.getService().getScanModel(), "Janitor: " + goal).withEcho());
+        var jLlm = cm.getLlm(new Llm.Options(model, "Janitor: " + goal).withEcho());
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
         if (result.error() != null || result.isEmpty()) {
             return;
@@ -714,24 +745,24 @@ public class SearchAgent {
      * Scan initial context using ContextAgent and add recommendations to the workspace.
      * Callers should invoke this before calling execute() if they want the initial context scan.
      */
-    public void scanInitialContext() throws InterruptedException {
-
+    public void scanInitialContext(StreamingChatModel model) throws InterruptedException {
         // Prune initial workspace when not empty
-        performInitialPruningTurn();
+        performInitialPruningTurn(model);
 
         long scanStartTime = System.currentTimeMillis();
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
+        var contextAgent = new ContextAgent(cm, model, goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
 
+        var meta = new TaskMeta(TaskType.CONTEXT, ModelSpec.from(model, cm.getService()));
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.CUSTOM);
             // create a history entry
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-            context = scope.append(contextAgentResult);
+            context = scope.append(contextAgentResult, meta);
             long scanTime = System.currentTimeMillis() - scanStartTime;
             metrics.recordContextScan(0, scanTime, false, Set.of());
             return;
@@ -759,7 +790,7 @@ public class SearchAgent {
 
         // create a history entry
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-        context = scope.append(contextAgentResult);
+        context = scope.append(contextAgentResult, meta);
 
         // Track metrics
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
@@ -767,6 +798,10 @@ public class SearchAgent {
         filesAdded.removeAll(filesBeforeScan);
         long scanTime = System.currentTimeMillis() - scanStartTime;
         metrics.recordContextScan(filesAdded.size(), scanTime, false, toRelativePaths(filesAdded));
+    }
+
+    public void scanInitialContext() throws InterruptedException {
+        scanInitialContext(cm.getService().getScanModel());
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {

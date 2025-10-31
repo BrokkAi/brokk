@@ -6,11 +6,13 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.ModelSpec;
+import ai.brokk.TaskMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
+import ai.brokk.TaskType;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -155,7 +157,7 @@ public class ArchitectAgent {
         var reason = stopDetails.reason();
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
-        context = scope.append(result);
+        context = scope.append(result, new TaskMeta(TaskType.CODE, ModelSpec.from(codeModel, cm.getService())));
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild
@@ -195,7 +197,9 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
+        context = scope.append(
+                resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal),
+                new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
     }
 
     @Tool(
@@ -233,8 +237,8 @@ public class ArchitectAgent {
 
         // Instantiate and run SearchAgent
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
-        var searchAgent = new SearchAgent(
-                context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), scope);
+        var searchAgent =
+                new SearchAgent(context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), scope);
         searchAgent.scanInitialContext();
         var result = searchAgent.execute();
         // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
@@ -281,19 +285,21 @@ public class ArchitectAgent {
     public TaskResult executeWithSearch() throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(
-                context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), this.scope);
+        var searchAgent =
+                new SearchAgent(context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), this.scope);
         searchAgent.scanInitialContext();
 
         // Hardcode a Search first using the scan model (fast, token-friendly).
         // No errors here are fatal; this hardcoded search is intended as an optimization to save the architect a turn.
         io.llmOutput("**Search Agent** engaged: " + goal, ChatMessageType.AI);
         var searchResult = searchAgent.execute();
-        context = scope.append(searchResult);
+        // Synchronize local context with search results before continuing
+        context = scope.append(searchResult, new TaskMeta(TaskType.SEARCH, ModelSpec.from(scanModel, cm.getService())));
 
         // Run Architect proper
         var archResult = this.execute();
-        context = scope.append(archResult);
+        context = scope.append(
+                archResult, new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
         return archResult;
     }
 

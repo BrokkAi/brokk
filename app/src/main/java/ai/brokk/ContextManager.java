@@ -121,13 +121,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
             }
+            logger.error("Uncaught exception in executor", th);
 
             // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
             if (OomShutdownHandler.isOomError(th)) {
                 OomShutdownHandler.shutdownWithRecovery();
             }
 
-            logger.error("Uncaught exception in executor", th);
             var thread = Thread.currentThread();
             var message = "Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
                     .formatted(thread.getName(), getStackTraceAsString(th));
@@ -1998,13 +1998,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var tokens = 0;
                 int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
                 for (var file : topClasses) {
+                    if (file.isBinary()) {
+                        continue;
+                    }
                     String chunk; // Declare chunk once outside the try-catch
+                    var contentOpt = file.read();
                     // Use project root for relative path display if possible
                     var relativePath =
                             project.getRoot().relativize(file.absPath()).toString();
-                    var contentOpt = file.read();
                     if (contentOpt.isEmpty()) {
-                        logger.debug("Skipping unreadable file {} for style guide", relativePath);
+                        logger.warn("Skipping unreadable file {} for style guide", relativePath);
                         continue;
                     }
                     chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
@@ -2179,11 +2182,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         /**
-         * Appends a TaskResult to the context history and returns updated local context.
+         * Appends a TaskResult to the context history and returns updated local context, optionally attaching metadata.
+         * If meta is provided and the TaskResult does not already carry metadata, the metadata is attached before
+         * creating the TaskEntry to ensure persistence in history.
          *
          * @param result The TaskResult to append.
+         * @param meta Optional TaskMeta to attach if the TaskResult has none.
          */
-        public Context append(TaskResult result) {
+        public Context append(TaskResult result, @Nullable TaskMeta meta) {
             assert !closed : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
@@ -2200,8 +2206,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return result.context();
             }
 
-            var action = result.actionDescription();
-            logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
+            final TaskResult toAppend = (meta != null && result.meta() == null)
+                    ? new TaskResult(
+                            result.actionDescription(), result.output(), result.context(), result.stopDetails(), meta)
+                    : result;
+
+            var action = toAppend.actionDescription();
+            logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, toAppend.stopDetails());
 
             var actionFuture = summarizeTaskForConversation(action).thenApply(r -> {
                 io.postSummarize();
@@ -2210,10 +2221,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                var updated = result.context().withGroup(groupId, groupLabel);
-                TaskEntry entry = updated.createTaskEntry(result);
+                var updated = toAppend.context().withGroup(groupId, groupLabel);
+                TaskEntry entry = updated.createTaskEntry(toAppend);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
-                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture);
+                return updated.addHistoryEntry(finalEntry, toAppend.output(), actionFuture)
+                        .withGroup(groupId, groupLabel);
             });
 
             // prepare MOP to display new history with the next streamed message

@@ -1132,7 +1132,7 @@ public class Llm {
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
         NullSafeResponse cResponse = castNonNull(result.chatResponse());
-        String rawText = requireNonNull(cResponse.text());
+        String rawText = cResponse.text() == null ? "" : cResponse.text();
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
         // First try to parse the entire response as JSON

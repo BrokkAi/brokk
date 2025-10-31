@@ -38,7 +38,6 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
@@ -354,8 +353,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
+        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -418,6 +417,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize mode indicator
         refreshModeIndicator();
+
+        // Subscribe to service reload events to update button states
+        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -921,7 +923,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
-    private void updateTokenCostIndicator() {
+    void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
@@ -938,7 +940,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
-                                100);
+                                100,
+                                true);
                     }
 
                     var fullText = new StringBuilder();
@@ -961,9 +964,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
 
-                    int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
+                    var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(config, approxTokens);
+                    int successRate = rateResult.successRate();
+                    boolean isTested = rateResult.isTested();
                     TokenUsageBar.WarningLevel warningLevel;
-                    if (successRate == -1) {
+                    if (!isTested) {
+                        // Untested (extrapolated) token count — always warn RED
+                        warningLevel = TokenUsageBar.WarningLevel.RED;
+                    } else if (successRate == -1) {
                         // Unknown/untested combination: don't warn
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     } else if (successRate < 30) {
@@ -977,7 +985,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String tooltipHtml =
                             buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -986,12 +994,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                             return;
                         }
+                        // make metadata available to TokenUsageBar for tooltip/warning rendering
+                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+
+                        // Compute shared tooltip for both TokenUsageBar and ModelSelector
+                        String sharedTooltip = TokenUsageBar.computeWarningTooltip(
+                                stat.isTested,
+                                stat.config,
+                                stat.warningLevel,
+                                stat.successRate,
+                                stat.approxTokens,
+                                stat.toolTipHtml);
+
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(stat.toolTipHtml);
-                        modelSelector.getComponent().setToolTipText(stat.toolTipHtml);
+                        contextAreaContainer.setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
+                        modelSelector
+                                .getComponent()
+                                .setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -1007,7 +1029,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int approxTokens,
             TokenUsageBar.WarningLevel warningLevel,
             Service.ModelConfig config,
-            int successRate) {}
+            int successRate,
+            boolean isTested) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1682,7 +1705,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     query,
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    SearchMetrics.noOp(),
                     scope);
             try {
                 agent.scanInitialContext();
@@ -1724,9 +1746,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
+
+                // Derive TaskMeta (type + primary model) for this action
+                var svc = cm.getService();
+                var selectedModel = getSelectedModel();
+                TaskType taskType =
+                        switch (action) {
+                            case ACTION_ARCHITECT -> TaskType.ARCHITECT;
+                            case ACTION_CODE -> TaskType.CODE;
+                            case ACTION_ASK -> TaskType.ASK;
+                            case ACTION_SEARCH -> TaskType.SEARCH;
+                            default -> TaskType.NONE;
+                        };
+                var primary = ModelSpec.from(selectedModel, svc);
+                var meta = new TaskMeta(taskType, primary);
+
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
-                    scope.append(result);
+                    scope.append(result, meta);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }
@@ -1748,9 +1785,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
+
+                // Derive TaskMeta (type + primary model) for this action
+                var svc = cm.getService();
+                var selectedModel = getSelectedModel();
+                TaskType taskType =
+                        switch (action) {
+                            case ACTION_ARCHITECT -> TaskType.ARCHITECT;
+                            case ACTION_CODE -> TaskType.CODE;
+                            case ACTION_ASK -> TaskType.ASK;
+                            case ACTION_SEARCH -> TaskType.SEARCH;
+                            default -> TaskType.NONE;
+                        };
+                var primary = ModelSpec.from(selectedModel, svc);
+                var meta = new TaskMeta(taskType, primary);
+
                 try (var scope = cm.beginTask(input, false, "Lutz Mode")) {
                     var result = task.apply(scope);
-                    scope.append(result);
+                    scope.append(result, meta);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }
@@ -1804,9 +1856,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-            // Action button reflects current running state
-            if (isActionRunning()) {
+            // Check if service is online
+            var service = contextManager.getService();
+            boolean serviceIsOnline = service != null && service.isOnline();
+
+            if (!serviceIsOnline) {
+                // Service is offline: show offline state
+                actionButton.showOfflineMode();
+            } else if (isActionRunning()) {
+                // Service is online but action is running: show stop mode
+                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
                 Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
@@ -1817,7 +1876,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+                actionButton.setEnabled(true);
             } else {
+                // Service is online and no action running: show normal mode
+                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                 actionButton.showNormalMode();
                 // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
                 actionButton.updateTooltip();
@@ -1829,14 +1891,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+                actionButton.setEnabled(true);
             }
-            actionButton.setEnabled(true);
 
-            // Enable/disable wand depending on running state
-            wandButton.setEnabled(!isActionRunning());
+            // Enable/disable wand depending on running state and service availability
+            wandButton.setEnabled(serviceIsOnline && !isActionRunning());
 
             // Ensure storedAction is consistent with split button's selected mode
-            storedAction = actionButton.getSelectedMode();
+            if (serviceIsOnline) {
+                storedAction = actionButton.getSelectedMode();
+            }
 
             chrome.enableHistoryPanel();
         });
@@ -2336,6 +2400,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             setIcon(Icons.ARROW_WARM_UP);
             updateButtonText();
             repaint();
+        }
+
+        public void showOfflineMode() {
+            SwingUtilities.invokeLater(() -> {
+                setText("Offline");
+                setToolTipText("Unable to connect to Brokk");
+                setEnabled(false);
+                setIcon(null);
+                repaint();
+            });
         }
 
         private void updateButtonText() {

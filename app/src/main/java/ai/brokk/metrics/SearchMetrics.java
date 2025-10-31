@@ -1,8 +1,8 @@
 package ai.brokk.metrics;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.TaskResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -70,14 +70,25 @@ public interface SearchMetrics {
     void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions);
 
     /**
+     * Record metrics for the current turn's LLM call.
+     * Called immediately after the LLM request completes.
+     *
+     * @param timeMs time spent in the LLM call in milliseconds
+     * @param inputTokens number of input tokens
+     * @param cachedInputTokens number of cached input tokens
+     * @param thinkingTokens number of thinking/reasoning tokens
+     * @param outputTokens number of output tokens
+     */
+    void recordLlmCall(long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens);
+
+    /**
      * Serialize metrics along with the basic result fields into JSON.
      *
      * @param query the original query
      * @param turns number of turns (AI messages)
-     * @param elapsedMs elapsed time in ms
      * @param success whether the search succeeded
      */
-    String toJson(String query, int turns, long elapsedMs, boolean success);
+    String toJson(String query, int turns, boolean success);
 
     /**
      * Information about a fragment in the workspace.
@@ -134,7 +145,11 @@ public interface SearchMetrics {
         public void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions) {}
 
         @Override
-        public String toJson(String query, int turns, long elapsedMs, boolean success) {
+        public void recordLlmCall(
+                long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {}
+
+        @Override
+        public String toJson(String query, int turns, boolean success) {
             // Return empty object as requested in PR review
             return "{}";
         }
@@ -145,6 +160,8 @@ public interface SearchMetrics {
      * Methods are synchronized to be safe if accessed from multiple threads.
      */
     class Tracking implements SearchMetrics {
+        private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
         private static final Logger logger = LogManager.getLogger(Tracking.class);
 
         // Context scan metrics
@@ -157,7 +174,6 @@ public interface SearchMetrics {
         private int turnCounter = 0;
         private final List<TurnMetrics> turns = new ArrayList<>();
         private @Nullable TurnMetrics currentTurn = null;
-        private long turnStartTimeMs = 0;
 
         // Failure classification
         private @Nullable String failureType = null;
@@ -185,7 +201,6 @@ public interface SearchMetrics {
                 turns.add(currentTurn);
             }
             currentTurn = new TurnMetrics(++turnCounter);
-            turnStartTimeMs = System.currentTimeMillis();
         }
 
         @Override
@@ -210,15 +225,21 @@ public interface SearchMetrics {
         }
 
         @Override
+        public synchronized void recordLlmCall(
+                long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {
+            if (currentTurn != null) {
+                currentTurn.setTimeMs(timeMs);
+                currentTurn.setTokenUsage(inputTokens, cachedInputTokens, thinkingTokens, outputTokens);
+            }
+        }
+
+        @Override
         public synchronized void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {
             if (currentTurn != null) {
                 // Compute files removed during this turn
                 Set<String> removed = new HashSet<>(filesBeforeTurn);
                 removed.removeAll(filesAfterTurn);
                 currentTurn.addRemovedFilePaths(removed);
-
-                long turnTimeMs = System.currentTimeMillis() - turnStartTimeMs;
-                currentTurn.setTimeMs(turnTimeMs);
 
                 turns.add(currentTurn);
                 currentTurn = null;
@@ -252,7 +273,11 @@ public interface SearchMetrics {
 
         /** Generate enhanced JSON output with metrics. Maintains backward compatibility. */
         @Override
-        public synchronized String toJson(String query, int turns, long elapsedMs, boolean success) {
+        public synchronized String toJson(String query, int turns, boolean success) {
+            // Compute elapsed_ms as sum of all turn times (LLM call times)
+            long elapsedMs =
+                    this.turns.stream().mapToLong(TurnMetrics::getTime_ms).sum();
+
             // Build found_files from context scan + all turn additions
             logger.debug(
                     "Building found_files: contextScanFilesAddedPaths size={}, paths={}",
@@ -296,9 +321,7 @@ public interface SearchMetrics {
                     finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null);
 
             try {
-                return AbstractProject.objectMapper
-                        .writerWithDefaultPrettyPrinter()
-                        .writeValueAsString(result);
+                return OBJECT_MAPPER.writeValueAsString(result);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException("Failed to serialize search result", e);
             }
@@ -331,6 +354,10 @@ public interface SearchMetrics {
             private final Set<String> files_added_paths = new HashSet<>();
             private final Set<String> files_removed_paths = new HashSet<>();
             private long time_ms = 0;
+            private int input_tokens = 0;
+            private int cached_input_tokens = 0;
+            private int thinking_tokens = 0;
+            private int output_tokens = 0;
 
             public TurnMetrics(int turnNumber) {
                 this.turn = turnNumber;
@@ -356,6 +383,13 @@ public interface SearchMetrics {
                 this.time_ms = timeMs;
             }
 
+            public void setTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {
+                this.input_tokens = inputTokens;
+                this.cached_input_tokens = cachedInputTokens;
+                this.thinking_tokens = thinkingTokens;
+                this.output_tokens = outputTokens;
+            }
+
             // Jackson getters (required for serialization)
             public int getTurn() {
                 return turn;
@@ -379,6 +413,22 @@ public interface SearchMetrics {
 
             public long getTime_ms() {
                 return time_ms;
+            }
+
+            public int getInput_tokens() {
+                return input_tokens;
+            }
+
+            public int getCached_input_tokens() {
+                return cached_input_tokens;
+            }
+
+            public int getThinking_tokens() {
+                return thinking_tokens;
+            }
+
+            public int getOutput_tokens() {
+                return output_tokens;
             }
         }
     }

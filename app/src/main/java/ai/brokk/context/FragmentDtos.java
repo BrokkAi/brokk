@@ -320,15 +320,25 @@ public class FragmentDtos {
 
     /** Compact DTO for TaskEntry, referring to its log fragment by ID. Used within CompactContextDto. */
     public record TaskEntryRefDto(
-            int sequence, @Nullable String logId, @Nullable String summaryContentId) { // logId changed to String
+            int sequence,
+            @Nullable String logId,
+            @Nullable String summaryContentId,
+            @Nullable String taskType,
+            @Nullable String primaryModelName,
+            @Nullable String primaryModelReasoning) {
         public TaskEntryRefDto {
-            // logId can be null if summary is present, and vice-versa
+            // Preserve existing invariant: exactly one of logId or summaryContentId must be non-null
             if ((logId == null) == (summaryContentId == null)) {
                 throw new IllegalArgumentException("Exactly one of logId or summary must be non-null");
             }
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");
             }
+        }
+
+        // Backward-compatible auxiliary constructor for pre-meta call sites
+        public TaskEntryRefDto(int sequence, @Nullable String logId, @Nullable String summaryContentId) {
+            this(sequence, logId, summaryContentId, null, null, null);
         }
     }
 }

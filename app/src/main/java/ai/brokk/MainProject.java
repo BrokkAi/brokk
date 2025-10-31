@@ -92,8 +92,9 @@ public final class MainProject extends AbstractProject {
 
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS =
-            Map.of("Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)));
+    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)),
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -434,6 +435,16 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setCodeModelConfig(ModelConfig config) {
         setModelConfigInternal("Code", config);
+    }
+
+    @Override
+    public ModelConfig getArchitectModelConfig() {
+        return getModelConfigInternal("Architect");
+    }
+
+    @Override
+    public void setArchitectModelConfig(ModelConfig config) {
+        setModelConfigInternal("Architect", config);
     }
 
     @Override
@@ -1379,8 +1390,9 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig("gpt-5-mini")),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel("Flash 2.5", new ModelConfig("gemini-2.5-flash")),
-            new Service.FavoriteModel("Sonnet 4", new ModelConfig("claude-4-sonnet", Service.ReasoningLevel.LOW)));
+            new Service.FavoriteModel(
+                    "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.MEDIUM)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
