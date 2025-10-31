@@ -6,10 +6,10 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.util.ContentDiffUtils;
+import ai.brokk.util.HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -23,12 +23,17 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public final class V3_HistoryIo {
     private static final Logger logger = LogManager.getLogger(V3_HistoryIo.class);
     private static final ObjectMapper objectMapper = new ObjectMapper()
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            // Map legacy V3 fqcn-based polymorphic ids to our V3_FragmentDtos DTOs for migration reading
+            .addHandler(new LegacyTypeMappingHandler(Map.of(
+                    "io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.util.migrationv4.V3_FragmentDtos",
+                    "ai.brokk.context.FragmentDtos", "ai.brokk.util.migrationv4.V3_FragmentDtos")));
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
@@ -79,25 +84,9 @@ public final class V3_HistoryIo {
                 switch (entry.getName()) {
                     case V3_FRAGMENTS_FILENAME -> {
                         byte[] fragmentJsonBytes = zis.readAllBytes();
-                        // TODO: [Migration4] Expect more of this class replacement shenanigans
-                        var fragmentJsonString = new String(fragmentJsonBytes, StandardCharsets.UTF_8)
-                                .replace(
-                                        "\"type\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                        "\"type\":\"ai.brokk.util.migrationv4.V3_FragmentDtos")
-                                .replace(
-                                        "\"@class\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                        "\"@class\":\"ai.brokk.util.migrationv4.V3_FragmentDtos")
-                                .replace(
-                                        "\"type\":\"ai.brokk.context.FragmentDtos",
-                                        "\"type\":\"ai.brokk.util.migrationv4.V3_FragmentDtos")
-                                .replace(
-                                        "\"@class\":\"ai.brokk.context.FragmentDtos",
-                                        "\"@class\":\"ai.brokk.util.migrationv4.V3_FragmentDtos")
-                                .replace(
-                                        "\"summaryType\":\"CLASS_SKELETON\"",
-                                        "\"summaryType\" : \"CODEUNIT_SKELETON\"");
+                        // Type-safe mapping handled by LegacyTypeMappingHandler and enum handled in V3_DtoMapper
                         allFragmentsDto =
-                                objectMapper.readValue(fragmentJsonString, V3_FragmentDtos.AllFragmentsDto.class);
+                                objectMapper.readValue(fragmentJsonBytes, V3_FragmentDtos.AllFragmentsDto.class);
                     }
                     case CONTENT_FILENAME -> {
                         var typeRef = new TypeReference<Map<String, ContentDtos.ContentMetadataDto>>() {};
@@ -241,6 +230,26 @@ public final class V3_HistoryIo {
 
             contentCache.put(contentId, result);
             return result;
+        }
+    }
+
+    // Type-safe handler to map legacy FQCN-based polymorphic type ids to our V3 DTOs
+    private static final class LegacyTypeMappingHandler
+            extends com.fasterxml.jackson.databind.deser.DeserializationProblemHandler {
+        private final Map<String, String> prefixMapping;
+
+        LegacyTypeMappingHandler(Map<String, String> prefixMapping) {
+            this.prefixMapping = prefixMapping;
+        }
+
+        @Override
+        public @Nullable JavaType handleUnknownTypeId(
+                DeserializationContext ctxt,
+                JavaType baseType,
+                String subTypeId,
+                TypeIdResolver idResolver,
+                String failureMsg) {
+            return HistoryIo.LegacyTypeMappingHandler.getJavaTypeWithFallback(ctxt, baseType, subTypeId, prefixMapping);
         }
     }
 }

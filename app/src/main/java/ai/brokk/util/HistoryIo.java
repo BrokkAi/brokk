@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.*;
 import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;
@@ -14,9 +13,9 @@ import ai.brokk.context.FragmentDtos.*;
 import ai.brokk.context.FrozenFragment;
 import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
+import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -39,7 +38,10 @@ public final class HistoryIo {
     private static final Logger logger = LogManager.getLogger(HistoryIo.class);
     private static final ObjectMapper objectMapper = new ObjectMapper()
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            // map legacy io.github.jbellis.* fqcn polymorphic type ids to ai.brokk.*
+            .addHandler(new LegacyTypeMappingHandler(
+                    Map.of("io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos")));
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String V4_FRAGMENTS_FILENAME = "fragments-v4.json";
@@ -115,15 +117,8 @@ public final class HistoryIo {
                 var entryName = entry.getName();
                 if (entryName.equals(fragmentsFilename)) {
                     var fragmentJsonBytes = zis.readAllBytes();
-                    // Migration from 'io.github.jbellis' -> 'ai.brokk'
-                    var fragmentJsonString = new String(fragmentJsonBytes, StandardCharsets.UTF_8)
-                            .replace(
-                                    "\"type\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                    "\"type\":\"ai.brokk.context.FragmentDtos")
-                            .replace(
-                                    "\"@class\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                    "\"@class\":\"ai.brokk.context.FragmentDtos");
-                    allFragmentsDto = objectMapper.readValue(fragmentJsonString, AllFragmentsDto.class);
+                    // Type-safe mapping of legacy class names is handled by LegacyTypeMappingHandler
+                    allFragmentsDto = objectMapper.readValue(fragmentJsonBytes, AllFragmentsDto.class);
                 } else {
                     switch (entryName) {
                         case CONTENT_FILENAME -> {
@@ -551,6 +546,45 @@ public final class HistoryIo {
 
             contentCache.put(contentId, result);
             return result;
+        }
+    }
+
+    // Type-safe handler to map legacy FQCN-based polymorphic type ids to current classes
+    public static final class LegacyTypeMappingHandler extends DeserializationProblemHandler {
+        private final Map<String, String> prefixMapping;
+
+        LegacyTypeMappingHandler(Map<String, String> prefixMapping) {
+            this.prefixMapping = prefixMapping;
+        }
+
+        @Override
+        @Nullable
+        public JavaType handleUnknownTypeId(
+                DeserializationContext ctxt,
+                JavaType baseType,
+                String subTypeId,
+                TypeIdResolver idResolver,
+                String failureMsg) {
+            return getJavaTypeWithFallback(ctxt, baseType, subTypeId, prefixMapping);
+        }
+
+        @Nullable
+        public static JavaType getJavaTypeWithFallback(
+                DeserializationContext ctxt, JavaType baseType, String subTypeId, Map<String, String> prefixMapping) {
+            for (var e : prefixMapping.entrySet()) {
+                String from = e.getKey();
+                if (subTypeId.startsWith(from)) {
+                    String to = e.getValue();
+                    String mappedId = to + subTypeId.substring(from.length());
+                    try {
+                        Class<?> target = Class.forName(mappedId);
+                        return ctxt.getTypeFactory().constructSpecializedType(baseType, target);
+                    } catch (ClassNotFoundException ex) {
+                        // fall through to default handling
+                    }
+                }
+            }
+            return null;
         }
     }
 }
