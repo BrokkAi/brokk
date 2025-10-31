@@ -212,9 +212,7 @@ public class Context {
             return this;
         }
 
-        var filesToAdd = toAdd.stream()
-                .flatMap(pf -> pf.files().stream())
-                .collect(Collectors.toSet());
+        var filesToAdd = toAdd.stream().flatMap(pf -> pf.files().stream()).collect(Collectors.toSet());
 
         var newFragments = fragments.stream()
                 .filter(f -> {
