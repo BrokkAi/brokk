@@ -148,13 +148,33 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        // Adjust FQN based on capture type and context
-        String finalShortName;
-        SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
+    protected SkeletonType refineSkeletonType(String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+        if (definitionNode == null || definitionNode.isNull()) {
+            return super.refineSkeletonType(captureName, definitionNode, profile);
+        }
 
+        if ("variable_declarator".equals(definitionNode.getType())) {
+            TSNode valueNode = definitionNode.getChildByFieldName("value");
+            if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
+                return SkeletonType.FUNCTION_LIKE;
+            }
+        }
+
+        return super.refineSkeletonType(captureName, definitionNode, profile);
+    }
+
+    @Override
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            TSNode definitionNode,
+            SkeletonType skeletonType) {
+        String finalShortName;
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+
         switch (skeletonType) {
             case CLASS_LIKE -> {
                 finalShortName = shortName;
@@ -167,8 +187,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                             captureName,
                             file,
                             classChain);
-                    // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name
-                    // found
                 }
                 finalShortName = shortName;
                 return CodeUnit.fn(file, packageName, finalShortName);
@@ -178,7 +196,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             case ALIAS_LIKE -> {
-                // Type aliases are top-level or module-level, treated like fields for FQN and CU type.
                 finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
@@ -192,6 +209,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 throw new UnsupportedOperationException("Unsupported skeleton type: " + skeletonType);
             }
         }
+    }
+
+    @Override
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+        return createCodeUnit(file, captureName, simpleName, packageName, classChain, null, getSkeletonTypeForCapture(captureName));
     }
 
     @Override
