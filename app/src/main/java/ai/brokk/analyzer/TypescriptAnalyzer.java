@@ -575,7 +575,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        // For function-like and field-like nodes in classes, check if they have "static" modifier
+        // For function-like and field-like nodes in classes, check for modifiers
         if (skeletonType == SkeletonType.FUNCTION_LIKE || skeletonType == SkeletonType.FIELD_LIKE) {
             // Check if this is a method/field inside a class (not top-level)
             TSNode parent = definitionNode.getParent();
@@ -583,6 +583,16 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 String parentType = parent.getType();
                 // Check if parent is class_body (methods/fields are children of class_body)
                 if ("class_body".equals(parentType)) {
+                    // Check for accessor keywords (get/set) first, as they're more specific
+                    if ("method_definition".equals(definitionNode.getType())) {
+                        String accessorType = getAccessorType(definitionNode);
+                        if ("get".equals(accessorType)) {
+                            return fqName + "$get";
+                        } else if ("set".equals(accessorType)) {
+                            return fqName + "$set";
+                        }
+                    }
+
                     // Check for "static" modifier among the children of definitionNode
                     if (hasStaticModifier(definitionNode)) {
                         return fqName + "$static";
@@ -615,6 +625,32 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
         }
         return false;
+    }
+
+    /**
+     * Determines if a method_definition node is a getter or setter accessor.
+     *
+     * @param node the method_definition node to check
+     * @return "get" if it's a getter, "set" if it's a setter, or empty string if neither
+     */
+    private String getAccessorType(TSNode node) {
+        if (node == null || node.isNull()) {
+            return "";
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && !child.isNull()) {
+                String childType = child.getType();
+                if ("get".equals(childType)) {
+                    return "get";
+                } else if ("set".equals(childType)) {
+                    return "set";
+                }
+            }
+        }
+        return "";
     }
 
     @Override
