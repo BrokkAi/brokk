@@ -24,57 +24,39 @@
 ; Export statements for class-like declarations
 ; Matches: export class Foo<T> { }, export default class Bar { }, etc.
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (class_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters)) @type.definition
 
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (abstract_class_declaration
-    "abstract" @keyword.modifier
     name: (type_identifier) @type.name
     type_parameters: (_)? @class.type_parameters)) @type.definition
 
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (enum_declaration name: (identifier) @type.name)) @type.definition
 
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (interface_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters)) @type.definition
 
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (internal_module name: (_) @type.name)) @type.definition
 
 ; Export statements for functions
 ; Matches: export function foo() { }, export async function bar() { }, export default function baz() { }
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (function_declaration
-    "async"? @keyword.modifier
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters)) @function.definition
 
 ; Export statements for function signatures (overloads)
 ; Matches: export function foo(x: string): void; (signature only, no body)
 (export_statement
-  "export" @keyword.modifier
   (function_signature
-    "async"? @keyword.modifier
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters)) @function.definition
 
 ; Export statements for type aliases
 ; Matches: export type MyType = string, export default type DefaultType<T> = T[]
 (export_statement
-  "export" @keyword.modifier
-  "default"? @keyword.modifier
   (type_alias_declaration
     name: (type_identifier) @typealias.name) @typealias.definition)
 
@@ -101,7 +83,6 @@
   [
     (class_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters) @type.definition
     (abstract_class_declaration
-      "abstract" @keyword.modifier
       name: (type_identifier) @type.name
       type_parameters: (_)? @class.type_parameters) @type.definition
     (interface_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters) @type.definition
@@ -114,7 +95,6 @@
 ; Matches: function foo() { }, async function bar() { }
 (program
   (function_declaration
-    "async"? @keyword.modifier
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters) @function.definition)
 
@@ -122,7 +102,6 @@
 ; Matches: function foo(x: string): void; (signature only, typically followed by implementation)
 (program
   (function_signature
-    "async"? @keyword.modifier
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters) @function.definition)
 
@@ -153,7 +132,6 @@
 ; Matches: declare var $: any, declare function fetch(): Promise<any>, declare namespace ThirdParty { }
 (program
   (ambient_declaration
-    "declare" @keyword.modifier
     [
       (class_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters) @type.definition
       (interface_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters) @type.definition
@@ -161,7 +139,6 @@
       (internal_module name: (_) @type.name) @type.definition
       (function_signature name: (identifier) @function.name type_parameters: (_)? @function.type_parameters) @function.definition
       (variable_declaration
-        ["var" "let" "const"] @keyword.modifier
         (variable_declarator name: (identifier) @value.name) @value.definition)
     ]))
 
@@ -199,8 +176,6 @@
 ; Matches: public async foo<T>(): void { }, private static bar() { }, @decorator baz() { }
 ; Note: Decorators are captured separately to avoid issues with pattern matching
 (method_definition
-  (accessibility_modifier)? @keyword.modifier
-  ["static" "readonly" "async"]* @keyword.modifier
   name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @function.name
   type_parameters: (_)? @function.type_parameters) @function.definition
 
@@ -219,7 +194,6 @@
 ; Abstract method signatures in abstract classes
 ; Matches: abstract doWork(): void, abstract compute<T>(x: T): T
 (abstract_method_signature
-  "abstract" @keyword.modifier
   name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)] @function.name
   type_parameters: (_)? @function.type_parameters) @function.definition
 

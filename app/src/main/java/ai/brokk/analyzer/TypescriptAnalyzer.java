@@ -437,39 +437,60 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // This method is called when keyword.modifier captures are not available.
         StringBuilder modifiers = new StringBuilder();
 
-        // Check the node itself and its parent for common modifier patterns
         TSNode nodeToCheck = node;
-        TSNode parent = node.getParent();
+
+        // Check if the node itself is an export statement
+        if ("export_statement".equals(node.getType())) {
+            modifiers.append("export ");
+
+            // Check for default export
+            if (node.getChildCount() > 1) {
+                TSNode secondChild = node.getChild(1);
+                if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
+                    modifiers.append("default ");
+                }
+            }
+
+            // Get the declaration inside the export statement for further modifier checks
+            TSNode declaration = node.getChildByFieldName("declaration");
+            if (declaration != null && !declaration.isNull()) {
+                nodeToCheck = declaration;
+            }
+        }
+
+        // Check if the node itself is an ambient declaration
+        if ("ambient_declaration".equals(nodeToCheck.getType())) {
+            modifiers.append("declare ");
+
+            // Get the declaration inside the ambient declaration for further modifier checks
+            for (int i = 0; i < nodeToCheck.getChildCount(); i++) {
+                TSNode child = nodeToCheck.getChild(i);
+                if (child != null
+                        && !child.isNull()
+                        && !"declare".equals(cachedTextSliceStripped(child, src))) {
+                    nodeToCheck = child;
+                    break;
+                }
+            }
+        }
+
+        TSNode parent = nodeToCheck.getParent();
 
         // For variable declarators, check the parent declaration
-        if ("variable_declarator".equals(node.getType())
+        if ("variable_declarator".equals(nodeToCheck.getType())
                 && parent != null
                 && ("lexical_declaration".equals(parent.getType())
                         || "variable_declaration".equals(parent.getType()))) {
             nodeToCheck = parent;
         }
 
-        // Check for export statement wrapper
-        if (parent != null && "export_statement".equals(parent.getType())) {
-            modifiers.append("export ");
-
-            // Check for default export
-            TSNode exportKeyword = parent.getChild(0);
-            if (exportKeyword != null && parent.getChildCount() > 1) {
-                TSNode defaultKeyword = parent.getChild(1);
-                if (defaultKeyword != null && "default".equals(cachedTextSliceStripped(defaultKeyword, src))) {
-                    modifiers.append("default ");
-                }
-            }
-        }
-
         // Look for modifier keywords in the first few children of the declaration
-        for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 5); i++) {
+        for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {
                 String childText = cachedTextSliceStripped(child, src);
                 // Check for common TypeScript modifiers
-                if (Set.of("declare", "abstract", "static", "readonly", "async", "const", "let", "var")
+                if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
                         .contains(childText)) {
                     modifiers.append(childText).append(" ");
                 } else if ("accessibility_modifier".equals(child.getType())) {
