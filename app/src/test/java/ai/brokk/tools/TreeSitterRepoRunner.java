@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Simplified baseline measurement utility for TreeSitter performance analysis. Compatible with master branch - uses
@@ -251,7 +253,8 @@ public class TreeSitterRepoRunner {
 
             try {
                 System.out.println("Project path: " + getProjectPath(project));
-                var result = runProjectBaseline(project, language);
+                var discovery = getProjectFiles(project, language, maxFiles);
+                var result = runProjectBaseline(project, language, discovery);
                 results.addResult(project, language, result);
 
                 // Write incremental reports immediately
@@ -263,8 +266,11 @@ public class TreeSitterRepoRunner {
                 }
 
                 // Print immediate results
-                System.out.printf("Files processed: %d%n", result.filesProcessed);
-                System.out.printf("Analysis time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+                System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+                System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+                System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+                System.out.printf("Total time: %.2f seconds%n",
+                        (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
                 System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
                 System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
 
@@ -281,7 +287,7 @@ public class TreeSitterRepoRunner {
                 // Write incremental results for OOM failure
                 try {
                     var failedResult =
-                            new BaselineResult(maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", null, 0, 0);
+                            new BaselineResult(maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                     System.out.println("📊 Incremental failure result saved");
                 } catch (Exception ex) {
@@ -292,7 +298,7 @@ public class TreeSitterRepoRunner {
                 results.recordError(project, language, e.getMessage());
                 // Write incremental results for general failure
                 try {
-                    var failedResult = new BaselineResult(0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), null, 0, 0);
+                    var failedResult = new BaselineResult(0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                     System.out.println("📊 Incremental failure result saved");
                 } catch (Exception ex) {
@@ -321,19 +327,20 @@ public class TreeSitterRepoRunner {
     }
 
     private BaselineResult runProjectBaseline(String projectName, String language) throws Exception {
+        var discovery = getProjectFiles(projectName, language, maxFiles);
+        return runProjectBaseline(projectName, language, discovery);
+    }
+
+    private BaselineResult runProjectBaseline(String projectName, String language, FileDiscoveryResult discovery)
+            throws Exception {
         var projectPath = getProjectPath(projectName);
-        var files = getProjectFiles(projectName, language, maxFiles);
+        var files = discovery.files();
 
         if (files.isEmpty()) {
             throw new RuntimeException("No " + language + " files found in " + projectName);
         }
 
-        var analyzer = createAnalyzer(projectPath, language, files);
-        if (analyzer == null) {
-            throw new RuntimeException("Could not create analyzer for " + language);
-        }
-
-        // Start profiling - force GC to establish clean baseline
+        // Start profiling BEFORE analyzer creation - force GC to establish clean baseline
         System.gc();
         try {
             Thread.sleep(100); // Allow GC to complete
@@ -342,7 +349,12 @@ public class TreeSitterRepoRunner {
         }
 
         var memoryMonitor = memoryProfiling ? startMemoryMonitoring() : null;
-        var startTime = System.nanoTime();
+        var analysisStart = System.nanoTime();
+
+        var analyzer = createAnalyzer(projectPath, language, files);
+        if (analyzer == null) {
+            throw new RuntimeException("Could not create analyzer for " + language);
+        }
         var startMemory = memoryBean.getHeapMemoryUsage().getUsed();
         var gcStartCollections = gcBeans.stream()
                 .mapToLong(bean -> Math.max(0, bean.getCollectionCount()))
@@ -371,7 +383,7 @@ public class TreeSitterRepoRunner {
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
 
-            var endTime = System.nanoTime();
+            var analysisEnd = System.nanoTime();
             var gcEndCollections = gcBeans.stream()
                     .mapToLong(bean -> Math.max(0, bean.getCollectionCount()))
                     .sum();
@@ -385,7 +397,7 @@ public class TreeSitterRepoRunner {
                 memoryMonitor.stop();
             }
 
-            var duration = Duration.ofNanos(endTime - startTime);
+            var analyzerDuration = Duration.ofNanos(analysisEnd - analysisStart);
             // Use allocation-based measurement: peak - start (always positive)
             var peakMemory = memoryProfiling
                     ? memoryMonitor.getPeak()
@@ -395,19 +407,24 @@ public class TreeSitterRepoRunner {
             return new BaselineResult(
                     files.size(),
                     declarations.size(),
-                    duration,
+                    analyzerDuration,
                     memoryDelta / (1024.0 * 1024.0), // Convert to MB
                     peakMemory / (1024.0 * 1024.0), // Convert to MB
                     false,
                     null,
-                    getBasicStats(analyzer),
                     gcCollectionsDelta,
-                    gcTimeDelta);
+                    gcTimeDelta,
+                    discovery.discoveryTime(),
+                    discovery.totalMatched());
 
         } catch (OutOfMemoryError e) {
-            return new BaselineResult(files.size(), 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", null, 0, 0);
+            return new BaselineResult(
+                    files.size(), 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0,
+                    discovery.discoveryTime(), discovery.totalMatched());
         } catch (Exception e) {
-            return new BaselineResult(files.size(), 0, Duration.ZERO, 0, 0, true, e.getMessage(), null, 0, 0);
+            return new BaselineResult(
+                    files.size(), 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0,
+                    discovery.discoveryTime(), discovery.totalMatched());
         }
     }
 
@@ -433,32 +450,31 @@ public class TreeSitterRepoRunner {
         System.out.println("Max files: " + maxFiles);
 
         // Debug: show discovered files
-        var projectPath = getProjectPath(testProject != null ? testProject : "custom");
-        var files = getProjectFiles(testProject != null ? testProject : "custom", testLanguage, maxFiles);
-        System.out.println("Files discovered: " + files.size());
-        files.stream()
+        var projectKey = testProject != null ? testProject : "custom";
+        var discovery = getProjectFiles(projectKey, testLanguage, maxFiles);
+        System.out.println("Files discovered (matching patterns): " + discovery.totalMatched());
+        System.out.println("Files added for analysis (max " + maxFiles + "): " + discovery.files().size());
+        discovery.files().stream()
                 .limit(5)
                 .forEach(file -> System.out.println("  " + file.absPath().toString() + " (exists: "
                         + file.absPath().toFile().exists() + ")"));
 
-        if (files.size() > 5) {
+        if (discovery.totalMatched() > 5) {
             System.out.println("  ...");
         }
 
         try {
-            var result = runProjectBaseline(testProject != null ? testProject : "custom", testLanguage);
+            var result = runProjectBaseline(projectKey, testLanguage, discovery);
 
             var target = testProject != null ? testProject : testDirectory.toString();
             System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
-            System.out.printf("Files processed: %d%n", result.filesProcessed);
-            System.out.printf("Analysis time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+            System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf("Total time: %.2f seconds%n",
+                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
             System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
             System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
-
-            if (result.basicStats != null) {
-                System.out.println("Basic stats:");
-                result.basicStats.forEach((k, v) -> System.out.printf("  %s: %d%n", k, v));
-            }
 
         } catch (Exception e) {
             var target = testProject != null ? testProject : testDirectory.toString();
@@ -517,7 +533,8 @@ public class TreeSitterRepoRunner {
                 var oldMaxFiles = maxFiles;
                 maxFiles = fileCount;
 
-                var result = runProjectBaseline(project, language);
+                var discovery = getProjectFiles(project, language, maxFiles);
+                var result = runProjectBaseline(project, language, discovery);
 
                 // Calculate processing rate with safeguards and better precision
                 double durationSeconds = result.duration.toMillis() / 1000.0;
@@ -536,15 +553,21 @@ public class TreeSitterRepoRunner {
                     timingInfo = String.format("%.2f seconds", durationSeconds);
                 }
 
+                long discoveryMs = discovery.discoveryTime().toMillis();
+                long totalMs = discoveryMs + durationMs;
+
                 // Format detailed results matching baseline report
                 String detailedResults = String.format(
-                        "✓ Success: %d files in %s, %.1f MB peak memory\n"
+                        "✓ Success: %d files (of %d) in %d ms (discovery %d ms + analysis %s), %.1f MB peak memory\n"
                                 + "  Code units found: %d (functions, classes, variables, etc.)\n"
                                 + "  Memory consumed: %.1f MB\n"
                                 + "  Peak memory per file: %.1f KB (total peak ÷ file count)\n"
                                 + "  Processing rate: %.2f files/second%s\n"
                                 + "  Garbage collection: %d cycles, %d ms total\n",
                         result.filesProcessed,
+                        result.totalMatched,
+                        totalMs,
+                        discoveryMs,
                         timingInfo,
                         result.peakMemoryMB,
                         result.declarationsFound,
@@ -603,10 +626,15 @@ public class TreeSitterRepoRunner {
             System.out.printf("\n--- Chromium %s Analysis ---\n", language.toUpperCase());
 
             try {
-                var result = runProjectBaseline(project, language);
+                var discovery = getProjectFiles(project, language, maxFiles);
+                var result = runProjectBaseline(project, language, discovery);
                 System.out.printf(
-                        "Files: %d, Time: %.2fs, Memory: %.1fMB\n",
-                        result.filesProcessed, result.duration.toMillis() / 1000.0, result.peakMemoryMB);
+                        "Files: %d of %d, Discovery: %.2fs, Analysis: %.2fs, Memory: %.1fMB\n",
+                        result.filesProcessed,
+                        result.totalMatched,
+                        result.discoveryTime.toMillis() / 1000.0,
+                        result.duration.toMillis() / 1000.0,
+                        result.peakMemoryMB);
 
             } catch (Exception e) {
                 System.out.println("Failed: " + e.getMessage());
@@ -614,7 +642,8 @@ public class TreeSitterRepoRunner {
         }
     }
 
-    private List<ProjectFile> getProjectFiles(String projectName, String language, int maxFiles) throws IOException {
+    private FileDiscoveryResult getProjectFiles(String projectName, String language, int maxFiles) throws IOException {
+        var t0 = System.nanoTime();
         var projectPath = getProjectPath(projectName);
         var config = PROJECTS.get(projectName);
 
@@ -649,18 +678,31 @@ public class TreeSitterRepoRunner {
                 .map(pattern -> FileSystems.getDefault().getPathMatcher("glob:" + pattern))
                 .collect(Collectors.toList());
 
-        try (Stream<Path> paths = Files.walk(projectPath)) {
-            return paths.filter(Files::isRegularFile)
-                    .filter(path -> {
-                        Path relativePath = projectPath.relativize(path);
-                        boolean included = pathMatchers.stream().anyMatch(matcher -> matcher.matches(relativePath));
-                        boolean excluded = excludeMatchers.stream().anyMatch(matcher -> matcher.matches(relativePath));
-                        return included && !excluded;
-                    })
-                    .limit(maxFiles)
-                    .map(path -> new ProjectFile(projectPath, projectPath.relativize(path)))
-                    .collect(Collectors.toList());
+        var selected = new ArrayList<ProjectFile>(Math.min(maxFiles, 1024));
+        int totalMatched = 0;
+
+        try (Stream<Path> stream = Files.walk(projectPath)) {
+            var it = stream.iterator();
+            while (it.hasNext()) {
+                var path = it.next();
+                if (!Files.isRegularFile(path)) continue;
+
+                Path relativePath = projectPath.relativize(path);
+                boolean included = pathMatchers.stream().anyMatch(matcher -> matcher.matches(relativePath));
+                if (!included) continue;
+
+                boolean excluded = excludeMatchers.stream().anyMatch(matcher -> matcher.matches(relativePath));
+                if (excluded) continue;
+
+                totalMatched++;
+                if (selected.size() < maxFiles) {
+                    selected.add(new ProjectFile(projectPath, relativePath));
+                }
+            }
         }
+
+        var discoveryTime = Duration.ofNanos(System.nanoTime() - t0);
+        return new FileDiscoveryResult(List.copyOf(selected), totalMatched, discoveryTime);
     }
 
     private IAnalyzer createAnalyzer(Path projectRoot, String language, List<ProjectFile> files) {
@@ -782,24 +824,6 @@ public class TreeSitterRepoRunner {
         long getPeak() {
             return peak.get();
         }
-    }
-
-    private Map<String, Integer> getBasicStats(IAnalyzer analyzer) {
-        // Return basic statistics - simplified for master compatibility
-        var stats = new HashMap<String, Integer>();
-
-        // Try to get cache size if method exists
-        try {
-            if (analyzer.getClass().getSimpleName().contains("TreeSitter")) {
-                var method = analyzer.getClass().getMethod("getCacheStatistics");
-                String cacheStats = (String) method.invoke(analyzer);
-                stats.put("cacheInfo", cacheStats.length()); // Just store length as a basic metric
-            }
-        } catch (Exception e) {
-            // Ignore - method doesn't exist or failed
-        }
-
-        return stats;
     }
 
     private void cloneProject(ProjectConfig config, Path targetPath) throws Exception {
@@ -1001,6 +1025,8 @@ public class TreeSitterRepoRunner {
     private record ProjectConfig(
             String gitUrl, String branch, Map<String, List<String>> languagePatterns, List<String> excludePatterns) {}
 
+    private record FileDiscoveryResult(List<ProjectFile> files, int totalMatched, Duration discoveryTime) {}
+
     private record BaselineResult(
             int filesProcessed,
             int declarationsFound,
@@ -1009,9 +1035,10 @@ public class TreeSitterRepoRunner {
             double peakMemoryMB,
             boolean failed,
             String failureReason,
-            Map<String, Integer> basicStats,
             long gcCollections,
-            long gcTimeMs) {}
+            long gcTimeMs,
+            Duration discoveryTime,
+            int totalMatched) {}
 
     private static class BaselineResults {
         private final Map<String, Map<String, BaselineResult>> results = new HashMap<>();
@@ -1140,9 +1167,12 @@ public class TreeSitterRepoRunner {
             return """
                         "%s": {
                           "files_processed": %d,
+                          "total_matched_files": %d,
                           "declarations_found": %d,
+                          "file_discovery_time_ms": %d,
                           "analysis_time_ms": %d,
                           "analysis_time_seconds": %.2f,
+                          "total_time_ms": %d,
                           "memory_delta_mb": %.1f,
                           "peak_memory_mb": %.1f,
                           "memory_per_file_kb": %.1f,
@@ -1154,9 +1184,12 @@ public class TreeSitterRepoRunner {
                     .formatted(
                             langEntry.getKey(),
                             result.filesProcessed,
+                            result.totalMatched,
                             result.declarationsFound,
+                            result.discoveryTime.toMillis(),
                             result.duration.toMillis(),
                             result.duration.toMillis() / 1000.0,
+                            result.discoveryTime.toMillis() + result.duration.toMillis(),
                             result.memoryDeltaMB,
                             result.peakMemoryMB,
                             result.peakMemoryMB * 1024 / result.filesProcessed,
@@ -1175,7 +1208,7 @@ public class TreeSitterRepoRunner {
 
         void saveToCsv(Path file) throws IOException {
             var header =
-                    "project,language,files_processed,declarations_found,analysis_time_seconds,peak_memory_mb,memory_per_file_kb,files_per_second,gc_collections,gc_time_ms,failed,failure_reason";
+                    "project,language,files_processed,total_matched,declarations_found,discovery_time_seconds,analysis_time_seconds,total_time_seconds,peak_memory_mb,memory_per_file_kb,files_per_second,gc_collections,gc_time_ms,failed,failure_reason";
 
             var csvBody = results.entrySet().stream()
                     .flatMap(projectEntry -> projectEntry.getValue().entrySet().stream()
@@ -1195,8 +1228,11 @@ public class TreeSitterRepoRunner {
                     projectName,
                     langEntry.getKey(),
                     String.valueOf(result.filesProcessed),
+                    String.valueOf(result.totalMatched),
                     String.valueOf(result.declarationsFound),
+                    String.format("%.2f", result.discoveryTime.toMillis() / 1000.0),
                     String.format("%.2f", result.duration.toMillis() / 1000.0),
+                    String.format("%.2f", (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0),
                     String.format("%.1f", result.peakMemoryMB),
                     String.format("%.1f", result.peakMemoryMB * 1024 / result.filesProcessed),
                     String.format("%.2f", result.filesProcessed / (result.duration.toMillis() / 1000.0)),
@@ -1301,5 +1337,45 @@ public class TreeSitterRepoRunner {
         public Set<ProjectFile> getAllFiles() {
             return files;
         }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Minimal JUnit tests to ensure Gradle executes the test task and produces results
+    // These are lightweight and do not require external repositories or analyzers.
+    // ------------------------------------------------------------------------------------
+
+    @Test
+    void sanity_createsRunnerInstance() {
+        var runner = new TreeSitterRepoRunner();
+        assertNotNull(runner);
+    }
+
+    @Test
+    void memoryMonitor_recordsNonNegativePeak() throws Exception {
+        var monitor = new MemoryMonitor();
+        monitor.start();
+        Thread.sleep(50);
+        monitor.stop();
+        assertTrue(monitor.getPeak() >= 0, "Peak memory should be non-negative");
+    }
+
+    @Test
+    void fileDiscovery_onTempDir_matchesJavaFilesOnly() throws Exception {
+        Path tmp = Files.createTempDirectory("tsrr-test");
+        // Create some files
+        Files.createDirectories(tmp.resolve("src/main/java"));
+        Files.writeString(tmp.resolve("src/main/java/Hello.java"), "class Hello {}");
+        Files.writeString(tmp.resolve("README.txt"), "readme");
+
+        // Configure runner to use the temporary directory and default patterns
+        this.testDirectory = tmp;
+        this.testProject = null; // ensure custom path logic is used
+        this.testLanguage = "java";
+
+        var discovery = getProjectFiles("custom", "java", 10);
+
+        assertEquals(1, discovery.totalMatched(), "Should match exactly one Java file");
+        assertEquals(1, discovery.files().size(), "Should add exactly one Java file for analysis");
+        assertTrue(discovery.discoveryTime().toMillis() >= 0, "Discovery time should be measured");
     }
 }
