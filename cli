@@ -125,4 +125,3 @@ exec java \
      -cp "$CLASSPATH" \
      ai.brokk.cli.BrokkCli \
      "${APP_ARGS[@]-}"
-
