@@ -110,7 +110,7 @@ public final class V3_HistoryIo {
                         byte[] bytes = zis.readAllBytes();
                         var typeRefNew = new TypeReference<Map<String, V3_FragmentDtos.EntryInfoDto>>() {};
                         Map<String, V3_FragmentDtos.EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
-                        entryInfoDtos = V3_DtoMapper.fromEntryInfosDto(dtoMap);
+                        entryInfoDtos = V3_DtoMapper.fromEntryInfosDto(dtoMap, mgr);
                     }
                     default -> {
                         if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {

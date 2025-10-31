@@ -176,8 +176,7 @@ public class DtoMapper {
             ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd ->
-                ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+                ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
             case ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
@@ -186,10 +185,7 @@ public class DtoMapper {
             }
             case GitFileFragmentDto gfd ->
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
-                        gfd.revision(),
-                        reader.readContent(gfd.contentId()),
-                        gfd.id());
+                        mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case FrozenFragmentDto ffd -> {
                 yield FrozenFragment.fromDto(
                         ffd.id(),
@@ -201,7 +197,9 @@ public class DtoMapper {
                         imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
                         ffd.isTextFragment(),
                         ffd.syntaxStyle(),
-                        ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
+                        ffd.files().stream()
+                                .map(dto1 -> fromProjectFileDto(dto1, mgr))
+                                .collect(Collectors.toSet()),
                         ffd.originalClassName(),
                         ffd.meta(),
                         ffd.repr());
@@ -238,7 +236,7 @@ public class DtoMapper {
             }
             case SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
-                        .map(DtoMapper::fromCodeUnitDto)
+                        .map(u -> fromCodeUnitDto(u, mgr))
                         .collect(Collectors.toSet());
                 var messages = searchDto.messages().stream()
                         .map(msgDto -> fromChatMessageDto(msgDto, reader))
@@ -298,8 +296,9 @@ public class DtoMapper {
                 }
             }
             case StacktraceFragmentDto stDto -> {
-                var sources =
-                        stDto.sources().stream().map(DtoMapper::fromCodeUnitDto).collect(Collectors.toSet());
+                var sources = stDto.sources().stream()
+                        .map(u -> fromCodeUnitDto(u, mgr))
+                        .collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(
                         stDto.id(),
                         mgr,
@@ -316,7 +315,7 @@ public class DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit(), mgr));
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -411,7 +410,7 @@ public class DtoMapper {
         if (path.startsWith(projectRoot)) {
             try {
                 Path relPath = projectRoot.relativize(path);
-                return new ProjectFile(projectRoot, relPath);
+                return mgr.toFile(relPath.toString());
             } catch (IllegalArgumentException e) {
                 return new ExternalFile(path);
             }
@@ -539,8 +538,8 @@ public class DtoMapper {
         return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
     }
 
-    private static ProjectFile fromProjectFileDto(ProjectFileDto dto) {
-        return new ProjectFile(Path.of(dto.repoRoot()), Path.of(dto.relPath()));
+    private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
+        return mgr.toFile(dto.relPath());
     }
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
@@ -588,9 +587,9 @@ public class DtoMapper {
         throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
     }
 
-    private static CodeUnit fromCodeUnitDto(CodeUnitDto dto) {
+    private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {
         ProjectFileDto pfd = dto.sourceFile();
-        ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
+        ProjectFile source = mgr.toFile(pfd.relPath());
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }
@@ -613,12 +612,12 @@ public class DtoMapper {
     }
 
     public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
-            Map<String, EntryInfoDto> dtoMap) {
+            Map<String, EntryInfoDto> dtoMap, IContextManager mgr) {
         return dtoMap.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
-                                .map(DtoMapper::fromDeletedFileDto)
+                                .map(df -> fromDeletedFileDto(df, mgr))
                                 .toList())));
     }
 
@@ -626,7 +625,7 @@ public class DtoMapper {
         return new DeletedFileDto(toProjectFileDto(df.file()), df.content(), df.wasTracked());
     }
 
-    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto) {
-        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file()), dto.content(), dto.wasTracked());
+    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto, IContextManager mgr) {
+        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file(), mgr), dto.content(), dto.wasTracked());
     }
 }
