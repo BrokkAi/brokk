@@ -62,7 +62,7 @@ import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
 
-public class GitPullRequestsTab extends JPanel implements SettingsChangeListener {
+public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
 
@@ -581,6 +581,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         MainProject.addSettingsChangeListener(this);
         updatePrList(); // async
+    }
+
+    @Override
+    public void applyTheme(ai.brokk.gui.theme.GuiTheme guiTheme) {
+        // Refresh the entire component tree to apply theme changes
+        SwingUtilities.updateComponentTreeUI(this);
     }
 
     private class PrTableDoubleClickAdapter extends MouseAdapter {
