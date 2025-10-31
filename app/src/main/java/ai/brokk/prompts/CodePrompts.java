@@ -642,9 +642,8 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Renders the provided editable fragments in the given order and returns the ChatMessage pair expected by callers.
-     * This overload allows callers to explicitly control the ordering (e.g., insertion order) of editable fragments
-     * without relying on Context::getEditableFragments (which preserves the existing mtime-based ordering for other callers).
+     * Renders editable workspace content in the order provided. Prefer this overload when deterministic insertion order
+     * is required (e.g., SearchAgent). Existing Context-based overload preserves mtime-based ordering for backward compatibility.
      *
      * @param editableFragments list of editable fragments to render in the given sequence
      * @return a collection containing one UserMessage (possibly multimodal) and one AiMessage acknowledgment, or empty if no content
@@ -691,7 +690,15 @@ public abstract class CodePrompts {
      * @param editableFragmentsInOrder editable fragments in the desired order
      * @return a collection containing one UserMessage (possibly multimodal) and one AiMessage acknowledgment, or empty if no content
      */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Collection<ChatMessage> readOnlyMessages, List<ContextFragment> editableFragmentsInOrder) {
+    /**
+     * Combine already-rendered read-only messages with an explicit list of editable fragments rendered in the provided order.
+     * Keeps multimodal behavior consistent (text + images in single UserMessage, followed by an AI acknowledgment).
+     *
+     * @param readOnlyMessages read-only workspace messages (may be multimodal)
+     * @param editableFragmentsInOrder editable fragments in the desired order
+     * @return a List containing one UserMessage (possibly multimodal) and one AiMessage acknowledgment, or empty if no content
+     */
+    public final List<ChatMessage> getWorkspaceContentsMessages(Collection<ChatMessage> readOnlyMessages, List<ContextFragment> editableFragmentsInOrder) {
         var combinedText = new StringBuilder();
         var allImages = new ArrayList<ImageContent>();
 
