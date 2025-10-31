@@ -10,6 +10,7 @@ import ai.brokk.util.migrationv4.HistoryV4Migrator;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.*;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -98,6 +99,8 @@ class HistoryV4MigrationTest {
                 "Migration should succeed for " + zipFileName);
 
         var history = HistoryIo.readZip(tempZip, mockContextManager);
+        // Let fragments materialize
+        history.topContext().awaitContextsAreComputed(Duration.ofSeconds(10));
         assertNotNull(history);
 
         if ("v3-complex-content.zip".equals(zipFileName)) {

@@ -135,7 +135,7 @@ public class ContextHistory {
 
     /** Push {@code ctx}, select it, and clear redo stack. */
     public synchronized void pushLive(Context ctx) {
-        ensureFilesSnapshot(ctx, SNAPSHOT_AWAIT_TIMEOUT);
+        ctx.awaitContextsAreComputed( SNAPSHOT_AWAIT_TIMEOUT);
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -148,7 +148,7 @@ public class ContextHistory {
      */
     public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
-        ensureFilesSnapshot(newLive, SNAPSHOT_AWAIT_TIMEOUT);
+        newLive.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
@@ -399,23 +399,6 @@ public class ContextHistory {
 
     /* ────────────────────────── private helpers ─────────────────────────── */
 
-    /**
-     * Best-effort snapshot seeding to ensure file contents are materialized
-     */
-    private void ensureFilesSnapshot(Context ctx, Duration timeout) {
-        for (var fragment : ctx.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                cf.computedDescription().await(timeout);
-                cf.computedSyntaxStyle().await(timeout);
-                cf.computedText().await(timeout);
-                var imgCv = cf.computedImageBytes();
-                if (imgCv != null) {
-                    imgCv.await(timeout);
-                }
-            }
-        }
-    }
-
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
@@ -490,26 +473,38 @@ public class ContextHistory {
 
                     var pf = fragment.files().iterator().next();
                     try {
-                        String newContent;
                         if (fragment instanceof ContextFragment.ComputedFragment df) {
-                            newContent = df.computedText().tryGet().orElse(fragment.text());
+                            df.computedText().onComplete((newContent, ex) -> {
+                                if (ex != null) {
+                                    io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
+                                } else {
+                                    try {
+                                        applyFragmentSnapshotToWorkspace(newContent, pf, io);
+                                    } catch (IOException e) {
+                                        io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
+                                    }
+                                }
+                            });
                         } else {
-                            newContent = fragment.text();
-                        }
-                        var currentContent = pf.exists() ? pf.read().orElse("") : "";
-
-                        if (!newContent.equals(currentContent)) {
-                            pf.write(newContent);
-                            var restoredFiles = new ArrayList<String>();
-                            restoredFiles.add(pf.toString());
-                            io.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    "Restored files: " + String.join(", ", restoredFiles));
-                            io.updateWorkspace();
+                            applyFragmentSnapshotToWorkspace(fragment.text(), pf, io);
                         }
                     } catch (IOException e) {
                         io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
                     }
                 });
+    }
+
+    private void applyFragmentSnapshotToWorkspace(String newContent, ProjectFile pf, IConsoleIO io) throws IOException {
+        var currentContent = pf.exists() ? pf.read().orElse("") : "";
+
+        if (!newContent.equals(currentContent)) {
+            pf.write(newContent);
+            var restoredFiles = new ArrayList<String>();
+            restoredFiles.add(pf.toString());
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Restored files: " + String.join(", ", restoredFiles));
+            io.updateWorkspace();
+        }
     }
 }

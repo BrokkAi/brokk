@@ -993,6 +993,10 @@ public class ContextSerializationTest {
         HistoryIo.writeZip(originalHistory, zipFile);
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
 
+        // Allow both histories to be loaded
+        context.awaitContextsAreComputed(Duration.ofSeconds(10));
+        loadedHistory.topContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+
         assertContextsEqual(
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
