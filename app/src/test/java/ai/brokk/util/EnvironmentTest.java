@@ -6,10 +6,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class EnvironmentTest {
+    @BeforeEach
+    void setUp() {
+        // Ensure the factory is reset to default before each test
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Restore to default after each test to avoid affecting other tests
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
+
     @Test
     void helloWorld() {
         System.out.println("Hello, World!");

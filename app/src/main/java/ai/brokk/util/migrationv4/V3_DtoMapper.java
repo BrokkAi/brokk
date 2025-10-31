@@ -161,7 +161,7 @@ public class V3_DtoMapper {
                         ffd.isTextFragment(),
                         ffd.syntaxStyle(),
                         ffd.files().stream()
-                                .map(V3_DtoMapper::fromProjectFileDto)
+                                .map(fileDto -> fromProjectFileDto(fileDto, mgr))
                                 .collect(Collectors.toSet()),
                         ffd.originalClassName(),
                         ffd.meta(),
@@ -316,8 +316,10 @@ public class V3_DtoMapper {
         return new ExternalFile(path);
     }
 
-    private static ProjectFile fromProjectFileDto(V3_FragmentDtos.ProjectFileDto dto) {
-        return new ProjectFile(Path.of(dto.repoRoot()), Path.of(dto.relPath()));
+    private static ProjectFile fromProjectFileDto(V3_FragmentDtos.ProjectFileDto dto, IContextManager mgr) {
+        // Use the current project root instead of the serialized one to handle cross-platform compatibility
+        // (e.g., when a V3 ZIP was created on Unix but deserialized on Windows)
+        return new ProjectFile(mgr.getProject().getRoot(), Path.of(dto.relPath()));
     }
 
     private static ChatMessage fromChatMessageDto(
@@ -380,16 +382,17 @@ public class V3_DtoMapper {
     /* ───────────── entryInfos mapping ───────────── */
 
     public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
-            Map<String, V3_FragmentDtos.EntryInfoDto> dtoMap) {
+            Map<String, V3_FragmentDtos.EntryInfoDto> dtoMap, IContextManager mgr) {
         return dtoMap.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
-                                .map(V3_DtoMapper::fromDeletedFileDto)
+                                .map(dto -> fromDeletedFileDto(dto, mgr))
                                 .toList())));
     }
 
-    private static ContextHistory.DeletedFile fromDeletedFileDto(V3_FragmentDtos.DeletedFileDto dto) {
-        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file()), dto.content(), dto.wasTracked());
+    private static ContextHistory.DeletedFile fromDeletedFileDto(
+            V3_FragmentDtos.DeletedFileDto dto, IContextManager mgr) {
+        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file(), mgr), dto.content(), dto.wasTracked());
     }
 }

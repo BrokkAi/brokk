@@ -145,7 +145,7 @@ public final class HistoryIo {
                             byte[] bytes = zis.readAllBytes();
                             var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
                             Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
-                            entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
+                            entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap, mgr);
                         }
                         default -> {
                             if (entryName.startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {

@@ -201,7 +201,9 @@ public class DtoMapper {
                         imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
                         ffd.isTextFragment(),
                         ffd.syntaxStyle(),
-                        ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
+                        ffd.files().stream()
+                                .map(fileDto -> fromProjectFileDto(fileDto, mgr))
+                                .collect(Collectors.toSet()),
                         ffd.originalClassName(),
                         ffd.meta(),
                         ffd.repr());
@@ -539,8 +541,10 @@ public class DtoMapper {
         return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
     }
 
-    private static ProjectFile fromProjectFileDto(ProjectFileDto dto) {
-        return new ProjectFile(Path.of(dto.repoRoot()), Path.of(dto.relPath()));
+    private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
+        // Use the current project root instead of the serialized one to handle cross-platform compatibility
+        // (e.g., when a history ZIP was created on Unix but deserialized on Windows)
+        return new ProjectFile(mgr.getProject().getRoot(), Path.of(dto.relPath()));
     }
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
@@ -613,12 +617,12 @@ public class DtoMapper {
     }
 
     public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
-            Map<String, EntryInfoDto> dtoMap) {
+            Map<String, EntryInfoDto> dtoMap, IContextManager mgr) {
         return dtoMap.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
-                                .map(DtoMapper::fromDeletedFileDto)
+                                .map(dto -> fromDeletedFileDto(dto, mgr))
                                 .toList())));
     }
 
@@ -626,7 +630,7 @@ public class DtoMapper {
         return new DeletedFileDto(toProjectFileDto(df.file()), df.content(), df.wasTracked());
     }
 
-    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto) {
-        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file()), dto.content(), dto.wasTracked());
+    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto, IContextManager mgr) {
+        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file(), mgr), dto.content(), dto.wasTracked());
     }
 }
