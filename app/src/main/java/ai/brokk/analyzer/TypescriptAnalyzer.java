@@ -663,6 +663,43 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
+        // Skip method_definition nodes that are inside object literals
+        // This prevents duplicate FQNames when a class has both:
+        // - A field with name X
+        // - A getter/setter/method with name X inside an object literal assigned to another field
+        //
+        // Example from VSCode:
+        // class ExtHostTerminal {
+        //     shellIntegration: TerminalShellIntegration;     // field
+        //     value = {
+        //         get shellIntegration() { ... }               // getter in object literal - should be skipped
+        //     };
+        // }
+        if ("method_definition".equals(node.getType())) {
+            // Walk up the AST to see if we're inside an object literal
+            TSNode parent = node.getParent();
+            while (parent != null && !parent.isNull()) {
+                String parentType = parent.getType();
+
+                // If we hit class_body first, we're a class method - keep it
+                if ("class_body".equals(parentType)) {
+                    return false;
+                }
+
+                // If we hit an object literal, we're inside an object - skip it
+                if ("object".equals(parentType)) {
+                    return true;
+                }
+
+                parent = parent.getParent();
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         // Classes, interfaces, enums, modules/namespaces all use '}'
         if (cu.isClass()) { // isClass is true for all CLASS_LIKE CUs
