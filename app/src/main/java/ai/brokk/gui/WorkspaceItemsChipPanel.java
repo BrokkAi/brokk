@@ -751,15 +751,37 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
+    // Helper to identify a single-item "Drop" action/menu item
+    private static boolean isDropAction(Object actionOrItem) {
+        try {
+            if (actionOrItem instanceof JMenuItem mi) {
+                String text = mi.getText();
+                return "Drop".equals(text);
+            }
+            if (actionOrItem instanceof Action a) {
+                Object name = a.getValue(Action.NAME);
+                return name instanceof String s && "Drop".equals(s);
+            }
+        } catch (Exception ex) {
+            logger.debug("Error inspecting action/menu item for 'Drop'", ex);
+        }
+        return false;
+    }
+
     private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
         JPopupMenu menu = new JPopupMenu();
         var scenario = new WorkspacePanel.SingleFragment(fragment);
         var actions = scenario.getActions(chrome.getContextPanel());
+        boolean addedAnyAction = false;
         for (var action : actions) {
+            if (isDropAction(action)) {
+                continue;
+            }
             menu.add(action);
+            addedAnyAction = true;
         }
 
-        // Add "Drop Other" action: remove all workspace fragments except this one,
+        // Add "Drop Others" action: remove all workspace fragments except this one,
         // preserving HISTORY fragments (task history).
         try {
             JMenuItem dropOther = new JMenuItem("Drop Others");
@@ -823,7 +845,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             });
 
             // Separate from scenario actions to emphasize the destructive multi-drop
-            menu.addSeparator();
+            if (addedAnyAction) {
+                menu.addSeparator();
+            }
             menu.add(dropOther);
         } catch (Exception ex) {
             logger.debug("Failed to add 'Drop Others' action to chip popup", ex);
@@ -892,12 +916,19 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         JPopupMenu menu = new JPopupMenu();
         var scenario = new WorkspacePanel.MultiFragment(fragments);
         var actions = scenario.getActions(chrome.getContextPanel());
+        boolean addedAnyAction = false;
         for (var action : actions) {
+            if (isDropAction(action)) {
+                continue;
+            }
             menu.add(action);
+            addedAnyAction = true;
         }
 
-        // Add separator
-        menu.addSeparator();
+        // Add separator only if there were scenario actions added
+        if (addedAnyAction) {
+            menu.addSeparator();
+        }
 
         // Add individual drop actions for each fragment
         for (var fragment : fragments) {
