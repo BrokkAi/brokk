@@ -36,6 +36,19 @@ import org.jetbrains.annotations.Nullable;
  * the entry was created. The ID of a FrozenFragment is its content hash.
  *
  * <p>FrozenFragments are never created for non-dynamic ContextFragments, which are already content-addressable.
+ *
+ * <p><strong>DEPRECATED:</strong> This class is maintained only for backward compatibility with V3 session history
+ * deserialization. The "freeze-first" model has been replaced by a live-context, non-blocking async design where
+ * fragments remain dynamic and compute their values asynchronously via {@link ai.brokk.util.ComputedValue}.
+ *
+ * <p>Metadata stored in {@link #meta()} allows frozen fragments to reconstruct themselves during unfreezing, but new
+ * code should work directly with live {@link ContextFragment} instances. Frozen fragments are only created during
+ * history serialization via {@link ContextHistory#ensureFilesSnapshot()} when persisting to disk.
+ *
+ * <p>This class will be removed in a future version once all V3 session histories have been migrated to the new
+ * live-context model.
+ *
+ * @see ContextHistory#ensureFilesSnapshot(ai.brokk.context.Context, java.time.Duration) for materialization during serialization
  */
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
     private static final Logger logger = LogManager.getLogger(FrozenFragment.class);
@@ -74,6 +87,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     /**
      * Private constructor for creating FrozenFragment instances. The ID (contentHash) is passed to the super
      * constructor.
+     *
      */
     private FrozenFragment(
             String contentHashAsId,
@@ -222,6 +236,10 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * interning of deserialized objects is desired, one might call freeze() on the result, or enhance this to use the
      * INTERN_POOL.
      *
+     * <p><strong>DEPRECATED:</strong> Only used during V3 history deserialization. Use live {@link ContextFragment}
+     * instances in new code. Frozen fragments are reconstructed from metadata when unfreezing; see
+     * {@link #unfreeze(IContextManager)}.
+     *
      * @param idFromDto The fragment ID from DTO (expected to be the content hash).
      * @param contextManager The context manager.
      * @param originalType The original fragment type.
@@ -234,6 +252,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @param files The project files.
      * @param originalClassName The original class name.
      * @param meta The metadata map.
+     * @param repr The repr snapshot of the original fragment.
      * @return A new FrozenFragment instance.
      */
     public static FrozenFragment fromDto(
@@ -269,7 +288,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                         repr));
     }
 
-    // Backwards-compatible overload used by migration code (V2_DtoMapper) and older DTOs.
+    /**
+     * Backwards-compatible overload used by migration code (V2_DtoMapper) and older DTOs.
+     *
+     * <p><strong>DEPRECATED:</strong> Only for V3 history backward compatibility. Use the full overload with repr
+     * parameter when available.
+     *
+     */
     public static FrozenFragment fromDto(
             String idFromDto,
             IContextManager contextManager, // id is String
@@ -301,6 +326,14 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     /**
      * Creates a frozen, potentially interned, representation of the given live Fragment.
+     *
+     * <p><strong>DEPRECATED:</strong> This method is no longer the recommended approach for materializing fragments.
+     * Use {@link ContextHistory#ensureFilesSnapshot(Context, java.time.Duration)} instead when you need to materialize
+     * computed values before serialization. The new design keeps contexts live and uses non-blocking async computation
+     * via {@link ai.brokk.util.ComputedValue}.
+     *
+     * <p>For most use cases, work directly with live {@link ContextFragment} instances and let
+     * {@link ContextHistory} handle materialization during history persistence automatically.
      *
      * @param liveFragment The live fragment to freeze
      * @param contextManagerForFrozenFragment The context manager for the frozen fragment

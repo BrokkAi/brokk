@@ -362,7 +362,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
      *
      * Rules:
      * - Always keep output fragments (history / outputs).
-     * - For text fragments: require non-null and non-blank text.
+     * - For text fragments: prefer non-blocking computed values; if dynamic and not ready, err on rendering.
      * - For non-text fragments: require at least an image, at least one file, or a non-empty description.
      *
      * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
@@ -372,15 +372,38 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             if (f.getType().isOutput()) {
                 return true;
             }
+
             if (f.isText()) {
-                String txt = f.text();
-                return txt != null && !txt.trim().isEmpty();
+                String txt;
+                if (f instanceof ContextFragment.ComputedFragment cf) {
+                    txt = cf.computedText().renderNowOr("");
+                } else {
+                    txt = f.text();
+                }
+                boolean hasText = !txt.trim().isEmpty();
+                // Be conservative for dynamic fragments that haven't computed yet
+                return hasText || f.isDynamic();
             } else {
-                boolean hasImage = f.image() != null;
-                boolean hasFiles = !f.files().isEmpty();
-                String desc = f.description();
-                boolean hasDesc = desc != null && !desc.trim().isEmpty();
-                return hasImage || hasFiles || hasDesc;
+                boolean hasImage = f instanceof ContextFragment.ImageFragment;
+
+                Set<ProjectFile> files;
+                if (f instanceof ContextFragment.ComputedFragment cff) {
+                    files = cff.computedFiles().renderNowOr(Set.of());
+                } else {
+                    files = f.files();
+                }
+
+                String desc;
+                if (f instanceof ContextFragment.ComputedFragment cf) {
+                    desc = cf.computedDescription().renderNowOr("");
+                } else {
+                    desc = f.description();
+                }
+                boolean hasDesc = !desc.trim().isEmpty();
+
+                boolean any = hasImage || !files.isEmpty() || hasDesc;
+                // Be conservative for dynamic fragments that haven't computed yet
+                return any || f.isDynamic();
             }
         } catch (Exception ex) {
             // Be conservative: if we cannot decide, render the fragment to avoid hiding useful info.
@@ -473,8 +496,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryLabel(ContextFragment fragment) {
-        int n = (int)
-                fragment.files().stream().map(ProjectFile::toString).distinct().count();
+        Set<ProjectFile> files;
+        if (fragment instanceof ContextFragment.ComputedFragment cff) {
+            files = cff.computedFiles().renderNowOr(Set.of());
+        } else {
+            files = fragment.files();
+        }
+        int n = (int) files.stream().map(ProjectFile::toString).distinct().count();
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
@@ -493,7 +521,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         try {
             // Only compute for text-like fragments; non-text (e.g., images) do not have meaningful text metrics
             if (fragment.isText() || fragment.getType().isOutput()) {
-                String text = fragment.text();
+                String text;
+                if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = fragment.text();
+                }
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
                 return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
@@ -506,7 +539,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
         var allFiles = summaries.stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
                 .map(ProjectFile::toString)
                 .distinct()
                 .sorted()
@@ -519,7 +558,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         int totalTokens = 0;
         try {
             for (var summary : summaries) {
-                String text = summary.text();
+                String text;
+                if (summary instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = summary.text();
+                }
                 totalLoc += text.split("\\r?\\n", -1).length;
                 totalTokens += Messages.getApproximateTokens(text);
             }
@@ -551,11 +595,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(ProjectFile::toString)
-                .distinct()
-                .sorted()
-                .toList();
+        var files = ((fragment instanceof ContextFragment.ComputedFragment cff)
+                        ? cff.computedFiles().renderNowOr(Set.of())
+                        : fragment.files())
+                .stream().map(ProjectFile::toString).distinct().sorted().toList();
 
         StringBuilder body = new StringBuilder();
 
@@ -571,7 +614,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         if (files.isEmpty()) {
             // Fallback: if no files are available, show any description as a last resort
-            String d = fragment.description();
+            String d;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                d = cf.computedDescription().renderNowOr("");
+            } else {
+                d = fragment.description();
+            }
             body.append(StringEscapeUtils.escapeHtml4(d));
         } else {
             body.append("<ul style='margin:0;padding-left:16px'>");
@@ -586,7 +634,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d = fragment.description();
+        String d;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            d = cf.computedDescription().renderNowOr("");
+        } else {
+            d = fragment.description();
+        }
 
         // Preserve existing newlines as line breaks for readability
         String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
@@ -862,13 +915,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private String buildIndividualDropLabel(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(pf -> {
-                    String path = pf.toString();
-                    int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                    return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-                })
-                .toList();
+        var files = ((fragment instanceof ContextFragment.ComputedFragment cff)
+                        ? cff.computedFiles().renderNowOr(Set.of())
+                        : fragment.files())
+                .stream()
+                        .map(pf -> {
+                            String path = pf.toString();
+                            int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                            return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                        })
+                        .toList();
 
         if (files.isEmpty()) {
             return "Drop: no files";
@@ -1004,17 +1060,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception e) {
             logger.debug("description() threw for fragment {}", fragment, e);
             safeDescription = "";
-        }
-
-        String safeText = "";
-        try {
-            if (fragment.isText()) {
-                var t = fragment.text();
-                safeText = t == null ? "" : t;
-            }
-        } catch (Exception e) {
-            logger.debug("text() threw for fragment {}", fragment, e);
-            safeText = "";
         }
 
         // Last-line safety: re-check that the fragment still has renderable content before building UI.
@@ -1291,7 +1336,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Label: aggregate count across only renderable summaries
         int totalFiles = (int) renderableSummaries.stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
                 .map(ProjectFile::toString)
                 .distinct()
                 .count();
@@ -1342,7 +1393,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     int totalFiles = (int) renderableSummaries.stream()
-                            .flatMap(f -> f.files().stream())
+                            .flatMap(f -> {
+                                if (f instanceof ContextFragment.ComputedFragment cff) {
+                                    return cff.computedFiles().renderNowOr(Set.of()).stream();
+                                } else {
+                                    return f.files().stream();
+                                }
+                            })
                             .map(ProjectFile::toString)
                             .distinct()
                             .count();
@@ -1352,7 +1409,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     StringBuilder combinedText = new StringBuilder();
                     for (var summary : renderableSummaries) {
                         try {
-                            combinedText.append(summary.text()).append("\n\n");
+                            String txt = (summary instanceof ContextFragment.ComputedFragment cf)
+                                    ? cf.computedText().renderNowOr("")
+                                    : summary.text();
+                            combinedText.append(txt).append("\n\n");
                         } catch (Exception ex) {
                             logger.debug("Error reading summary text for preview", ex);
                         }
@@ -1546,7 +1606,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 } else {
                     if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                         int totalFiles = (int) renderableSummaries.stream()
-                                .flatMap(f -> f.files().stream())
+                                .flatMap(f -> {
+                                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                                    } else {
+                                        return f.files().stream();
+                                    }
+                                })
                                 .map(ProjectFile::toString)
                                 .distinct()
                                 .count();
@@ -1556,7 +1622,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         StringBuilder combinedText = new StringBuilder();
                         for (var summary : renderableSummaries) {
                             try {
-                                combinedText.append(summary.text()).append("\n\n");
+                                String txt = (summary instanceof ContextFragment.ComputedFragment cf)
+                                        ? cf.computedText().renderNowOr("")
+                                        : summary.text();
+                                combinedText.append(txt).append("\n\n");
                             } catch (Exception ex) {
                                 logger.debug("Error reading summary text for preview", ex);
                             }

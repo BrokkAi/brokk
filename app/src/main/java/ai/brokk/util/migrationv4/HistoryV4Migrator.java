@@ -1,6 +1,7 @@
 package ai.brokk.util.migrationv4;
 
 import ai.brokk.IContextManager;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -38,6 +39,9 @@ public class HistoryV4Migrator {
 
         var history = V3_HistoryIo.readZip(zip, mgr);
         if (!history.getHistory().isEmpty()) {
+            // Verify that no FrozenFragment objects survived migration
+            verifyNoFrozenFragments(history);
+
             HistoryIo.writeZip(history, zip); // This will overwrite with V4 format
 
             if (!otherFiles.isEmpty()) {
@@ -47,6 +51,24 @@ public class HistoryV4Migrator {
         } else {
             logger.warn("Migration resulted in empty history for: {}. The original file is kept.", zip);
         }
+    }
+
+    private static void verifyNoFrozenFragments(ContextHistory history) {
+        for (var ctx : history.getHistory()) {
+            var frozenFragments = ctx.allFragments()
+                    .filter(f -> f instanceof ai.brokk.context.FrozenFragment)
+                    .toList();
+            if (!frozenFragments.isEmpty()) {
+                var frozenIds = frozenFragments.stream()
+                        .map(ai.brokk.context.ContextFragment::id)
+                        .toList();
+                throw new IllegalStateException(
+                        "V3 migration produced FrozenFragment objects that should have been unfrozen. "
+                                + "Frozen fragment IDs: " + frozenIds + ". "
+                                + "This indicates incomplete metadata or missing unfreezing logic.");
+            }
+        }
+        logger.debug("Verified: No FrozenFragment objects in migrated history");
     }
 
     private static Map<String, byte[]> readOtherFiles(Path zip) throws IOException {
