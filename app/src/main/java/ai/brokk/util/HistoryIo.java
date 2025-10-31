@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.*;
 import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;
@@ -12,10 +11,11 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
 import ai.brokk.context.FrozenFragment;
+import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
+import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -38,9 +38,13 @@ public final class HistoryIo {
     private static final Logger logger = LogManager.getLogger(HistoryIo.class);
     private static final ObjectMapper objectMapper = new ObjectMapper()
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            // map legacy io.github.jbellis.* fqcn polymorphic type ids to ai.brokk.*
+            .addHandler(new LegacyTypeMappingHandler(
+                    Map.of("io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos")));
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
+    private static final String V4_FRAGMENTS_FILENAME = "fragments-v4.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
     private static final String CONTENT_FILENAME = "content_metadata.json";
     private static final String CONTENT_DIR_PREFIX = "content/";
@@ -49,7 +53,7 @@ public final class HistoryIo {
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
 
-    private static final int CURRENT_FORMAT_VERSION = 3;
+    private static final int CURRENT_FORMAT_VERSION = 4;
 
     private HistoryIo() {}
 
@@ -59,20 +63,44 @@ public final class HistoryIo {
         }
 
         boolean isV3 = false;
+        boolean isV4 = false;
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) isV3 = true;
+                if (entry.getName().equals(V3_FRAGMENTS_FILENAME)) {
+                    isV3 = true;
+                    break;
+                } else if (entry.getName().equals(V4_FRAGMENTS_FILENAME)) {
+                    isV4 = true;
+                    break;
+                }
             }
         }
 
-        if (isV3) {
-            return readZipV3(zip, mgr);
+        if (isV4) {
+            return readZipV4(zip, mgr);
+        } else if (isV3) {
+            try {
+                // Try reading as V4 first (supports migrated zips that still use the V3 filename)
+                return readZipV4(zip, mgr);
+            } catch (Exception ex) {
+                logger.debug(
+                        "Failed to read history zip as V4 (under V3 filename), falling back to V3 reader: {}",
+                        ex.toString());
+                return V3_HistoryIo.readZip(zip, mgr);
+            }
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }
 
-    private static ContextHistory readZipV3(Path zip, IContextManager mgr) throws IOException {
+    private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
+        return readZipWithFragmentsFile(zip, mgr, V3_FRAGMENTS_FILENAME);
+        // TODO [Migration 4] replace above with below
+        //        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
+    }
+
+    private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
+            throws IOException {
         AllFragmentsDto allFragmentsDto = null;
         var compactContextDtoLines = new ArrayList<String>();
         var imageBytesMap = new HashMap<String, byte[]>();
@@ -86,54 +114,51 @@ public final class HistoryIo {
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                switch (entry.getName()) {
-                    case V3_FRAGMENTS_FILENAME -> {
-                        var fragmentJsonBytes = zis.readAllBytes();
-                        // Migration from 'io.github.jbellis' -> 'ai.brokk'
-                        var fragmentJsonString = new String(fragmentJsonBytes, StandardCharsets.UTF_8)
-                                .replace(
-                                        "\"type\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                        "\"type\":\"ai.brokk.context.FragmentDtos")
-                                .replace(
-                                        "\"@class\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                        "\"@class\":\"ai.brokk.context.FragmentDtos");
-                        allFragmentsDto = objectMapper.readValue(fragmentJsonString, AllFragmentsDto.class);
-                    }
-                    case CONTENT_FILENAME -> {
-                        var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
-                        contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
-                    }
-                    case CONTEXTS_FILENAME -> {
-                        var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
-                        content.lines().filter(line -> !line.trim().isEmpty()).forEach(compactContextDtoLines::add);
-                    }
-                    case RESET_EDGES_FILENAME -> {
-                        record EdgeDto(String sourceId, String targetId) {}
-                        var list = List.of(objectMapper.readValue(zis.readAllBytes(), EdgeDto[].class));
-                        list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
-                                UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
-                    }
-                    case GIT_STATES_FILENAME -> {
-                        var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {};
-                        rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
-                    }
-                    case ENTRY_INFOS_FILENAME -> {
-                        byte[] bytes = zis.readAllBytes();
-                        var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
-                        Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
-                        entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
-                    }
-                    default -> {
-                        if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
-                            String name = entry.getName().substring(IMAGES_DIR_PREFIX.length());
-                            int dotIndex = name.lastIndexOf('.');
-                            String fragmentIdHash = (dotIndex > 0) ? name.substring(0, dotIndex) : name;
-                            imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
-                        } else if (entry.getName().startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
-                            String contentId = entry.getName()
-                                    .substring(CONTENT_DIR_PREFIX.length())
-                                    .replaceFirst("\\.txt$", "");
-                            contentBytesMap.put(contentId, zis.readAllBytes());
+                var entryName = entry.getName();
+                if (entryName.equals(fragmentsFilename)) {
+                    var fragmentJsonBytes = zis.readAllBytes();
+                    // Type-safe mapping of legacy class names is handled by LegacyTypeMappingHandler
+                    allFragmentsDto = objectMapper.readValue(fragmentJsonBytes, AllFragmentsDto.class);
+                } else {
+                    switch (entryName) {
+                        case CONTENT_FILENAME -> {
+                            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+                            contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
+                        }
+                        case CONTEXTS_FILENAME -> {
+                            var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
+                            content.lines()
+                                    .filter(line -> !line.trim().isEmpty())
+                                    .forEach(compactContextDtoLines::add);
+                        }
+                        case RESET_EDGES_FILENAME -> {
+                            record EdgeDto(String sourceId, String targetId) {}
+                            var list = List.of(objectMapper.readValue(zis.readAllBytes(), EdgeDto[].class));
+                            list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
+                                    UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
+                        }
+                        case GIT_STATES_FILENAME -> {
+                            var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {};
+                            rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
+                        }
+                        case ENTRY_INFOS_FILENAME -> {
+                            byte[] bytes = zis.readAllBytes();
+                            var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
+                            Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
+                            entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
+                        }
+                        default -> {
+                            if (entryName.startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
+                                String name = entryName.substring(IMAGES_DIR_PREFIX.length());
+                                int dotIndex = name.lastIndexOf('.');
+                                String fragmentIdHash = (dotIndex > 0) ? name.substring(0, dotIndex) : name;
+                                imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
+                            } else if (entryName.startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
+                                String contentId = entryName
+                                        .substring(CONTENT_DIR_PREFIX.length())
+                                        .replaceFirst("\\.txt$", "");
+                                contentBytesMap.put(contentId, zis.readAllBytes());
+                            }
                         }
                     }
                 }
@@ -347,6 +372,8 @@ public final class HistoryIo {
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
                 zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
+                // TODO [Migration 4] replace above with below
+                //                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 
@@ -519,6 +546,45 @@ public final class HistoryIo {
 
             contentCache.put(contentId, result);
             return result;
+        }
+    }
+
+    // Type-safe handler to map legacy FQCN-based polymorphic type ids to current classes
+    public static final class LegacyTypeMappingHandler extends DeserializationProblemHandler {
+        private final Map<String, String> prefixMapping;
+
+        LegacyTypeMappingHandler(Map<String, String> prefixMapping) {
+            this.prefixMapping = prefixMapping;
+        }
+
+        @Override
+        @Nullable
+        public JavaType handleUnknownTypeId(
+                DeserializationContext ctxt,
+                JavaType baseType,
+                String subTypeId,
+                TypeIdResolver idResolver,
+                String failureMsg) {
+            return getJavaTypeWithFallback(ctxt, baseType, subTypeId, prefixMapping);
+        }
+
+        @Nullable
+        public static JavaType getJavaTypeWithFallback(
+                DeserializationContext ctxt, JavaType baseType, String subTypeId, Map<String, String> prefixMapping) {
+            for (var e : prefixMapping.entrySet()) {
+                String from = e.getKey();
+                if (subTypeId.startsWith(from)) {
+                    String to = e.getValue();
+                    String mappedId = to + subTypeId.substring(from.length());
+                    try {
+                        Class<?> target = Class.forName(mappedId);
+                        return ctxt.getTypeFactory().constructSpecializedType(baseType, target);
+                    } catch (ClassNotFoundException ex) {
+                        // fall through to default handling
+                    }
+                }
+            }
+            return null;
         }
     }
 }

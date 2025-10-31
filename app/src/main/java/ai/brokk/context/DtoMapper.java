@@ -321,6 +321,7 @@ public class DtoMapper {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
                 yield new ContextFragment.StringFragment(
+                        bfDto.id(),
                         mgr,
                         text,
                         ContextFragment.BUILD_RESULTS.description(),
