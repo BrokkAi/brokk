@@ -8,6 +8,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.*;
@@ -187,7 +188,24 @@ public class CommitDialog extends JDialog {
             } catch (Exception ex) {
                 logger.error("Error committing files from dialog:", ex);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.toolError("Error committing files: " + ex.getMessage(), "Commit Error");
+                    String baseMsg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+                    String hint = "";
+                    try {
+                        String lower = baseMsg.toLowerCase(Locale.ROOT);
+                        if (lower.contains("gpg") || lower.contains("sign")) {
+                            hint =
+                                    """
+                                    
+                                    Hint: Ensure GPG is installed, a valid signing key is available, and gpg-agent is running.
+                                    - Verify: git config commit.gpgsign (should be true) and git config user.signingkey (optional)
+                                    - You can disable signing for this repo with: git config commit.gpgsign false
+                                    - Environment override (for this app): BROKK_GIT_SIGN_COMMITS=[1|true|yes]
+                                    """;
+                        }
+                    } catch (Exception ignore) {
+                        // best-effort hint detection
+                    }
+                    chrome.toolError("Error committing files: " + baseMsg + hint, "Commit Error");
                     // Re-enable UI for retry or cancel
                     commitMessageArea.setEnabled(true);
                     cancelButton.setEnabled(true);

@@ -451,6 +451,15 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
         // Tooltips describe the action
         var commitTooltip = (anySelected && !allSelected) ? "Commit the selected files..." : "Commit all files...";
+        // Annotate commit tooltip if GPG signing is enabled via git config/env
+        String signSuffix = "";
+        try {
+            signSuffix = getRepo().isSignedCommitsEnabled() ? " (GPG-signed)" : "";
+        } catch (Exception ignore) {
+            // best-effort; don't block UI if repo config cannot be read
+        }
+        commitTooltip = commitTooltip + signSuffix;
+
         var stashTooltip =
                 (anySelected && !allSelected) ? "Save selected changes to the stash" : "Save all changes to the stash";
         commitButton.setToolTipText(commitTooltip);

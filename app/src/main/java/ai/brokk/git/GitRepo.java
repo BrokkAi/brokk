@@ -615,6 +615,104 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Determines if native signed commits should be used based on git config or environment variables.
+     * Prefers git config: commit.gpgsign=true. Environment override BROKK_GIT_SIGN_COMMITS=[1|true|yes].
+     */
+    private boolean isNativeSigningEnabled() {
+        try {
+            var cfg = git.getRepository().getConfig();
+            boolean signed = cfg.getBoolean("commit", null, "gpgsign", false);
+            if (!signed) {
+                var env = System.getenv("BROKK_GIT_SIGN_COMMITS");
+                signed = env != null
+                        && (env.equalsIgnoreCase("1")
+                                || env.equalsIgnoreCase("true")
+                                || env.equalsIgnoreCase("yes"));
+            }
+            return signed;
+        } catch (Exception e) {
+            logger.debug("Unable to read commit signing configuration", e);
+            return false;
+        }
+    }
+
+    /**
+     * Public accessor so UI code can indicate when commits will be GPG-signed.
+     * Returns true if commit signing is enabled by git config or BROKK_GIT_SIGN_COMMITS env var.
+     */
+    public boolean isSignedCommitsEnabled() {
+        return isNativeSigningEnabled();
+    }
+
+    /**
+     * Reads configured signing key from git config (user.signingkey), if present.
+     */
+    private @Nullable String getSigningKeyFromConfig() {
+        try {
+            var cfg = git.getRepository().getConfig();
+            var key = cfg.getString("user", null, "signingkey");
+            if (key != null) {
+                key = key.trim();
+            }
+            return (key == null || key.isEmpty()) ? null : key;
+        } catch (Exception e) {
+            logger.debug("Unable to read user.signingkey from git config", e);
+            return null;
+        }
+    }
+
+    /**
+     * Performs a native git commit with GPG signing using the user's environment (gpg-agent).
+     * Uses a temp file for the message and --only to commit only the provided paths.
+     */
+    private String commitFilesWithNativeGit(List<ProjectFile> files, String message) throws GitAPIException {
+        Path workTree = repository.getWorkTree().toPath();
+        Path msgFile = null;
+        try {
+            msgFile = Files.createTempFile("brokk_commit_", ".txt");
+            Files.writeString(msgFile, message, StandardCharsets.UTF_8);
+
+            // Build command: git commit -F <msgfile> -S [--gpg-sign=<key>] --only <paths...>
+            var sb = new StringBuilder();
+            sb.append("git commit -F ").append(msgFile.toAbsolutePath());
+            sb.append(" -S");
+
+            var key = getSigningKeyFromConfig();
+            if (key != null) {
+                sb.append(" --gpg-sign=").append(key);
+            }
+
+            sb.append(" --only");
+            for (var f : files) {
+                sb.append(" ").append(toRepoRelativePath(f));
+            }
+
+            var cmd = sb.toString();
+            logger.debug("Executing native signed commit: {}", cmd);
+
+            try {
+                Environment.instance.runShellCommand(cmd, workTree, out -> {}, Environment.GIT_TIMEOUT);
+            } catch (Environment.SubprocessException | InterruptedException e) {
+                var em = e.getMessage() != null ? e.getMessage() : e.toString();
+                throw new GitRepoException("Signed commit failed: " + em, e);
+            }
+
+            invalidateCaches();
+            return resolveToCommit("HEAD").getName();
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        } finally {
+            if (msgFile != null) {
+                try {
+                    Files.deleteIfExists(msgFile);
+                } catch (IOException ignore) {
+                    // best-effort cleanup
+                }
+            }
+        }
+    }
+
+    /**
      * Prepares a Git commit command, handling signing if required.
      *
      * @return a properly configured Git commit command.
@@ -634,8 +732,15 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return The commit ID of the new commit
      */
     public String commitFiles(List<ProjectFile> files, String message) throws GitAPIException {
+        // Stage the files first so both the JGit and native paths see consistent state
         add(files);
 
+        // If signing is enabled via git config or environment, use native git to sign with gpg-agent
+        if (isNativeSigningEnabled()) {
+            return commitFilesWithNativeGit(files, message);
+        }
+
+        // Fallback to pure JGit (no signing or signing not configured)
         var commitCommand = commitCommand().setMessage(message);
 
         if (!files.isEmpty()) {
