@@ -584,7 +584,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 // Check if parent is class_body (methods/fields are children of class_body)
                 if ("class_body".equals(parentType)) {
                     // Check for accessor keywords (get/set) first, as they're more specific
-                    if ("method_definition".equals(definitionNode.getType())) {
+                    // Handle both concrete methods (method_definition) and abstract methods (abstract_method_signature)
+                    String nodeType = definitionNode.getType();
+                    if ("method_definition".equals(nodeType) || "abstract_method_signature".equals(nodeType)) {
                         String accessorType = getAccessorType(definitionNode);
                         if ("get".equals(accessorType)) {
                             return fqName + "$get";
