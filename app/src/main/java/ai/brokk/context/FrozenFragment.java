@@ -471,7 +471,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 if (absPath == null) {
                     throw new IllegalArgumentException("Missing metadata for ExternalPathFragment");
                 }
-                var file = new ExternalFile(Path.of(absPath));
+                var file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                 yield new ContextFragment.ExternalPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
@@ -490,7 +490,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     }
                     file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
                 } else {
-                    file = new ExternalFile(Path.of(absPath));
+                    file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                 }
                 yield new ContextFragment.ImageFileFragment(file, cm);
             }

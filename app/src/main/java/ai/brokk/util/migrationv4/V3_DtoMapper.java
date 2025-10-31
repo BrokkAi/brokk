@@ -136,7 +136,8 @@ public class V3_DtoMapper {
                 ContextFragment.ProjectPathFragment.withId(
                         new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
             case V3_FragmentDtos.ExternalFileDto efd ->
-                ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+                ContextFragment.ExternalPathFragment.withId(
+                        new ExternalFile(Path.of(efd.absPath()).toAbsolutePath()), efd.id(), mgr);
             case V3_FragmentDtos.ImageFileDto ifd -> {
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
                 yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
@@ -302,7 +303,7 @@ public class V3_DtoMapper {
     }
 
     private static BrokkFile fromImageFileDtoToBrokkFile(V3_FragmentDtos.ImageFileDto ifd, IContextManager mgr) {
-        Path path = Path.of(ifd.absPath());
+        Path path = Path.of(ifd.absPath()).toAbsolutePath();
         Path projectRoot = mgr.getProject().getRoot();
         if (path.startsWith(projectRoot)) {
             try {
