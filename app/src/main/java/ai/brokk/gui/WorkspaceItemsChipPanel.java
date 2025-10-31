@@ -923,8 +923,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 if ("Summarize all References".equals(actionName)) {
                     continue;
                 }
-            if (isDropAction(action)) {
-                continue;
+                if (isDropAction(action)) {
+                    continue;
+                }
             }
             menu.add(action);
             addedAnyAction = true;
