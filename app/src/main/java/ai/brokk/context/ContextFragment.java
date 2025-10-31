@@ -284,12 +284,28 @@ public interface ContextFragment {
      * Default adapters should provide completed values based on current state so legacy
      * call sites keep working without changes.
      */
-    interface ComputedFragment {
+    interface ComputedFragment extends ContextFragment {
         ComputedValue<String> computedText();
 
         ComputedValue<String> computedDescription();
 
         ComputedValue<String> computedSyntaxStyle();
+
+        /**
+         * Non-blocking accessor mirroring files().
+         * Default returns a completed value based on current files().
+         */
+        default ComputedValue<Set<ProjectFile>> computedFiles() {
+            return ComputedValue.completed("cf-files-" + id(), files());
+        }
+
+        /**
+         * Non-blocking accessor mirroring sources().
+         * Default returns a completed value based on current sources().
+         */
+        default ComputedValue<Set<CodeUnit>> computedSources() {
+            return ComputedValue.completed("cf-sources-" + id(), sources());
+        }
 
         /**
          * Optionally provide computed image payload; default is null for non-image fragments.
