@@ -455,6 +455,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         StringBuilder modifiers = new StringBuilder();
 
         TSNode nodeToCheck = node;
+        // Cache parent to avoid multiple getParent() calls (optimization)
+        TSNode cachedParent = node.getParent();
 
         // Check if the node itself is an export statement
         if ("export_statement".equals(node.getType())) {
@@ -475,12 +477,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
         } else {
             // Check if the parent is an export statement (for nodes like variable_declarator)
-            TSNode parent = node.getParent();
-            if (parent != null && !parent.isNull() && "export_statement".equals(parent.getType())) {
+            // Use cached parent instead of calling getParent() again
+            if (cachedParent != null && !cachedParent.isNull() && "export_statement".equals(cachedParent.getType())) {
                 modifiers.append("export ");
                 // Check for default export
-                if (parent.getChildCount() > 1) {
-                    TSNode secondChild = parent.getChild(1);
+                if (cachedParent.getChildCount() > 1) {
+                    TSNode secondChild = cachedParent.getChild(1);
                     if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
                         modifiers.append("default ");
                     }
@@ -505,20 +507,20 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         } else {
             // Check if the immediate parent or grandparent is an ambient declaration (for nodes like variable_declarator)
             // But stop if we hit a body (which means we're nested and shouldn't inherit ambient from outer scope)
-            TSNode parentAmbient = node.getParent();
-            if (parentAmbient != null && !parentAmbient.isNull()) {
+            // Use cachedParent instead of calling getParent() again (optimization)
+            if (cachedParent != null && !cachedParent.isNull()) {
                 // First check the immediate parent
-                if ("ambient_declaration".equals(parentAmbient.getType())) {
+                if ("ambient_declaration".equals(cachedParent.getType())) {
                     modifiers.append("declare ");
-                } else if (!("class_body".equals(parentAmbient.getType())
-                        || "interface_body".equals(parentAmbient.getType())
-                        || "enum_body".equals(parentAmbient.getType())
-                        || "namespace_body".equals(parentAmbient.getType()))) {
+                } else if (!("class_body".equals(cachedParent.getType())
+                        || "interface_body".equals(cachedParent.getType())
+                        || "enum_body".equals(cachedParent.getType())
+                        || "namespace_body".equals(cachedParent.getType()))) {
                     // If parent is not a body and not ambient, check grandparent
-                    TSNode grandparent = parentAmbient.getParent();
-                    if (grandparent != null
-                            && !grandparent.isNull()
-                            && "ambient_declaration".equals(grandparent.getType())) {
+                    TSNode cachedGrandparent = cachedParent.getParent();
+                    if (cachedGrandparent != null
+                            && !cachedGrandparent.isNull()
+                            && "ambient_declaration".equals(cachedGrandparent.getType())) {
                         modifiers.append("declare ");
                     }
                 }
