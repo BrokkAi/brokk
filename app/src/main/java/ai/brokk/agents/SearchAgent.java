@@ -340,9 +340,11 @@ public class SearchAgent {
                     2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
                     3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
 
-                  Remember: **You must never write, create, or modify code.**
-                  Your purpose is to *find* existing code, not *create* new code.
-                  The Code Agent is solely responsible for all code generation and modification.
+                Output discipline:
+                  - Start each turn by pruning and summarizing before any new exploration.
+                  - Think before calling tools.
+                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
+                  - It's okay to add relevant summaries or files to the Workspace even if you're not certain they're relevant; you can always drop them later.
 
                 Critical rules:
                   1) PRUNE FIRST at every turn.
@@ -545,18 +547,23 @@ public class SearchAgent {
         }
 
         // Fine-grained Analyzer capabilities
-        names.add("getClassSkeletons");
-        names.add("getClassSources");
-        names.add("getMethodSources");
+        var analyzerWrapper = cm.getAnalyzerWrapper();
+        if (analyzerWrapper.providesSummaries()) {
+            names.add("getClassSkeletons");
+        }
+        if (analyzerWrapper.providesSourceCode()) {
+            names.add("getClassSources");
+            names.add("getMethodSources");
+        }
         // FIXME re-enable when context freezing is solved
-        //        names.add("getUsages");
+        // names.add("getUsages");
+        // names.add("getCallGraphTo");
+        // names.add("getCallGraphFrom");
 
         // Text-based search
         names.add("searchSubstrings");
         names.add("searchGitCommitMessages");
         names.add("searchFilenames");
-        names.add("getFileContents");
-        names.add("getFileSummaries");
 
         // Workspace curation
         names.add("addFilesToWorkspace");
@@ -994,15 +1001,7 @@ public class SearchAgent {
     // =======================
 
     private boolean shouldSummarize(String toolName) {
-        return Set.of(
-                        "searchSymbols",
-                        "getUsages",
-                        "getClassSources",
-                        "searchSubstrings",
-                        "searchFilenames",
-                        "searchGitCommitMessages",
-                        "getFileContents",
-                        "getFileSummaries")
+        return Set.of("searchSymbols", "searchSubstrings", "searchFilenames", "searchGitCommitMessages")
                 .contains(toolName);
     }
 

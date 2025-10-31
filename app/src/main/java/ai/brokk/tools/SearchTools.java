@@ -3,6 +3,7 @@ package ai.brokk.tools;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.CallGraphProvider;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -20,6 +21,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -100,61 +102,6 @@ public class SearchTools {
             }
         }
         return predicates;
-    }
-
-    @Tool(
-            """
-                    Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
-                    Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
-                    This is a fast and efficient way to read multiple related files at once.
-                    (But if you don't know where what you want is located, you should use searchSymbols instead.)
-                    """)
-    public String getFileSummaries(
-            @P(
-                            "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
-                    List<String> filePaths) {
-        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
-                : "Cannot get summaries: Code Intelligence is not available.";
-        if (filePaths.isEmpty()) {
-            return "Cannot get summaries: file paths list is empty";
-        }
-
-        var project = contextManager.getProject();
-        List<ProjectFile> projectFiles = filePaths.stream()
-                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .distinct()
-                .sorted() // Sort for deterministic output order
-                .toList();
-
-        if (projectFiles.isEmpty()) {
-            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
-        }
-
-        List<String> allSkeletons = new ArrayList<>();
-        List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
-        for (var file : projectFiles) {
-            var skeletonsInFile = ((SkeletonProvider) getAnalyzer()).getSkeletons(file);
-            if (!skeletonsInFile.isEmpty()) {
-                // Add all skeleton strings from this file to the list
-                allSkeletons.addAll(skeletonsInFile.values());
-                filesProcessed.add(file.toString());
-            } else {
-                logger.debug("No skeletons found in file: {}", file);
-            }
-        }
-
-        if (allSkeletons.isEmpty()) {
-            // filesProcessed will be empty if no skeletons were found in any matched file
-            var processedFilesString = filesProcessed.isEmpty()
-                    ? projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "))
-                    : String.join(", ", filesProcessed);
-            return "No class summaries found in the matched files: " + processedFilesString;
-        }
-
-        // Return the combined skeleton strings directly, joined by newlines
-        return String.join("\n\n", allSkeletons);
     }
 
     // --- Tool Methods requiring analyzer
@@ -373,6 +320,62 @@ public class SearchTools {
 
     @Tool(
             """
+                    Returns the call graph to a depth of 3 showing which methods call the given method and one line of source code for each invocation.
+                    Use this to understand method dependencies and how code flows into a method.
+                    """)
+    public String getCallGraphTo(
+            @P("Fully qualified method name (package name, class name, method name) to find callers for")
+                    String methodName) {
+        final var analyzer = getAnalyzer();
+        assert analyzer.as(CallGraphProvider.class).isPresent()
+                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
+        // Sanitize methodName: remove potential `(params)` suffix from LLM.
+        final var cleanMethodName = stripParams(methodName);
+        if (cleanMethodName.isBlank()) {
+            throw new IllegalArgumentException("Cannot get call graph: method name is empty");
+        }
+
+        var graph = analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphTo(cleanMethodName, 3))
+                .orElse(Collections.emptyMap());
+        String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, true);
+        if (result.isEmpty()) {
+            return "No callers found of method: " + cleanMethodName;
+        }
+        return result;
+    }
+
+    @Tool(
+            """
+                    Returns the call graph to a depth of 3 showing which methods are called by the given method and one line of source code for each invocation.
+                    Use this to understand how a method's logic flows to other parts of the codebase.
+                    """)
+    public String getCallGraphFrom(
+            @P("Fully qualified method name (package name, class name, method name) to find callees for")
+                    String methodName) {
+        final var analyzer = getAnalyzer();
+        assert analyzer.as(CallGraphProvider.class).isPresent()
+                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
+        assert (analyzer instanceof CallGraphProvider)
+                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
+        // Sanitize methodName: remove potential `(params)` suffix from LLM.
+        final var cleanMethodName = stripParams(methodName);
+        if (cleanMethodName.isBlank()) {
+            throw new IllegalArgumentException("Cannot get call graph: method name is empty");
+        }
+
+        var graph = analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphFrom(cleanMethodName, 3))
+                .orElse(Collections.emptyMap());
+        String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, false);
+        if (result.isEmpty()) {
+            return "No calls out made by method: " + cleanMethodName;
+        }
+        return result;
+    }
+
+    @Tool(
+                    """
                     Search git commit messages using a Java regular expression.
                     Returns matching commits with their message and list of changed files.
                     If the list of files is extremely long, it will be summarized with respect to your explanation.
@@ -556,60 +559,6 @@ public class SearchTools {
         }
 
         return "Matching filenames: " + String.join(", ", matchingFiles);
-    }
-
-    @Tool(
-            """
-                    Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
-                    This can be expensive for large files.
-                    """)
-    public String getFileContents(
-            @P("List of filenames (relative to project root) to retrieve contents for.") List<String> filenames) {
-        if (filenames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot get file contents: filenames list is empty");
-        }
-
-        logger.debug("Getting contents for files: {}", filenames);
-
-        StringBuilder result = new StringBuilder();
-        boolean anySuccess = false;
-
-        for (String filename : filenames.stream().distinct().toList()) {
-            try {
-                var file = contextManager.toFile(filename); // Use contextManager
-                if (!file.exists()) {
-                    logger.debug("File not found or not a regular file: {}", file);
-                    continue;
-                }
-                var contentOpt = file.read();
-                if (contentOpt.isEmpty()) {
-                    logger.debug("Skipping unreadable file: {}", filename);
-                    continue;
-                }
-                var content = contentOpt.get();
-                if (result.length() > 0) {
-                    result.append("\n\n");
-                }
-                result.append(
-                        """
-                                ```%s
-                                %s
-                                ```
-                                """
-                                .stripIndent()
-                                .formatted(filename, content));
-                anySuccess = true;
-            } catch (Exception e) {
-                logger.error("Unexpected error getting content for {}: {}", filename, e.getMessage());
-                // Continue to next file
-            }
-        }
-
-        if (!anySuccess) {
-            return "None of the requested files could be read: " + String.join(", ", filenames);
-        }
-
-        return result.toString();
     }
 
     // Only includes project files. Is this what we want?
