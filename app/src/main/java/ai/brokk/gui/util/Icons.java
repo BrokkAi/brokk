@@ -69,4 +69,11 @@ public final class Icons {
     public static final Icon SETTINGS = SwingUtil.uiIcon("Brokk.settings");
     public static final Icon HISTORY = SwingUtil.uiIcon("Brokk.history");
     public static final Icon SCIENCE = SwingUtil.uiIcon("Brokk.science");
+    public static final Icon ARCHITECT = SwingUtil.uiIcon("Brokk.architect");
+    public static final Icon CODE = SwingUtil.uiIcon("Brokk.code");
+    public static final Icon ASK = SwingUtil.uiIcon("Brokk.ask");
+    public static final Icon SEARCH = SwingUtil.uiIcon("Brokk.search");
+    public static final Icon BLITZFORGE = SwingUtil.uiIcon("Brokk.blitzforge");
+    public static final Icon MERGE = SwingUtil.uiIcon("Brokk.merge");
+    public static final Icon CONTEXT = SwingUtil.uiIcon("Brokk.context");
 }

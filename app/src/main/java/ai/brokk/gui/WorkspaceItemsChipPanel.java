@@ -758,6 +758,77 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         for (var action : actions) {
             menu.add(action);
         }
+
+        // Add "Drop Other" action: remove all workspace fragments except this one,
+        // preserving HISTORY fragments (task history).
+        try {
+            JMenuItem dropOther = new JMenuItem("Drop Others");
+            try {
+                dropOther.getAccessibleContext().setAccessibleName("Drop Others");
+            } catch (Exception ignored) {
+            }
+
+            // Determine enabled state at menu construction time
+            try {
+                var selected = contextManager.selectedContext();
+                if (selected == null) {
+                    dropOther.setEnabled(false);
+                } else {
+                    var possible = selected.getAllFragmentsInDisplayOrder().stream()
+                            .filter(f -> !Objects.equals(f, fragment))
+                            .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                            .toList();
+                    dropOther.setEnabled(!possible.isEmpty());
+                }
+            } catch (Exception ex) {
+                // Fail-safe: enable the action if we couldn't compute
+                dropOther.setEnabled(true);
+            }
+
+            dropOther.addActionListener(e -> {
+                if (readOnly) {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
+                    return;
+                }
+                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+                if (!onLatest) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+
+                var selected = contextManager.selectedContext();
+                if (selected == null) {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No context available");
+                    return;
+                }
+
+                var toDrop = selected.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !Objects.equals(f, fragment))
+                        .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                        .toList();
+
+                if (toDrop.isEmpty()) {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
+                    return;
+                }
+
+                contextManager.submitContextTask(() -> {
+                    try {
+                        contextManager.dropWithHistorySemantics(toDrop);
+                    } catch (Exception ex) {
+                        logger.error("Drop Others action failed", ex);
+                    }
+                });
+            });
+
+            // Separate from scenario actions to emphasize the destructive multi-drop
+            menu.addSeparator();
+            menu.add(dropOther);
+        } catch (Exception ex) {
+            logger.debug("Failed to add 'Drop Others' action to chip popup", ex);
+        }
+
         try {
             chrome.themeManager.registerPopupMenu(menu);
         } catch (Exception ex) {

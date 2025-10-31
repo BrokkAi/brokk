@@ -122,12 +122,14 @@ public class Context {
 
     public Map<CodeUnit, String> buildRelatedIdentifiers(int k) throws InterruptedException {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
-        return buildRelatedIdentifiers(contextManager.getAnalyzer(), candidates);
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+        return candidates.parallelStream()
+                .flatMap(c -> buildRelatedIdentifiers(analyzer, c).entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
-    public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, List<ProjectFile> candidates) {
-        return candidates.parallelStream()
-                .flatMap(c -> analyzer.getTopLevelDeclarations(c).stream())
+    public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
+        return analyzer.getTopLevelDeclarations(file).stream()
                 .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getSubDeclarations(cu).stream()
                         .map(CodeUnit::shortName)
                         .distinct()
@@ -261,8 +263,8 @@ public class Context {
     }
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
-        return new Context(
-                newContextId(), contextManager, newFragments, taskHistory, null, action, this.groupId, this.groupLabel);
+        // By default, derived contexts should NOT inherit grouping; grouping is explicit via withGroup(...)
+        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action, null, null);
     }
 
     /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
@@ -421,8 +423,8 @@ public class Context {
                 List.of(),
                 null,
                 CompletableFuture.completedFuture(action),
-                this.groupId,
-                this.groupLabel);
+                null,
+                null);
     }
 
     public boolean isEmpty() {
@@ -438,15 +440,8 @@ public class Context {
             TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                newTaskHistory,
-                parsed,
-                action,
-                this.groupId,
-                this.groupLabel);
+        // Do not inherit grouping on derived contexts; grouping is explicit
+        return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action, null, null);
     }
 
     public Context clearHistory() {
@@ -457,8 +452,8 @@ public class Context {
                 List.of(),
                 null,
                 CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY),
-                this.groupId,
-                this.groupLabel);
+                null,
+                null);
     }
 
     /** @return an immutable copy of the task history. */
@@ -501,18 +496,12 @@ public class Context {
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                action,
-                this.groupId,
-                this.groupLabel);
+        // Clear grouping by default on derived contexts
+        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
+        // Clear grouping by default on derived contexts
         return new Context(
                 newContextId(),
                 contextManager,
@@ -520,20 +509,13 @@ public class Context {
                 taskHistory,
                 parsedOutput,
                 CompletableFuture.completedFuture(action),
-                this.groupId,
-                this.groupLabel);
+                null,
+                null);
     }
 
     public Context withAction(Future<String> action) {
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                action,
-                this.groupId,
-                this.groupLabel);
+        // Clear grouping by default on derived contexts
+        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
     }
 
     public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
@@ -575,8 +557,8 @@ public class Context {
                 newHistory,
                 null,
                 CompletableFuture.completedFuture("Compress History"),
-                this.groupId,
-                this.groupLabel);
+                null,
+                null);
     }
 
     @Nullable
@@ -982,8 +964,8 @@ public class Context {
                 afterClear.taskHistory,
                 afterClear.parsedOutput,
                 CompletableFuture.completedFuture("Build results updated (failure)"),
-                afterClear.getGroupId(),
-                afterClear.getGroupLabel());
+                null,
+                null);
     }
 
     private boolean isNewFileInGit(FrozenFragment ff) {
