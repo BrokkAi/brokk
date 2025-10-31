@@ -1204,7 +1204,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         var saveResult = new TaskResult(
                                 cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTask("File changed saved", false)) {
-                            scope.append(saveResult);
+                            // Local non-LLM save
+                            scope.append(saveResult, null);
                         }
                         logger.debug("Added history entry for changes in: {}", file);
                     } catch (Exception e) {
