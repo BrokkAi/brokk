@@ -239,13 +239,10 @@ public class V3_DtoMapper {
                         skeletonDto.id(),
                         mgr,
                         skeletonDto.targetIdentifiers(),
-                        ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
+                        mapSummaryType(skeletonDto.summaryType()));
             case V3_FragmentDtos.SummaryFragmentDto summaryDto ->
                 new ContextFragment.SummaryFragment(
-                        summaryDto.id(),
-                        mgr,
-                        summaryDto.targetIdentifier(),
-                        ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
+                        summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));
             case V3_FragmentDtos.UsageFragmentDto usageDto ->
                 new ContextFragment.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
@@ -392,6 +389,12 @@ public class V3_DtoMapper {
     private static boolean isDeprecatedBuildFragment(V3_FragmentDtos.FrozenFragmentDto ffd) {
         return "io.github.jbellis.brokk.context.ContextFragment$BuildFragment".equals(ffd.originalClassName())
                 || "BUILD_LOG".equals(ffd.originalType());
+    }
+
+    // Map legacy enum values to current ones to avoid brittle JSON string replacements
+    private static ContextFragment.SummaryType mapSummaryType(String raw) {
+        String normalized = "CLASS_SKELETON".equals(raw) ? "CODEUNIT_SKELETON" : raw;
+        return ContextFragment.SummaryType.valueOf(normalized);
     }
 
     /* ───────────── entryInfos mapping ───────────── */

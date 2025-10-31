@@ -74,6 +74,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile String unfilledTooltipHtml = null;
 
+    // Stored warning metadata for tooltip rendering
+    private volatile int lastSuccessRate = -1;
+    private volatile boolean rateIsTested = false;
+
     public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
@@ -211,6 +215,17 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         repaint();
     }
 
+    /**
+     * Store the success rate, tested flag, and model config for use in tooltip rendering.
+     * This is called after the token computation completes to make the metadata available
+     * for display in warning tooltips and extrapolation notes.
+     */
+    public void setWarningMetadata(int successRate, boolean isTested, Service.ModelConfig config) {
+        this.lastSuccessRate = successRate;
+        this.rateIsTested = isTested;
+        this.modelConfig = config;
+    }
+
     public void setOnClick(@Nullable Runnable onClick) {
         this.onClick = onClick;
         setCursor(onClick != null ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -299,42 +314,60 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return modelConfig;
     }
 
-    @Override
-    public String getToolTipText(MouseEvent event) {
-        if (warningLevel != WarningLevel.NONE && modelConfig != null) {
+    public static String computeWarningTooltip(
+            boolean rateIsTested,
+            @Nullable Service.ModelConfig modelConfig,
+            WarningLevel warningLevel,
+            int successRate,
+            int usedTokens,
+            @Nullable String unfilledTooltipHtml) {
+        // First priority: show "beyond tested range" warning if extrapolated
+        if (!rateIsTested && modelConfig != null) {
+            return String.format(
+                    "<html><body style='width: 320px'>"
+                            + "<b style='color: #FF4444;'>⚠️ Warning: Beyond tested range</b><br/><br/>"
+                            + "Tested up to <b>131,071 tokens</b>.<br/><br/>"
+                            + "Your context is <b>%,d tokens</b>.<br/><br/>"
+                            + "<i>Performance at this scale is not backed by benchmarks and may be unreliable.</i>"
+                            + "</body></html>",
+                    usedTokens);
+        }
+
+        // Second priority: show performance-based warning if tested and issue detected
+        if (warningLevel != WarningLevel.NONE && modelConfig != null && rateIsTested) {
             String modelName = modelConfig.name();
             if (modelName.contains("-nothink")) {
                 modelName = modelName.replace("-nothink", "");
             }
             modelName = StringEscapeUtils.escapeHtml4(modelName);
 
-            int usedTokens = computeUsedTokens();
-            int successRate = ModelBenchmarkData.getSuccessRate(modelConfig, usedTokens);
-
             String reason = warningLevel == WarningLevel.YELLOW
                     ? "a lower success rate (&lt;50%)"
                     : "a very low success rate (&lt;30%)";
-
-            // Indicate if we're extrapolating beyond tested ranges
-            String extrapolationNote = "";
-            if (usedTokens > 131071) {
-                extrapolationNote =
-                        "<br/><br/><i>Note: This success rate is extrapolated beyond the maximum tested range (131K tokens).</i>";
-            } else if (usedTokens < 4096) {
-                extrapolationNote =
-                        "<br/><br/><i>Note: This success rate is extrapolated from the smallest tested range (&lt;4K tokens).</i>";
-            }
 
             return String.format(
                     "<html><body style='width: 300px'>"
                             + "<b>Warning: Potential performance issue</b><br/><br/>"
                             + "The model <b>%s</b> might perform poorly at this token count due to %s.<br/><br/>"
                             + "Observed success rate from benchmarks: <b>%d%%</b>"
-                            + "%s"
                             + "</body></html>",
-                    modelName, reason, successRate, extrapolationNote);
+                    modelName, reason, successRate);
         }
 
+        // Fallback: return unfilled tooltip
+        return unfilledTooltipHtml;
+    }
+
+    @Override
+    public String getToolTipText(MouseEvent event) {
+        String primaryTooltip = computeWarningTooltip(
+                rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
+
+        if (primaryTooltip != null) {
+            return primaryTooltip;
+        }
+
+        // Fallback: segment-based tooltips
         try {
             int width = getWidth();
             // Ensure segments correspond to current size
@@ -344,10 +377,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (x >= s.startX && x < s.startX + s.widthPx) {
                     return s.tooltipHtml;
                 }
-            }
-            // Any position not on a segment (including gaps and trailing unfilled) uses the unfilled tooltip
-            if (unfilledTooltipHtml != null) {
-                return unfilledTooltipHtml;
             }
         } catch (Exception e) {
             logger.trace("Failed to compute tooltip for token bar position", e);

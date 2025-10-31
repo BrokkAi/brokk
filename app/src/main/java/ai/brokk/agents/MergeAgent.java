@@ -15,6 +15,7 @@ import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
 import ai.brokk.util.AdaptiveExecutor;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -294,12 +295,13 @@ public class MergeAgent {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
             logger.debug("msg");
+            cm.getIo().llmOutput(msg, ChatMessageType.AI);
 
             var ctx = new Context(cm, "Resolved conflicts").addPathFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(
                     cm,
                     "Merge",
-                    List.of(new AiMessage(msg)),
+                    cm.getIo().getLlmRawMessages(),
                     ctx,
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
         }

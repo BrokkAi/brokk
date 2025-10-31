@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.*;
 import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;
@@ -12,11 +11,11 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
 import ai.brokk.context.FrozenFragment;
-import ai.brokk.util.migrationv4.HistoryV4Migrator;
+import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
+import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -39,7 +38,10 @@ public final class HistoryIo {
     private static final Logger logger = LogManager.getLogger(HistoryIo.class);
     private static final ObjectMapper objectMapper = new ObjectMapper()
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            // map legacy io.github.jbellis.* fqcn polymorphic type ids to ai.brokk.*
+            .addHandler(new LegacyTypeMappingHandler(
+                    Map.of("io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos")));
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String V4_FRAGMENTS_FILENAME = "fragments-v4.json";
@@ -75,19 +77,16 @@ public final class HistoryIo {
             }
         }
 
-        if (isV3) {
-            HistoryV4Migrator.migrate(zip, mgr);
+        if (isV4) {
             return readZipV4(zip, mgr);
-        } else if (isV4) {
-            return readZipV4(zip, mgr);
+        } else if (isV3) {
+            return V3_HistoryIo.readZip(zip, mgr);
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }
 
     private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
-        return readZipWithFragmentsFile(zip, mgr, V3_FRAGMENTS_FILENAME);
-        // TODO [Migration 4] replace above with below
-        //        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
+        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
     }
 
     private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
@@ -108,15 +107,8 @@ public final class HistoryIo {
                 var entryName = entry.getName();
                 if (entryName.equals(fragmentsFilename)) {
                     var fragmentJsonBytes = zis.readAllBytes();
-                    // Migration from 'io.github.jbellis' -> 'ai.brokk'
-                    var fragmentJsonString = new String(fragmentJsonBytes, StandardCharsets.UTF_8)
-                            .replace(
-                                    "\"type\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                    "\"type\":\"ai.brokk.context.FragmentDtos")
-                            .replace(
-                                    "\"@class\":\"io.github.jbellis.brokk.context.FragmentDtos",
-                                    "\"@class\":\"ai.brokk.context.FragmentDtos");
-                    allFragmentsDto = objectMapper.readValue(fragmentJsonString, AllFragmentsDto.class);
+                    // Type-safe mapping of legacy class names is handled by LegacyTypeMappingHandler
+                    allFragmentsDto = objectMapper.readValue(fragmentJsonBytes, AllFragmentsDto.class);
                 } else {
                     switch (entryName) {
                         case CONTENT_FILENAME -> {
@@ -312,10 +304,22 @@ public final class HistoryIo {
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
             var taskEntryRefs = ctx.getTaskHistory().stream()
-                    .map(te -> new TaskEntryRefDto(
-                            te.sequence(),
-                            te.log() != null ? te.log().id() : null,
-                            te.summary() != null ? writer.writeContent(te.summary(), null) : null))
+                    .map(te -> {
+                        String type = te.meta() != null ? te.meta().type().name() : null;
+                        String pmName = (te.meta() != null && te.meta().primaryModel() != null)
+                                ? te.meta().primaryModel().name()
+                                : null;
+                        String pmReason = (te.meta() != null && te.meta().primaryModel() != null)
+                                ? te.meta().primaryModel().reasoningLevel()
+                                : null;
+                        return new TaskEntryRefDto(
+                                te.sequence(),
+                                te.log() != null ? te.log().id() : null,
+                                te.summary() != null ? writer.writeContent(te.summary(), null) : null,
+                                type,
+                                pmName,
+                                pmReason);
+                    })
                     .toList();
             var compactDto = new CompactContextDto(
                     ctx.id().toString(),
@@ -370,9 +374,7 @@ public final class HistoryIo {
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
-                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
-                // TODO [Migration 4] replace above with below
-                //                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
+                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 
@@ -545,6 +547,45 @@ public final class HistoryIo {
 
             contentCache.put(contentId, result);
             return result;
+        }
+    }
+
+    // Type-safe handler to map legacy FQCN-based polymorphic type ids to current classes
+    public static final class LegacyTypeMappingHandler extends DeserializationProblemHandler {
+        private final Map<String, String> prefixMapping;
+
+        LegacyTypeMappingHandler(Map<String, String> prefixMapping) {
+            this.prefixMapping = prefixMapping;
+        }
+
+        @Override
+        @Nullable
+        public JavaType handleUnknownTypeId(
+                DeserializationContext ctxt,
+                JavaType baseType,
+                String subTypeId,
+                TypeIdResolver idResolver,
+                String failureMsg) {
+            return getJavaTypeWithFallback(ctxt, baseType, subTypeId, prefixMapping);
+        }
+
+        @Nullable
+        public static JavaType getJavaTypeWithFallback(
+                DeserializationContext ctxt, JavaType baseType, String subTypeId, Map<String, String> prefixMapping) {
+            for (var e : prefixMapping.entrySet()) {
+                String from = e.getKey();
+                if (subTypeId.startsWith(from)) {
+                    String to = e.getValue();
+                    String mappedId = to + subTypeId.substring(from.length());
+                    try {
+                        Class<?> target = Class.forName(mappedId);
+                        return ctxt.getTypeFactory().constructSpecializedType(baseType, target);
+                    } catch (ClassNotFoundException ex) {
+                        // fall through to default handling
+                    }
+                }
+            }
+            return null;
         }
     }
 }

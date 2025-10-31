@@ -1277,7 +1277,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         log.trace("analyzeFileContent: Parsing file: {}", file);
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
-            log.debug("Skipping binary/empty file: {}", file);
+            log.trace("Skipping binary/empty file: {}", file);
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
         }
 

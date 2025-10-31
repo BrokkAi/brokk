@@ -8,6 +8,8 @@ import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialLoadingButton;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.MergeDialogUtil;
@@ -39,7 +41,7 @@ import org.eclipse.jgit.lib.ProgressMonitor;
  * Panel that contains the "Log" tab UI and related functionality: - Branch tables (local & remote) - Commits table -
  * Tree of changed files (per commit) - Search functionality
  */
-public class GitLogTab extends JPanel {
+public class GitLogTab extends JPanel implements ThemeAware {
 
     // Methods to expose to GitPanel for finding and selecting commits by ID
 
@@ -89,6 +91,10 @@ public class GitLogTab extends JPanel {
             return t;
         });
         scheduleMidnightRefresh();
+
+        // Ensure the tab populates its branch/commit data when created (e.g., when opened in a dialog).
+        // Use invokeLater so the UI is fully constructed before update() manipulates selection/scrolling.
+        SwingUtilities.invokeLater(this::update);
     }
 
     /**
@@ -1113,6 +1119,17 @@ public class GitLogTab extends JPanel {
     /** Selects a commit in the commits table by its ID. */
     public void selectCommitById(String commitId) {
         gitCommitBrowserPanel.selectCommitById(commitId);
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        // Refresh the entire component tree to apply theme changes
+        SwingUtilities.updateComponentTreeUI(this);
+
+        // Delegate to child components that are theme-aware
+        if (gitCommitBrowserPanel instanceof ThemeAware themeAware) {
+            themeAware.applyTheme(guiTheme);
+        }
     }
 
     /**

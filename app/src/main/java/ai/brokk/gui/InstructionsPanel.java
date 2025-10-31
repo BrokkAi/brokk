@@ -354,8 +354,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
+        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -924,7 +924,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
-    private void updateTokenCostIndicator() {
+    void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
@@ -941,7 +941,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
-                                100);
+                                100,
+                                true);
                     }
 
                     var fullText = new StringBuilder();
@@ -964,9 +965,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
 
-                    int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
+                    var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(config, approxTokens);
+                    int successRate = rateResult.successRate();
+                    boolean isTested = rateResult.isTested();
                     TokenUsageBar.WarningLevel warningLevel;
-                    if (successRate == -1) {
+                    if (!isTested) {
+                        // Untested (extrapolated) token count — always warn RED
+                        warningLevel = TokenUsageBar.WarningLevel.RED;
+                    } else if (successRate == -1) {
                         // Unknown/untested combination: don't warn
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     } else if (successRate < 30) {
@@ -980,7 +986,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String tooltipHtml =
                             buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -989,12 +995,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                             return;
                         }
+                        // make metadata available to TokenUsageBar for tooltip/warning rendering
+                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+
+                        // Compute shared tooltip for both TokenUsageBar and ModelSelector
+                        String sharedTooltip = TokenUsageBar.computeWarningTooltip(
+                                stat.isTested,
+                                stat.config,
+                                stat.warningLevel,
+                                stat.successRate,
+                                stat.approxTokens,
+                                stat.toolTipHtml);
+
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(stat.toolTipHtml);
-                        modelSelector.getComponent().setToolTipText(stat.toolTipHtml);
+                        contextAreaContainer.setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
+                        modelSelector
+                                .getComponent()
+                                .setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -1010,7 +1030,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int approxTokens,
             TokenUsageBar.WarningLevel warningLevel,
             Service.ModelConfig config,
-            int successRate) {}
+            int successRate,
+            boolean isTested) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1727,9 +1748,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
+
+                // Derive TaskMeta (type + primary model) for this action
+                var svc = cm.getService();
+                var selectedModel = getSelectedModel();
+                TaskType taskType =
+                        switch (action) {
+                            case ACTION_ARCHITECT -> TaskType.ARCHITECT;
+                            case ACTION_CODE -> TaskType.CODE;
+                            case ACTION_ASK -> TaskType.ASK;
+                            case ACTION_SEARCH -> TaskType.SEARCH;
+                            default -> TaskType.NONE;
+                        };
+                var primary = ModelSpec.from(selectedModel, svc);
+                var meta = new TaskMeta(taskType, primary);
+
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
-                    scope.append(result);
+                    scope.append(result, meta);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }
@@ -1751,9 +1787,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
+
+                // Derive TaskMeta (type + primary model) for this action
+                var svc = cm.getService();
+                var selectedModel = getSelectedModel();
+                TaskType taskType =
+                        switch (action) {
+                            case ACTION_ARCHITECT -> TaskType.ARCHITECT;
+                            case ACTION_CODE -> TaskType.CODE;
+                            case ACTION_ASK -> TaskType.ASK;
+                            case ACTION_SEARCH -> TaskType.SEARCH;
+                            default -> TaskType.NONE;
+                        };
+                var primary = ModelSpec.from(selectedModel, svc);
+                var meta = new TaskMeta(taskType, primary);
+
                 try (var scope = cm.beginTask(input, false, "Lutz Mode")) {
                     var result = task.apply(scope);
-                    scope.append(result);
+                    scope.append(result, meta);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }

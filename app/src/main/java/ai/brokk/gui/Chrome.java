@@ -104,6 +104,9 @@ public class Chrome
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
 
+    // Per-Chrome instance dialog tracking to support multiple Chrome windows with independent dialogs
+    private final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
+
     // Dependencies:
     final ContextManager contextManager;
     private Context activeContext; // Track the currently displayed context
@@ -340,15 +343,17 @@ public class Chrome
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
 
-        // Create workspace panel and project files panel
+        // Create workspace panel, dependencies panel, and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+        // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
+        leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
         var projectIcon = Icons.FOLDER_CODE;
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
@@ -364,74 +369,74 @@ public class Chrome
             }
         });
 
-        // Add Dependencies tab
-        var dependenciesIcon = Icons.MANAGE_DEPENDENCIES;
-        leftTabbedPanel.addTab(null, dependenciesIcon, dependenciesPanel);
-        var dependenciesTabIdx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-        var dependenciesShortcut =
-                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-        var dependenciesTabLabel =
-                createSquareTabLabel(dependenciesIcon, "Dependencies (" + dependenciesShortcut + ")");
-        leftTabbedPanel.setTabComponentAt(dependenciesTabIdx, dependenciesTabLabel);
-        dependenciesTabLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                handleTabToggle(dependenciesTabIdx);
-            }
-        });
-
-        // Add Git tabs (Changes, Worktrees, Log) if available
-        if (getProject().hasGit()) {
-            gitCommitTab = new GitCommitTab(this, contextManager);
-            gitWorktreeTab = new GitWorktreeTab(this, contextManager);
-            gitLogTab = new GitLogTab(this, contextManager);
-
-            // Changes tab (with badge)
-            var commitIcon = Icons.COMMIT;
-            gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
-            leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
-            var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-            var changesShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
-            gitTabLabel.addMouseListener(new MouseAdapter() {
+        // --- New top-level Tests tab moved up (second position) ---
+        {
+            var testsIcon = Icons.SCIENCE;
+            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
+            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+            var testsShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+            var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
+            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
+            testsTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    handleTabToggle(commitTabIdx);
+                    handleTabToggle(testsTabIdx);
                 }
             });
+        }
 
-            // Worktrees tab
-            var worktreeIcon = Icons.FLOWCHART;
+        // Add Git tabs (Changes, Log, Worktrees) if available (in the requested visual order)
+        // Always construct Git tabs when the project has git; show/hide based on Advanced Mode
+        if (getProject().hasGit()) {
+            gitCommitTab = new GitCommitTab(this, contextManager);
+            gitLogTab = new GitLogTab(this, contextManager);
+            gitWorktreeTab = new GitWorktreeTab(this, contextManager);
+
             if (GlobalUiSettings.isAdvancedMode()) {
-                leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
-                var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                var worktreesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-                var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
-                worktreeTabLabel.addMouseListener(new MouseAdapter() {
+                // Changes tab (with badge)
+                var commitIcon = Icons.COMMIT;
+                gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
+                leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
+                var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                var changesShortcut =
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+                gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
+                leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
+                gitTabLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
-                        handleTabToggle(worktreeTabIdx);
+                        handleTabToggle(commitTabIdx);
                     }
                 });
-            }
 
-            // Log tab
-            var logIcon = Icons.FLOWSHEET;
-            if (GlobalUiSettings.isAdvancedMode()) {
+                // Log tab (after Changes)
+                var logIcon = Icons.FLOWSHEET;
                 leftTabbedPanel.addTab(null, logIcon, gitLogTab);
                 var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
                 var logShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
                 var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
                 leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
                 logTabLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
                         handleTabToggle(logTabIdx);
+                    }
+                });
+
+                // Worktrees tab (after Log)
+                var worktreeIcon = Icons.FLOWCHART;
+                leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
+                var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+                var worktreesShortcut =
+                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
+                leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
+                worktreeTabLabel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mousePressed(MouseEvent e) {
+                        handleTabToggle(worktreeTabIdx);
                     }
                 });
             }
@@ -486,23 +491,6 @@ public class Chrome
                     }
                 });
             }
-        }
-
-        // --- New top-level Tests panel (always last) ---
-        {
-            var testsIcon = Icons.SCIENCE;
-            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
-            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-            var testsShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_8));
-            var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
-            testsTabLabel.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    handleTabToggle(testsTabIdx);
-                }
-            });
         }
 
         /*
@@ -1293,17 +1281,19 @@ public class Chrome
             }
         });
 
-        // Alt/Cmd+2 for Dependencies
-        KeyStroke switchToDependencies = GlobalUiSettings.getKeybinding(
-                "panel.switchToDependencies", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-        bindKey(rootPane, switchToDependencies, "switchToDependencies");
-        rootPane.getActionMap().put("switchToDependencies", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                var idx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
-            }
-        });
+        // Alt/Cmd+2 for Tests panel
+        if (testRunnerPanel != null) {
+            KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
+                    "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+            bindKey(rootPane, switchToTests, "switchToTests");
+            rootPane.getActionMap().put("switchToTests", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
 
         // Alt/Cmd+3 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
@@ -1319,29 +1309,29 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+4 for Worktrees
-        if (gitWorktreeTab != null) {
-            KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-            bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
-            rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
-                }
-            });
-        }
-
-        // Alt/Cmd+5 for Log
+        // Alt/Cmd+4 for Log
         if (gitLogTab != null) {
             KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Alt/Cmd+5 for Worktrees
+        if (gitWorktreeTab != null) {
+            KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+            bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
+            rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
                     if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
                 }
             });
@@ -1375,20 +1365,6 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+8 for Tests panel
-        if (testRunnerPanel != null) {
-            KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
-                    "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_8));
-            bindKey(rootPane, switchToTests, "switchToTests");
-            rootPane.getActionMap().put("switchToTests", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
-                }
-            });
-        }
-
         // Drawer navigation shortcuts
         // Cmd/Ctrl+Shift+T => toggle terminal drawer
         KeyStroke toggleTerminalDrawerKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1405,20 +1381,6 @@ public class Chrome
                     int idx = rightTabbedPanel.indexOfTab("Terminal");
                     if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
                 });
-            }
-        });
-
-        // Cmd/Ctrl+Shift+D => toggle dependencies tab
-        KeyStroke toggleDependenciesTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "drawer.toggleDependencies",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_D,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleDependenciesTabKeyStroke, "toggleDependenciesTab");
-        rootPane.getActionMap().put("toggleDependenciesTab", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                showDependenciesTab();
             }
         });
 
@@ -1915,12 +1877,13 @@ public class Chrome
         }
     }
 
-    /** Shows the dependencies tab. If the tab is already visible, it collapses the sidebar. */
+    /** Shows the dependencies tab by selecting Project Files and toggling the Dependencies panel. */
     public void showDependenciesTab() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        int dependenciesTabIndex = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-        if (dependenciesTabIndex != -1) {
-            handleTabToggle(dependenciesTabIndex);
+        int projectFilesTabIndex = leftTabbedPanel.indexOfComponent(projectFilesPanel);
+        if (projectFilesTabIndex != -1) {
+            leftTabbedPanel.setSelectedIndex(projectFilesTabIndex);
+            SwingUtilities.invokeLater(() -> projectFilesPanel.toggleDependencies());
         }
     }
 
@@ -2624,6 +2587,10 @@ public class Chrome
         return workspacePanel.getSelectedFragments();
     }
 
+    public Map<String, JDialog> getOpenDialogs() {
+        return openDialogs;
+    }
+
     public JTabbedPane getLeftTabbedPanel() {
         return leftTabbedPanel;
     }
@@ -2775,6 +2742,16 @@ public class Chrome
         return gitCommitTab;
     }
 
+    @Nullable
+    public GitLogTab getGitLogTab() {
+        return gitLogTab;
+    }
+
+    @Nullable
+    public GitWorktreeTab getGitWorktreeTab() {
+        return gitWorktreeTab;
+    }
+
     /** Called by MenuBar after constructing the BlitzForge menu item. */
     public void setBlitzForgeMenuItem(JMenuItem blitzForgeMenuItem) {
         this.blitzForgeMenuItem = blitzForgeMenuItem;
@@ -2828,6 +2805,10 @@ public class Chrome
 
             // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
             if (!advanced) {
+                if (gitCommitTab != null) {
+                    int idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                }
                 if (gitLogTab != null) {
                     int idx = leftTabbedPanel.indexOfComponent(gitLogTab);
                     if (idx != -1) leftTabbedPanel.removeTabAt(idx);
@@ -2855,13 +2836,33 @@ public class Chrome
             } else {
                 // Advanced ON: re-add tabs if applicable and not already present
 
+                // Changes tab (GitCommitTab)
+                if (gitCommitTab != null && leftTabbedPanel.indexOfComponent(gitCommitTab) == -1) {
+                    var commitIcon = Icons.COMMIT;
+                    gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
+                    leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
+                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                    var ks = GlobalUiSettings.getKeybinding(
+                            "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+                    gitTabLabel = createSquareTabLabel(
+                            gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+                    leftTabbedPanel.setTabComponentAt(idx, gitTabLabel);
+                    final int tabIdx = idx;
+                    gitTabLabel.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            handleTabToggle(tabIdx);
+                        }
+                    });
+                }
+
                 // Log tab
                 if (gitLogTab != null && leftTabbedPanel.indexOfComponent(gitLogTab) == -1) {
                     var logIcon = Icons.FLOWSHEET;
                     leftTabbedPanel.addTab(null, logIcon, gitLogTab);
                     var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
                     var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                            "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
                     var tooltip = "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(logIcon, tooltip);
                     leftTabbedPanel.setTabComponentAt(idx, label);
@@ -2880,7 +2881,7 @@ public class Chrome
                     leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
                     var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
                     var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+                            "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
                     var tooltip = "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(worktreeIcon, tooltip);
                     leftTabbedPanel.setTabComponentAt(idx, label);
@@ -2935,6 +2936,13 @@ public class Chrome
                         }
                     });
                 }
+            }
+
+            // Update badge count immediately after adding tabs so the Changes tab badged icon reflects current state
+            try {
+                updateGitTabBadge(getModifiedFiles().size());
+            } catch (Exception ex) {
+                logger.debug("Failed to update Git tab badge after advanced-mode toggle", ex);
             }
 
             leftTabbedPanel.revalidate();

@@ -3,13 +3,7 @@ package ai.brokk.gui;
 import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.Brokk;
-import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
-import ai.brokk.Llm;
-import ai.brokk.MainProject;
-import ai.brokk.TaskEntry;
+import ai.brokk.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
@@ -2083,6 +2077,31 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setTaskInProgress(inProgress));
     }
 
+    /**
+     * Opens the current output in a new window. If a task is in progress, opens a streaming window;
+     * otherwise, opens a window with the currently selected context. Safe to call from any thread.
+     */
+    public void openOutputInNewWindow() {
+        Runnable action = () -> {
+            if (llmStreamArea.taskInProgress()) {
+                openOutputWindowStreaming();
+            } else {
+                var context = contextManager.selectedContext();
+                if (context == null) {
+                    logger.warn("Cannot open output in new window: current context is null.");
+                    return;
+                }
+                openOutputWindowFromContext(context);
+            }
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
+        } else {
+            SwingUtilities.invokeLater(action);
+        }
+    }
+
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
         TaskEntry mainTask = null;
@@ -2440,6 +2459,82 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    // Centralized icon mapping for task types; future-proofed for differentiation.
+    private javax.swing.Icon iconFor(TaskType type) {
+        switch (type) {
+            case ARCHITECT -> {
+                return Icons.ARCHITECT;
+            }
+            case CODE -> {
+                return Icons.CODE;
+            }
+            case ASK -> {
+                return Icons.ASK;
+            }
+            case SEARCH -> {
+                return Icons.SEARCH;
+            }
+            case CONTEXT -> {
+                return Icons.CONTEXT;
+            }
+            case MERGE -> {
+                return Icons.MERGE;
+            }
+            case BLITZFORGE -> {
+                return Icons.BLITZFORGE;
+            }
+            default -> {
+                return Icons.CHAT_BUBBLE;
+            }
+        }
+    }
+
+    // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
+
+    /** Returns the last TaskMeta in the given Context's task history, or null if not present. */
+    private @Nullable TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
+        var history = ctx.getTaskHistory();
+        if (history.isEmpty()) return null;
+        var last = history.getLast();
+        return last.meta();
+    }
+
+    /** Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable. */
+    private @Nullable ModelSpec modelOf(ai.brokk.context.Context ctx) {
+        var meta = lastMetaOf(ctx);
+        return (meta == null) ? null : meta.primaryModel();
+    }
+
+    private @Nullable String taskTypeOf(ai.brokk.context.Context ctx) {
+        var meta = lastMetaOf(ctx);
+        return (meta == null) ? null : meta.type().displayName();
+    }
+
+    /** Returns a short, human-friendly model string: "name (reasoning)" or just "name". */
+    private static String summarizeModel(ModelSpec spec) {
+        var name = spec.name();
+        var rl = spec.reasoningLevel();
+        if (rl != null && !rl.isBlank()) {
+            return name + " (" + rl + ")";
+        }
+        return name;
+    }
+
+    /**
+     * Builds a tooltip that prepends the model summary on its own line when available,
+     * followed by the provided base text ("normal tooltip").
+     */
+    private String buildTooltipWithModel(@Nullable ai.brokk.context.Context ctx, String base) {
+        if (ctx == null) return base;
+        var spec = modelOf(ctx);
+        if (spec == null) return base;
+        var taskType = taskTypeOf(ctx);
+        var tt = taskType == null ? "" : taskType + " ";
+
+        var header = "[" + summarizeModel(spec) + "]";
+        return "<html>" + escapeHtml(tt + header) + "<br/>" + escapeHtml(base) + "</html>";
+    }
+
     /** Icon renderer that mirrors the Action column's indentation for nested rows. */
     private class IndentedIconRenderer extends ActivityTableRenderers.IconCellRenderer {
         @Override
@@ -2447,7 +2542,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Retrieve the action value from column 1; derive indent level from ActionText if present
             Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck = (actionVal instanceof ActionText at) ? at.text() : actionVal;
+            Object actionForCheck = (actionVal instanceof ActionText atTmp) ? atTmp.text() : actionVal;
 
             // Detect group header rows from column 2
             Object contextCol2 = table.getModel().getValueAt(row, 2);
@@ -2460,6 +2555,44 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             int indentLevel = (actionVal instanceof ActionText at) ? Math.max(0, at.indentLevel()) : 0;
             Component comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
+            // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry,
+            // but only for AI result contexts.
+            try {
+                Object ctxVal = table.getModel().getValueAt(row, 2);
+                if (ctxVal instanceof ai.brokk.context.Context ctx) {
+                    var meta = lastMetaOf(ctx);
+                    if (comp instanceof JLabel lbl) {
+                        if (ctx.isAiResult() && meta != null) {
+                            var chosen = iconFor(meta.type());
+                            if (chosen != null) {
+                                lbl.setIcon(chosen);
+                            }
+                        } else if (!ctx.isAiResult()) {
+                            // Ensure non-AI rows have no type icon override
+                            lbl.setIcon(null);
+                        }
+                    }
+
+                    // Compute tooltip: include model details only for AI + meta; otherwise use plain action text
+                    String actionText;
+                    Object col1 = table.getModel().getValueAt(row, 1);
+                    if (col1 instanceof ActionText at2) {
+                        actionText = at2.text();
+                    } else {
+                        actionText = (col1 != null) ? col1.toString() : "";
+                    }
+                    if (comp instanceof JComponent jc) {
+                        if (ctx.isAiResult() && meta != null) {
+                            jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
+                        } else {
+                            jc.setToolTipText(actionText);
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                // Best-effort icon override only; fall back silently on any errors
+            }
 
             // Apply inset: top-level rows get a base margin; nested rows align exactly with action indent
             if (comp instanceof JComponent jc) {
@@ -2586,8 +2719,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int indentPx = indentLevel * Constants.H_GAP * 3;
             panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
             panel.add(actionComp, BorderLayout.NORTH);
-            // Ensure tooltip is visible even though we return a composite panel
-            panel.setToolTipText(actionText);
+            // Ensure tooltip is visible even though we return a composite panel.
+            // Only include model info for AI result contexts with metadata.
+            if (ctx.isAiResult() && lastMetaOf(ctx) != null) {
+                panel.setToolTipText(buildTooltipWithModel(ctx, actionText));
+            } else {
+                panel.setToolTipText(actionText);
+            }
 
             // If we have cached diff entries, add a summary panel; otherwise, action-only
             if (cachedOpt.isPresent() && !cachedOpt.get().isEmpty()) {

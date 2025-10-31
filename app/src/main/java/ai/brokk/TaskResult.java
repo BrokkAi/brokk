@@ -12,10 +12,23 @@ import java.util.List;
  * Note that the Context must NOT be frozen.
  */
 public record TaskResult(
-        String actionDescription, ContextFragment.TaskFragment output, Context context, StopDetails stopDetails) {
+        String actionDescription,
+        ContextFragment.TaskFragment output,
+        Context context,
+        StopDetails stopDetails,
+        @org.jetbrains.annotations.Nullable TaskMeta meta) {
 
     public TaskResult {
         assert !context.containsFrozenFragments();
+    }
+
+    // Backward-compatible overload for existing call-sites
+    public TaskResult(
+            String actionDescription,
+            ai.brokk.context.ContextFragment.TaskFragment output,
+            ai.brokk.context.Context context,
+            StopDetails stopDetails) {
+        this(actionDescription, output, context, stopDetails, null);
     }
 
     public TaskResult(
@@ -28,7 +41,8 @@ public record TaskResult(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
-                stopDetails);
+                stopDetails,
+                null);
     }
 
     public TaskResult(
@@ -41,7 +55,8 @@ public record TaskResult(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
-                new StopDetails(simpleReason));
+                new StopDetails(simpleReason),
+                null);
     }
 
     /** Creates a new TaskResult by replacing the messages in an existing one while preserving the resulting context. */
@@ -50,7 +65,40 @@ public record TaskResult(
                 base.actionDescription(),
                 new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
                 base.context(),
-                base.stopDetails());
+                base.stopDetails(),
+                null);
+    }
+
+    // Overloads that accept optional TaskMeta for callers that can supply metadata
+
+    public TaskResult(
+            IContextManager contextManager,
+            String actionDescription,
+            List<ChatMessage> uiMessages,
+            Context resultingContext,
+            StopDetails stopDetails,
+            @org.jetbrains.annotations.Nullable TaskMeta meta) {
+        this(
+                actionDescription,
+                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                resultingContext,
+                stopDetails,
+                meta);
+    }
+
+    public TaskResult(
+            IContextManager contextManager,
+            String actionDescription,
+            List<ChatMessage> uiMessages,
+            Context resultingContext,
+            StopReason simpleReason,
+            @org.jetbrains.annotations.Nullable TaskMeta meta) {
+        this(
+                actionDescription,
+                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                resultingContext,
+                new StopDetails(simpleReason),
+                meta);
     }
 
     /** Enum representing the reason a session concluded. */
