@@ -279,22 +279,6 @@ public interface ContextFragment {
      */
     boolean hasSameSource(ContextFragment other);
 
-    // --- helpers (kept small and local) ---
-
-    static boolean contentEquals(ContextFragment a, ContextFragment b) {
-        if (a == b) return true;
-        if (!a.getClass().getName().equals(b.getClass().getName())) {
-            return false;
-        }
-        if (a.isText() && b.isText()) {
-            return a.text().equals(b.text());
-        }
-        if (a instanceof ImageFragment ai && b instanceof ImageFragment bi) {
-            return ai.contentHash().equals(bi.contentHash());
-        }
-        throw new AssertionError(a.getClass());
-    }
-
     /**
      * Non-breaking dynamic accessors for fragments that may compute values asynchronously.
      * Default adapters should provide completed values based on current state so legacy
