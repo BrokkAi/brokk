@@ -1922,6 +1922,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             SkeletonType skeletonType) {
         List<String> signatureLines = new ArrayList<>();
         var profile = getLanguageSyntaxProfile();
+        
+        SkeletonType refined = refineSkeletonType(primaryCaptureName, definitionNode, profile);
 
         TSNode nodeForContent = definitionNode;
         TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
@@ -1965,8 +1967,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        // Use the passed-in skeletonType parameter instead of re-querying
-        if (needsVariableDeclaratorUnwrapping(nodeForContent, skeletonType)
+        if (needsVariableDeclaratorUnwrapping(nodeForContent, refined)
                 && ("lexical_declaration".equals(nodeForContent.getType())
                         || "variable_declaration".equals(nodeForContent.getType()))) {
             // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator
@@ -2029,7 +2030,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 capturedModifierKeywords.isEmpty() ? "" : String.join(" ", capturedModifierKeywords) + " ";
 
         // 4. Build main signature based on type, using nodeForContent and the derived exportPrefix.
-        switch (skeletonType) {
+        switch (refined) {
             case CLASS_LIKE: {
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
                 String classSignatureText;
