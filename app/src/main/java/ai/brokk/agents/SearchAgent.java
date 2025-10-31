@@ -166,11 +166,12 @@ public class SearchAgent {
             // Build read-only workspace messages (combine summaries) and editable fragments in insertion order.
             // We render editable fragments in insertion order here (context.allFragments preserves insertion order),
             // while other callers continue to use the mtime-ordered helpers.
-            var readOnlyMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceReadOnlyMessages(context, /*combineSummaries=*/true));
-            var editableFragmentsInInsertionOrder = context.allFragments()
-                    .filter(f -> f.getType().isEditable())
-                    .toList();
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(readOnlyMessages, editableFragmentsInInsertionOrder));
+            var readOnlyMessages = new ArrayList<>(
+                    CodePrompts.instance.getWorkspaceReadOnlyMessages(context, /*combineSummaries=*/ true));
+            var editableFragmentsInInsertionOrder =
+                    context.allFragments().filter(f -> f.getType().isEditable()).toList();
+            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(
+                    readOnlyMessages, editableFragmentsInInsertionOrder));
 
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {

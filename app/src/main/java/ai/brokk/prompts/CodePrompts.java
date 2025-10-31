@@ -698,7 +698,8 @@ public abstract class CodePrompts {
      * @param editableFragmentsInOrder editable fragments in the desired order
      * @return a List containing one UserMessage (possibly multimodal) and one AiMessage acknowledgment, or empty if no content
      */
-    public final List<ChatMessage> getWorkspaceContentsMessages(Collection<ChatMessage> readOnlyMessages, List<ContextFragment> editableFragmentsInOrder) {
+    public final List<ChatMessage> getWorkspaceContentsMessages(
+            Collection<ChatMessage> readOnlyMessages, List<ContextFragment> editableFragmentsInOrder) {
         var combinedText = new StringBuilder();
         var allImages = new ArrayList<ImageContent>();
 

@@ -1,18 +1,15 @@
 package ai.brokk.prompts;
 
-import ai.brokk.IConsoleIO;
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -20,8 +17,8 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for verifying ordering behavior in CodePrompts:
@@ -42,7 +39,8 @@ public class CodePromptsOrderingTest {
                         .forEach(p -> {
                             try {
                                 Files.deleteIfExists(p);
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                            }
                         });
             }
         }
