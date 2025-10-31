@@ -134,12 +134,6 @@
     (internal_module name: (_) @type.name) @type.definition
   ])
 
-; Top-level namespaces wrapped in expression statements
-; Matches: namespace Foo { } when it appears as an expression statement
-; Note: TypeScript sometimes wraps namespace declarations in expression statements
-(program
-  (expression_statement
-    (internal_module name: (_) @type.name) @type.definition))
 
 ; Top-level function declarations (non-export)
 ; Matches: function foo() { }, async function bar() { }

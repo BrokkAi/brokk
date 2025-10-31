@@ -527,8 +527,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean isMissingNameCaptureAllowed(String captureName, String nodeType, String fileName) {
         // Suppress DEBUG message for function.definition when name capture is missing
-        // The fallback extractSimpleName works correctly for TypeScript function declarations
-        return "function.definition".equals(captureName) && "function_declaration".equals(nodeType);
+        // - function_declaration: fallback extractSimpleName works correctly
+        // - construct_signature: intentionally has no name, uses default "new"
+        return "function.definition".equals(captureName)
+            && ("function_declaration".equals(nodeType) || "construct_signature".equals(nodeType));
     }
 
     @Override
