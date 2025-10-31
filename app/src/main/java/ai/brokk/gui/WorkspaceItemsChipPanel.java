@@ -893,6 +893,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var scenario = new WorkspacePanel.MultiFragment(fragments);
         var actions = scenario.getActions(chrome.getContextPanel());
         for (var action : actions) {
+            if (action != null) {
+                String actionName = (String) action.getValue(Action.NAME);
+                if ("Summarize all References".equals(actionName)) {
+                    continue;
+                }
+            }
             menu.add(action);
         }
 
