@@ -717,6 +717,29 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 "parameters", "return_type_node", "predefined_type_node", "type_identifier_node", "export.keyword");
     }
 
+    @Override
+    protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
+        // TypeScript supports declaration merging where a function and namespace can share the same name.
+        // This is a legitimate language feature, not an error.
+        // Example: function foo() {} and namespace foo { export const x = 1; }
+        return (existing.isFunction() && candidate.isClass()) || (existing.isClass() && candidate.isFunction());
+    }
+
+    @Override
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // For function+namespace declaration merging, keep the first one (typically the function)
+        if (isBenignDuplicate(existing, candidate)) {
+            log.trace(
+                "TypeScript declaration merging detected for {} (function + namespace). Keeping {} kind.",
+                existing.fqName(),
+                existing.isFunction() ? "function" : "namespace");
+            return true; // Ignore the duplicate (keep first one)
+        }
+
+        // Default behavior for other duplicates
+        return super.shouldIgnoreDuplicate(existing, candidate, file);
+    }
+
     /**
      * Checks if a function node is inside an ambient declaration context (declare namespace/module). In ambient
      * contexts, function signatures should not include the "function" keyword.

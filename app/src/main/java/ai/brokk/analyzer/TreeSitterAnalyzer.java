@@ -1300,6 +1300,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines whether a duplicate is an expected/benign pattern that should only log at trace level.
+     * This is used to suppress warnings for language-specific patterns like TypeScript declaration merging.
+     *
+     * @param existing The CodeUnit already registered
+     * @param candidate The new CodeUnit with duplicate FQName
+     * @return true if this is a benign duplicate that should only log at trace level
+     */
+    protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
+        // Default: no language-specific benign patterns
+        return false;
+    }
+
+    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
      */
@@ -1816,9 +1829,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     continue; // Skip adding this new signature if an exported one exists for a CU with the same FQName
                 } else {
                     // Both exported or both non-exported - treat as duplicate
-                    log.warn(
-                            "Duplicate CU FQName {} (distinct instances). New signature will be added. Review if this is expected.",
-                            cu.fqName());
+                    // Check if this is a benign/expected duplicate pattern (e.g., TypeScript declaration merging)
+                    if (isBenignDuplicate(existingCUforKeyLookup, cu)) {
+                        log.trace(
+                                "Duplicate CU FQName {} (distinct instances, benign pattern). New signature will be added.",
+                                cu.fqName());
+                    } else {
+                        log.warn(
+                                "Duplicate CU FQName {} (distinct instances). New signature will be added. Review if this is expected.",
+                                cu.fqName());
+                    }
                 }
             }
 
