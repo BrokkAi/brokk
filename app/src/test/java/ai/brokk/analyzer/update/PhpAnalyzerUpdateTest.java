@@ -26,7 +26,8 @@ class PhpAnalyzerUpdateTest {
     @BeforeEach
     void setUp() throws IOException {
         // create initial file in the temp directory
-        new ProjectFile(tempDir, "foo.php").write("""
+        new ProjectFile(tempDir, "foo.php")
+                .write("""
                 <?php
                 function foo(): int { return 1; }
                 """);
@@ -44,10 +45,9 @@ class PhpAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("foo").isPresent());
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
-        new ProjectFile(
-                project.getRoot(),
-                "foo.php")
-            .write("""
+        new ProjectFile(project.getRoot(), "foo.php")
+                .write(
+                        """
                 <?php
                 function foo(): int { return 1; }
                 function bar(): int { return 2; }
@@ -61,7 +61,9 @@ class PhpAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        new ProjectFile(project.getRoot(), "foo.php").write("""
+        new ProjectFile(project.getRoot(), "foo.php")
+                .write(
+                        """
                 <?php
                 function foo(): int { return 1; }
                 function baz(): int { return 3; }

@@ -17,15 +17,17 @@ import org.junit.jupiter.api.io.TempDir;
 
 class TypescriptAnalyzerUpdateTest {
 
-    @TempDir Path tempDir;
+    @TempDir
+    Path tempDir;
+
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
         // Use JUnit TempDir for isolated test directory
-        new ProjectFile(tempDir, "hello.ts").write(
-                """
+        new ProjectFile(tempDir, "hello.ts")
+                .write("""
                 export function foo(): number { return 1; }
                 """);
         project = new TestProject(tempDir, Languages.TYPESCRIPT);
@@ -42,8 +44,9 @@ class TypescriptAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("foo").isPresent());
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
-        new ProjectFile(project.getRoot(), "hello.ts").write(
-                """
+        new ProjectFile(project.getRoot(), "hello.ts")
+                .write(
+                        """
                 export function foo(): number { return 1; }
                 export function bar(): number { return 2; }
                 """);
@@ -56,8 +59,9 @@ class TypescriptAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        new ProjectFile(project.getRoot(), "hello.ts").write(
-                """
+        new ProjectFile(project.getRoot(), "hello.ts")
+                .write(
+                        """
                 export function foo(): number { return 1; }
                 export function baz(): number { return 3; }
                 """);

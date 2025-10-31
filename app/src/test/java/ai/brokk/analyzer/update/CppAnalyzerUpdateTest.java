@@ -45,7 +45,9 @@ class CppAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
         // mutate
-        new ProjectFile(project.getRoot(), "A.cpp").write("""
+        new ProjectFile(project.getRoot(), "A.cpp")
+                .write(
+                        """
                 int foo() { return 1; }
                 int bar() { return 2; }
                 """);
@@ -59,7 +61,9 @@ class CppAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        new ProjectFile(project.getRoot(), "A.cpp").write("""
+        new ProjectFile(project.getRoot(), "A.cpp")
+                .write(
+                        """
                 int foo() { return 1; }
                 int baz() { return 3; }
                 """);

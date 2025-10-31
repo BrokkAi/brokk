@@ -45,10 +45,9 @@ class GoAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("main.Foo").isPresent());
         assertTrue(analyzer.getDefinition("main.Bar").isEmpty());
 
-        new ProjectFile(
-                project.getRoot(),
-                "a.go")
-            .write("""
+        new ProjectFile(project.getRoot(), "a.go")
+                .write(
+                        """
                 package main
                 func Foo() int { return 1 }
                 func Bar() int { return 2 }
@@ -61,7 +60,9 @@ class GoAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        new ProjectFile(project.getRoot(), "a.go").write("""
+        new ProjectFile(project.getRoot(), "a.go")
+                .write(
+                        """
                 package main
                 func Foo() int { return 1 }
                 func Baz() int { return 3 }

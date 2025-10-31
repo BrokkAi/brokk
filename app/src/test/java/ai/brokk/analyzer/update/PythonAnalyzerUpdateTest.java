@@ -6,8 +6,8 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -47,7 +47,9 @@ class PythonAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("mod.bar").isEmpty());
 
         // change: add bar()
-        new ProjectFile(project.getRoot(), "mod.py").write("""
+        new ProjectFile(project.getRoot(), "mod.py")
+                .write(
+                        """
         def foo():
             return 1
 

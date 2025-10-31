@@ -17,7 +17,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class RustAnalyzerUpdateTest {
 
-    @TempDir Path tempDir;
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
@@ -41,7 +42,9 @@ class RustAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("foo").isPresent());
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
-        new ProjectFile(project.getRoot(), "lib.rs").write("""
+        new ProjectFile(project.getRoot(), "lib.rs")
+                .write(
+                        """
                 pub fn foo() -> i32 { 1 }
                 pub fn bar() -> i32 { 2 }
                 """);
@@ -54,7 +57,9 @@ class RustAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        new ProjectFile(project.getRoot(), "lib.rs").write("""
+        new ProjectFile(project.getRoot(), "lib.rs")
+                .write(
+                        """
                 pub fn foo() -> i32 { 1 }
                 pub fn baz() -> i32 { 3 }
                 """);

@@ -17,7 +17,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class JavaAnalyzerUpdateTest {
 
-    @TempDir Path tempDir;
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
@@ -25,8 +26,8 @@ class JavaAnalyzerUpdateTest {
     @BeforeEach
     void setUp() throws IOException {
         // initial Java source
-        new ProjectFile(tempDir, "A.java").write(
-                """
+        new ProjectFile(tempDir, "A.java")
+                .write("""
         public class A {
           public int method1() { return 1; }
         }
@@ -48,8 +49,9 @@ class JavaAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("A.method2").isEmpty());
 
         // mutate source – add method2
-        new ProjectFile(project.getRoot(), "A.java").write(
-                """
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
         public class A {
           public int method1() { return 1; }
           public int method2() { return 2; }
@@ -68,8 +70,9 @@ class JavaAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("A.method2").isPresent());
 
         // change again but don't include file in explicit set
-        new ProjectFile(project.getRoot(), "A.java").write(
-                """
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
         public class A {
           public int method1() { return 1; }
           public int method2() { return 2; }
@@ -84,8 +87,9 @@ class JavaAnalyzerUpdateTest {
     @Test
     void automaticUpdateDetection() throws IOException {
         // add new method then rely on hash detection
-        new ProjectFile(project.getRoot(), "A.java").write(
-                """
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
         public class A {
           public int method1() { return 1; }
           public int method4() { return 4; }
