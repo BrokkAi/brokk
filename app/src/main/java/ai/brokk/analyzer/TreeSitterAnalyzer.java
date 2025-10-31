@@ -1003,11 +1003,51 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Refines the skeleton type for a given capture by examining the definition node.
+     * Subclasses can override this to reclassify captures based on AST structure
+     * (e.g., a variable_declarator holding an arrow_function should be FUNCTION_LIKE).
+     *
+     * @param captureName the capture name from the query
+     * @param definitionNode the AST node for this definition
+     * @param profile the language syntax profile
+     * @return the refined skeleton type
+     */
+    protected SkeletonType refineSkeletonType(String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+        return getSkeletonTypeForCapture(captureName);
+    }
+
+    /**
      * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
      */
     @Nullable
     protected abstract CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
+
+    /**
+     * Overloaded variant that accepts the refined skeleton type and definition node.
+     * Subclasses can override to use the refined type or node for enhanced CodeUnit creation.
+     * Default implementation delegates to the existing 4-argument createCodeUnit for backward compatibility.
+     *
+     * @param file the source file
+     * @param captureName the capture name from the query
+     * @param simpleName the simple name extracted for this definition
+     * @param packageName the package/namespace name
+     * @param classChain the enclosing class chain
+     * @param definitionNode the AST node for this definition
+     * @param skeletonType the refined skeleton type
+     * @return the CodeUnit, or null to ignore this capture
+     */
+    @Nullable
+    protected CodeUnit createCodeUnit(
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            TSNode definitionNode,
+            SkeletonType skeletonType) {
+        return createCodeUnit(file, captureName, simpleName, packageName, classChain);
+    }
 
     /**
      * Hook for subclasses to enhance the FQN before CodeUnit creation.
@@ -1570,6 +1610,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     primaryCaptureName,
                     node.getType());
 
+            var profile = getLanguageSyntaxProfile();
+            SkeletonType skeletonType = refineSkeletonType(primaryCaptureName, node, profile);
+
             String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
             TSNode tempParent = node.getParent();
@@ -1611,7 +1654,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain);
+            CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
@@ -1640,7 +1683,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             String signature =
-                    buildSignatureString(node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file);
+                    buildSignatureString(node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -1866,6 +1909,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * (e.g., class header or function signature).
      *
      * @param simpleName The simple name of the definition, pre-determined by query captures.
+     * @param skeletonType The refined skeleton type for this definition.
      */
     private String buildSignatureString(
             TSNode definitionNode,
@@ -1874,10 +1918,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             byte[] srcBytes,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
-            ProjectFile file) {
+            ProjectFile file,
+            SkeletonType skeletonType) {
         List<String> signatureLines = new ArrayList<>();
         var profile = getLanguageSyntaxProfile();
-        SkeletonType skeletonType = getSkeletonTypeForCapture(primaryCaptureName); // Get skeletonType early
 
         TSNode nodeForContent = definitionNode;
         TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
@@ -1921,6 +1965,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
+        // Use the passed-in skeletonType parameter instead of re-querying
         if (needsVariableDeclaratorUnwrapping(nodeForContent, skeletonType)
                 && ("lexical_declaration".equals(nodeForContent.getType())
                         || "variable_declaration".equals(nodeForContent.getType()))) {
