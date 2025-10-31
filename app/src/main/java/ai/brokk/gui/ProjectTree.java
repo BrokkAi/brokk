@@ -306,20 +306,11 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                         + (finalOpenTarget == null ? "<unknown>" : finalOpenTarget.toAbsolutePath()));
                 return;
             }
-            SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            ExceptionAwareSwingWorker<Void, Void> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(chrome) {
                 @Override
                 protected Void doInBackground() throws Exception {
                     FileManagerUtil.revealPath(finalOpenTarget);
                     return null;
-                }
-
-                @Override
-                protected void done() {
-                    try {
-                        get(); // propagate any exception from doInBackground
-                    } catch (Exception ex) {
-                        chrome.toolError("Failed to open file manager: " + ex.getMessage());
-                    }
                 }
             };
             worker.execute();
@@ -886,7 +877,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         }
 
         // Reuse the existing file drop handler
-        SwingWorker<Void, String> worker = new SwingWorker<>() {
+        ExceptionAwareSwingWorker<Void, String> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(chrome) {
             @Override
             protected Void doInBackground() throws Exception {
                 List<File> filesToCopy = new ArrayList<>();
@@ -930,14 +921,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
             @Override
             protected void done() {
-                try {
-                    get(); // Check for exceptions
-                    // Trigger tree refresh
-                    onTrackedFilesChanged();
-                } catch (Exception ex) {
-                    logger.error("Error pasting files from clipboard", ex);
-                    chrome.toolError("Error pasting files: " + ex.getMessage());
-                }
+                super.done();
+                onTrackedFilesChanged();
             }
         };
 
@@ -1140,7 +1125,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
         /** Handles the file drop operation by copying files to the target directory. */
         private void handleFileDrop(List<File> droppedFiles, Path targetDirectory) {
-            SwingWorker<Void, String> worker = new SwingWorker<>() {
+            ExceptionAwareSwingWorker<Void, String> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(chrome) {
                 @Override
                 protected Void doInBackground() throws Exception {
                     List<File> filesToCopy = new ArrayList<>();
@@ -1183,13 +1168,13 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
                 @Override
                 protected void done() {
+                    super.done();
                     try {
                         get(); // Check for exceptions
                         // Trigger tree refresh
                         onTrackedFilesChanged();
-                    } catch (Exception ex) {
-                        logger.error("Error during file copy operation", ex);
-                        chrome.toolError("Error copying files: " + ex.getMessage());
+                    } catch (Exception ignored) {
+                        // Already handled by ExceptionAwareSwingWorker.done()
                     }
                 }
             };

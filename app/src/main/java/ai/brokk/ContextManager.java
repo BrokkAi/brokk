@@ -25,6 +25,7 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
@@ -1719,7 +1720,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A SwingWorker whose `get()` method will return the description string.
      */
     public SwingWorker<String, Void> submitSummarizePastedImage(Image pastedImage) {
-        SwingWorker<String, Void> worker = new SwingWorker<>() {
+        ExceptionAwareSwingWorker<String, Void> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(io) {
             @Override
             protected String doInBackground() {
                 try {
@@ -1753,6 +1754,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             protected void done() {
+                super.done();
                 io.postSummarize();
             }
         };
@@ -2706,28 +2708,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-    public static class SummarizeWorker extends SwingWorker<String, String> {
+    public static class SummarizeWorker extends ai.brokk.gui.ExceptionAwareSwingWorker<String, String> {
         private final IContextManager cm;
         private final String content;
         private final int words;
 
         public SummarizeWorker(IContextManager cm, String content, int words) {
+            super(cm.getIo());
             this.cm = cm;
             this.content = content;
             this.words = words;
         }
 
         @Override
-        protected String doInBackground() {
+        protected String doInBackground() throws Exception {
             var msgs = SummarizerPrompts.instance.collectMessages(content, words);
             // Use quickModel for summarization
-            Llm.StreamingResult result;
-            try {
-                result = cm.getLlm(cm.getService().quickestModel(), "Summarize: " + content)
-                        .sendRequest(msgs);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+            Llm.StreamingResult result = cm.getLlm(cm.getService().quickestModel(), "Summarize: " + content)
+                    .sendRequest(msgs);
             if (result.error() != null) {
                 logger.warn("Summarization failed or was cancelled.");
                 return "Summarization failed.";
