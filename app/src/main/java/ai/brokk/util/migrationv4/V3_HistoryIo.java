@@ -8,8 +8,15 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -84,9 +91,9 @@ public final class V3_HistoryIo {
                 switch (entry.getName()) {
                     case V3_FRAGMENTS_FILENAME -> {
                         byte[] fragmentJsonBytes = zis.readAllBytes();
-                        // Type-safe mapping handled by LegacyTypeMappingHandler and enum handled in V3_DtoMapper
-                        allFragmentsDto =
-                                objectMapper.readValue(fragmentJsonBytes, V3_FragmentDtos.AllFragmentsDto.class);
+                        // Preprocess JSON to remap polymorphic type ids to our V3 DTO namespace in a type-safe way.
+                        byte[] remapped = remapPolymorphicTypeIds(fragmentJsonBytes);
+                        allFragmentsDto = objectMapper.readValue(remapped, V3_FragmentDtos.AllFragmentsDto.class);
                     }
                     case CONTENT_FILENAME -> {
                         var typeRef = new TypeReference<Map<String, ContentDtos.ContentMetadataDto>>() {};
@@ -190,6 +197,52 @@ public final class V3_HistoryIo {
         entryInfoDtos.forEach((key, value) -> entryInfos.put(UUID.fromString(key), value));
 
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
+    }
+
+    // Remap legacy polymorphic type ids ("type" and "@class") from older namespaces to our V3 DTO namespace.
+    private static byte[] remapPolymorphicTypeIds(byte[] jsonBytes) throws IOException {
+        JsonNode root = objectMapper.readTree(jsonBytes);
+        remapNodeInPlace(root);
+        return objectMapper.writeValueAsBytes(root);
+    }
+
+    private static void remapNodeInPlace(JsonNode node) {
+        if (node instanceof ObjectNode on) {
+            var fields = on.fields();
+            var toUpdate = new ArrayList<Map.Entry<String, String>>();
+            while (fields.hasNext()) {
+                var e = fields.next();
+                var key = e.getKey();
+                var value = e.getValue();
+                if ((key.equals("type") || key.equals("@class")) && value.isTextual()) {
+                    String remapped = remapClassName(value.asText());
+                    if (!remapped.equals(value.asText())) {
+                        toUpdate.add(Map.entry(key, remapped));
+                    }
+                } else {
+                    remapNodeInPlace(value);
+                }
+            }
+            // Apply updates after iteration to avoid concurrent modifications
+            for (var e : toUpdate) {
+                on.put(e.getKey(), e.getValue());
+            }
+        } else if (node instanceof ArrayNode an) {
+            for (int i = 0, size = an.size(); i < size; i++) {
+                remapNodeInPlace(an.get(i));
+            }
+        }
+    }
+
+    private static String remapClassName(String fqcn) {
+        String[] legacyPrefixes = {"io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos"};
+        String targetPrefix = "ai.brokk.util.migrationv4.V3_FragmentDtos";
+        for (String legacy : legacyPrefixes) {
+            if (fqcn.startsWith(legacy)) {
+                return targetPrefix + fqcn.substring(legacy.length());
+            }
+        }
+        return fqcn;
     }
 
     public static class ContentReader {

@@ -157,4 +157,33 @@ public class ImageUtil {
             return null;
         }
     }
+
+    /**
+     * Converts an Image to a byte array in PNG format.
+     *
+     * @param image The image to convert
+     * @return PNG bytes, or null if image is null
+     * @throws IOException If conversion fails
+     */
+    @Nullable
+    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
+        if (image == null) {
+            return null;
+        }
+
+        BufferedImage bufferedImage;
+        if (image instanceof BufferedImage bi) {
+            bufferedImage = bi;
+        } else {
+            bufferedImage = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+            var g = bufferedImage.createGraphics();
+            g.drawImage(image, 0, 0, null);
+            g.dispose();
+        }
+
+        try (var baos = new ByteArrayOutputStream()) {
+            ImageIO.write(bufferedImage, "PNG", baos);
+            return baos.toByteArray();
+        }
+    }
 }

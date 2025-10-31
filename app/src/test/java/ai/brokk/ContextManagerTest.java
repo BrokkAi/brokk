@@ -107,14 +107,14 @@ class ContextManagerTest {
         cm.pushContext(ctx -> ctx.withCompressedHistory(List.of(entry1, entry2)));
 
         // Sanity check preconditions
-        Context before = cm.topContext();
+        Context before = cm.liveContext();
         assertEquals(2, before.getTaskHistory().size(), "Precondition: two history entries expected");
 
         // Drop the first entry by its sequence
         cm.dropHistoryEntryBySequence(101);
 
         // Validate the new top context
-        Context after = cm.topContext();
+        Context after = cm.liveContext();
         assertEquals(1, after.getTaskHistory().size(), "Exactly one history entry should remain");
         assertTrue(
                 after.getTaskHistory().stream().noneMatch(te -> te.sequence() == 101), "Dropped entry must be absent");

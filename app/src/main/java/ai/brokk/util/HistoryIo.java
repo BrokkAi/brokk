@@ -80,23 +80,13 @@ public final class HistoryIo {
         if (isV4) {
             return readZipV4(zip, mgr);
         } else if (isV3) {
-            try {
-                // Try reading as V4 first (supports migrated zips that still use the V3 filename)
-                return readZipV4(zip, mgr);
-            } catch (Exception ex) {
-                logger.debug(
-                        "Failed to read history zip as V4 (under V3 filename), falling back to V3 reader: {}",
-                        ex.toString());
-                return V3_HistoryIo.readZip(zip, mgr);
-            }
+            return V3_HistoryIo.readZip(zip, mgr);
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }
 
     private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
-        return readZipWithFragmentsFile(zip, mgr, V3_FRAGMENTS_FILENAME);
-        // TODO [Migration 4] replace above with below
-        //        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
+        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
     }
 
     private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
@@ -208,6 +198,19 @@ public final class HistoryIo {
                         return null;
                     }
                 }));
+
+        // Ensure nextId is updated to avoid collisions with loaded fragment IDs
+        fragmentCache.keySet().stream()
+                .map(id -> {
+                    try {
+                        return Integer.parseInt(id);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .ifPresent(maxId -> ContextFragment.setMinimumId(maxId + 1));
 
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
@@ -371,9 +374,7 @@ public final class HistoryIo {
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
-                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
-                // TODO [Migration 4] replace above with below
-                //                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
+                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 

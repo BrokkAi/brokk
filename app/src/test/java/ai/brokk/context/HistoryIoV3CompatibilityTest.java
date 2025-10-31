@@ -13,6 +13,7 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,9 @@ class HistoryIoV3CompatibilityTest {
         assertNotNull(history);
         assertFalse(history.getHistory().isEmpty());
 
-        Context top = history.getLiveContext();
+        Context top = history.topContext();
+        // Let fragments materialize
+        top.awaitContextsAreComputed(Duration.ofSeconds(10));
 
         var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
                 .contains("GitHubAuth.java"));

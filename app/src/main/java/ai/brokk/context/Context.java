@@ -24,15 +24,8 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
+import java.time.Duration;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
@@ -41,9 +34,13 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
-/** Encapsulates all state that will be sent to the model (prompts, filename context, conversation history). */
+/**
+ * Encapsulates all state that will be sent to the model (prompts, filename context, conversation history).
+ */
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
 
@@ -63,14 +60,20 @@ public class Context {
     // Unified list for all fragments (paths and virtuals)
     final List<ContextFragment> fragments;
 
-    /** Task history list. Each entry represents a user request and the subsequent conversation */
+    /**
+     * Task history list. Each entry represents a user request and the subsequent conversation
+     */
     final List<TaskEntry> taskHistory;
 
-    /** LLM output or other parsed content, with optional fragment. May be null */
+    /**
+     * LLM output or other parsed content, with optional fragment. May be null
+     */
     @Nullable
     final transient ContextFragment.TaskFragment parsedOutput;
 
-    /** description of the action that created this context, can be a future (like PasteFragment) */
+    /**
+     * description of the action that created this context, can be a future (like PasteFragment)
+     */
     public final transient Future<String> action;
 
     @Nullable
@@ -79,7 +82,9 @@ public class Context {
     @Nullable
     private final String groupLabel;
 
-    /** Constructor for initial empty context */
+    /**
+     * Constructor for initial empty context
+     */
     public Context(IContextManager contextManager, @Nullable String initialOutputText) {
         this(
                 newContextId(),
@@ -137,7 +142,9 @@ public class Context {
                         .collect(Collectors.joining(", "))));
     }
 
-    /** Per-fragment diff entry between two contexts. */
+    /**
+     * Per-fragment diff entry between two contexts.
+     */
     public record DiffEntry(
             FrozenFragment fragment,
             String diff,
@@ -146,7 +153,9 @@ public class Context {
             String oldContent,
             String newContent) {}
 
-    /** Produces a live context whose fragments are un-frozen versions of those in {@code frozen}. */
+    /**
+     * Produces a live context whose fragments are un-frozen versions of those in {@code frozen}.
+     */
     public static Context unfreeze(Context frozen) {
         var cm = frozen.getContextManager();
 
@@ -231,18 +240,12 @@ public class Context {
                 .toList();
 
         for (var fragment : toAdd) {
-            // Deduplicate among existing virtual fragments only
-            boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                    ? existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                            || newFragments.stream()
-                                    .filter(f -> f.getType().isVirtual())
-                                    .map(f -> (ContextFragment.VirtualFragment) f)
-                                    .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                    : existingVirtuals.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()))
-                            || newFragments.stream()
-                                    .filter(f -> f.getType().isVirtual())
-                                    .map(f -> (ContextFragment.VirtualFragment) f)
-                                    .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+            // Deduplicate using hasSameSource for semantic equivalence
+            boolean isDuplicate = existingVirtuals.stream().anyMatch(vf -> vf.hasSameSource(fragment))
+                    || newFragments.stream()
+                            .filter(f -> f.getType().isVirtual())
+                            .map(f -> (ContextFragment.VirtualFragment) f)
+                            .anyMatch(vf -> vf.hasSameSource(fragment));
 
             if (!isDuplicate) {
                 newFragments.add(fragment);
@@ -267,7 +270,9 @@ public class Context {
         return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action, null, null);
     }
 
-    /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
+    /**
+     * Returns the files from the git repo that are most relevant to this context, up to the specified limit.
+     */
     public List<ProjectFile> getMostRelevantFiles(int topK) throws InterruptedException {
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
@@ -354,12 +359,16 @@ public class Context {
         return fragments.stream().filter(f -> f.getType().isVirtual()).map(f -> (ContextFragment.VirtualFragment) f);
     }
 
-    /** Returns readonly files and virtual fragments (excluding usage fragments) as a combined stream */
+    /**
+     * Returns readonly files and virtual fragments (excluding usage fragments) as a combined stream
+     */
     public Stream<ContextFragment> getReadOnlyFragments() {
         return fragments.stream().filter(f -> !f.getType().isEditable());
     }
 
-    /** Returns file fragments and editable virtual fragments (usage), ordered with most-recently-modified last */
+    /**
+     * Returns file fragments and editable virtual fragments (usage), ordered with most-recently-modified last
+     */
     public Stream<ContextFragment> getEditableFragments() {
         // Helper record for associating a fragment with its mtime for safe sorting and filtering
         record EditableFileWithMtime(ContextFragment.ProjectPathFragment fragment, long mtime) {}
@@ -396,7 +405,9 @@ public class Context {
         return fragments.stream();
     }
 
-    /** Removes fragments from this context by their IDs. */
+    /**
+     * Removes fragments from this context by their IDs.
+     */
     public Context removeFragmentsByIds(Collection<String> idsToRemove) {
         if (idsToRemove.isEmpty()) {
             return this;
@@ -456,12 +467,16 @@ public class Context {
                 null);
     }
 
-    /** @return an immutable copy of the task history. */
+    /**
+     * @return an immutable copy of the task history.
+     */
     public List<TaskEntry> getTaskHistory() {
         return taskHistory;
     }
 
-    /** Get the action that created this context */
+    /**
+     * Get the action that created this context
+     */
     public String getAction() {
         if (action.isDone()) {
             try {
@@ -566,7 +581,9 @@ public class Context {
         return parsedOutput;
     }
 
-    /** Returns true if the parsedOutput contains AI messages (useful for UI decisions). */
+    /**
+     * Returns true if the parsedOutput contains AI messages (useful for UI decisions).
+     */
     public boolean isAiResult() {
         var parsed = getParsedOutput();
         if (parsed == null) {
@@ -575,7 +592,9 @@ public class Context {
         return parsed.messages().stream().anyMatch(m -> m.type() == ChatMessageType.AI);
     }
 
-    /** Creates a new (live) Context that copies specific elements from the provided context. */
+    /**
+     * Creates a new (live) Context that copies specific elements from the provided context.
+     */
     public static Context createFrom(Context sourceContext, Context currentContext, List<TaskEntry> newHistory) {
         var unfrozenFragments = sourceContext
                 .allFragments()
@@ -746,9 +765,9 @@ public class Context {
      * Adds class definitions (CodeFragments) to the context for the given FQCNs.
      * Skips classes whose source files are already in the workspace as ProjectPathFragments.
      *
-     * @param context the current context
+     * @param context    the current context
      * @param classNames fully qualified class names to add
-     * @param analyzer the code analyzer
+     * @param analyzer   the code analyzer
      * @return a new context with the added class fragments
      */
     public static Context withAddedClasses(Context context, List<String> classNames, IAnalyzer analyzer) {
@@ -787,7 +806,7 @@ public class Context {
     /**
      * Adds class summary fragments (SkeletonFragments) for the given FQCNs.
      *
-     * @param context the current context
+     * @param context    the current context
      * @param classNames fully qualified class names to summarize
      * @return a new context with the added summary fragments
      */
@@ -811,9 +830,9 @@ public class Context {
     /**
      * Adds file summary fragments for all classes in the given file paths (with glob support).
      *
-     * @param context the current context
+     * @param context   the current context
      * @param filePaths file paths relative to project root; supports glob patterns
-     * @param project the project for path resolution
+     * @param project   the project for path resolution
      * @return a new context with the added file summary fragments
      */
     public static Context withAddedFileSummaries(Context context, List<String> filePaths, AbstractProject project) {
@@ -846,9 +865,9 @@ public class Context {
      * Adds method source code fragments for the given FQ method names.
      * Skips methods whose source files are already in the workspace.
      *
-     * @param context the current context
+     * @param context     the current context
      * @param methodNames fully qualified method names to add sources for
-     * @param analyzer the code analyzer
+     * @param analyzer    the code analyzer
      * @return a new context with the added method fragments
      */
     public static Context withAddedMethodSources(Context context, List<String> methodNames, IAnalyzer analyzer) {
@@ -887,10 +906,10 @@ public class Context {
     /**
      * Adds a URL content fragment to the context by fetching and converting to Markdown.
      *
-     * @param context the current context
+     * @param context   the current context
      * @param urlString the URL to fetch
      * @return a new context with the added URL fragment
-     * @throws IOException if fetching or processing fails
+     * @throws IOException        if fetching or processing fails
      * @throws URISyntaxException if the URL string is malformed
      */
     public static Context withAddedUrlContent(Context context, String urlString)
@@ -966,6 +985,62 @@ public class Context {
                 CompletableFuture.completedFuture("Build results updated (failure)"),
                 null,
                 null);
+    }
+
+    /**
+     * Create a new Context reflecting external file changes.
+     * - Unchanged fragments are reused.
+     * - For DynamicFragments whose files() intersect 'changed', call refreshCopy() to get a new instance
+     * with cleared ComputedValues (id is preserved).
+     * - Paste fragments (text/image) are always refreshed when 'changed' is non-empty, to clear/re-kick their
+     * ComputedValues even though they may not reference files directly.
+     * - Preserves taskHistory and parsedOutput; sets action to "Load external changes".
+     * - If 'changed' is empty, returns this.
+     */
+    public Context copyAndRefresh(Set<ProjectFile> changed) {
+        if (changed.isEmpty()) {
+            return this;
+        }
+
+        boolean anyDynamicPresent = fragments.stream().anyMatch(ContextFragment::isDynamic);
+        var newFragments = new ArrayList<ContextFragment>(fragments.size());
+        boolean anyReplaced = false;
+
+        for (var f : fragments) {
+            if (f instanceof ContextFragment.ComputedFragment df) {
+                // Refresh dynamic fragments whose referenced files intersect the changed set
+                if (!Collections.disjoint(f.files(), changed)) {
+                    var refreshed = df.refreshCopy();
+                    newFragments.add(refreshed);
+                    if (refreshed != f) {
+                        anyReplaced = true;
+                    }
+                    continue;
+                }
+            }
+
+            // Default: reuse as-is
+            newFragments.add(f);
+        }
+
+        // Create a new Context if any fragment changed, or if we contain dynamic fragments, or parsed output is
+        // present.
+        boolean mustCreateNew = anyReplaced || anyDynamicPresent || parsedOutput != null;
+
+        if (!mustCreateNew && newFragments.equals(fragments)) {
+            // No dynamic content to update; keep original Context
+            return this;
+        }
+
+        return new Context(
+                newContextId(),
+                contextManager,
+                newFragments,
+                taskHistory,
+                parsedOutput,
+                CompletableFuture.completedFuture("Load external changes"),
+                this.groupId,
+                this.groupLabel);
     }
 
     private boolean isNewFileInGit(FrozenFragment ff) {
@@ -1053,11 +1128,35 @@ public class Context {
     /**
      * Compute the set of ProjectFile objects that differ between this (new/right) context and {@code other} (old/left).
      * This is a convenience wrapper around {@link #getDiff(Context)} which returns per-fragment diffs.
-     *
+     * <p>
      * Note: Both contexts should be frozen (no dynamic fragments) for reliable results.
      */
     public java.util.Set<ProjectFile> getChangedFiles(Context other) {
         var diffs = this.getDiff(other);
         return diffs.stream().flatMap(de -> de.fragment.files().stream()).collect(Collectors.toSet());
+    }
+
+    /**
+     * Best-effort snapshot seeding to ensure context contents are materialized.
+     */
+    @Blocking
+    @TestOnly
+    public void awaitContextsAreComputed(Duration timeout) {
+        for (var fragment : this.allFragments().toList()) {
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                cf.computedDescription().await(timeout);
+                cf.computedSyntaxStyle().await(timeout);
+                cf.computedText().await(timeout);
+                cf.computedFiles().await(timeout);
+                cf.computedText().await(timeout);
+                // Only await image bytes for non-path fragments (e.g., paste images).
+                if (!(fragment instanceof ContextFragment.PathFragment)) {
+                    var futureBytes = cf.computedImageBytes();
+                    if (futureBytes != null) {
+                        futureBytes.await(timeout);
+                    }
+                }
+            }
+        }
     }
 }

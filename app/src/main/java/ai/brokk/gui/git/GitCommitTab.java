@@ -703,7 +703,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .map(f -> {
                             var ppf = (ContextFragment.ProjectPathFragment) f;
                             try {
-                                return new ContextHistory.DeletedFile(ppf.file(), ppf.text(), true);
+                                ProjectFile pf = (ProjectFile) ppf.file();
+                                return new ContextHistory.DeletedFile(pf, ppf.text(), true);
                             } catch (UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
@@ -780,7 +781,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
         // Take a snapshot before mutating the working tree so the user can undo the stash
         var frozen = contextManager.liveContext().freezeAndCleanup();
-        contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
+        contextManager.getContextHistory().pushLive(frozen.frozenContext());
 
         RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {
