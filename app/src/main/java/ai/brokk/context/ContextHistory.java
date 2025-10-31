@@ -135,7 +135,7 @@ public class ContextHistory {
 
     /** Push {@code ctx}, select it, and clear redo stack. */
     public synchronized void pushLive(Context ctx) {
-        ctx.awaitContextsAreComputed( SNAPSHOT_AWAIT_TIMEOUT);
+        ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -502,8 +502,7 @@ public class ContextHistory {
             var restoredFiles = new ArrayList<String>();
             restoredFiles.add(pf.toString());
             io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Restored files: " + String.join(", ", restoredFiles));
+                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
             io.updateWorkspace();
         }
     }
