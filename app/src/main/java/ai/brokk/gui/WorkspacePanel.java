@@ -209,7 +209,18 @@ public class WorkspacePanel extends JPanel {
                 fragment.files().stream().findFirst().ifPresent(projectFile -> {
                     var fileData = new TableUtils.FileReferenceList.FileReferenceData(
                             projectFile.getFileName(), projectFile.toString(), projectFile);
-                    actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileData));
+
+                    // Check if already editable
+                    var ctx = panel.contextManager.selectedContext();
+                    boolean isAlreadyEditable =
+                            ctx != null && ctx.fileFragments().anyMatch(f -> f == fragment);
+
+                    if (isAlreadyEditable) {
+                        actions.add(WorkspaceAction.EDIT_FILE.createDisabledAction("Already in edit mode"));
+                    } else {
+                        actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileData));
+                    }
+
                     actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileData));
                 });
             } else {
