@@ -1739,7 +1739,21 @@ public class WorkspacePanel extends JPanel {
         var files = selectedFragments.stream()
                 .flatMap(fragment -> fragment.files().stream())
                 .collect(Collectors.toSet());
+
+        if (files.isEmpty()) {
+            return; // No files to edit
+        }
+
         contextManager.addFiles(files);
+
+        // After editing, remove summary fragments that were the source of the edit action
+        var summariesToRemove = selectedFragments.stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .toList();
+
+        if (!summariesToRemove.isEmpty()) {
+            contextManager.drop(summariesToRemove);
+        }
     }
 
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
