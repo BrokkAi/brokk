@@ -1044,8 +1044,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
         removeButton.setToolTipText("Remove selected favorite model");
+        var defaultsButton = new MaterialButton("Defaults");
+        defaultsButton.setToolTipText("Restore default favorite models");
         buttonPanel.add(addButton);
         buttonPanel.add(removeButton);
+        buttonPanel.add(defaultsButton);
 
         addButton.addActionListener(e -> {
             if (quickModelsTable.isEditing()) {
@@ -1083,6 +1086,39 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 int modelRow = quickModelsTable.convertRowIndexToModel(viewRow);
                 quickModelsTableModel.removeFavorite(modelRow);
             }
+        });
+
+        defaultsButton.addActionListener(e -> {
+            int result = JOptionPane.showConfirmDialog(
+                    panel,
+                    "This will replace all your current favorite models with the default set.\n\nAre you sure you want to restore defaults?",
+                    "Restore Default Favorite Models",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+
+            if (result != JOptionPane.YES_OPTION) {
+                return;
+            }
+
+            if (quickModelsTable.isEditing()) {
+                quickModelsTable.getCellEditor().stopCellEditing();
+            }
+
+            // Restore the predefined default favorite models
+            var defaultFavorites = new ArrayList<>(MainProject.DEFAULT_FAVORITE_MODELS);
+
+            // Restore defaults and select the first one
+            quickModelsTableModel.setFavorites(defaultFavorites);
+            if (!defaultFavorites.isEmpty()) {
+                int viewRowIndex = quickModelsTable.convertRowIndexToView(0);
+                quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
+            }
+
+            JOptionPane.showMessageDialog(
+                    panel,
+                    "Favorite models restored to defaults.",
+                    "Defaults Restored",
+                    JOptionPane.INFORMATION_MESSAGE);
         });
 
         // Keep Remove disabled when only one row remains or when there's no selection
