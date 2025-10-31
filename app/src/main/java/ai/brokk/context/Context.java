@@ -26,6 +26,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -210,7 +211,21 @@ public class Context {
         if (toAdd.isEmpty()) {
             return this;
         }
-        var newFragments = new ArrayList<>(fragments);
+
+        var filesToAdd = toAdd.stream()
+                .flatMap(pf -> pf.files().stream())
+                .collect(Collectors.toSet());
+
+        var newFragments = fragments.stream()
+                .filter(f -> {
+                    if (f.getType() == ContextFragment.FragmentType.SKELETON) {
+                        var summaryFiles = f.files();
+                        return Collections.disjoint(summaryFiles, filesToAdd);
+                    }
+                    return true;
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
+
         newFragments.addAll(toAdd);
 
         String actionDetails =
