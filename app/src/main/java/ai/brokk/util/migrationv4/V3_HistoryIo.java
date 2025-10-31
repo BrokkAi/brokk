@@ -11,10 +11,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.FileNotFoundException;
@@ -235,10 +235,7 @@ public final class V3_HistoryIo {
     }
 
     private static String remapClassName(String fqcn) {
-        String[] legacyPrefixes = {
-            "io.github.jbellis.brokk.context.FragmentDtos",
-            "ai.brokk.context.FragmentDtos"
-        };
+        String[] legacyPrefixes = {"io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos"};
         String targetPrefix = "ai.brokk.util.migrationv4.V3_FragmentDtos";
         for (String legacy : legacyPrefixes) {
             if (fqcn.startsWith(legacy)) {

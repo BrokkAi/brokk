@@ -86,9 +86,7 @@ public final class HistoryIo {
     }
 
     private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
-        return readZipWithFragmentsFile(zip, mgr, V3_FRAGMENTS_FILENAME);
-        // TODO [Migration 4] replace above with below
-        //        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
+        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
     }
 
     private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
@@ -376,9 +374,7 @@ public final class HistoryIo {
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
-                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
-                // TODO [Migration 4] replace above with below
-                //                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
+                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 

@@ -229,10 +229,7 @@ public class V3_DtoMapper {
                         mapSummaryType(skeletonDto.summaryType()));
             case V3_FragmentDtos.SummaryFragmentDto summaryDto ->
                 new ContextFragment.SummaryFragment(
-                        summaryDto.id(),
-                        mgr,
-                        summaryDto.targetIdentifier(),
-                        mapSummaryType(summaryDto.summaryType()));
+                        summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));
             case V3_FragmentDtos.UsageFragmentDto usageDto ->
                 new ContextFragment.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
