@@ -1625,6 +1625,39 @@ class ProjectFilteringGitRepoTest {
         project.close();
     }
 
+    @Test
+    void getWorkTreeRoot_returns_project_root_for_regular_repo(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+        var repo = project.getRepo();
+
+        // For regular repos (non-worktrees), getWorkTreeRoot() should return the project root
+        if (repo instanceof ai.brokk.git.GitRepo gitRepo) {
+            var workTreeRoot = gitRepo.getWorkTreeRoot();
+            assertEquals(
+                    tempDir.toRealPath(),
+                    workTreeRoot.toRealPath(),
+                    "getWorkTreeRoot() should return the project root for regular repos");
+
+            // Verify that gitignore filtering works (not skipped)
+            Files.writeString(tempDir.resolve(".gitignore"), "*.log\n");
+            createFile(tempDir, "debug.log", "debug output");
+
+            var allFiles = project.getAllFiles();
+            assertFalse(
+                    allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("debug.log")),
+                    "*.log files should be filtered by gitignore");
+            assertTrue(
+                    allFiles.stream().anyMatch(pf -> normalize(pf).endsWith("src/Main.java")),
+                    "src/Main.java should be included");
+        }
+
+        project.close();
+    }
+
     /**
      * Tests case-sensitive file pattern matching in gitignore.
      * Verifies that patterns are case-sensitive by default (*.log != *.LOG).

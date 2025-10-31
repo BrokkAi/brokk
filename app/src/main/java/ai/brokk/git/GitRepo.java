@@ -239,6 +239,11 @@ public class GitRepo implements Closeable, IGitRepo {
         return gitTopLevel;
     }
 
+    @Override
+    public Path getWorkTreeRoot() {
+        return repository.getWorkTree().toPath().normalize();
+    }
+
     /**
      * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to JGit's working tree
      * root, suitable for JGit commands.

@@ -382,16 +382,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Check if project root is outside git repository and show warning
         if (project.getRepo() instanceof ai.brokk.git.GitRepo gitRepo) {
-            var gitTopLevel = gitRepo.getGitTopLevel();
+            var workTreeRoot = gitRepo.getWorkTreeRoot();
             var projectRoot = project.getRoot();
-            if (!projectRoot.startsWith(gitTopLevel)) {
+            if (!projectRoot.startsWith(workTreeRoot)) {
                 String message = String.format(
                         "This project is outside the git repository.%n%n" + "Project: %s%n"
                                 + "Git repository: %s%n%n"
                                 + "Gitignore filtering cannot be applied correctly and will be disabled.%n"
                                 + "Files that should be ignored may appear in the project.%n%n"
                                 + "To fix this, open the project from within the git repository root.",
-                        projectRoot, gitTopLevel);
+                        projectRoot, workTreeRoot);
                 this.io.systemNotify(
                         message, "Gitignore Configuration Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
             }

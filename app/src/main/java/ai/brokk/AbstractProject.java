@@ -915,12 +915,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
 
             if (parentResult == MatchResult.IGNORED) {
-                logger.debug("Path {} ignored: true (parent {} is ignored)", gitRelPath, parentPath);
+                logger.trace("Path {} ignored: true (parent {} is ignored)", gitRelPath, parentPath);
                 return true;
             }
 
             if (parentResult == MatchResult.NOT_IGNORED) {
-                logger.debug("Path {} ignored: false (parent {} has negation)", gitRelPath, parentPath);
+                logger.trace("Path {} ignored: false (parent {} has negation)", gitRelPath, parentPath);
                 return false;
             }
 
@@ -928,9 +928,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         if (finalResult == MatchResult.NOT_IGNORED) {
-            logger.debug("Path {} ignored: false (result: NOT_IGNORED, no ignored parents)", gitRelPath);
+            logger.trace("Path {} ignored: false (result: NOT_IGNORED, no ignored parents)", gitRelPath);
         } else {
-            logger.debug("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
+            logger.trace("Path {} ignored: false (result: CHECK_PARENT, no ignored parents)", gitRelPath);
         }
         return false;
     }
@@ -965,11 +965,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             // Precompute fixed gitignore pairs once for all files (performance optimization)
             var gitTopLevel = gitRepo.getGitTopLevel();
+            var workTreeRoot = gitRepo.getWorkTreeRoot();
 
-            // Check if project root is under git top level
-            if (!root.startsWith(gitTopLevel)) {
+            // Check if project root is under git working tree
+            if (!root.startsWith(workTreeRoot)) {
                 logger.warn(
-                        "Project root {} is outside git repository {}; gitignore filtering skipped", root, gitTopLevel);
+                        "Project root {} is outside git working tree {}; gitignore filtering skipped",
+                        root,
+                        workTreeRoot);
                 return files; // Return all files unfiltered
             }
 
@@ -1024,10 +1027,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         try {
             var gitTopLevel = gitRepo.getGitTopLevel();
+            var workTreeRoot = gitRepo.getWorkTreeRoot();
 
-            // Check if project root is under git top level
-            if (!root.startsWith(gitTopLevel)) {
-                return false; // Project outside repo = no gitignore filtering
+            // Check if project root is under git working tree
+            if (!root.startsWith(workTreeRoot)) {
+                return false; // Project outside working tree = no gitignore filtering
             }
 
             var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
