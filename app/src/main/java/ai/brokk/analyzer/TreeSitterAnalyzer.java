@@ -1004,8 +1004,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Refines the skeleton type for a given capture by examining the definition node.
-     * Subclasses can override this to reclassify captures based on AST structure
-     * (e.g., a variable_declarator holding an arrow_function should be FUNCTION_LIKE).
+     * This hook allows subclasses to perform cheap, idempotent, language-specific
+     * reclassification of a captured node's SkeletonType based on AST structure.
+     *
+     * <p>Example use cases:
+     * <ul>
+     *   <li>Reclassifying a {@code variable_declarator} holding an arrow function as {@code FUNCTION_LIKE}</li>
+     *   <li>Distinguishing between different kinds of declarations based on child node types</li>
+     * </ul>
+     *
+     * <p><strong>Default behavior:</strong> Returns {@code getSkeletonTypeForCapture(captureName)},
+     * which maps the capture name to a skeleton type without inspecting the AST structure.
+     *
+     * <p><strong>Implementation requirements:</strong>
+     * <ul>
+     *   <li>Must be inexpensive and deterministic (no heavy traversal or I/O)</li>
+     *   <li>Must be idempotent (same input always produces same output)</li>
+     *   <li>Should only examine immediate children or simple structural properties</li>
+     * </ul>
+     *
+     * <p><strong>When to override:</strong> Override when your language requires reclassification
+     * that depends on AST structure rather than just the capture name (e.g., distinguishing
+     * arrow functions from regular variable declarations in TypeScript/JavaScript).
      *
      * @param captureName the capture name from the query
      * @param definitionNode the AST node for this definition
@@ -1017,27 +1037,36 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
-     */
-    @Nullable
-    protected abstract CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
-
-    /**
-     * Overloaded variant that accepts the refined skeleton type and definition node.
-     * Subclasses can override to use the refined type or node for enhanced CodeUnit creation.
-     * Default implementation delegates to the existing 4-argument createCodeUnit for backward compatibility.
+     * Creates a CodeUnit from capture and node information, with access to the refined skeleton type.
+     * This overload provides subclasses with both the raw AST node and the refined SkeletonType
+     * when constructing CodeUnit instances.
+     *
+     * <p><strong>Default behavior:</strong> Delegates to the existing 5-argument
+     * {@code createCodeUnit(file, captureName, simpleName, packageName, classChain)} for backward
+     * compatibility, ignoring the {@code definitionNode} and {@code skeletonType} parameters.
+     *
+     * <p><strong>When to override:</strong> Override this method when CodeUnit creation depends on:
+     * <ul>
+     *   <li>The refined skeleton type (e.g., to route arrow functions to {@code CodeUnit.fn}
+     *       instead of {@code CodeUnit.field})</li>
+     *   <li>AST context from the definition node (e.g., to detect ambient declarations or
+     *       export/default modifiers)</li>
+     *   <li>Language-specific structural details not available from the capture name alone</li>
+     * </ul>
+     *
+     * <p>If overriding, you typically want to switch on {@code skeletonType} and call the
+     * appropriate {@code CodeUnit} factory method ({@code CodeUnit.fn}, {@code CodeUnit.cls},
+     * {@code CodeUnit.field}, etc.) based on the refined type.
      *
      * @param file the source file
      * @param captureName the capture name from the query
-     * @param simpleName the simple name extracted for this definition
+     * @param simpleName the simple name of the code unit
      * @param packageName the package/namespace name
      * @param classChain the enclosing class chain
      * @param definitionNode the AST node for this definition
      * @param skeletonType the refined skeleton type
-     * @return the CodeUnit, or null to ignore this capture
+     * @return the constructed CodeUnit
      */
-    @Nullable
     protected CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
@@ -1048,6 +1077,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             SkeletonType skeletonType) {
         return createCodeUnit(file, captureName, simpleName, packageName, classChain);
     }
+
+    /**
+     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
+     */
+    @Nullable
+    protected abstract CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
+
+    /* ---------- Signature Building Logic ---------- */
 
     /**
      * Hook for subclasses to enhance the FQN before CodeUnit creation.
@@ -1902,351 +1940,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges) {}
 
-    /* ---------- Signature Building Logic ---------- */
-
-    /**
-     * Builds a signature string for a given definition node. This includes decorators and the main declaration line
-     * (e.g., class header or function signature).
-     *
-     * @param simpleName The simple name of the definition, pre-determined by query captures.
-     * @param skeletonType The refined skeleton type for this definition.
-     */
-    private String buildSignatureString(
-            TSNode definitionNode,
-            String simpleName,
-            String src,
-            byte[] srcBytes,
-            String primaryCaptureName,
-            List<String> capturedModifierKeywords,
-            ProjectFile file,
-            SkeletonType skeletonType) {
-        List<String> signatureLines = new ArrayList<>();
-        var profile = getLanguageSyntaxProfile();
-        
-        SkeletonType refined = refineSkeletonType(primaryCaptureName, definitionNode, profile);
-
-        TSNode nodeForContent = definitionNode;
-        TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
-
-        // 1. Handle language-specific structural unwrapping (e.g., export statements)
-        // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
-        if (shouldUnwrapExportStatements() && "export_statement".equals(definitionNode.getType())) {
-            TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
-            if (declarationInExport != null && !declarationInExport.isNull()) {
-                // Check if the inner declaration's type matches what's expected for the skeletonType
-                boolean typeMatch = false;
-                String innerType = declarationInExport.getType();
-                switch (skeletonType) {
-                    case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
-                    case FUNCTION_LIKE ->
-                        typeMatch = profile.functionLikeNodeTypes().contains(innerType)
-                                ||
-                                // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                                (shouldUnwrapExportStatements()
-                                        && ("lexical_declaration".equals(innerType)
-                                                || "variable_declaration".equals(innerType)));
-                    case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
-                    case ALIAS_LIKE ->
-                        typeMatch = (project.getAnalyzerLanguages().contains(Languages.TYPESCRIPT)
-                                && "type_alias_declaration".equals(innerType));
-                    default -> {}
-                }
-                if (typeMatch) {
-                    nodeForContent = declarationInExport; // Unwrap for processing
-                    // Keep nodeForSignature as the original export_statement for text slicing
-                } else {
-                    log.warn(
-                            "Export statement in {} wraps an unexpected declaration type '{}' for skeletonType '{}'. Using export_statement as nodeForContent. DefinitionNode: {}, SimpleName: {}",
-                            definitionNode.getStartPoint().getRow() + 1,
-                            innerType,
-                            skeletonType,
-                            definitionNode.getType(),
-                            simpleName);
-                }
-            }
-        }
-
-        // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        if (needsVariableDeclaratorUnwrapping(nodeForContent, refined)
-                && ("lexical_declaration".equals(nodeForContent.getType())
-                        || "variable_declaration".equals(nodeForContent.getType()))) {
-            // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator
-            // by name
-            log.trace(
-                    "Entering variable_declarator lookup for '{}' in nodeForContent '{}'",
-                    simpleName,
-                    nodeForContent.getType());
-            boolean found = false;
-            for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
-                TSNode child = nodeForContent.getNamedChild(i);
-                log.trace(
-                        "  Child[{}]: type='{}', text='{}'",
-                        i,
-                        child.getType(),
-                        textSlice(child, srcBytes)
-                                .lines()
-                                .findFirst()
-                                .orElse("")
-                                .trim());
-                if ("variable_declarator".equals(child.getType())) {
-                    TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
-                    if (nameNode != null
-                            && !nameNode.isNull()
-                            && simpleName.equals(textSlice(nameNode, srcBytes).strip())) {
-                        nodeForContent = child; // Use the specific variable_declarator
-                        found = true;
-                        log.trace("Found specific variable_declarator for '{}' in lexical_declaration", simpleName);
-                        break;
-                    }
-                }
-            }
-            if (!found) {
-                log.warn("Could not find variable_declarator for '{}' in {}", simpleName, nodeForContent.getType());
-            } else {
-                // Check if this variable_declarator contains an arrow function
-                TSNode valueNode = nodeForContent.getChildByFieldName("value");
-                if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
-                    log.trace("Found arrow function in variable_declarator for '{}'", simpleName);
-                }
-            }
-        }
-
-        // 1. Handle decorators: check if language wraps them in a parent node or if they precede the definition
-        if (hasWrappingDecoratorNode()) {
-            // Language wraps decorators in a parent node (e.g., Python's decorated_definition)
-            nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, srcBytes, profile);
-        } else {
-            // 2. Handle decorators for languages where they precede the definition as siblings
-            List<TSNode> decorators =
-                    getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
-            for (TSNode decoratorNode : decorators) {
-                signatureLines.add(textSlice(decoratorNode, srcBytes).stripLeading());
-            }
-        }
-
-        // 3. Derive modifier keywords (export, static, async, etc.).
-        //    If the query captured modifiers, use them directly.
-        //    Otherwise, fall back to synthesizing from the AST via getVisibilityPrefix.
-        var modifierTokens = new LinkedHashSet<String>();
-        
-        if (!capturedModifierKeywords.isEmpty()) {
-            // Use query-captured modifiers (already sorted by start byte)
-            modifierTokens.addAll(capturedModifierKeywords);
-        } else {
-            // Fallback: synthesize modifiers from AST
-            String fallbackPrefix = getVisibilityPrefix(nodeForSignature, src);
-            if (!fallbackPrefix.isEmpty()) {
-                for (String token : Splitter.on(Pattern.compile("\\s+"))
-                        .omitEmptyStrings()
-                        .split(fallbackPrefix.strip())) {
-                    modifierTokens.add(token);
-                }
-            }
-        }
-        
-        String exportPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
-
-        // 4. Build main signature based on type, using nodeForContent and the derived exportPrefix.
-        switch (refined) {
-            case CLASS_LIKE: {
-                TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
-                String classSignatureText;
-                if (bodyNode != null && !bodyNode.isNull()) {
-                    // For export statements, use the original node to include the export keyword
-                    if (nodeForSignature != nodeForContent) {
-                        classSignatureText = textSlice(
-                                        nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes)
-                                .stripTrailing();
-                    } else {
-                        classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), srcBytes)
-                                .stripTrailing();
-                    }
-                } else {
-                    // For export statements, use the original node to include the export keyword
-                    if (nodeForSignature != nodeForContent) {
-                        classSignatureText = textSlice(
-                                        nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
-                                .stripTrailing();
-                    } else {
-                        classSignatureText = textSlice(
-                                        nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes)
-                                .stripTrailing();
-                    }
-                    // Attempt to remove trailing tokens like '{' or ';' if no body node found, to get a cleaner
-                    // signature part
-                    if (classSignatureText.endsWith("{"))
-                        classSignatureText = classSignatureText
-                                .substring(0, classSignatureText.length() - 1)
-                                .stripTrailing();
-                    else if (classSignatureText.endsWith(";"))
-                        classSignatureText = classSignatureText
-                                .substring(0, classSignatureText.length() - 1)
-                                .stripTrailing();
-                }
-
-                // If exportPrefix is present and classSignatureText also starts with it,
-                // remove it from classSignatureText to avoid duplication by renderClassHeader.
-                if (!exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix.strip())) {
-                    classSignatureText = classSignatureText
-                            .substring(exportPrefix.strip().length())
-                            .stripLeading();
-                } else if (!exportPrefix.isBlank()
-                        && classSignatureText.startsWith(exportPrefix)) { // Check with trailing space too
-                    classSignatureText =
-                            classSignatureText.substring(exportPrefix.length()).stripLeading();
-                }
-
-                String headerLine = assembleClassSignature(nodeForContent, src, exportPrefix, classSignatureText, "");
-                if (!headerLine.isBlank()) signatureLines.add(headerLine);
-                break;
-            }
-            case FUNCTION_LIKE: {
-                log.trace(
-                        "FUNCTION_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
-                        simpleName,
-                        nodeForContent.getType(),
-                        nodeForSignature.getType());
-
-                // Add extra comments determined from the function body
-                TSNode bodyNodeForComments = nodeForContent.getChildByFieldName(profile.bodyFieldName());
-                List<String> extraComments = getExtraFunctionComments(bodyNodeForComments, src, null);
-                for (String comment : extraComments) {
-                    if (!comment.isBlank()) {
-                        signatureLines.add(
-                                comment); // Comments are added without indent here; buildSkeletonRecursive adds indent.
-                    }
-                }
-                // Pass determined exportPrefix to buildFunctionSkeleton
-                // Always use nodeForContent for structural operations (finding body, etc.)
-                // The export prefix is already included via the exportPrefix parameter
-                buildFunctionSkeleton(nodeForContent, Optional.of(simpleName), src, "", signatureLines, exportPrefix);
-                break;
-            }
-            case FIELD_LIKE: {
-                // Always use nodeForContent which has been set to the specific variable_declarator
-                log.trace(
-                        "FIELD_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
-                        simpleName,
-                        nodeForContent.getType(),
-                        nodeForSignature.getType());
-                String fieldSignatureText = textSlice(nodeForContent, srcBytes).strip();
-
-                // Strip export prefix if present to avoid duplication
-                if (!exportPrefix.isEmpty() && !exportPrefix.isBlank()) {
-                    String strippedExportPrefix = exportPrefix.strip();
-                    log.trace(
-                            "Checking for prefix duplication: exportPrefix='{}', fieldSignatureText='{}'",
-                            strippedExportPrefix,
-                            fieldSignatureText);
-
-                    // Check for exact match first
-                    if (fieldSignatureText.startsWith(strippedExportPrefix)) {
-                        fieldSignatureText = fieldSignatureText
-                                .substring(strippedExportPrefix.length())
-                                .stripLeading();
-                    } else {
-                        // For TypeScript/JavaScript, check for partial duplicates like "export const" + "const ..."
-                        List<String> exportTokens =
-                                Splitter.on(Pattern.compile("\\s+")).splitToList(strippedExportPrefix);
-                        List<String> fieldTokens =
-                                Splitter.on(Pattern.compile("\\s+")).limit(2).splitToList(fieldSignatureText);
-
-                        if (exportTokens.size() > 1 && !fieldTokens.isEmpty()) {
-                            // Check if the last token of export prefix matches the first token of field signature
-                            String lastExportToken = exportTokens.get(exportTokens.size() - 1);
-                            String firstFieldToken = fieldTokens.get(0);
-
-                            if (lastExportToken.equals(firstFieldToken)) {
-                                // Remove the duplicate token from field signature
-                                fieldSignatureText = fieldSignatureText
-                                        .substring(firstFieldToken.length())
-                                        .stripLeading();
-                                log.trace("Removed duplicate token '{}' from field signature", firstFieldToken);
-                            }
-                        }
-                    }
-                }
-
-                String fieldLine =
-                        formatFieldSignature(nodeForContent, src, exportPrefix, fieldSignatureText, "", file);
-                if (!fieldLine.isBlank()) signatureLines.add(fieldLine);
-                break;
-            }
-            case ALIAS_LIKE: {
-                // nodeForContent should be the type_alias_declaration node itself
-                String typeParamsText = "";
-                if (!profile.typeParametersFieldName().isEmpty()) {
-                    TSNode typeParamsNode = nodeForContent.getChildByFieldName(profile.typeParametersFieldName());
-                    if (typeParamsNode != null && !typeParamsNode.isNull()) {
-                        typeParamsText = textSlice(typeParamsNode, src); // Raw text including < >
-                    }
-                }
-
-                TSNode valueNode =
-                        nodeForContent.getChildByFieldName("value"); // Standard field name for type alias value
-                String valueText = "";
-                if (valueNode != null && !valueNode.isNull()) {
-                    valueText = textSlice(valueNode, srcBytes).strip();
-                } else {
-                    log.warn(
-                            "Type alias '{}' (node type {}) in {} at line {} is missing its 'value' child. Resulting skeleton may be incomplete. Node text: {}",
-                            simpleName,
-                            nodeForContent.getType(),
-                            project.getRoot().relativize(file.absPath()),
-                            nodeForContent.getStartPoint().getRow() + 1,
-                            textSlice(nodeForContent, srcBytes));
-                    valueText = "any"; // Fallback or indicate error
-                }
-
-                String aliasSignature = (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = "
-                                + valueText)
-                        .strip();
-                if (!aliasSignature.endsWith(";")) {
-                    aliasSignature += ";";
-                }
-                signatureLines.add(aliasSignature);
-                break;
-            }
-            case MODULE_STATEMENT: {
-                // For namespace declarations, extract just the namespace declaration line without the body
-                String fullText = textSlice(definitionNode, srcBytes);
-                List<String> lines = Splitter.on('\n').splitToList(fullText);
-                String namespaceLine = lines.getFirst().strip(); // Get first line only
-
-                // Remove trailing '{' if present to get clean namespace signature
-                if (namespaceLine.endsWith("{")) {
-                    namespaceLine = namespaceLine
-                            .substring(0, namespaceLine.length() - 1)
-                            .stripTrailing();
-                }
-
-                signatureLines.add(exportPrefix + namespaceLine);
-                break;
-            }
-            case UNSUPPORTED:
-            default:
-                log.debug(
-                        "Unsupported capture name '{}' for signature building (type {}). Using raw text slice (with prefix if any from modifiers): '{}'",
-                        primaryCaptureName,
-                        skeletonType,
-                        exportPrefix + textSlice(definitionNode, srcBytes).stripLeading());
-                signatureLines.add(
-                        exportPrefix + textSlice(definitionNode, srcBytes).stripLeading()); // Add prefix here too
-                break;
-        }
-
-        String result = String.join("\n", signatureLines).stripTrailing();
-        log.trace(
-                "buildSignatureString: DefNode={}, SimpleName={}, Capture='{}', nodeForContent={}, Modifiers='{}', Signature (first line): '{}'",
-                definitionNode.getType(),
-                simpleName,
-                primaryCaptureName,
-                nodeForContent.getType(),
-                exportPrefix,
-                (result.isEmpty() ? "EMPTY" : result.lines().findFirst().orElse("EMPTY")));
-        return result;
-    }
-
     /**
      * Renders the opening part of a class-like structure (e.g., "public class Foo {").
      */
@@ -2363,6 +2056,249 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected String getVisibilityPrefix(TSNode node, String src) {
         return ""; // Default implementation returns an empty string
+    }
+
+    /**
+     * Builds a signature string for a given definition node. This includes any decorators and the main
+     * declaration line (e.g., class header, function signature, field declaration).
+     *
+     * <p>When the query does not capture modifier keywords (export, declare, async, etc.), this method
+     * synthesizes them using getVisibilityPrefix. It also supports language-specific structural
+     * unwrapping (export statements, variable declarators) via hooks.</p>
+     *
+     * @param definitionNode the AST node for this definition
+     * @param simpleName the simple name determined by captures or fallback extraction
+     * @param src the source code
+     * @param srcBytes the source code as bytes, for efficient slicing
+     * @param primaryCaptureName the primary capture name (e.g., "class.definition")
+     * @param capturedModifierKeywords modifier keywords captured by the query (sorted by start)
+     * @param file the source file
+     * @param skeletonType the refined skeleton type passed from the analysis pipeline
+     * @return the full signature string (possibly multi-line) or an empty string if not applicable
+     */
+    private String buildSignatureString(
+            TSNode definitionNode,
+            String simpleName,
+            String src,
+            byte[] srcBytes,
+            String primaryCaptureName,
+            List<String> capturedModifierKeywords,
+            ProjectFile file,
+            SkeletonType skeletonType) {
+
+        var signatureLines = new ArrayList<String>();
+        var profile = getLanguageSyntaxProfile();
+
+        // Recompute refined type defensively to ensure consistency with any subclass overrides.
+        var refined = refineSkeletonType(primaryCaptureName, definitionNode, profile);
+
+        // By default the same node is used for both content and signature slicing.
+        TSNode nodeForContent = definitionNode;
+        TSNode nodeForSignature = definitionNode;
+
+        // Unwrap export statements for structural processing when enabled, but keep the original
+        // node for signature slicing when needed (to preserve 'export' text if already present).
+        if (shouldUnwrapExportStatements() && "export_statement".equals(definitionNode.getType())) {
+            TSNode decl = definitionNode.getChildByFieldName("declaration");
+            if (decl != null && !decl.isNull()) {
+                boolean typeMatch = false;
+                String innerType = decl.getType();
+                switch (refined) {
+                    case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
+                    case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType)
+                            || ("lexical_declaration".equals(innerType) || "variable_declaration".equals(innerType));
+                    case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType)
+                            || "variable_declarator".equals(innerType)
+                            || "lexical_declaration".equals(innerType)
+                            || "variable_declaration".equals(innerType);
+                    case ALIAS_LIKE -> typeMatch = "type_alias_declaration".equals(innerType);
+                    default -> {}
+                }
+                if (typeMatch) {
+                    nodeForContent = decl;
+                } else {
+                    log.trace(
+                            "Export wrapper contains unexpected inner node type for refined={}, innerType={}, outerType={}",
+                            refined, innerType, definitionNode.getType());
+                }
+            }
+        }
+
+        // Variable declarator unwrapping: for const/let/var declarations, find the specific declarator by name.
+        if (needsVariableDeclaratorUnwrapping(nodeForContent, refined)
+                && ("lexical_declaration".equals(nodeForContent.getType())
+                    || "variable_declaration".equals(nodeForContent.getType()))) {
+            boolean found = false;
+            for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
+                TSNode child = nodeForContent.getNamedChild(i);
+                if (child != null && !child.isNull() && "variable_declarator".equals(child.getType())) {
+                    TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
+                    if (nameNode != null && !nameNode.isNull()) {
+                        String name = textSlice(nameNode, srcBytes).strip();
+                        if (simpleName.equals(name)) {
+                            nodeForContent = child;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!found) {
+                log.trace("Could not find variable_declarator for '{}'", simpleName);
+            }
+        }
+
+        // Decorators handling:
+        if (hasWrappingDecoratorNode()) {
+            nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, srcBytes, profile);
+        } else {
+            for (TSNode decoratorNode : getPrecedingDecorators(nodeForContent)) {
+                signatureLines.add(textSlice(decoratorNode, srcBytes).stripLeading());
+            }
+        }
+
+        // Derive modifiers: prefer captured modifier keywords; otherwise synthesize via getVisibilityPrefix.
+        var modifierTokens = new LinkedHashSet<String>();
+        if (!capturedModifierKeywords.isEmpty()) {
+            modifierTokens.addAll(capturedModifierKeywords);
+        } else {
+            String fallback = getVisibilityPrefix(nodeForSignature, src).strip();
+            if (!fallback.isEmpty()) {
+                for (String tok : Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {
+                    modifierTokens.add(tok);
+                }
+            }
+        }
+        String exportPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
+
+        switch (refined) {
+            case CLASS_LIKE: {
+                TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
+                String classSignatureText;
+                if (bodyNode != null && !bodyNode.isNull()) {
+                    // If unwrapped from export, slice from original node to include any prefix text up to body.
+                    if (nodeForSignature != nodeForContent) {
+                        classSignatureText = textSlice(
+                                nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes).stripTrailing();
+                    } else {
+                        classSignatureText = textSlice(
+                                nodeForContent.getStartByte(), bodyNode.getStartByte(), srcBytes).stripTrailing();
+                    }
+                } else {
+                    // No explicit body node - slice entire node
+                    if (nodeForSignature != nodeForContent) {
+                        classSignatureText = textSlice(
+                                nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
+                                .stripTrailing();
+                    } else {
+                        classSignatureText = textSlice(
+                                nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes).stripTrailing();
+                    }
+                    // Remove trailing "{" or ";" if present for cleaner header
+                    if (classSignatureText.endsWith("{")) {
+                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                    } else if (classSignatureText.endsWith(";")) {
+                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                    }
+                }
+
+                // Avoid duplicating any exportPrefix already present at the start of classSignatureText
+                var stripped = exportPrefix.strip();
+                if (!stripped.isEmpty() && classSignatureText.startsWith(stripped)) {
+                    classSignatureText = classSignatureText.substring(stripped.length()).stripLeading();
+                } else if (!exportPrefix.isEmpty() && classSignatureText.startsWith(exportPrefix)) {
+                    classSignatureText = classSignatureText.substring(exportPrefix.length()).stripLeading();
+                }
+
+                String headerLine = assembleClassSignature(nodeForContent, src, exportPrefix, classSignatureText, "");
+                if (!headerLine.isBlank()) signatureLines.add(headerLine);
+                break;
+            }
+
+            case FUNCTION_LIKE: {
+                // Extra comments derived from the function body if any.
+                TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
+                for (String c : getExtraFunctionComments(bodyNode, src, null)) {
+                    if (!c.isBlank()) signatureLines.add(c);
+                }
+                buildFunctionSkeleton(nodeForContent, Optional.of(simpleName), src, "", signatureLines, exportPrefix);
+                break;
+            }
+
+            case FIELD_LIKE: {
+                String fieldText = textSlice(nodeForContent, srcBytes).strip();
+
+                // Avoid duplicating tokens like "const" when both exportPrefix and fieldText contain them.
+                if (!exportPrefix.isBlank()) {
+                    var stripped = exportPrefix.strip();
+                    if (fieldText.startsWith(stripped)) {
+                        fieldText = fieldText.substring(stripped.length()).stripLeading();
+                    } else {
+                        // Handle partial duplication: e.g., "export const" prefix and "const ..." in fieldText
+                        var exportTokens = Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().splitToList(stripped);
+                        var fieldTokens = Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().limit(2).splitToList(fieldText);
+                        if (!exportTokens.isEmpty() && !fieldTokens.isEmpty()) {
+                            String lastExport = exportTokens.get(exportTokens.size() - 1);
+                            String firstField = fieldTokens.get(0);
+                            if (lastExport.equals(firstField)) {
+                                fieldText = fieldText.substring(firstField.length()).stripLeading();
+                            }
+                        }
+                    }
+                }
+
+                String line = formatFieldSignature(nodeForContent, src, exportPrefix, fieldText, "", file);
+                if (!line.isBlank()) signatureLines.add(line);
+                break;
+            }
+
+            case ALIAS_LIKE: {
+                String typeParamsText = "";
+                if (!profile.typeParametersFieldName().isEmpty()) {
+                    TSNode tp = nodeForContent.getChildByFieldName(profile.typeParametersFieldName());
+                    if (tp != null && !tp.isNull()) typeParamsText = textSlice(tp, srcBytes).strip();
+                }
+                TSNode valueNode = nodeForContent.getChildByFieldName("value");
+                String valueText = (valueNode != null && !valueNode.isNull()) ? textSlice(valueNode, srcBytes).strip() : "";
+                if (valueText.isEmpty()) valueText = "any";
+                String aliasSig = (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = " + valueText).strip();
+                if (!aliasSig.endsWith(";") && requiresSemicolons()) aliasSig += ";";
+                signatureLines.add(aliasSig);
+                break;
+            }
+
+            case MODULE_STATEMENT: {
+                // For namespace/internal_module, keep only the first line without the body.
+                String fullText = textSlice(definitionNode, srcBytes);
+                var lines = Splitter.on('\n').splitToList(fullText);
+                String firstLine = lines.isEmpty() ? "" : lines.getFirst().strip();
+                if (firstLine.endsWith("{")) {
+                    firstLine = firstLine.substring(0, firstLine.length() - 1).stripTrailing();
+                }
+                signatureLines.add(exportPrefix + firstLine);
+                break;
+            }
+
+            case DECORATOR:
+            case UNSUPPORTED:
+            default: {
+                // Fallback: raw text with any derived prefix
+                String raw = textSlice(definitionNode, srcBytes).stripLeading();
+                signatureLines.add(exportPrefix + raw);
+                break;
+            }
+        }
+
+        String result = String.join("\n", signatureLines).stripTrailing();
+        log.trace(
+                "buildSignatureString: nodeType={}, name={}, capture='{}', refined={}, modifiers='{}', firstLine='{}'",
+                definitionNode.getType(),
+                simpleName,
+                primaryCaptureName,
+                refined,
+                exportPrefix.strip(),
+                result.isEmpty() ? "EMPTY" : result.lines().findFirst().orElse("EMPTY"));
+        return result;
     }
 
     /**

@@ -153,10 +153,27 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return super.refineSkeletonType(captureName, definitionNode, profile);
         }
 
+        // Direct variable declarator with arrow function initializer
         if ("variable_declarator".equals(definitionNode.getType())) {
             TSNode valueNode = definitionNode.getChildByFieldName("value");
             if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
                 return SkeletonType.FUNCTION_LIKE;
+            }
+        }
+
+        // Declarations that contain variable_declarators (const/let/var)
+        if ("lexical_declaration".equals(definitionNode.getType())
+                || "variable_declaration".equals(definitionNode.getType())) {
+            // Scan children for the declarator represented by this capture.
+            // If any declarator has an arrow_function value, classify as FUNCTION_LIKE.
+            for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
+                TSNode child = definitionNode.getNamedChild(i);
+                if (child != null && !child.isNull() && "variable_declarator".equals(child.getType())) {
+                    TSNode valueNode = child.getChildByFieldName("value");
+                    if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
+                        return SkeletonType.FUNCTION_LIKE;
+                    }
+                }
             }
         }
 
@@ -433,8 +450,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
-        // TypeScript modifier extraction - look for export, declare, async, static, etc.
-        // This method is called when keyword.modifier captures are not available.
+        // TypeScript modifier extraction - check node itself and immediate parent for export/declare wrappers
+        // Synthesizes modifiers when @keyword.modifier captures are not present.
         StringBuilder modifiers = new StringBuilder();
 
         TSNode nodeToCheck = node;
@@ -456,6 +473,19 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if (declaration != null && !declaration.isNull()) {
                 nodeToCheck = declaration;
             }
+        } else {
+            // Check if the parent is an export statement (for nodes like variable_declarator)
+            TSNode parent = node.getParent();
+            if (parent != null && !parent.isNull() && "export_statement".equals(parent.getType())) {
+                modifiers.append("export ");
+                // Check for default export
+                if (parent.getChildCount() > 1) {
+                    TSNode secondChild = parent.getChild(1);
+                    if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
+                        modifiers.append("default ");
+                    }
+                }
+            }
         }
 
         // Check if the node itself is an ambient declaration
@@ -472,16 +502,36 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     break;
                 }
             }
+        } else {
+            // Check if the immediate parent or grandparent is an ambient declaration (for nodes like variable_declarator)
+            // But stop if we hit a body (which means we're nested and shouldn't inherit ambient from outer scope)
+            TSNode parentAmbient = node.getParent();
+            if (parentAmbient != null && !parentAmbient.isNull()) {
+                // First check the immediate parent
+                if ("ambient_declaration".equals(parentAmbient.getType())) {
+                    modifiers.append("declare ");
+                } else if (!("class_body".equals(parentAmbient.getType())
+                        || "interface_body".equals(parentAmbient.getType())
+                        || "enum_body".equals(parentAmbient.getType())
+                        || "namespace_body".equals(parentAmbient.getType()))) {
+                    // If parent is not a body and not ambient, check grandparent
+                    TSNode grandparent = parentAmbient.getParent();
+                    if (grandparent != null
+                            && !grandparent.isNull()
+                            && "ambient_declaration".equals(grandparent.getType())) {
+                        modifiers.append("declare ");
+                    }
+                }
+            }
         }
 
-        TSNode parent = nodeToCheck.getParent();
-
-        // For variable declarators, check the parent declaration
+        // Check if the node or its unwrapped form is a variable declarator, check the parent declaration (lexical/var)
+        TSNode parentDecl = nodeToCheck.getParent();
         if ("variable_declarator".equals(nodeToCheck.getType())
-                && parent != null
-                && ("lexical_declaration".equals(parent.getType())
-                        || "variable_declaration".equals(parent.getType()))) {
-            nodeToCheck = parent;
+                && parentDecl != null
+                && ("lexical_declaration".equals(parentDecl.getType())
+                        || "variable_declaration".equals(parentDecl.getType()))) {
+            nodeToCheck = parentDecl;
         }
 
         // Look for modifier keywords in the first few children of the declaration
@@ -489,7 +539,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {
                 String childText = cachedTextSliceStripped(child, src);
-                // Check for common TypeScript modifiers
                 if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
                         .contains(childText)) {
                     modifiers.append(childText).append(" ");
