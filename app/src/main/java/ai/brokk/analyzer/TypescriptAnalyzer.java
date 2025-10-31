@@ -525,6 +525,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean isMissingNameCaptureAllowed(String captureName, String nodeType, String fileName) {
+        // Suppress DEBUG message for function.definition when name capture is missing
+        // The fallback extractSimpleName works correctly for TypeScript function declarations
+        return "function.definition".equals(captureName) && "function_declaration".equals(nodeType);
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         // Classes, interfaces, enums, modules/namespaces all use '}'
         if (cu.isClass()) { // isClass is true for all CLASS_LIKE CUs

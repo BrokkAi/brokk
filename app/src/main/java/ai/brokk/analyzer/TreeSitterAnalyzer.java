@@ -1494,12 +1494,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             simpleName = extractSimpleName(definitionNode, src).orElse(null);
                         }
                     } else {
-                        log.debug(
-                                "Expected name capture '{}' not found for definition '{}' in match for file {}. Current captures in this match: {}. Falling back to extractSimpleName on definition node.",
-                                expectedNameCapture,
-                                captureName,
-                                file,
-                                capturedNodesForMatch.keySet());
+                        if (!isMissingNameCaptureAllowed(captureName, definitionNode.getType(), file.getFileName())) {
+                            log.debug(
+                                    "Expected name capture '{}' not found for definition '{}' in match for file {}. Current captures in this match: {}. Falling back to extractSimpleName on definition node.",
+                                    expectedNameCapture,
+                                    captureName,
+                                    file,
+                                    capturedNodesForMatch.keySet());
+                        }
                         simpleName = extractSimpleName(definitionNode, src).orElse(null);
                     }
 
@@ -3277,6 +3279,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+        return false;
+    }
+
+    /**
+     * Hook for subclasses to suppress DEBUG logging when the expected name capture is missing
+     * from a query match but extractSimpleName will be used as fallback.
+     *
+     * @param captureName the capture name (e.g., "function.definition")
+     * @param nodeType the AST node type
+     * @param fileName the file being analyzed
+     * @return true if missing name captures are expected and logging should be suppressed
+     */
+    protected boolean isMissingNameCaptureAllowed(String captureName, String nodeType, String fileName) {
         return false;
     }
 

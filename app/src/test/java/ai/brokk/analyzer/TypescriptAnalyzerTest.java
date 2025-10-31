@@ -1540,19 +1540,19 @@ public class TypescriptAnalyzerTest {
                 .filter(cu -> cu.fqName().equals("Color.transparent$static"))
                 .findFirst();
 
-        assertTrue(instanceTransparent.isPresent(),
+        assertTrue(
+                instanceTransparent.isPresent(),
                 "Instance method 'transparent' should be found with FQName 'Color.transparent'. Found units: "
                         + colorUnits.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
 
-        assertTrue(staticTransparent.isPresent(),
+        assertTrue(
+                staticTransparent.isPresent(),
                 "Static property 'transparent' should be found with FQName 'Color.transparent$static'. Found units: "
                         + colorUnits.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
 
         // Verify both are function-like or field-like as appropriate
-        assertTrue(instanceTransparent.get().isFunction(),
-                "Instance transparent should be a function (method)");
-        assertTrue(staticTransparent.get().isField(),
-                "Static transparent should be a field (property)");
+        assertTrue(instanceTransparent.get().isFunction(), "Instance transparent should be a function (method)");
+        assertTrue(staticTransparent.get().isField(), "Static transparent should be a field (property)");
 
         // Test normalize methods (instance vs static)
         Optional<CodeUnit> instanceNormalize = colorUnits.stream()
@@ -1563,10 +1563,8 @@ public class TypescriptAnalyzerTest {
                 .filter(cu -> cu.fqName().equals("Color.normalize$static"))
                 .findFirst();
 
-        assertTrue(instanceNormalize.isPresent(),
-                "Instance method 'normalize' should be found");
-        assertTrue(staticNormalize.isPresent(),
-                "Static method 'normalize' should be found");
+        assertTrue(instanceNormalize.isPresent(), "Instance method 'normalize' should be found");
+        assertTrue(staticNormalize.isPresent(), "Static method 'normalize' should be found");
 
         // Test count properties (instance vs static)
         Optional<CodeUnit> instanceCount = colorUnits.stream()
@@ -1577,9 +1575,7 @@ public class TypescriptAnalyzerTest {
                 .filter(cu -> cu.fqName().equals("Color.count$static"))
                 .findFirst();
 
-        assertTrue(instanceCount.isPresent(),
-                "Instance property 'count' should be found");
-        assertTrue(staticCount.isPresent(),
-                "Static property 'count' should be found");
+        assertTrue(instanceCount.isPresent(), "Instance property 'count' should be found");
+        assertTrue(staticCount.isPresent(), "Static property 'count' should be found");
     }
 }
