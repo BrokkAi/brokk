@@ -105,6 +105,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // transferable snapshot of analyzer state
     private volatile AnalyzerState state;
 
+    // Stage timing captured during construction
+    private volatile StageTiming stageTiming;
+
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
      *
@@ -182,6 +185,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements,
             TSTree parsedTree) {}
+
+    // Public record for stage timing information exposed to external tools
+    public record StageTiming(
+            long readNanos,
+            long parseNanos,
+            long processNanos,
+            long mergeNanos,
+            long readStartNanos,
+            long readEndNanos,
+            long parseStartNanos,
+            long parseEndNanos,
+            long processStartNanos,
+            long processEndNanos,
+            long mergeStartNanos,
+            long mergeEndNanos) {}
 
     // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
     private record ConstructionTiming(
@@ -384,6 +402,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         long totalWall =
                 (totalStart == Long.MAX_VALUE || totalEnd == 0L || totalEnd < totalStart) ? 0L : totalEnd - totalStart;
 
+        // Capture timing for external tools (e.g., TreeSitterRepoRunner)
+        this.stageTiming = new StageTiming(
+                timing.readStageNanos().get(),
+                timing.parseStageNanos().get(),
+                timing.processStageNanos().get(),
+                timing.mergeStageNanos().get(),
+                timing.readStageFirstStartNanos().get(),
+                timing.readStageLastEndNanos().get(),
+                timing.parseStageFirstStartNanos().get(),
+                timing.parseStageLastEndNanos().get(),
+                timing.processStageFirstStartNanos().get(),
+                timing.processStageLastEndNanos().get(),
+                timing.mergeStageFirstStartNanos().get(),
+                timing.mergeStageLastEndNanos().get());
+
         log.debug(
                 "[{}] Stage timing (wall clock coverage; stages overlap): Read Files={}, Parse Files={}, Process Files={}, Merge Results={}, Total={}",
                 language.name(),
@@ -513,6 +546,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     private FileProperties fileProperties(ProjectFile file) {
         return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
+    }
+
+    /**
+     * Returns stage timing information captured during analyzer construction.
+     * @return StageTiming record containing cumulative and wall-clock durations for each stage
+     */
+    public @Nullable StageTiming getStageTiming() {
+        return stageTiming;
     }
 
     @Override

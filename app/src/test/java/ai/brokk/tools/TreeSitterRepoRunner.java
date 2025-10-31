@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -142,6 +143,7 @@ public class TreeSitterRepoRunner {
     private boolean jsonOutput = false;
     private boolean verbose = false;
     private boolean showDetails = false;
+    private boolean showStats = false;
     private boolean cleanupReports = false;
     private int maxFiles = 1000;
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
@@ -287,7 +289,7 @@ public class TreeSitterRepoRunner {
                 // Write incremental results for OOM failure
                 try {
                     var failedResult =
-                            new BaselineResult(maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0);
+                            new BaselineResult(maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                     System.out.println("📊 Incremental failure result saved");
                 } catch (Exception ex) {
@@ -298,7 +300,7 @@ public class TreeSitterRepoRunner {
                 results.recordError(project, language, e.getMessage());
                 // Write incremental results for general failure
                 try {
-                    var failedResult = new BaselineResult(0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0);
+                    var failedResult = new BaselineResult(0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                     System.out.println("📊 Incremental failure result saved");
                 } catch (Exception ex) {
@@ -355,6 +357,13 @@ public class TreeSitterRepoRunner {
         if (analyzer == null) {
             throw new RuntimeException("Could not create analyzer for " + language);
         }
+
+        // Capture stage timing if available (TreeSitter analyzers only)
+        TreeSitterAnalyzer.StageTiming stageTiming = null;
+        if (analyzer instanceof TreeSitterAnalyzer tsAnalyzer) {
+            stageTiming = tsAnalyzer.getStageTiming();
+        }
+
         var startMemory = memoryBean.getHeapMemoryUsage().getUsed();
         var gcStartCollections = gcBeans.stream()
                 .mapToLong(bean -> Math.max(0, bean.getCollectionCount()))
@@ -415,16 +424,17 @@ public class TreeSitterRepoRunner {
                     gcCollectionsDelta,
                     gcTimeDelta,
                     discovery.discoveryTime(),
-                    discovery.totalMatched());
+                    discovery.totalMatched(),
+                    stageTiming);
 
         } catch (OutOfMemoryError e) {
             return new BaselineResult(
                     files.size(), 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0,
-                    discovery.discoveryTime(), discovery.totalMatched());
+                    discovery.discoveryTime(), discovery.totalMatched(), stageTiming);
         } catch (Exception e) {
             return new BaselineResult(
                     files.size(), 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0,
-                    discovery.discoveryTime(), discovery.totalMatched());
+                    discovery.discoveryTime(), discovery.totalMatched(), stageTiming);
         }
     }
 
@@ -475,6 +485,12 @@ public class TreeSitterRepoRunner {
                     (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
             System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
             System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
+
+            // Print stage timing diagram if --stats flag is set
+            if (showStats && result.stageTiming != null) {
+                System.out.println();
+                System.out.println(generateStagingDiagram(result.stageTiming));
+            }
 
         } catch (Exception e) {
             var target = testProject != null ? testProject : testDirectory.toString();
@@ -826,6 +842,101 @@ public class TreeSitterRepoRunner {
         }
     }
 
+    private void drawStageLine(StringBuilder sb, String label, long stageStart, long stageEnd,
+                               long cumulativeNanos, long totalWallStart, long totalWallNanos,
+                               int diagramWidth) {
+        if (totalWallNanos <= 0) {
+            return;
+        }
+
+        // Calculate position and width in diagram
+        long relativeStart = stageStart - totalWallStart;
+        long relativeEnd = stageEnd - totalWallStart;
+        int startPos = (int) ((relativeStart * diagramWidth) / totalWallNanos);
+        int endPos = (int) ((relativeEnd * diagramWidth) / totalWallNanos);
+
+        // Constrain to diagram bounds
+        startPos = Math.max(0, Math.min(startPos, diagramWidth));
+        endPos = Math.max(0, Math.min(endPos, diagramWidth));
+        int barWidth = Math.max(1, endPos - startPos);
+
+        // Format timing information
+        double stageDurationSecs = cumulativeNanos / 1_000_000_000.0;
+        double percentageOfTotal = ((double) cumulativeNanos / totalWallNanos) * 100;
+
+        // Build the line with proper spacing
+        // Format: "│ Label          [spaces][bar][spaces] │ timing"
+        sb.append("│ ").append(String.format("%-15s", label));
+        sb.append(" ".repeat(startPos));
+        sb.append("█".repeat(barWidth));
+        int remainingSpace = diagramWidth - startPos - barWidth;
+        sb.append(" ".repeat(Math.max(0, remainingSpace)));
+        sb.append(" │ ");
+        sb.append(String.format("%.1fs (%.1f%%)", stageDurationSecs, percentageOfTotal));
+        sb.append("\n");
+    }
+
+    private String generateStagingDiagram(TreeSitterAnalyzer.StageTiming timing) {
+        if (timing == null) {
+            return "";
+        }
+
+        // Extract timing values (in nanos)
+        long readNanos = timing.readNanos();
+        long parseNanos = timing.parseNanos();
+        long processNanos = timing.processNanos();
+        long mergeNanos = timing.mergeNanos();
+
+        // Extract wall-clock boundaries
+        long readStart = timing.readStartNanos();
+        long readEnd = timing.readEndNanos();
+        long parseStart = timing.parseStartNanos();
+        long parseEnd = timing.parseEndNanos();
+        long processStart = timing.processStartNanos();
+        long processEnd = timing.processEndNanos();
+        long mergeStart = timing.mergeStartNanos();
+        long mergeEnd = timing.mergeEndNanos();
+
+        // Calculate total wall-clock time
+        long totalWallStart = Math.min(Math.min(readStart, parseStart), Math.min(processStart, mergeStart));
+        long totalWallEnd = Math.max(Math.max(readEnd, parseEnd), Math.max(processEnd, mergeEnd));
+        long totalWallNanos = (totalWallStart == Long.MAX_VALUE || totalWallEnd == 0L) ? 0L : totalWallEnd - totalWallStart;
+
+        if (totalWallNanos == 0) {
+            return "";
+        }
+
+        // Generate diagram with proper scaling
+        int diagramWidth = 70;
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("Stage Timing Diagram (wall-clock, stages overlap)\n");
+        sb.append("┌").append("─".repeat(diagramWidth)).append("┐\n");
+
+        // Calculate wall-clock durations for each stage (not cumulative CPU time)
+        long readWallNanos = readEnd - readStart;
+        long parseWallNanos = parseEnd - parseStart;
+        long processWallNanos = processEnd - processStart;
+        long mergeWallNanos = mergeEnd - mergeStart;
+
+        // Helper to draw stage bar
+        drawStageLine(sb, "Read Files", readStart, readEnd, readWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+        drawStageLine(sb, "Parse Files", parseStart, parseEnd, parseWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+        drawStageLine(sb, "Process Files", processStart, processEnd, processWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+        drawStageLine(sb, "Merge Results", mergeStart, mergeEnd, mergeWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+
+        // Total wall-clock line (no bar, just timing)
+        sb.append("│ ").append(String.format("%-15s", "Total Wall-Clock"));
+        sb.append(" ".repeat(diagramWidth));
+        sb.append(" │ ");
+        sb.append(String.format("%.1fs", totalWallNanos / 1_000_000_000.0));
+        sb.append("\n");
+
+        sb.append("└").append("─".repeat(diagramWidth)).append("─┘\n");
+
+        return sb.toString();
+    }
+
     private void cloneProject(ProjectConfig config, Path targetPath) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(
                 "git", "clone", "--depth", "1", "--branch", config.branch, config.gitUrl, targetPath.toString());
@@ -916,6 +1027,7 @@ public class TreeSitterRepoRunner {
                 case "--json" -> jsonOutput = true;
                 case "--verbose" -> verbose = true;
                 case "--show-details" -> showDetails = true;
+                case "--stats" -> showStats = true;
                 case "--cleanup" -> cleanupReports = true;
             }
         }
@@ -1017,6 +1129,20 @@ public class TreeSitterRepoRunner {
         System.out.println("BASELINE SUMMARY");
         System.out.println("=".repeat(60));
 
+        // Print stage timing diagrams if --stats flag is set
+        if (showStats) {
+            System.out.println();
+            var firstStageTimingInResults = results.results.values().stream()
+                    .flatMap(langMap -> langMap.values().stream())
+                    .map(result -> result.stageTiming)
+                    .filter(t -> t != null)
+                    .findFirst();
+
+            if (firstStageTimingInResults.isPresent()) {
+                System.out.println(generateStagingDiagram(firstStageTimingInResults.get()));
+            }
+        }
+
         // Implementation for summary printing
         System.out.println("Baseline execution completed. Check output files for details.");
     }
@@ -1038,7 +1164,8 @@ public class TreeSitterRepoRunner {
             long gcCollections,
             long gcTimeMs,
             Duration discoveryTime,
-            int totalMatched) {}
+            int totalMatched,
+            @Nullable TreeSitterAnalyzer.StageTiming stageTiming) {}
 
     private static class BaselineResults {
         private final Map<String, Map<String, BaselineResult>> results = new HashMap<>();
