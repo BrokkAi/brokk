@@ -21,7 +21,6 @@ import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.agents.SearchAgent.Terminal;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -30,10 +29,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.InstructionsPanel;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.tasks.TaskList;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -380,56 +376,20 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Search Workspace Mode ---
         if (searchWorkspace != null && !searchWorkspace.isBlank()) {
-            long startTime = System.currentTimeMillis();
             TaskResult searchResult;
             boolean success;
-            var metrics = (SearchMetrics.Tracking) SearchMetrics.tracking();
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 var agent = new SearchAgent(
-                        cm.liveContext(), searchWorkspace, searchModel, EnumSet.of(Terminal.WORKSPACE), metrics, scope);
-                if (disableContextScan) {
-                    metrics.recordContextScan(0, 0, true, Set.of());
-                } else {
-                    agent.scanInitialContext();
+                        cm.liveContext(), searchWorkspace, searchModel, EnumSet.of(Terminal.WORKSPACE), scope);
+                if (!disableContextScan) {
+                    agent.scanInitialContext(searchModel);
                 }
                 searchResult = agent.execute();
-                scope.append(
-                        searchResult,
-                        new TaskMeta(
-                                TaskType.SEARCH,
-                                ModelSpec.from(searchModel, service == null ? cm.getService() : service)));
+                scope.append(searchResult, new TaskMeta(TaskType.SEARCH, ModelSpec.from(searchModel, service)));
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
-            } catch (Throwable th) {
-                logger.error("Fatal error during SearchAgent execution", th);
-                long elapsedTime = System.currentTimeMillis() - startTime;
-                String errorMessage = th.getMessage() != null
-                        ? th.getMessage()
-                        : th.getClass().getName();
-                var errorResult = new SearchErrorResult(
-                        searchWorkspace, List.of(), -1, elapsedTime, false, "fatal_error", errorMessage);
-                try {
-                    var json = AbstractProject.objectMapper.writeValueAsString(errorResult);
-                    System.out.println(json);
-                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    // Fallback to minimal JSON if serialization fails (schema-consistent)
-                    System.out.println("{\"query\": \"error\", \"found_files\": [], \"turns\": -1, \"elapsed_ms\": "
-                            + elapsedTime
-                            + ", \"success\": false, \"failure_type\": \"fatal_error\"}");
-                }
-                return 2;
             }
-
-            long elapsedTime = System.currentTimeMillis() - startTime;
-
-            // Extract results from conversation
-            var messages = searchResult.output().messages();
-            int turns = countTurns(messages);
-
-            // Output enhanced JSON result with metrics
-            var json = metrics.toJson(searchWorkspace, turns, elapsedTime, success);
-            System.out.println(json);
 
             return success ? 0 : 1;
         }
@@ -647,7 +607,6 @@ public final class BrokkCli implements Callable<Integer> {
                             requireNonNull(searchAnswerPrompt),
                             planModel,
                             EnumSet.of(Terminal.ANSWER),
-                            SearchMetrics.noOp(),
                             scope);
                     agent.scanInitialContext();
                     result = agent.execute();
@@ -707,7 +666,6 @@ public final class BrokkCli implements Callable<Integer> {
                             requireNonNull(lutzPrompt),
                             planModel,
                             EnumSet.of(Terminal.TASK_LIST),
-                            SearchMetrics.noOp(),
                             scope);
                     agent.scanInitialContext();
                     result = agent.execute();
@@ -911,13 +869,6 @@ public final class BrokkCli implements Callable<Integer> {
         return sb.toString();
     }
 
-    private static int countTurns(List<ChatMessage> messages) {
-        // Count AI messages as turns
-        return (int) messages.stream()
-                .filter(msg -> msg.type() == ChatMessageType.AI)
-                .count();
-    }
-
     private static String getModelsJson() {
         var models = MainProject.loadFavoriteModels();
         var modelInfos = models.stream()
@@ -934,17 +885,4 @@ public final class BrokkCli implements Callable<Integer> {
      * Model information for JSON serialization.
      */
     private record ModelInfo(String alias, String model) {}
-
-    /**
-     * Error result for search-workspace mode failures.
-     * Schema matches SearchMetrics.SearchResult for consistency.
-     */
-    private record SearchErrorResult(
-            String query,
-            List<String> found_files,
-            int turns,
-            long elapsed_ms,
-            boolean success,
-            String failure_type,
-            String error) {}
 }

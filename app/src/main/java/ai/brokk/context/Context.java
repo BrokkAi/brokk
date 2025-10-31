@@ -755,9 +755,9 @@ public class Context {
             if (className.isBlank()) {
                 continue;
             }
-            var defOpt = analyzer.getDefinition(className);
-            if (defOpt.isPresent()) {
-                var codeUnit = defOpt.get();
+            var cuOpt = analyzer.getDefinition(className);
+            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+                var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
                     toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));

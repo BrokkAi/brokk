@@ -38,7 +38,6 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
@@ -1706,7 +1705,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     query,
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    SearchMetrics.noOp(),
                     scope);
             try {
                 agent.scanInitialContext();
