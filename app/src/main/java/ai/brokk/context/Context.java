@@ -1089,29 +1089,6 @@ public class Context {
      */
     private byte @Nullable [] extractImageBytes(ContextFragment fragment) {
         try {
-            if (fragment instanceof ContextFragment.ImageFragment imgFrag
-                    && fragment instanceof ContextFragment.ComputedFragment cf) {
-                var computedImageBytes = cf.computedImageBytes();
-                if (computedImageBytes != null) {
-                    var tryGetResult = computedImageBytes.tryGet();
-                    if (tryGetResult.isPresent()) {
-                        return tryGetResult.get();
-                    }
-
-                    // Fall back to bounded await
-                    var awaitImageResult = computedImageBytes.await(SNAPSHOT_AWAIT_TIMEOUT);
-                    if (awaitImageResult.isPresent()) {
-                        return awaitImageResult.get();
-                    } else {
-                        logger.warn(
-                                "Timeout or cancelled waiting for computed image bytes of fragment '{}' (timeout={}ms); image will show as changed.",
-                                fragment.shortDescription(),
-                                SNAPSHOT_AWAIT_TIMEOUT.toMillis());
-                        return null;
-                    }
-                }
-            }
-
             // Try to read via image() method if available
             if (fragment instanceof ContextFragment.ImageFragment imgFrag) {
                 var image = imgFrag.image();

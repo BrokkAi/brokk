@@ -153,7 +153,6 @@ public class ContextHistory {
 
     /** Push {@code ctx}, select it, and clear redo stack. */
     public synchronized void pushLive(Context ctx) {
-        ensureFilesSnapshot(ctx, SNAPSHOT_AWAIT_TIMEOUT);
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -166,7 +165,6 @@ public class ContextHistory {
      */
     public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
-        ensureFilesSnapshot(newLive, SNAPSHOT_AWAIT_TIMEOUT);
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
@@ -472,10 +470,7 @@ public class ContextHistory {
                 cf.computedDescription().await(timeout);
                 cf.computedSyntaxStyle().await(timeout);
                 cf.computedText().await(timeout);
-                var imgCv = cf.computedImageBytes();
-                if (imgCv != null) {
-                    imgCv.await(timeout);
-                }
+                // Image content (if any) will be handled via ImageFragment.image() when needed.
             }
         }
     }

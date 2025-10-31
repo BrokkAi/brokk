@@ -131,7 +131,11 @@ public final class ComputedValue<T> {
         if (!f.isDone()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(f.join());
+        try {
+            return Optional.of(f.join());
+        } catch (CancellationException | CompletionException ex) {
+            return Optional.empty();
+        }
     }
 
     /**

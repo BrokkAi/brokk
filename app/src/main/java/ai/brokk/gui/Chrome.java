@@ -4,7 +4,6 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
 import ai.brokk.AbstractProject;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
@@ -17,7 +16,6 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -26,7 +24,6 @@ import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
-import ai.brokk.gui.git.*;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
@@ -61,7 +58,6 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1877,6 +1873,36 @@ public class Chrome
         }
     }
 
+    /** Update the window title for an existing preview in a safe EDT manner and repaint. */
+    private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                String key = generatePreviewWindowKey(initialTitle, contentComponent);
+                JFrame previewFrame = activePreviewWindows.get(key);
+                if (previewFrame != null) {
+                    previewFrame.setTitle(newTitle);
+                    if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+                        var contentPane = previewFrame.getContentPane();
+                        if (contentPane.getLayout() instanceof BorderLayout bl) {
+                            Component northComponent = bl.getLayoutComponent(BorderLayout.NORTH);
+                            if (northComponent instanceof JPanel titleBar
+                                    && titleBar.getLayout() instanceof BorderLayout tbl) {
+                                Component centerInTitleBar = tbl.getLayoutComponent(BorderLayout.CENTER);
+                                if (centerInTitleBar instanceof JLabel label) {
+                                    label.setText(newTitle);
+                                }
+                            }
+                        }
+                    }
+                    previewFrame.revalidate();
+                    previewFrame.repaint();
+                }
+            } catch (Exception ex) {
+                logger.debug("Unable to update preview window title", ex);
+            }
+        });
+    }
+
     /** Shows the dependencies tab by selecting Project Files and toggling the Dependencies panel. */
     public void showDependenciesTab() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
@@ -2024,168 +2050,511 @@ public class Chrome
     }
 
     /**
-     * Opens an in-place preview of a context fragment.
-     *
-     * <ul>
-     *   <li>If the fragment lives in the <em>current</em> context (i.e. the latest context in the Context-History
-     *       stack) and represents a live file on disk, we surface the <b>editable</b> version so the user can save
-     *       changes, capture usages, etc.
-     *   <li>If the fragment comes from an older (historical) context, or if it is a snapshot frozen by
-     *       {@code FrozenFragment}, we instead show the point-in-time content that was captured when the context was
-     *       created.
-     * </ul>
-     *
-     * <p>This logic allows Chrome to run entirely on <em>frozen</em> contexts while still giving the user a live
-     * editing experience for the active one.
+     * Opens an in-place preview of a context fragment without blocking on the EDT.
+     * Uses non-blocking computed accessors when available; otherwise renders placeholders and
+     * loads the actual values off-EDT, then updates the UI on the EDT.
      */
     public void openFragmentPreview(ContextFragment fragment) {
-
         try {
-            // 1. Figure out whether this fragment belongs to the *current* (latest) context
             var latestCtx = contextManager.getContextHistory().topContext();
             boolean isCurrentContext = latestCtx.allFragments().anyMatch(f -> f.id().equals(fragment.id()));
 
-            // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
-            // a true PathFragment instance (gives us access to BrokkFile, etc.).
-            ContextFragment workingFragment;
-            if (isCurrentContext && fragment.getType().isPath() && fragment instanceof FrozenFragment frozen) {
-                workingFragment = frozen.unfreeze(contextManager);
-            } else {
-                workingFragment = fragment;
+            // Title: prefer non-blocking computed description; otherwise show "Loading…" and update later.
+            String tmpComputedDesc = null;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                try {
+                    tmpComputedDesc = cf.computedDescription().renderNowOr(null);
+                } catch (Exception ignore) {
+                }
             }
+            final String computedDescNow = tmpComputedDesc;
+            final String initialTitle = (computedDescNow != null && !computedDescNow.isBlank())
+                    ? "Preview: " + computedDescNow
+                    : "Preview: Loading…";
 
-            // Everything below operates on workingFragment
-            var title = "Preview: " + workingFragment.description();
-
-            // 2. Output-only fragments (Task / History / Search)
-            if (workingFragment.getType().isOutput()) {
-                var outputFragment = (ContextFragment.OutputFragment) workingFragment;
-                // var escapeHtml = outputFragment.isEscapeHtml();
+            // Output fragments: build immediately (no analyzer calls)
+            if (fragment.getType().isOutput() && fragment instanceof ContextFragment.OutputFragment of) {
                 var combinedMessages = new ArrayList<ChatMessage>();
-
-                for (TaskEntry entry : outputFragment.entries()) {
+                for (TaskEntry entry : of.entries()) {
                     if (entry.isCompressed()) {
-
                         combinedMessages.add(
                                 Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
                     } else {
                         combinedMessages.addAll(castNonNull(entry.log()).messages());
                     }
                 }
-
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
                 markdownPanel.withContextForLookups(contextManager, this);
                 markdownPanel.setText(combinedMessages);
-
-                // Use shared utility method to create searchable content panel without scroll pane
                 JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+                showPreviewFrame(contextManager, initialTitle, previewContentPanel);
 
-                showPreviewFrame(contextManager, title, previewContentPanel);
-                return;
-            }
-
-            // 3. Image fragments (clipboard image or image file)
-            if (!workingFragment.isText()) {
-                if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                    var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
-                    var imagePanel = new PreviewImagePanel(null);
-                    imagePanel.setImage(pif.image());
-                    showPreviewFrame(contextManager, title, imagePanel);
-                    return;
-                }
-                if (workingFragment.getType() == ContextFragment.FragmentType.IMAGE_FILE) {
-                    var iff = (ContextFragment.ImageFileFragment) workingFragment;
-                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file());
-                    return;
-                }
-            }
-
-            // 4. Specific handling for Git-history snapshots
-            if (workingFragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
-                var ghf = (ContextFragment.GitFileFragment) workingFragment;
-                // pass the actual ProjectFile so dynamic menu items can be built
-                var previewPanel = new PreviewTextPanel(
-                        contextManager, ghf.file(), ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
-                showPreviewFrame(contextManager, title, previewPanel);
-                return;
-            }
-
-            // 5. Path fragments (files on disk) – live vs. snapshot decision
-            if (workingFragment.getType().isPath()) {
-                // If we were able to unfreeze to a real PathFragment AND it belongs to the
-                // current context, show the live file so the user can edit/save.
-                if (isCurrentContext && workingFragment instanceof ContextFragment.PathFragment pf) {
-                    var brokkFile = pf.file();
-                    if (brokkFile instanceof ProjectFile projectFile) {
-                        // Live ProjectFile – delegate to helper that sets up edit/save UI.
-                        if (!SwingUtilities.isEventDispatchThread()) {
-                            SwingUtilities.invokeLater(() -> previewFile(projectFile));
-                        } else {
-                            previewFile(projectFile);
+                // If we didn't have a computed description, fill title later in background.
+                if (computedDescNow == null || computedDescNow.isBlank()) {
+                    contextManager.submitBackgroundTask("Load fragment title", () -> {
+                        String desc = null;
+                        try {
+                            desc = fragment.description();
+                        } catch (Exception ignored) {
                         }
+                        final String finalDesc = desc;
+                        if (finalDesc != null && !finalDesc.isBlank()) {
+                            updatePreviewWindowTitle(initialTitle, previewContentPanel, "Preview: " + finalDesc);
+                        }
+                        return null;
+                    });
+                }
+                return;
+            }
+
+            // Image fragments: avoid fragment getters on EDT; update image and title async.
+            if (!fragment.isText()) {
+                if (fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
+                        && fragment instanceof ContextFragment.AnonymousImageFragment pif) {
+                    var imagePanel = new PreviewImagePanel(null);
+                    showPreviewFrame(contextManager, initialTitle, imagePanel);
+
+                    contextManager.submitBackgroundTask("Load image preview", () -> {
+                        // image() may be fast, but do it off-EDT to respect the rule
+                        var img = pif.image();
+                        SwingUtilities.invokeLater(() -> {
+                            imagePanel.setImage(img);
+                            imagePanel.revalidate();
+                            imagePanel.repaint();
+                        });
+                        if (computedDescNow == null || computedDescNow.isBlank()) {
+                            String desc = null;
+                            try {
+                                desc = fragment.description();
+                            } catch (Exception ignored) {
+                            }
+                            final String finalDesc = desc;
+                            if (finalDesc != null && !finalDesc.isBlank()) {
+                                updatePreviewWindowTitle(initialTitle, imagePanel, "Preview: " + finalDesc);
+                            }
+                        }
+                        return null;
+                    });
+                    return;
+                }
+                if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
+                        && fragment instanceof ContextFragment.ImageFileFragment iff) {
+                    // Obtain file off-EDT; show panel on EDT after
+                    contextManager.submitBackgroundTask("Open image file preview", () -> {
+                        var file = iff.file(); // off-EDT to avoid blocking the EDT on fragment getter
+                        SwingUtilities.invokeLater(() -> {
+                            // This may read from disk; keep all Swing ops on EDT
+                            PreviewImagePanel.showInFrame(frame, contextManager, file);
+                            if (computedDescNow == null || computedDescNow.isBlank()) {
+                                // Update title best-effort for the newly opened window
+                                String desc = null;
+                                try {
+                                    desc = fragment.description();
+                                } catch (Exception ignored) {
+                                }
+                                // We cannot reliably compute the exact content component here; safe no-op if not found.
+                                // Repaint is handled by showInFrame.
+                            }
+                        });
+                        return null;
+                    });
+                    return;
+                }
+            }
+
+            // Git-history snapshot: show placeholder, then fill from background
+            if (fragment.getType() == ContextFragment.FragmentType.GIT_FILE
+                    && fragment instanceof ContextFragment.GitFileFragment ghf) {
+                var placeholder = new PreviewTextPanel(
+                        contextManager, null, "Loading…", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, ghf);
+                showPreviewFrame(contextManager, initialTitle, placeholder);
+
+                contextManager.submitBackgroundTask("Load git file preview", () -> {
+                    String txt = "";
+                    String style = SyntaxConstants.SYNTAX_STYLE_NONE;
+                    try {
+                        txt = ghf.text();
+                    } catch (Exception e) {
+                        txt = "Error loading preview: " + e.getMessage();
+                        logger.debug("Error loading git file text", e);
+                    }
+                    try {
+                        style = ghf.syntaxStyle();
+                    } catch (Exception ignored) {
+                    }
+                    final String fTxt = txt;
+                    final String fStyle = style;
+                    SwingUtilities.invokeLater(() -> {
+                        var panel = new PreviewTextPanel(contextManager, ghf.file(), fTxt, fStyle, themeManager, ghf);
+                        showPreviewFrame(contextManager, initialTitle, panel);
+                    });
+
+                    if (computedDescNow == null || computedDescNow.isBlank()) {
+                        String desc = null;
+                        try {
+                            desc = fragment.description();
+                        } catch (Exception ignored) {
+                        }
+                        final String finalDesc = desc;
+                        if (finalDesc != null && !finalDesc.isBlank()) {
+                            updatePreviewWindowTitle(initialTitle, placeholder, "Preview: " + finalDesc);
+                        }
+                    }
+                    return null;
+                });
+                return;
+            }
+
+            // Live path fragments: avoid previewFile() (performs I/O on EDT). Do background read instead.
+            if (fragment.getType().isPath()) {
+                if (isCurrentContext && fragment instanceof ContextFragment.PathFragment pf) {
+                    final var brokkFile = pf.file(); // do not use on EDT downstream for I/O
+                    if (brokkFile instanceof ProjectFile projectFile) {
+                        var placeholder = new PreviewTextPanel(
+                                contextManager,
+                                null,
+                                "Loading…",
+                                SyntaxConstants.SYNTAX_STYLE_NONE,
+                                themeManager,
+                                fragment);
+                        showPreviewFrame(contextManager, initialTitle, placeholder);
+
+                        contextManager.submitBackgroundTask("Load file preview", () -> {
+                            String txt = "";
+                            String style = SyntaxConstants.SYNTAX_STYLE_NONE;
+                            try {
+                                txt = projectFile.read().orElse("");
+                            } catch (Exception e) {
+                                txt = "Error loading preview: " + e.getMessage();
+                                logger.debug("Error reading project file", e);
+                            }
+                            try {
+                                style = projectFile.getSyntaxStyle();
+                            } catch (Exception ignored) {
+                            }
+                            final String fTxt = txt;
+                            final String fStyle = style;
+                            SwingUtilities.invokeLater(() -> {
+                                var panel = new PreviewTextPanel(
+                                        contextManager, projectFile, fTxt, fStyle, themeManager, fragment);
+                                showPreviewFrame(contextManager, initialTitle, panel);
+                            });
+
+                            if (computedDescNow == null || computedDescNow.isBlank()) {
+                                String desc = null;
+                                try {
+                                    desc = fragment.description();
+                                } catch (Exception ignored) {
+                                }
+                                final String finalDesc = desc;
+                                if (finalDesc != null && !finalDesc.isBlank()) {
+                                    updatePreviewWindowTitle(initialTitle, placeholder, "Preview: " + finalDesc);
+                                }
+                            }
+                            return null;
+                        });
                         return;
                     } else if (brokkFile instanceof ExternalFile externalFile) {
-                        // External file on disk – read it live.
-                        Runnable task = () -> {
-                            var panel = new PreviewTextPanel(
-                                    contextManager,
-                                    null,
-                                    externalFile.read().orElse(""),
-                                    externalFile.getSyntaxStyle(),
-                                    themeManager,
-                                    workingFragment);
-                            showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
-                        };
-                        if (!SwingUtilities.isEventDispatchThread()) {
-                            SwingUtilities.invokeLater(task);
-                        } else {
-                            task.run();
-                        }
+                        var placeholder = new PreviewTextPanel(
+                                contextManager,
+                                null,
+                                "Loading…",
+                                SyntaxConstants.SYNTAX_STYLE_NONE,
+                                themeManager,
+                                fragment);
+                        showPreviewFrame(contextManager, initialTitle, placeholder);
+
+                        contextManager.submitBackgroundTask("Load external file preview", () -> {
+                            String txt = "";
+                            String style = SyntaxConstants.SYNTAX_STYLE_NONE;
+                            try {
+                                txt = externalFile.read().orElse("");
+                            } catch (Exception e) {
+                                txt = "Error loading preview: " + e.getMessage();
+                                logger.debug("Error reading external file", e);
+                            }
+                            try {
+                                style = externalFile.getSyntaxStyle();
+                            } catch (Exception ignored) {
+                            }
+                            final String fTxt = txt;
+                            final String fStyle = style;
+                            SwingUtilities.invokeLater(() -> {
+                                var panel = new PreviewTextPanel(
+                                        contextManager, null, fTxt, fStyle, themeManager, fragment);
+                                showPreviewFrame(contextManager, initialTitle, panel);
+                            });
+
+                            if (computedDescNow == null || computedDescNow.isBlank()) {
+                                String desc = null;
+                                try {
+                                    desc = fragment.description();
+                                } catch (Exception ignored) {
+                                }
+                                final String finalDesc = desc;
+                                if (finalDesc != null && !finalDesc.isBlank()) {
+                                    updatePreviewWindowTitle(initialTitle, placeholder, "Preview: " + finalDesc);
+                                }
+                            }
+                            return null;
+                        });
                         return;
                     }
                 }
 
-                // Otherwise – fall back to showing the frozen snapshot.
-                ProjectFile srcFile = null;
-                if (workingFragment instanceof ContextFragment.PathFragment pfFrag
-                        && pfFrag.file() instanceof ProjectFile p) {
-                    srcFile = p; // supply the ProjectFile if we have one
+                // Fallback snapshot view for non-current path fragments
+                if (!(fragment instanceof ContextFragment.ComputedFragment)) {
+                    var placeholder = new PreviewTextPanel(
+                            contextManager,
+                            null,
+                            "Loading…",
+                            SyntaxConstants.SYNTAX_STYLE_NONE,
+                            themeManager,
+                            fragment);
+                    showPreviewFrame(contextManager, initialTitle, placeholder);
+
+                    contextManager.submitBackgroundTask("Load snapshot preview", () -> {
+                        String txt = "";
+                        String style = SyntaxConstants.SYNTAX_STYLE_NONE;
+                        try {
+                            txt = fragment.text();
+                        } catch (Exception e) {
+                            txt = "Error loading preview: " + e.getMessage();
+                            logger.debug("Error loading snapshot text", e);
+                        }
+                        try {
+                            style = fragment.syntaxStyle();
+                        } catch (Exception ignored) {
+                        }
+                        final String fTxt = txt;
+                        final String fStyle = style;
+                        SwingUtilities.invokeLater(() -> {
+                            var panel =
+                                    new PreviewTextPanel(contextManager, null, fTxt, fStyle, themeManager, fragment);
+                            showPreviewFrame(contextManager, initialTitle, panel);
+                        });
+
+                        if (computedDescNow == null || computedDescNow.isBlank()) {
+                            String desc = null;
+                            try {
+                                desc = fragment.description();
+                            } catch (Exception ignored) {
+                            }
+                            final String finalDesc = desc;
+                            if (finalDesc != null && !finalDesc.isBlank()) {
+                                updatePreviewWindowTitle(initialTitle, placeholder, "Preview: " + finalDesc);
+                            }
+                        }
+                        return null;
+                    });
+                    return;
                 }
-                var snapshotPanel = new PreviewTextPanel(
-                        contextManager,
-                        srcFile,
-                        workingFragment.text(),
-                        workingFragment.syntaxStyle(),
-                        themeManager,
-                        workingFragment);
-                showPreviewFrame(contextManager, title, snapshotPanel);
+                // else fall through to computed handling
+            }
+
+            // Computed fragments: show computed-now values or placeholder; complete in background.
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                String styleNow = null;
+                try {
+                    styleNow = cf.computedSyntaxStyle().renderNowOr(null);
+                } catch (Exception ignore) {
+                }
+                final String syntaxNow = (styleNow != null) ? styleNow : SyntaxConstants.SYNTAX_STYLE_NONE;
+
+                String textNow = null;
+                try {
+                    textNow = cf.computedText().renderNowOr(null);
+                } catch (Exception ignore) {
+                }
+
+                boolean isMarkdown = SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(syntaxNow);
+
+                if (textNow != null) {
+                    if (isMarkdown) {
+                        var markdownPanel = MarkdownOutputPool.instance().borrow();
+                        markdownPanel.updateTheme(MainProject.getTheme());
+                        markdownPanel.setText(List.of(Messages.customSystem(textNow)));
+                        JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+                        showPreviewFrame(contextManager, initialTitle, previewContentPanel);
+                        // Title update if needed
+                        if (computedDescNow == null || computedDescNow.isBlank()) {
+                            contextManager.submitBackgroundTask("Load fragment title", () -> {
+                                String desc = null;
+                                try {
+                                    desc = fragment.description();
+                                } catch (Exception ignored) {
+                                }
+                                final String finalDesc = desc;
+                                if (finalDesc != null && !finalDesc.isBlank()) {
+                                    updatePreviewWindowTitle(
+                                            initialTitle, previewContentPanel, "Preview: " + finalDesc);
+                                }
+                                return null;
+                            });
+                        }
+                    } else {
+                        var previewPanel =
+                                new PreviewTextPanel(contextManager, null, textNow, syntaxNow, themeManager, fragment);
+                        showPreviewFrame(contextManager, initialTitle, previewPanel);
+
+                        // If the syntax style wasn't computed yet, resolve it in the background and update UI when
+                        // ready.
+                        if (styleNow == null) {
+                            final String textSnapshot = textNow;
+                            contextManager.submitBackgroundTask("Resolve computed syntax style", () -> {
+                                String resolvedStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+                                try {
+                                    resolvedStyle = fragment.syntaxStyle();
+                                } catch (Exception ignored) {
+                                }
+                                final String finalResolvedStyle = resolvedStyle;
+
+                                // If the resolved style differs from the placeholder, re-render with correct styling
+                                if (!Objects.equals(finalResolvedStyle, syntaxNow)) {
+                                    SwingUtilities.invokeLater(() -> {
+                                        if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(finalResolvedStyle)) {
+                                            var mdPanel = MarkdownOutputPool.instance()
+                                                    .borrow();
+                                            mdPanel.updateTheme(MainProject.getTheme());
+                                            mdPanel.setText(List.of(Messages.customSystem(textSnapshot)));
+                                            JPanel previewContentPanel2 =
+                                                    createSearchableContentPanel(List.of(mdPanel), null, false);
+                                            showPreviewFrame(contextManager, initialTitle, previewContentPanel2);
+                                        } else {
+                                            var panel2 = new PreviewTextPanel(
+                                                    contextManager,
+                                                    null,
+                                                    textSnapshot,
+                                                    finalResolvedStyle,
+                                                    themeManager,
+                                                    fragment);
+                                            showPreviewFrame(contextManager, initialTitle, panel2);
+                                        }
+                                    });
+                                }
+                                return null;
+                            });
+                        }
+
+                        if (computedDescNow == null || computedDescNow.isBlank()) {
+                            contextManager.submitBackgroundTask("Load fragment title", () -> {
+                                String desc = null;
+                                try {
+                                    desc = fragment.description();
+                                } catch (Exception ignored) {
+                                }
+                                final String finalDesc = desc;
+                                if (finalDesc != null && !finalDesc.isBlank()) {
+                                    updatePreviewWindowTitle(initialTitle, previewPanel, "Preview: " + finalDesc);
+                                }
+                                return null;
+                            });
+                        }
+                    }
+                    return;
+                }
+
+                // Show placeholder while loading computed values in background
+                var placeholder =
+                        new PreviewTextPanel(contextManager, null, "Loading…", syntaxNow, themeManager, fragment);
+                showPreviewFrame(contextManager, initialTitle, placeholder);
+
+                contextManager.submitBackgroundTask("Load computed fragment preview", () -> {
+                    String txt = "";
+                    String style = syntaxNow;
+                    try {
+                        txt = fragment.text();
+                    } catch (Exception e) {
+                        txt = "Error loading preview: " + e.getMessage();
+                        logger.debug("Error computing fragment text", e);
+                    }
+                    try {
+                        style = fragment.syntaxStyle();
+                    } catch (Exception ignored) {
+                    }
+                    final String fTxt = txt;
+                    final String fStyle = style;
+                    SwingUtilities.invokeLater(() -> {
+                        if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(fStyle)) {
+                            var markdownPanel = MarkdownOutputPool.instance().borrow();
+                            markdownPanel.updateTheme(MainProject.getTheme());
+                            markdownPanel.setText(List.of(Messages.customSystem(fTxt)));
+                            JPanel previewContentPanel =
+                                    createSearchableContentPanel(List.of(markdownPanel), null, false);
+                            showPreviewFrame(contextManager, initialTitle, previewContentPanel);
+                        } else {
+                            var panel =
+                                    new PreviewTextPanel(contextManager, null, fTxt, fStyle, themeManager, fragment);
+                            showPreviewFrame(contextManager, initialTitle, panel);
+                        }
+                    });
+
+                    if (computedDescNow == null || computedDescNow.isBlank()) {
+                        String desc = null;
+                        try {
+                            desc = fragment.description();
+                        } catch (Exception ignored) {
+                        }
+                        final String finalDesc = desc;
+                        if (finalDesc != null && !finalDesc.isBlank()) {
+                            updatePreviewWindowTitle(initialTitle, placeholder, "Preview: " + finalDesc);
+                        }
+                    }
+                    return null;
+                });
                 return;
             }
 
-            // 6. Everything else (virtual fragments, skeletons, etc.)
-            if (workingFragment.isText()
-                    && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
-                var markdownPanel = MarkdownOutputPool.instance().borrow();
-                markdownPanel.updateTheme(MainProject.getTheme());
-                markdownPanel.setText(List.of(Messages.customSystem(workingFragment.text())));
+            // Non-computed virtual fragment: show placeholder and load in background
+            {
+                var placeholder = new PreviewTextPanel(
+                        contextManager, null, "Loading…", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, fragment);
+                showPreviewFrame(contextManager, initialTitle, placeholder);
 
-                // Use shared utility method to create searchable content panel without scroll pane
-                JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+                contextManager.submitBackgroundTask("Load virtual fragment preview", () -> {
+                    String txt = "";
+                    String style = SyntaxConstants.SYNTAX_STYLE_NONE;
+                    try {
+                        txt = fragment.text();
+                    } catch (Exception e) {
+                        txt = "Error loading preview: " + e.getMessage();
+                        logger.debug("Error loading virtual fragment text", e);
+                    }
+                    try {
+                        style = fragment.syntaxStyle();
+                    } catch (Exception ignored) {
+                    }
+                    final String fTxt = txt;
+                    final String fStyle = style;
+                    SwingUtilities.invokeLater(() -> {
+                        if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(fStyle)) {
+                            var markdownPanel = MarkdownOutputPool.instance().borrow();
+                            markdownPanel.updateTheme(MainProject.getTheme());
+                            markdownPanel.setText(List.of(Messages.customSystem(fTxt)));
+                            JPanel previewContentPanel =
+                                    createSearchableContentPanel(List.of(markdownPanel), null, false);
+                            showPreviewFrame(contextManager, initialTitle, previewContentPanel);
+                        } else {
+                            var panel =
+                                    new PreviewTextPanel(contextManager, null, fTxt, fStyle, themeManager, fragment);
+                            showPreviewFrame(contextManager, initialTitle, panel);
+                        }
+                    });
 
-                showPreviewFrame(contextManager, title, previewContentPanel);
-            } else {
-                var previewPanel = new PreviewTextPanel(
-                        contextManager,
-                        null,
-                        workingFragment.text(),
-                        workingFragment.syntaxStyle(),
-                        themeManager,
-                        workingFragment);
-                showPreviewFrame(contextManager, title, previewPanel);
+                    if (computedDescNow == null || computedDescNow.isBlank()) {
+                        String desc = null;
+                        try {
+                            desc = fragment.description();
+                        } catch (Exception ignored) {
+                        }
+                        final String finalDesc = desc;
+                        if (finalDesc != null && !finalDesc.isBlank()) {
+                            updatePreviewWindowTitle(initialTitle, placeholder, "Preview: " + finalDesc);
+                        }
+                    }
+                    return null;
+                });
             }
-        } catch (IOException ex) {
-            toolError("Error reading fragment content: " + ex.getMessage());
-            logger.error("Error reading fragment content for preview", ex);
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());

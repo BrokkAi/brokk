@@ -4,6 +4,7 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
@@ -2743,7 +2744,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     String bareName;
                     try {
                         var fragment = de.fragment();
-                        var files = fragment.files();
+                        // Try non-blocking access for ComputedFragments
+                        Set<ProjectFile> files = Set.of();
+                        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                            // Use tryGet() for non-blocking access; won't block EDT
+                            var computedFilesOpt = cf.computedFiles();
+                            var filesOpt = computedFilesOpt.tryGet();
+                            if (filesOpt.isPresent()) {
+                                files = filesOpt.get();
+                                // Register for repaint when computed value completes
+                                if (files.isEmpty()) {
+                                    computedFilesOpt.onComplete((completedFiles, ex) -> {
+                                        if (ex == null && !completedFiles.isEmpty()) {
+                                            SwingUtilities.invokeLater(table::repaint);
+                                        }
+                                    });
+                                }
+                            }
+                        } else {
+                            // Non-computed fragments: safe to call files() directly
+                            files = fragment.files();
+                        }
                         if (!files.isEmpty()) {
                             var pf = files.iterator().next();
                             bareName = pf.getRelPath().getFileName().toString();

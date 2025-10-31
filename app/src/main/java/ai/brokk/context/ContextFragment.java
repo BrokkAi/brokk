@@ -353,6 +353,7 @@ public interface ContextFragment {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         protected ComputedVirtualFragment(IContextManager contextManager) {
             super(contextManager);
@@ -387,6 +388,14 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("cvf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("cvf-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
         }
     }
 
@@ -466,6 +475,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
@@ -582,6 +592,14 @@ public interface ContextFragment {
         }
 
         @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("ppf-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -691,6 +709,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -783,6 +802,14 @@ public interface ContextFragment {
         }
 
         @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("epf-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -801,6 +828,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private transient @Nullable ComputedValue<byte[]> imageBytesCv;
 
         // Primary constructor for new dynamic fragments
@@ -958,6 +986,14 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("iff-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("iff-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
         }
 
         @Override
@@ -1246,6 +1282,7 @@ public interface ContextFragment {
         protected transient Future<String> descriptionFuture;
         private final ComputedValue<String> descriptionCv;
         private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesFuture;
 
         // PasteFragments are non-dynamic (content-hashed)
         // The hash will be based on the initial text/image data, not the future description.
@@ -1291,6 +1328,14 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("paste-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesFuture == null) {
+                filesFuture = new ComputedValue<>("paste-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesFuture;
         }
 
         @Override

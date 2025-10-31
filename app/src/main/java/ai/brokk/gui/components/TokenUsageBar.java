@@ -1006,9 +1006,18 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         for (var f : smallFragments) {
             if (f.isText() || f.getType().isOutput()) {
                 try {
-                    String text = f.text();
-                    totalLoc += text.split("\\r?\\n", -1).length;
-                    totalTokens += Messages.getApproximateTokens(text);
+                    String text;
+                    if (f instanceof ContextFragment.ComputedFragment cf) {
+                        // Non-blocking: do not call text() on EDT
+                        text = cf.computedText().renderNowOr("");
+                    } else {
+                        // Avoid blocking calls for non-computed fragments in tooltip path
+                        text = "";
+                    }
+                    if (!text.isEmpty()) {
+                        totalLoc += text.split("\\r?\\n", -1).length;
+                        totalTokens += Messages.getApproximateTokens(text);
+                    }
                 } catch (Exception e) {
                     logger.trace("Failed to compute metrics for tooltip", e);
                 }
