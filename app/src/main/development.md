@@ -470,3 +470,75 @@ export BRK_USAGE_BOOL=false
 export BRK_USAGE_BOOL=""        # treated as true
 export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
 ```
+
+### Blocking vs. Non-Blocking annotations and Error Prone rule
+
+To prevent UI stalls and unintended analyzer/I/O work on hot paths, we annotate ContextFragment methods by cost and provide non-blocking alternatives:
+
+- `@BlockingOperation(nonBlocking = "...")`
+  - Marks methods that may block or be expensive (e.g., `ContextFragment.files()`, `ContextFragment.sources()`).
+  - The `nonBlocking` value names the suggested alternative (e.g., `"computedFiles"`, `"computedSources"`).
+
+- `@NonBlockingOperation`
+  - Marks the non-blocking/computed alternatives (e.g., `ComputedFragment.computedFiles()`, `computedSources()`, `computedText()`, etc.).
+  - These return `ComputedValue<T>` and are safe to call from UI or latency-sensitive code.
+
+- `@CheapOperation`
+  - Marks overrides that are trivially cheap (in-memory only) so they are not flagged even if the base method is marked `@BlockingOperation`.
+
+Implementation highlights in ContextFragments:
+- `ContextFragment.sources()` and `files()` are annotated `@BlockingOperation`.
+- `ContextFragment.ComputedFragment` provides `computedFiles()` and `computedSources()` annotated `@NonBlockingOperation` with defaults returning completed `ComputedValue` based on current `files()/sources()` to preserve backward compatibility.
+- Many overrides in fragment implementations are explicitly marked `@CheapOperation` where they do not trigger analysis or I/O.
+- UI-friendly accessors like `computedText`, `computedDescription`, `computedSyntaxStyle`, and optional `computedImageBytes` are annotated `@NonBlockingOperation`.
+
+Static analysis with Error Prone:
+- Custom checker: `ai.brokk.errorprone.BlockingOperationChecker` (BugPattern: `BrokkBlockingOperation`).
+- Flags direct invocations or member references to methods annotated with `@BlockingOperation`.
+- Skips calls to methods annotated `@NonBlockingOperation` or `@CheapOperation`.
+- Only flags when the resolved method itself is annotated; annotations on supertypes are not inherited for this purpose, allowing safe overrides to omit or replace cost semantics.
+- Message suggests using the corresponding `computed*` alternative.
+
+Unit testing:
+- The `errorprone-checks` module includes `BlockingOperationCheckerTest` using Error Prone’s `CompilationTestHelper`.
+- Tests inline minimal annotation definitions and validate diagnostics via `// BUG: Diagnostic contains: ...` markers.
+- The module is configured to run on JDK 21 toolchain; tests use the vendored Error Prone core jar to remain self-contained.
+
+Gradle integration:
+- App module wires the checker on the Error Prone configuration and sets `error("BrokkBlockingOperation")` in the dedicated error-prone task.
+- The checker is packaged via AutoService and is also directly instantiated by tests, so it works both in builds and in unit tests.
+
+Usage guidelines and examples:
+- Prefer the non-blocking accessors in `ContextFragment.ComputedFragment`:
+  - `computedText()`, `computedDescription()`, `computedSyntaxStyle()`
+  - `computedFiles()`, `computedSources()`
+- These return `ComputedValue<T>`, allowing:
+  - Non-blocking probes via `tryGet()` or `renderNowOr(placeholder)`
+  - Bounded waits via `await(Duration)` that never block the Swing EDT
+  - Asynchronous callbacks via `onComplete(...)`
+- Default implementations in `ComputedFragment` bridge existing code by returning a completed `ComputedValue` based on the current `files()/sources()` when an implementation has not yet provided an async version. This preserves backward compatibility while enabling incremental adoption.
+- Overriding behavior:
+  - If an override is truly cheap, annotate it with `@CheapOperation` or simply omit `@BlockingOperation` from the override. The checker only flags methods directly annotated with `@BlockingOperation`, so this suppresses warnings without global suppression.
+  - Implementations that can compute asynchronously should implement `computed*()` and annotate these with `@NonBlockingOperation`.
+
+Example (safe usage from UI):
+```java
+void showFilesLabel(ContextFragment cf, javax.swing.JLabel label) {
+    if (cf instanceof ContextFragment.ComputedFragment cc) {
+        cc.computedFiles().onComplete((files, error) -> {
+            if (error == null && files != null) {
+                javax.swing.SwingUtilities.invokeLater(() ->
+                    label.setText("Files: " + files.size()));
+            }
+        });
+    } else {
+        // Fallback, avoid blocking UI: show placeholder
+        label.setText("Files: …");
+    }
+}
+```
+
+Notes:
+- Do not block the Swing EDT. `ComputedValue.await` returns empty immediately if called from the EDT.
+- For quick rendering paths, use `renderNowOr("…")` to avoid stalls and update later via `onComplete`.
+- When migrating legacy call sites, prefer `computed*()` accessors first; if the fragment type is not known to be a `ComputedFragment`, gate the call with an `instanceof` check, as shown above.
