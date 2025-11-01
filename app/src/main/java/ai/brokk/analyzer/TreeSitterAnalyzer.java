@@ -1720,10 +1720,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
             }
 
-            // Compute hasBody from AST for function-like code units
+            // Compute hasBody from AST for function-like code units (use the same unwrapping rules as signature building)
             boolean hasBody = false;
             if (getSkeletonTypeForCapture(primaryCaptureName) == SkeletonType.FUNCTION_LIKE) {
-                TSNode bodyNodeCandidate = node.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+                var profile = getLanguageSyntaxProfile();
+                TSNode nodeForBody = node;
+
+                // Unwrap export statements if applicable
+                if (shouldUnwrapExportStatements() && "export_statement".equals(nodeForBody.getType())) {
+                    TSNode declarationInExport = nodeForBody.getChildByFieldName("declaration");
+                    if (declarationInExport != null && !declarationInExport.isNull()) {
+                        nodeForBody = declarationInExport;
+                    }
+                }
+
+                // Unwrap decorator-wrapping nodes if applicable (e.g., Python)
+                if (hasWrappingDecoratorNode()) {
+                    // Pass an empty list for decorator text since we only need the inner definition node here
+                    nodeForBody = extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), finalFileBytes, profile);
+                }
+
+                TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(profile.bodyFieldName());
                 hasBody = bodyNodeCandidate != null
                         && !bodyNodeCandidate.isNull()
                         && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
