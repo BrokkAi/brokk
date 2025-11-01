@@ -1026,7 +1026,8 @@ public class CppAnalyzerTest {
         // without splitting on the comma inside the template arguments
         assertTrue(
                 sig != null && sig.contains("std::vector<int>"),
-                "Signature should include intact template argument list: expected to find 'std::vector<int>' in " + sig);
+                "Signature should include intact template argument list: expected to find 'std::vector<int>' in "
+                        + sig);
     }
 
     @Test
@@ -1247,13 +1248,17 @@ public class CppAnalyzerTest {
                 .findFirst();
         assertTrue(freeFuncInt.isPresent(), "Should find free_func with int parameter");
         assertEquals("(int)", freeFuncInt.get().signature(), "free_func(int) should have signature '(int)'");
-        assertEquals("ns.free_func", freeFuncInt.get().fqName(), "free_func FQN should be 'ns.free_func' without parameters");
+        assertEquals(
+                "ns.free_func",
+                freeFuncInt.get().fqName(),
+                "free_func FQN should be 'ns.free_func' without parameters");
 
         var methodInt = functions.stream()
                 .filter(f -> f.shortName().equals("C.method") && f.signature().contains("int"))
                 .findFirst();
         assertTrue(methodInt.isPresent(), "Should find C.method with int parameter");
         assertEquals("(int)", methodInt.get().signature(), "C.method(int) should have signature '(int)'");
-        assertEquals("ns.C.method", methodInt.get().fqName(), "C.method FQN should be 'ns.C.method' without parameters");
+        assertEquals(
+                "ns.C.method", methodInt.get().fqName(), "C.method FQN should be 'ns.C.method' without parameters");
     }
 }

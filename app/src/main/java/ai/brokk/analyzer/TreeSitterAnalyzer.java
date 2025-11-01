@@ -1205,6 +1205,54 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
+     *
+     * <p><strong>Definition vs Declaration Detection (Two-Phase Pattern):</strong></p>
+     * <p>For functions, this method implements a <em>two-phase detection pattern</em> to prefer
+     * definitions (functions with bodies) over forward declarations (prototypes without bodies):</p>
+     *
+     * <ol>
+     *   <li><strong>Phase 1 (AST-based):</strong> During signature rendering in
+     *       {@code renderFunctionDeclaration()}, each analyzer checks the TreeSitter AST
+     *       via {@code getChildByFieldName("body")} to detect if a function has a body.
+     *       If a body exists, the analyzer appends the language-specific {@link #bodyPlaceholder()}
+     *       marker (e.g., "{...}", "...", "= {...}") to the rendered signature string.</li>
+     *
+     *   <li><strong>Phase 2 (string-based):</strong> Here in duplicate suppression, when we find
+     *       duplicate functions with the same fqName, we check if either's signature <em>string</em>
+     *       contains {@code bodyPlaceholder()}. The CodeUnit whose signature contains the marker
+     *       is considered a definition and is preferred over one without the marker.</li>
+     * </ol>
+     *
+     * <p><strong>Why This Pattern Is Brittle:</strong></p>
+     * <ul>
+     *   <li><strong>String marker dependency:</strong> Phase 2 cannot re-access the AST to verify
+     *       body presence—it relies entirely on the marker string set in Phase 1.</li>
+     *
+     *   <li><strong>Marker format sensitivity:</strong> Any code that reformats signatures
+     *       (whitespace normalization, trimming) could break the {@code .contains(bodyPlaceholder())}
+     *       check. Different languages use different markers: "{...}", "{ ... }", "...", "= {...}".</li>
+     *
+     *   <li><strong>Inconsistent marker usage:</strong> Some code (e.g., NamespaceProcessor)
+     *       hardcodes "  {...}" with extra spaces instead of calling {@code bodyPlaceholder()},
+     *       creating maintenance hazards.</li>
+     *
+     *   <li><strong>False positive potential:</strong> If a language's actual function signature
+     *       syntax naturally contains the marker string, it could be misinterpreted as having a body.</li>
+     * </ul>
+     *
+     * <p><strong>Why It Works (So Far):</strong></p>
+     * <ul>
+     *   <li>Phase 1's AST-based detection is robust and reliable</li>
+     *   <li>Marker strings are relatively unique and don't appear naturally in signatures</li>
+     *   <li>Signatures are not modified between Phase 1 and Phase 2</li>
+     *   <li>Each language's bodyPlaceholder() correctly matches its own signature format</li>
+     * </ul>
+     *
+     * <p><strong>Alternative Approach (Not Implemented):</strong></p>
+     * <p>A more robust design would store the body presence flag directly alongside the CodeUnit
+     * (e.g., in {@code Map<CodeUnit, Boolean> hasBodyMap} or as a CodeUnitProperties field)
+     * instead of encoding it as a string marker. This would eliminate the string-based dependency
+     * and make duplicate suppression immune to signature formatting changes.</p>
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -2467,6 +2515,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return List.of(); // Default: no extra comments
     }
 
+    /**
+     * Returns the language-specific string marker appended to function signatures that have bodies.
+     *
+     * <p><strong>Critical Role in Two-Phase Definition Detection:</strong></p>
+     * <p>This marker is the <em>sole communication mechanism</em> between Phase 1 (AST-based body detection
+     * during signature rendering) and Phase 2 (string-based duplicate suppression in
+     * {@link #addTopLevelCodeUnit}). The two-phase pattern works as follows:</p>
+     *
+     * <ol>
+     *   <li><strong>Phase 1:</strong> {@code renderFunctionDeclaration()} checks the AST via
+     *       {@code getChildByFieldName("body")} to detect if a function has a body. If present,
+     *       it appends this marker to the rendered signature string.</li>
+     *
+     *   <li><strong>Phase 2:</strong> When {@code addTopLevelCodeUnit()} finds duplicate functions,
+     *       it searches for this marker in the signature strings using {@code .contains(bodyPlaceholder())}.
+     *       The function whose signature contains this marker is considered a definition and is
+     *       preferred over declarations without the marker.</li>
+     * </ol>
+     *
+     * <p><strong>Language-Specific Markers:</strong></p>
+     * <ul>
+     *   <li><strong>C++, Java:</strong> {@code "{...}"}</li>
+     *   <li><strong>Scala:</strong> {@code "= {...}"}</li>
+     *   <li><strong>C#:</strong> {@code "{ … }"} (Unicode ellipsis)</li>
+     *   <li><strong>TypeScript:</strong> {@code "{ ... }"} (with spaces)</li>
+     *   <li><strong>JavaScript, Python, Go, PHP, Rust:</strong> {@code "..."}</li>
+     * </ul>
+     *
+     * <p><strong>Consistency Requirements:</strong></p>
+     * <ul>
+     *   <li>Each analyzer must return a marker that is unique and unlikely to appear naturally
+     *       in function signatures</li>
+     *   <li>The marker must be consistent with what {@code renderFunctionDeclaration()} appends</li>
+     *   <li>Any code that manually constructs signatures should call this method rather than
+     *       hardcoding marker strings (see NamespaceProcessor for a counter-example)</li>
+     * </ul>
+     *
+     * @return The string marker indicating a function has a body (e.g., "{...}", "...", "= {...}")
+     */
     protected abstract String bodyPlaceholder();
 
     /**

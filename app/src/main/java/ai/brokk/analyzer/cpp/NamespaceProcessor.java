@@ -146,6 +146,12 @@ public class NamespaceProcessor {
             if (FUNCTION_DEFINITION.equals(childType)) {
                 var signature = extractFunctionSignature(child, fileContent);
                 if (!signature.trim().isEmpty()) {
+                    // BRITTLENESS WARNING: Hardcoded "  {...}" marker inconsistent with CppAnalyzer.bodyPlaceholder()
+                    // CppAnalyzer uses "{...}" (no leading spaces), but this code uses "  {...}" (two spaces).
+                    // This inconsistency could cause issues if duplicate suppression logic or other code
+                    // expects exact match with bodyPlaceholder(). Consider refactoring to use a shared
+                    // marker constant or calling bodyPlaceholder() from the analyzer instance.
+                    // See TreeSitterAnalyzer.bodyPlaceholder() JavaDoc for two-phase pattern explanation.
                     skeletons.add(signature + "  {...}");
                 }
             } else if (ENUM_SPECIFIER.equals(childType)) {

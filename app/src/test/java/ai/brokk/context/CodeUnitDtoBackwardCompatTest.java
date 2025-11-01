@@ -61,8 +61,7 @@ public class CodeUnitDtoBackwardCompatTest {
 
         // equals/hashCode now INCLUDE signature for overload disambiguation
         assertNotEquals(cuLegacy, cuWithSig, "CodeUnit equality must consider signature for overload distinction");
-        assertNotEquals(
-                cuLegacy.hashCode(), cuWithSig.hashCode(), "Hash codes must differ when signature differs");
+        assertNotEquals(cuLegacy.hashCode(), cuWithSig.hashCode(), "Hash codes must differ when signature differs");
 
         // hasSignature reflects presence/absence
         assertFalse(cuLegacy.hasSignature(), "Legacy CodeUnit should report no signature");
