@@ -35,8 +35,9 @@ class CppAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        assertTrue(analyzer.getDefinition("foo").isPresent());
-        assertTrue(analyzer.getDefinition("bar").isEmpty());
+        // Note: C++ function names include parameter signatures, e.g., "foo()"
+        assertTrue(analyzer.getDefinition("foo()").isPresent());
+        assertTrue(analyzer.getDefinition("bar()").isEmpty());
 
         // mutate
         UpdateTestUtil.writeFile(
@@ -47,11 +48,11 @@ class CppAnalyzerUpdateTest {
                 int bar() { return 2; }
                 """);
 
-        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "foo");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "foo()");
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
-        assertTrue(analyzer.getDefinition("bar").isPresent());
+        assertTrue(analyzer.getDefinition("bar()").isPresent());
     }
 
     @Test
@@ -64,11 +65,32 @@ class CppAnalyzerUpdateTest {
                 int baz() { return 3; }
                 """);
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("baz").isPresent());
+        // Note: C++ function names include parameter signatures, e.g., "baz()"
+        assertTrue(analyzer.getDefinition("baz()").isPresent());
 
-        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo()").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("foo").isEmpty());
+        assertTrue(analyzer.getDefinition("foo()").isEmpty());
+    }
+
+    @Test
+    void backCompatZeroArgLookup() throws IOException {
+        // Create an isolated temporary project with a single zero-arg function 'foo'
+        var tmp = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(tmp, "B.cpp", "int foo() { return 1; }\n");
+
+        var proj = UpdateTestUtil.newTestProject(tmp, Languages.CPP_TREESITTER);
+        try (proj) {
+            var localAnalyzer = new CppAnalyzer(proj);
+
+            var withParen = localAnalyzer.getDefinition("foo()");
+            var withoutParen = localAnalyzer.getDefinition("foo");
+
+            // Both should be present or both absent, and when present they should refer to the same definition
+            assertEquals(withParen.isPresent(), withoutParen.isPresent(), "Presence should match for 'foo' vs 'foo()'");
+            assertEquals(
+                    withParen, withoutParen, "Definition lookup should return the same result for 'foo' and 'foo()'");
+        }
     }
 }

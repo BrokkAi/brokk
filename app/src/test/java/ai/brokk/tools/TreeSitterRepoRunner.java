@@ -671,8 +671,8 @@ public class TreeSitterRepoRunner {
                 // Try to create CppTreeSitterAnalyzer if available
                 try {
                     Class<?> cppAnalyzerClass = Class.forName("ai.brokk.analyzer.CppAnalyzer");
-                    var constructor = cppAnalyzerClass.getConstructor(IProject.class, Set.class);
-                    yield (IAnalyzer) constructor.newInstance(project, Set.of());
+                    var constructor = cppAnalyzerClass.getConstructor(IProject.class);
+                    yield (IAnalyzer) constructor.newInstance(project);
                 } catch (Exception e) {
                     System.err.println("Warning: CppTreeSitterAnalyzer not available: " + e.getMessage());
                     yield null;

@@ -994,6 +994,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
 
     /**
+     * Hook for subclasses to enhance the FQN before CodeUnit creation.
+     * Called during analysis with access to the definition node and source code.
+     * Default implementation returns the input FQName unchanged.
+     *
+     * @param fqName the computed FQName
+     * @param captureName the capture name from the query
+     * @param definitionNode the AST node for this definition
+     * @param src the source code
+     * @return enhanced FQName, or input FQName if no enhancement needed
+     */
+    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+        return fqName;
+    }
+
+    /**
      * Determines the package or namespace name for a given definition.
      *
      * @param file           The project file being analyzed.
@@ -1134,8 +1149,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines whether a duplicate CodeUnit should be ignored.
+     * Called when a CodeUnit with matching fqName already exists.
+     * Subclasses can override to implement language-specific duplicate handling.
+     *
+     * @param existing The CodeUnit already in the list
+     * @param candidate The new CodeUnit being considered for addition
+     * @param file The file being analyzed
+     * @return true if the candidate should be ignored (existing kept), false if candidate should be added
+     */
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // Default: ignore duplicates (keep first)
+        // Subclasses can override for language-specific logic
+        return true;
+    }
+
+    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
-     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
+     * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1145,33 +1176,76 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<Range>> localSourceRanges,
             ProjectFile file) {
 
-        boolean alreadyExists =
-                localTopLevelCUs.stream().anyMatch(existing -> existing.fqName().equals(cu.fqName()));
+        // Find existing CodeUnit with same fqName
+        CodeUnit existingDuplicate = localTopLevelCUs.stream()
+                .filter(existing -> existing.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
 
-        if (!alreadyExists) {
+        if (existingDuplicate == null) {
+            // No duplicate, add normally
             localTopLevelCUs.add(cu);
-        } else if (shouldReplaceOnDuplicate(cu)) {
-            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
-            CodeUnit oldCu = localTopLevelCUs.stream()
-                    .filter(existing -> existing.fqName().equals(cu.fqName()))
-                    .findFirst()
-                    .orElse(null);
+            return;
+        }
 
+        // SPECIAL CASE: For functions, prefer the definition (with body) over a forward declaration.
+        // We infer presence of a body from signatures produced earlier in analysis (signature contains
+        // bodyPlaceholder).
+        if (cu.isFunction() && existingDuplicate.isFunction()) {
+            List<String> existingSigs = localSignatures.getOrDefault(existingDuplicate, List.of());
+            List<String> candidateSigs = localSignatures.getOrDefault(cu, List.of());
+            boolean existingHasBody = existingSigs.stream().anyMatch(s -> s.contains(bodyPlaceholder()));
+            boolean candidateHasBody = candidateSigs.stream().anyMatch(s -> s.contains(bodyPlaceholder()));
+
+            if (existingHasBody && !candidateHasBody) {
+                // Keep existing (definition) and ignore new declaration
+                log.trace(
+                        "Ignoring duplicate declaration for {} in {} because definition already present",
+                        cu.fqName(),
+                        file.getFileName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                // Replace existing (declaration) with candidate (definition)
+                localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+                localTopLevelCUs.add(cu);
+                removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+                return;
+            }
+            // If both have body or both lack body, fall through to general duplicate handling below
+
+            // Guard against duplicate body-less prototypes: if neither has a body, keep the first one
+            if (!existingHasBody && !candidateHasBody) {
+                log.trace(
+                        "Ignoring duplicate declaration for {} in {} because both are body-less prototypes",
+                        cu.fqName(),
+                        file.getFileName());
+                return;
+            }
+        }
+
+        if (shouldReplaceOnDuplicate(cu)) {
+            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
 
             // Recursively remove the old definition and all its descendants from all maps
             // This prevents orphaned children from appearing in the final result
-            if (oldCu != null) {
-                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
-            }
+            removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+        } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
+            // Language-specific duplicate handling says ignore
+            log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
         } else {
-            // Unexpected duplicate for languages that don't allow replacement
-            log.error(
-                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={})",
-                    file.getFileName(),
-                    cu.fqName(),
-                    cu.kind());
+            // shouldIgnoreDuplicate returned false - verify it's truly different
+            // This handles cases where TreeSitter captures the same function twice
+            // (e.g., forward declaration + definition with identical signature)
+            if (existingDuplicate.equals(cu)) {
+                // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
+                log.trace("Ignoring true duplicate {} in {} (same signature)", cu.fqName(), file.getFileName());
+            } else {
+                // Different CodeUnits (e.g., overloads with different signatures) - add it
+                localTopLevelCUs.add(cu);
+                log.trace("Adding non-duplicate {} in {} (e.g., overload)", cu.fqName(), file.getFileName());
+            }
         }
     }
 
@@ -1390,7 +1464,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         simpleName = extractSimpleName(definitionNode, src).orElse(null);
                     } else if (nameNode != null && !nameNode.isNull()) {
                         simpleName = textSlice(nameNode, fileBytes);
-                        if (simpleName.isBlank()) {
+                        if (simpleName.isBlank()
+                                && !isBlankNameAllowed(
+                                        captureName, simpleName, definitionNode.getType(), file.getFileName())) {
                             log.debug(
                                     "Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
                                     expectedNameCapture,
@@ -1417,13 +1493,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         captureName, simpleName, sortedModifierStrings, decoratorNodesForMatch));
                     } else {
                         if (simpleName == null) {
-                            log.debug(
-                                    "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
+                            if (!isNullNameAllowed(
                                     captureName,
                                     definitionNode.getType(),
                                     definitionNode.getStartPoint().getRow() + 1,
-                                    file);
-                        } else {
+                                    file.getFileName())) {
+                                log.debug(
+                                        "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
+                                        captureName,
+                                        definitionNode.getType(),
+                                        definitionNode.getStartPoint().getRow() + 1,
+                                        file);
+                            }
+                        } else if (!isBlankNameAllowed(
+                                captureName, simpleName, definitionNode.getType(), file.getFileName())) {
                             log.debug(
                                     "Determined simple name for definition capture {} (Node Type [{}], Line {}) in file {} is BLANK. Definition will be skipped.",
                                     captureName,
@@ -1519,6 +1602,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         primaryCaptureName,
                         file.getFileName());
                 continue;
+            }
+
+            // Allow subclasses to enhance the FQN (e.g., C++ function overloads with parameter signatures)
+            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
+            if (!enhancedFqName.equals(cu.fqName())) {
+                // Reconstruct CodeUnit with enhanced FQName
+                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedFqName);
             }
 
             localCodeUnitsBySymbol
@@ -2507,8 +2597,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (nameNode != null && !nameNode.isNull()) {
                 nameOpt = Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
                         src, nameNode.getStartByte(), nameNode.getEndByte()));
-            } else {
-                log.warn(
+            } else if (!isNullNameExpectedForExtraction(decl.getType())) {
+                log.debug(
                         "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
                         identifierFieldName,
                         decl.getType(),
@@ -2526,8 +2616,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     e.getMessage());
         }
 
-        if (nameOpt.isEmpty()) {
-            log.warn(
+        if (nameOpt.isEmpty() && !isNullNameExpectedForExtraction(decl.getType())) {
+            log.debug(
                     "extractSimpleName: Failed using getChildByFieldName('{}') for node type {} at line {}",
                     identifierFieldName,
                     decl.getType(),
@@ -3168,5 +3258,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
         return best;
+    }
+
+    protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
+        return false;
+    }
+
+    protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+        return false;
+    }
+
+    /**
+     * Hook for subclasses to suppress logging when extractSimpleName encounters null/missing names
+     * that are expected for the language (e.g., C++ declarations, anonymous structures).
+     *
+     * @param nodeType the AST node type
+     * @return true if null names are expected and logging should be suppressed
+     */
+    protected boolean isNullNameExpectedForExtraction(String nodeType) {
+        return false;
     }
 }

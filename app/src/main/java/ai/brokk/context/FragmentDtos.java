@@ -51,6 +51,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ProjectFile - contains root and relative path as strings. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record ProjectFileDto(String id, String repoRoot, String relPath)
             implements PathFragmentDto { // id changed to String
         public ProjectFileDto {
@@ -64,6 +65,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ExternalFile - contains absolute path as string. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record ExternalFileDto(String id, String absPath) implements PathFragmentDto { // id changed to String
         public ExternalFileDto {
             if (absPath.isEmpty()) {
@@ -73,6 +75,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ImageFile - contains absolute path and media type. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record ImageFileDto(String id, String absPath, @Nullable String mediaType)
             implements PathFragmentDto { // id changed to String
         public ImageFileDto {
@@ -168,6 +171,7 @@ public class FragmentDtos {
     }
 
     /** DTO for GitFileFragment - represents a specific revision of a file from Git history. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record GitFileFragmentDto(String id, String repoRoot, String relPath, String revision, String contentId)
             implements PathFragmentDto { // id changed to String
         public GitFileFragmentDto {
@@ -258,7 +262,8 @@ public class FragmentDtos {
     }
 
     /** DTO for CodeUnit - represents a named code element. */
-    public record CodeUnitDto(ProjectFileDto sourceFile, String kind, String packageName, String shortName) {
+    public record CodeUnitDto(
+            ProjectFileDto sourceFile, String kind, String packageName, String shortName, @Nullable String signature) {
         public CodeUnitDto {
             if (kind.isEmpty()) {
                 throw new IllegalArgumentException("kind cannot be null or empty");
@@ -266,6 +271,7 @@ public class FragmentDtos {
             if (shortName.isEmpty()) {
                 throw new IllegalArgumentException("shortName cannot be null or empty");
             }
+            // signature is optional and intentionally not validated (may be null)
         }
     }
 

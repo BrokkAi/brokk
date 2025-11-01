@@ -19,15 +19,17 @@
   name: (type_identifier) @enum.name) @enum.definition
 
 ; Global function definitions (non-method functions)
+; Capture the inner declarator generically so destructors and scoped out-of-class definitions
+; (which may use field_identifier or more complex declarator shapes) are captured as well.
 (function_definition
   declarator: (function_declarator
-    declarator: (identifier) @function.name)) @function.definition
+    declarator: (_) @function.name) @function.declarator) @function.definition
 
 ; Global function declarations - specific function declarator patterns (prototypes)
 (translation_unit
   (declaration
     declarator: (function_declarator
-      declarator: (identifier) @function.name)) @function.definition)
+      declarator: (_) @function.name)) @function.definition)
 
 ; Global variable declarations - handle both plain and extern declarations
 (translation_unit

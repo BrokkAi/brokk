@@ -564,7 +564,8 @@ public class DtoMapper {
         ProjectFile pf = codeUnit.source();
         ProjectFileDto pfd =
                 new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
-        return new CodeUnitDto(pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName());
+        return new CodeUnitDto(
+                pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName(), codeUnit.signature());
     }
 
     private static TaskEntry _fromTaskEntryDto(
@@ -600,7 +601,7 @@ public class DtoMapper {
         // Use current project root for cross-platform compatibility
         ProjectFile source = new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath()));
         var kind = CodeUnitType.valueOf(dto.kind());
-        return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
+        return new CodeUnit(source, kind, dto.packageName(), dto.shortName(), dto.signature());
     }
 
     private static boolean isDeprecatedBuildFragment(FrozenFragmentDto ffd) {
