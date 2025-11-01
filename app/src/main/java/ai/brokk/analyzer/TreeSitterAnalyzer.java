@@ -44,7 +44,19 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.similarities.BM25Similarity;
+import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
@@ -341,6 +353,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
                 snapshotNanos);
+
+        // Build Lucene index from collected method documents for keyword search
+        buildKeywordSearchIndex();
 
         // Log summary of file processing results
         int totalAttempted = totalFilesAttempted.get();
@@ -3160,6 +3175,133 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         CUWithDepth(CodeUnit cu, int depth) {
             this.cu = cu;
             this.depth = depth;
+        }
+    }
+
+    /**
+     * Builds the Lucene BM25 index from collected method documents. Called once during constructor
+     * initialization after all files have been analyzed. Creates an in-memory RAMDirectory index,
+     * then opens a searcher for use by {@link #keywordSearch(String)}.
+     */
+    private void buildKeywordSearchIndex() {
+        try {
+            // Create in-memory directory for the index
+            var directory = new ByteBuffersDirectory();
+            this.indexDir = directory;
+
+            // Initialize the standard analyzer for indexing and searching
+            var analyzer = new StandardAnalyzer();
+            this.stdAnalyzer = analyzer;
+
+            // Configure index writer with BM25 similarity
+            var iwc = new IndexWriterConfig(analyzer);
+            iwc.setSimilarity(new BM25Similarity());
+
+            // Index all collected method documents
+            try (var writer = new IndexWriter(directory, iwc)) {
+                for (MethodDoc methodDoc : methodDocCollector) {
+                    var doc = new Document();
+
+                    // Add stored fields for result mapping
+                    doc.add(new StringField("fqn", methodDoc.fqn(), Field.Store.YES));
+                    doc.add(new StringField("file", methodDoc.file(), Field.Store.YES));
+
+                    // Add indexed (but not stored) content field for searching
+                    doc.add(new TextField("content", methodDoc.content(), Field.Store.NO));
+
+                    writer.addDocument(doc);
+                }
+                writer.commit();
+            }
+
+            // Open searcher for keyword search queries
+            var reader = DirectoryReader.open(directory);
+            var searcher = new IndexSearcher(reader);
+            searcher.setSimilarity(new BM25Similarity());
+            this.indexSearcher = searcher;
+
+            log.debug(
+                    "[{}] Built Lucene BM25 keyword search index with {} method documents",
+                    language.name(),
+                    methodDocCollector.size());
+        } catch (Exception e) {
+            log.warn(
+                    "[{}] Failed to build Lucene keyword search index: {}",
+                    language.name(),
+                    e.getMessage(),
+                    e);
+            // Index build failure is non-fatal; keyword search will simply be unavailable
+            this.indexDir = null;
+            this.indexSearcher = null;
+            this.stdAnalyzer = null;
+        }
+    }
+
+    @Override
+    public List<CodeUnit> keywordSearch(String query) {
+        // Handle null or blank query
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+
+        // Check if index is available
+        if (indexSearcher == null || stdAnalyzer == null) {
+            log.debug("[{}] Keyword search unavailable: index searcher or analyzer is null", language.name());
+            return List.of();
+        }
+
+        try {
+            // Tokenize the query using the same analyzer
+            var tokens = new ArrayList<String>();
+            try (var tokenStream = stdAnalyzer.tokenStream("content", query)) {
+                var charTermAttr = tokenStream.addAttribute(CharTermAttribute.class);
+                tokenStream.reset();
+                while (tokenStream.incrementToken()) {
+                    String token = charTermAttr.toString();
+                    if (!token.isBlank()) {
+                        tokens.add(token);
+                    }
+                }
+            }
+
+            // If no tokens, return empty list
+            if (tokens.isEmpty()) {
+                return List.of();
+            }
+
+            // Build BooleanQuery with SHOULD clauses for each token
+            var booleanQueryBuilder = new org.apache.lucene.search.BooleanQuery.Builder();
+            for (String token : tokens) {
+                var termQuery = new org.apache.lucene.search.TermQuery(
+                        new org.apache.lucene.index.Term("content", token));
+                booleanQueryBuilder.add(termQuery, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+            }
+            var booleanQuery = booleanQueryBuilder.build();
+
+            // Execute search with reasonable topN
+            int topN = 100;
+            TopDocs topDocs = indexSearcher.search(booleanQuery, topN);
+
+            // Collect results, deduplicating by FQN while preserving rank order
+            var seenFqns = new HashSet<String>();
+            var results = new ArrayList<CodeUnit>();
+
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                var doc = indexSearcher.storedFields().document(scoreDoc.doc);
+                String fqn = doc.get("fqn");
+
+                if (fqn != null && !fqn.isBlank() && seenFqns.add(fqn)) {
+                    var cuOpt = getDefinition(fqn);
+                    if (cuOpt.isPresent()) {
+                        results.add(cuOpt.get());
+                    }
+                }
+            }
+
+            return results;
+        } catch (Exception e) {
+            log.warn("[{}] Error during keyword search: {}", language.name(), e.getMessage(), e);
+            return List.of();
         }
     }
 
