@@ -705,7 +705,7 @@ public class Llm {
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput("\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
         }
     }
 

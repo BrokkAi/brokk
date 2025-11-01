@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
+import { rehypeToolCalls } from './rehype/rehype-tool-calls';
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -20,6 +21,9 @@ function post(msg: OutboundFromWorker) {
 }
 
 export function createBaseProcessor(): Processor {
+    // Core processor without Shiki; consumers add rehype plugins on top.
+    // When Shiki is enabled, rehypeToolCalls must run AFTER Shiki because Shiki replaces <pre> nodes;
+    // tool-call annotations must be applied to the final <pre> that will be rendered.
     return unified()
         .use(remarkParse)
         .data('micromarkExtensions', [gfmEditBlock()])
@@ -28,8 +32,9 @@ export function createBaseProcessor(): Processor {
         .use(remarkBreaks)
         .use(remarkRehype, {allowDangerousHtml: true}) as any;
 }
-// processors
-let baseProcessor: Processor = createBaseProcessor();
+ // processors
+// Fast/base pipeline (no Shiki): add rehypeToolCalls directly.
+let baseProcessor: Processor = (createBaseProcessor().use(rehypeToolCalls) as any);
 let shikiProcessor: Processor = null;
 let currentProcessor: Processor = baseProcessor;
 
@@ -45,6 +50,9 @@ export function initProcessor() {
             highlighter = shikiHighlighter;
             shikiProcessor = createBaseProcessor()
                 .use(pluginFn, shikiHighlighter, opts)
+                // Important: run rehypeToolCalls AFTER Shiki since Shiki replaces <pre> nodes;
+                // annotations must be applied to the final <pre> that will be rendered (avoids losing attributes).
+                .use(rehypeToolCalls)
                 .use(rehypeEditDiff, shikiHighlighter);
             currentProcessor = shikiProcessor;
             console.log('[shiki] loaded!');

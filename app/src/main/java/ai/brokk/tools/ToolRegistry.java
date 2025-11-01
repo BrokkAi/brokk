@@ -378,7 +378,7 @@ public class ToolRegistry {
             var argsYaml = toYaml(vi);
             var headline = headlineFor(request.name());
             return """
-                   ### %s
+                   `%s`
                    ```yaml
                    %s```
                    """
