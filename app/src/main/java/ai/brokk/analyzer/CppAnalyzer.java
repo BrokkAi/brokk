@@ -264,12 +264,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             signature += " " + ASTTraversalUtils.extractNodeText(throwsNode, src);
         }
 
-        // PHASE 1 of two-phase definition detection: Check AST for function body presence
-        // If present, append bodyPlaceholder() marker ("{...}") to signature string.
-        // This marker will later be used by addTopLevelCodeUnit() (Phase 2) to prefer
-        // definitions (with bodies) over forward declarations (without bodies) when
-        // duplicate functions are found. See TreeSitterAnalyzer.bodyPlaceholder() JavaDoc
-        // for complete explanation of the two-phase pattern and its brittleness.
+        // Presentation-only marker: we still append bodyPlaceholder() to the rendered signature for UI clarity.
+        // NOTE: Duplicate/definition preference no longer relies on this string marker; it uses the AST-derived
+        // hasBody flag stored in CodeUnitProperties (see TreeSitterAnalyzer). Keep this strictly for display.
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
