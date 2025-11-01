@@ -1385,21 +1385,54 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
             ProjectFile file) {
 
-        if (!kids.contains(cu)) {
-            kids.add(cu);
-        } else if (shouldReplaceOnDuplicate(cu)) {
-            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
-            CodeUnit oldCu = kids.stream().filter(k -> k.equals(cu)).findFirst().orElse(null);
+        // Look for an existing child with the same FQN (overloads may exist with different signatures)
+        CodeUnit existingDuplicate = kids.stream()
+                .filter(k -> k.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
 
-            if (oldCu != null) {
-                kids.remove(oldCu);
-                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
+        if (existingDuplicate == null) {
+            kids.add(cu);
+            return;
+        }
+
+        // If both are functions and language allows replacement, prefer the one with a body
+        if (cu.isFunction() && existingDuplicate.isFunction() && shouldReplaceOnDuplicate(cu)) {
+            boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
+            boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
+
+            if (existingHasBody && !candidateHasBody) {
+                // Keep existing definition
+                log.trace(
+                        "Skipping duplicate function child '{}' in parent '{}' - existing has body, candidate does not",
+                        cu.fqName(),
+                        parentCu.fqName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                // Replace any existing children with same FQN by this definition
+                kids.removeIf(k -> k.fqName().equals(cu.fqName()));
+                removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 kids.add(cu);
+                return;
             }
+            // If both have body or both lack body, fall through to general handling below
+        }
+
+        if (shouldReplaceOnDuplicate(cu)) {
+            // Replace all same-FQN children (e.g., Python's "last wins")
+            List<CodeUnit> toRemove = kids.stream()
+                    .filter(k -> k.fqName().equals(cu.fqName()))
+                    .toList();
+            if (!toRemove.isEmpty()) {
+                toRemove.forEach(oldCu -> removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges));
+                kids.removeAll(toRemove);
+            }
+            kids.add(cu);
         } else {
-            // For languages that don't allow replacement, just skip the duplicate
+            // For languages that don't allow replacement, just skip the duplicate (preserves overloads elsewhere)
             log.trace("Skipping duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
         }
     }
@@ -1847,7 +1880,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, file);
+                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody, file);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -1874,7 +1907,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, file);
+                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody, file);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
