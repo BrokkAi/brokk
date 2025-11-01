@@ -1631,6 +1631,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
             localChildren.putIfAbsent(cu, new ArrayList<>()); // Ensure every CU can be a parent
 
+            // Collect method documents during parsing for keyword search index
+            if (getSkeletonTypeForCapture(primaryCaptureName) == SkeletonType.FUNCTION_LIKE) {
+                String methodContent = textSlice(finalRange.commentStartByte(), finalRange.endByte(), finalFileBytes);
+                if (!methodContent.isBlank()) {
+                    String fileRelPath = project.getRoot().relativize(file.absPath()).toString();
+                    methodDocCollector.offer(new MethodDoc(cu.fqName(), fileRelPath, methodContent));
+                    log.trace("Enqueued method doc for keyword search: fqn={}, file={}", cu.fqName(), fileRelPath);
+                }
+            }
+
             boolean attachedToParent = false;
 
             // Prefer attaching lambdas under their nearest function-like (method/ctor) parent when available
