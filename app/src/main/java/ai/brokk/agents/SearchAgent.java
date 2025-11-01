@@ -553,7 +553,8 @@ public class SearchAgent {
 
         // Text-based search
         names.add("searchSubstrings");
-        names.add("keywordSearch");
+        // temporarily disabled
+        // names.add("keywordSearch");
         names.add("searchGitCommitMessages");
         names.add("searchFilenames");
         names.add("getFileContents");
