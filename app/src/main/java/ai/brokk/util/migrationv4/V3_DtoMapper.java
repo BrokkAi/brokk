@@ -133,8 +133,9 @@ public class V3_DtoMapper {
             V3_HistoryIo.ContentReader reader) {
         return switch (dto) {
             case V3_FragmentDtos.ProjectFileDto pfd ->
+                // Use current project root for cross-platform compatibility
                 ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+                        new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath())), pfd.id(), mgr);
             case V3_FragmentDtos.ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath()).toAbsolutePath()), efd.id(), mgr);
@@ -143,8 +144,9 @@ public class V3_DtoMapper {
                 yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case V3_FragmentDtos.GitFileFragmentDto gfd ->
+                // Use current project root for cross-platform compatibility
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
+                        new ProjectFile(mgr.getProject().getRoot(), Path.of(gfd.relPath())),
                         gfd.revision(),
                         reader.readContent(gfd.contentId()),
                         gfd.id());
@@ -199,7 +201,7 @@ public class V3_DtoMapper {
             }
             case V3_FragmentDtos.SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
-                        .map(V3_DtoMapper::fromCodeUnitDto)
+                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
                         .collect(Collectors.toSet());
                 var messages = searchDto.messages().stream()
                         .map(msgDto -> fromChatMessageDto(msgDto, reader))
@@ -257,7 +259,7 @@ public class V3_DtoMapper {
             }
             case V3_FragmentDtos.StacktraceFragmentDto stDto -> {
                 var sources = stDto.sources().stream()
-                        .map(V3_DtoMapper::fromCodeUnitDto)
+                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
                         .collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(
                         stDto.id(),
@@ -275,7 +277,7 @@ public class V3_DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case V3_FragmentDtos.CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit(), mgr));
             case V3_FragmentDtos.BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -361,9 +363,10 @@ public class V3_DtoMapper {
         throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
     }
 
-    private static CodeUnit fromCodeUnitDto(V3_FragmentDtos.CodeUnitDto dto) {
+    private static CodeUnit fromCodeUnitDto(V3_FragmentDtos.CodeUnitDto dto, IContextManager mgr) {
         V3_FragmentDtos.ProjectFileDto pfd = dto.sourceFile();
-        ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
+        // Use current project root for cross-platform compatibility
+        ProjectFile source = new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath()));
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }

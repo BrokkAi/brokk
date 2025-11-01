@@ -176,8 +176,9 @@ public class DtoMapper {
             ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd ->
+                // Use current project root for cross-platform compatibility
                 ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+                        new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath())), pfd.id(), mgr);
             case ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
@@ -185,8 +186,9 @@ public class DtoMapper {
                 yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case GitFileFragmentDto gfd ->
+                // Use current project root for cross-platform compatibility
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
+                        new ProjectFile(mgr.getProject().getRoot(), Path.of(gfd.relPath())),
                         gfd.revision(),
                         reader.readContent(gfd.contentId()),
                         gfd.id());
@@ -240,7 +242,7 @@ public class DtoMapper {
             }
             case SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
-                        .map(DtoMapper::fromCodeUnitDto)
+                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
                         .collect(Collectors.toSet());
                 var messages = searchDto.messages().stream()
                         .map(msgDto -> fromChatMessageDto(msgDto, reader))
@@ -300,8 +302,9 @@ public class DtoMapper {
                 }
             }
             case StacktraceFragmentDto stDto -> {
-                var sources =
-                        stDto.sources().stream().map(DtoMapper::fromCodeUnitDto).collect(Collectors.toSet());
+                var sources = stDto.sources().stream()
+                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
+                        .collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(
                         stDto.id(),
                         mgr,
@@ -318,7 +321,7 @@ public class DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit(), mgr));
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -592,9 +595,10 @@ public class DtoMapper {
         throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
     }
 
-    private static CodeUnit fromCodeUnitDto(CodeUnitDto dto) {
+    private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {
         ProjectFileDto pfd = dto.sourceFile();
-        ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
+        // Use current project root for cross-platform compatibility
+        ProjectFile source = new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath()));
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }
