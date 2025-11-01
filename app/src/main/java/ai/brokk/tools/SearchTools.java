@@ -612,6 +612,20 @@ public class SearchTools {
         return result.toString();
     }
 
+    /**
+     * Convenience method: performs keyword search and returns fully qualified names as a list.
+     * Results are ranked by Lucene BM25 relevance score (highest first).
+     *
+     * @param query the search query (e.g., "parse error handling")
+     * @return a list of fully qualified names ranked by relevance, or empty if no matches or query is blank
+     */
+    public List<String> keywordSearch(String query) {
+        return getAnalyzer().keywordSearch(query, 20)
+                .stream()
+                .map(CodeUnit::fqName)
+                .toList();
+    }
+
     // Only includes project files. Is this what we want?
     @Tool(
             """
