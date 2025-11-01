@@ -194,6 +194,8 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    default void reportException(Throwable th) {}
+
     default void addFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {

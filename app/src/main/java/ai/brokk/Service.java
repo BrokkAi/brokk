@@ -249,6 +249,7 @@ public class Service implements IExceptionReportingService {
     // Default models - now instance fields
     private final StreamingChatModel quickModel;
     private final StreamingChatModel quickestModel;
+    private final StreamingChatModel quickEditModel;
     private final SpeechToTextModel sttModel;
 
     public Service(IProject project) {
@@ -285,7 +286,29 @@ public class Service implements IExceptionReportingService {
         // these should always be available
         var qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
-        // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
+
+        // Determine whether the user is on a free tier (balance < MINIMUM_PAID_BALANCE)
+        boolean freeTier = false;
+        try {
+            float balance = getUserBalance();
+            freeTier = balance < MINIMUM_PAID_BALANCE;
+            logger.info("User balance = {}, free‑tier = {}", balance, freeTier);
+        } catch (IOException | IllegalArgumentException e) {
+            // If we cannot determine balance (network error or invalid/missing key), assume paid tier
+            // to avoid silently disabling the Cerebras model
+            logger.warn("Unable to fetch user balance for quick‑edit model selection: {}", e.getMessage());
+        }
+
+        // If on free tier, fall back to the quickModel; otherwise attempt to load the Cerebras model
+        if (freeTier) {
+            logger.info("Free tier detected – using quickModel for quick‑edit operations.");
+            quickEditModel = quickModel;
+        } else {
+            var qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
+            quickEditModel = qe == null ? qm : qe;
+        }
+
+        // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
         var qqm = getModel(
                 new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
                 OpenAiChatRequestParameters.builder().temperature(0.0));
@@ -449,7 +472,12 @@ public class Service implements IExceptionReportingService {
 
         var authHeader = "Bearer dummy-key";
         if (isBrokk) {
-            var kp = parseKey(MainProject.getBrokkKey());
+            String brokkKey = MainProject.getBrokkKey();
+            if (brokkKey.isEmpty()) {
+                logger.warn("Brokk API key is empty, cannot fetch models from Brokk proxy");
+                return;
+            }
+            var kp = parseKey(brokkKey);
             authHeader = "Bearer " + kp.token();
         }
         Request request = new Request.Builder()
@@ -1033,6 +1061,11 @@ public class Service implements IExceptionReportingService {
 
     public StreamingChatModel quickModel() {
         return quickModel;
+    }
+
+    /** Returns the dedicated model for Quick‑Edit operations (Cerebras GPT‑OSS‑120B). */
+    public StreamingChatModel quickEditModel() {
+        return quickEditModel;
     }
 
     /** Returns the default speech-to-text model instance. */

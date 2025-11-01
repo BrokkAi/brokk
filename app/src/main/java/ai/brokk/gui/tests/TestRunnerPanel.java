@@ -662,7 +662,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         executeTests(command, -1, details.environmentVariables());
     }
 
-    public void runTests(Set<ProjectFile> testFiles) {
+    public void runTests(Set<ProjectFile> testFiles) throws InterruptedException {
         if (chrome == null) {
             logger.debug("Run Tests clicked without Chrome context; ignoring.");
             return;

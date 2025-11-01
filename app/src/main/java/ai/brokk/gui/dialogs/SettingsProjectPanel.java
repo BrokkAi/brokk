@@ -1,6 +1,5 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.IssueProvider;
@@ -875,10 +874,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 } catch (IOException ioException) {
                     logger.warn("Jira connection test failed: {}", ioException.getMessage());
                     return "Connection failed: " + ioException.getMessage();
-                } catch (Exception ex) {
-                    logger.error("Unexpected error during Jira connection test: {}", ex.getMessage(), ex);
-                    ExceptionReporter.tryReportException(ex);
-                    return "Connection failed with unexpected error: " + ex.getMessage();
                 }
             }
 

@@ -1,6 +1,5 @@
 package ai.brokk.gui;
 
-import ai.brokk.ExceptionReporter;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import java.awt.Container;
 import java.awt.Desktop;
@@ -94,23 +93,17 @@ public final class AppQuitHandler {
 
     /** Handle quit request on the EDT. Updates allowQuit flag based on user interaction. */
     private static void handleQuitOnEdt(AtomicBoolean allowQuit) {
-        try {
-            // Scan all top-level frames for BrokkDiffPanel components
-            Frame[] frames = Frame.getFrames();
-            for (Frame f : frames) {
-                if (!f.isDisplayable()) continue;
-                var brokkPanel = findBrokkDiffPanel(f);
-                if (brokkPanel != null) {
-                    if (!brokkPanel.confirmClose(f)) {
-                        allowQuit.set(false);
-                        return;
-                    }
+        // Scan all top-level frames for BrokkDiffPanel components
+        Frame[] frames = Frame.getFrames();
+        for (Frame f : frames) {
+            if (!f.isDisplayable()) continue;
+            var brokkPanel = findBrokkDiffPanel(f);
+            if (brokkPanel != null) {
+                if (!brokkPanel.confirmClose(f)) {
+                    allowQuit.set(false);
+                    return;
                 }
             }
-        } catch (Exception ex) {
-            logger.error("Unexpected error during quit handling on EDT", ex);
-            ExceptionReporter.tryReportException(ex);
-            allowQuit.set(false);
         }
     }
 }

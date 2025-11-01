@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.context.Context;
-import ai.brokk.exception.OomShutdownHandler;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.CheckThreadViolationRepaintManager;
@@ -373,8 +373,7 @@ public class Brokk {
 
     /** Main entry point. */
     public static void main(String[] args) {
-        Thread.setDefaultUncaughtExceptionHandler(new OomShutdownHandler());
-
+        Thread.setDefaultUncaughtExceptionHandler(new GlobalExceptionHandler());
         logBanner();
         logger.debug("Brokk starting");
         setupSystemPropertiesAndIcon();
@@ -382,7 +381,7 @@ public class Brokk {
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");
             MainProject.clearActiveSessions();
-            OomShutdownHandler.showRecoveryMessage();
+            GlobalExceptionHandler.showRecoveryMessage();
         }
 
         MainProject.loadRecentProjects(); // Load and potentially clean recent projects list

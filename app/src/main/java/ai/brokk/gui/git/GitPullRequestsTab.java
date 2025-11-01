@@ -1,7 +1,5 @@
 package ai.brokk.gui.git;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
@@ -17,6 +15,7 @@ import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.FilterBox;
 import ai.brokk.gui.PrTitleFormatter;
 import ai.brokk.gui.components.GitHubTokenMissingPanel;
@@ -38,7 +37,6 @@ import java.util.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -1190,10 +1188,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         fetchCiStatusesForDisplayedPrs();
     }
 
-    private class CiStatusFetcherWorker extends SwingWorker<Map<Integer, String>, Void> {
+    private class CiStatusFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, String>, Void> {
         private final List<GHPullRequest> prsToFetch;
 
         public CiStatusFetcherWorker(List<GHPullRequest> prsToFetch) {
+            super(chrome);
             this.prsToFetch = prsToFetch;
         }
 
@@ -1228,33 +1227,32 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 logger.debug("CI status fetch worker cancelled.");
                 return;
             }
-            try {
-                Map<Integer, String> newStatuses = get();
-                ciStatusCache.putAll(newStatuses);
+            // Centralized exception handling
+            super.done();
 
-                // Update the table model with new CI statuses
-                for (int i = 0; i < prTableModel.getRowCount(); i++) {
-                    Object prNumCellObj = prTableModel.getValueAt(i, PR_COL_NUMBER);
-                    if (prNumCellObj instanceof String prNumCell && prNumCell.startsWith("#")) {
-                        try {
-                            int prNumberInTable = Integer.parseInt(prNumCell.substring(1));
-                            if (newStatuses.containsKey(prNumberInTable)) {
-                                prTableModel.setValueAt(newStatuses.get(prNumberInTable), i, PR_COL_STATUS);
-                            }
-                        } catch (NumberFormatException nfe) {
-                            logger.trace("Skipping Status update for non-PR row in table: {}", prNumCell);
+            Map<Integer, String> newStatuses;
+            try {
+                newStatuses = get();
+            } catch (InterruptedException | ExecutionException ignored) {
+                // Already handled by ExceptionAwareSwingWorker.done()
+                return;
+            }
+
+            ciStatusCache.putAll(newStatuses);
+
+            // Update the table model with new CI statuses
+            for (int i = 0; i < prTableModel.getRowCount(); i++) {
+                Object prNumCellObj = prTableModel.getValueAt(i, PR_COL_NUMBER);
+                if (prNumCellObj instanceof String prNumCell && prNumCell.startsWith("#")) {
+                    try {
+                        int prNumberInTable = Integer.parseInt(prNumCell.substring(1));
+                        if (newStatuses.containsKey(prNumberInTable)) {
+                            prTableModel.setValueAt(newStatuses.get(prNumberInTable), i, PR_COL_STATUS);
                         }
+                    } catch (NumberFormatException nfe) {
+                        logger.trace("Skipping Status update for non-PR row in table: {}", prNumCell);
                     }
                 }
-            } catch (InterruptedException e) {
-                logger.warn("CI status fetch worker interrupted", e);
-                Thread.currentThread().interrupt();
-            } catch (CancellationException e) {
-                logger.debug("CI status fetch worker task was cancelled.");
-            } catch (ExecutionException e) {
-                reportBackgroundError("Error executing CI status fetch worker task", requireNonNull(e.getCause()));
-            } catch (Exception e) {
-                reportBackgroundError("Error processing CI status fetch results", e);
             }
         }
     }
@@ -1284,11 +1282,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         contextManager.getBackgroundTasks().submit(activeCiFetcher);
     }
 
-    private class PrFilesFetcherWorker extends SwingWorker<Map<Integer, List<String>>, Void> {
+    private class PrFilesFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, List<String>>, Void> {
         private final List<GHPullRequest> prsToFetchFilesFor;
         private final IProject project;
 
         public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor, IProject project) {
+            super(chrome);
             this.prsToFetchFilesFor = prsToFetchFilesFor;
             this.project = project;
         }
@@ -1411,19 +1410,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 logger.debug("PR files fetcher worker cancelled.");
                 return;
             }
-            try {
-                get(); // Consume the result to complete the future properly
-                // Files are now loaded on demand, no caching
-            } catch (InterruptedException e) {
-                logger.warn("PR files fetcher worker interrupted", e);
-                Thread.currentThread().interrupt();
-            } catch (CancellationException e) {
-                logger.debug("PR files fetcher worker task was cancelled.");
-            } catch (ExecutionException e) {
-                reportBackgroundError("Error executing PR files fetcher worker task", requireNonNull(e.getCause()));
-            } catch (Exception e) {
-                reportBackgroundError("Error processing PR files fetcher results", e);
-            }
+
+            // Centralized exception handling
+            super.done();
         }
     }
 
@@ -2057,16 +2046,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             }
                         }
                     });
-                } catch (InterruptedException e) {
-                    logger.warn("PR files fetcher worker interrupted", e);
-                    Thread.currentThread().interrupt();
-                } catch (CancellationException e) {
-                    logger.debug("PR files fetcher worker task was cancelled.");
-                } catch (ExecutionException e) {
-                    var cause = requireNonNull(e.getCause());
-                    reportBackgroundError("Error executing PR files fetcher worker task", cause);
-                } catch (Exception e) {
-                    reportBackgroundError("Error processing PR files fetcher results", e);
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new RuntimeException(e);
                 }
             }
         };

@@ -1725,7 +1725,7 @@ public class WorkspacePanel extends JPanel {
                     case PASTE -> doPasteAction();
                     case RUN_TESTS -> doRunTestsAction(selectedFragments);
                 }
-            } catch (CancellationException cex) {
+            } catch (CancellationException | InterruptedException cex) {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " canceled.");
             } finally {
                 SwingUtilities.invokeLater(chrome::focusInput);
@@ -1942,7 +1942,7 @@ public class WorkspacePanel extends JPanel {
         contextManager.dropWithHistorySemantics(selectedFragments);
     }
 
-    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) {
+    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
         var testFiles = selectedFragments.stream()
                 .flatMap(frag -> frag.files().stream())
                 .filter(ContextManager::isTestFile)

@@ -958,7 +958,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Submit the quick-edit session to a background future
         var future = cm.submitExclusiveAction(() -> {
-            var agent = new CodeAgent(cm, cm.getService().quickModel());
+            var agent = new CodeAgent(cm, cm.getService().quickEditModel());
             return agent.runQuickTask(file, selectedText, instructions);
         });
 

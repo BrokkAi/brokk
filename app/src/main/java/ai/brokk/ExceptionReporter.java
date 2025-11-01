@@ -9,7 +9,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
@@ -165,27 +164,6 @@ public class ExceptionReporter {
     }
 
     /**
-     * Creates an ExceptionReporter for the current active project, if available. This is a convenience method for lazy
-     * initialization.
-     *
-     * @return An ExceptionReporter instance, or null if no active project is available
-     */
-    @Nullable
-    public static ExceptionReporter tryCreateFromActiveProject() {
-        try {
-            Chrome activeWindow = Brokk.getActiveWindow();
-            if (activeWindow != null) {
-                ContextManager contextManager = activeWindow.getContextManager();
-                Service service = contextManager.getService();
-                return new ExceptionReporter(service);
-            }
-        } catch (Exception e) {
-            logger.debug("Could not create ExceptionReporter from active project: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    /**
      * Convenience method to report an exception from the active project. This method handles all error cases gracefully
      * and never throws exceptions. Uses the cached ExceptionReporter from the active ContextManager.
      *
@@ -202,15 +180,10 @@ public class ExceptionReporter {
             return;
         }
 
-        try {
-            Chrome activeWindow = Brokk.getActiveWindow();
-            if (activeWindow != null) {
-                ContextManager contextManager = activeWindow.getContextManager();
-                ExceptionReporter reporter = contextManager.getExceptionReporter();
-                reporter.reportException(throwable);
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to report exception: {}", e.getMessage());
+        Chrome activeWindow = Brokk.getActiveWindow();
+        if (activeWindow != null) {
+            var cm = activeWindow.getContextManager();
+            cm.reportException(throwable);
         }
     }
 }

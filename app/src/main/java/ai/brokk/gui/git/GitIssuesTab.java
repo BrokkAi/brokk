@@ -2,7 +2,6 @@ package ai.brokk.gui.git;
 
 import ai.brokk.*;
 import ai.brokk.ContextManager;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.MainProject;
@@ -1198,9 +1197,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     }
                 }
             } catch (Exception e) {
-                logger.error("Unexpected error processing image {}: {}", imageUri.toString(), e.getMessage(), e);
-                ExceptionReporter.tryReportException(e);
-                chrome.toolError("Error processing image " + imageUri.toString() + ": " + e.getMessage());
+                logger.error("Error downloading image: {}", imageUri.toString(), e);
+                chrome.toolError("Error downloading image: " + imageUri.toString() + " - " + e.getMessage());
             }
         }
         return capturedImageCount;
