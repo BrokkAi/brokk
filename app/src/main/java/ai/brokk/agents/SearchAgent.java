@@ -553,6 +553,7 @@ public class SearchAgent {
 
         // Text-based search
         names.add("searchSubstrings");
+        names.add("keywordSearch");
         names.add("searchGitCommitMessages");
         names.add("searchFilenames");
         names.add("getFileContents");
@@ -662,7 +663,7 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
+            case "searchSymbols", "getUsages", "searchSubstrings", "keywordSearch", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
 

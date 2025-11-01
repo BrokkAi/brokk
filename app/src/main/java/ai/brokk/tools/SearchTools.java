@@ -619,7 +619,11 @@ public class SearchTools {
      * @param query the search query (e.g., "parse error handling")
      * @return a list of fully qualified names ranked by relevance, or empty if no matches or query is blank
      */
-    public List<String> keywordSearch(String query) {
+    @Tool("""
+            Searches for keywords using the analyzer's keyword search capability (BM25).
+            Returns a list of fully qualified names ranked by relevance.
+            """)
+    public List<String> keywordSearch(@P("Search query string in natural language; Lucene will handle parsing") String query) {
         return getAnalyzer().keywordSearch(query, 20)
                 .stream()
                 .map(CodeUnit::fqName)
