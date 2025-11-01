@@ -7,28 +7,31 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.GoAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class GoAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
-                rootDir,
-                "a.go",
-                """
+        var initial = new ProjectFile(tempDir, "a.go");
+        initial.write("""
                 package main
                 func Foo() int { return 1 }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.GO);
+        project = new TestProject(tempDir, Languages.GO);
         analyzer = new GoAnalyzer(project);
     }
 
@@ -42,10 +45,9 @@ class GoAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("main.Foo").isPresent());
         assertTrue(analyzer.getDefinition("main.Bar").isEmpty());
 
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "a.go",
-                """
+        new ProjectFile(project.getRoot(), "a.go")
+                .write(
+                        """
                 package main
                 func Foo() int { return 1 }
                 func Bar() int { return 2 }
@@ -58,10 +60,9 @@ class GoAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "a.go",
-                """
+        new ProjectFile(project.getRoot(), "a.go")
+                .write(
+                        """
                 package main
                 func Foo() int { return 1 }
                 func Baz() int { return 3 }

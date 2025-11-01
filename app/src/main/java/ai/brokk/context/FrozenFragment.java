@@ -462,7 +462,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 if (repoRoot == null || relPath == null) {
                     throw new IllegalArgumentException("Missing metadata for ProjectPathFragment");
                 }
-                var file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                var file = cm.toFile(relPath);
                 yield new ContextFragment.ProjectPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
@@ -488,7 +488,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     if (repoRoot == null || relPath == null) {
                         throw new IllegalArgumentException("Missing ProjectFile metadata for ImageFileFragment");
                     }
-                    file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                    file = cm.toFile(relPath);
                 } else {
                     file = new ExternalFile(Path.of(absPath));
                 }
@@ -558,7 +558,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                         && kindStr != null
                         && packageName != null
                         && shortName != null) {
-                    var pf = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                    var pf = cm.toFile(relPath);
                     var kind = CodeUnitType.valueOf(kindStr);
                     unit = new CodeUnit(pf, kind, packageName, shortName);
                 } else {

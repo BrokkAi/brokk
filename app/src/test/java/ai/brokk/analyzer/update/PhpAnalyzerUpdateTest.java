@@ -10,25 +10,28 @@ import ai.brokk.analyzer.PhpAnalyzer;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class PhpAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
-                rootDir,
-                "foo.php",
-                """
+        // create initial file in the temp directory
+        new ProjectFile(tempDir, "foo.php")
+                .write("""
                 <?php
                 function foo(): int { return 1; }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.PHP);
+        project = new TestProject(tempDir, Languages.PHP);
         analyzer = new PhpAnalyzer(project);
     }
 
@@ -42,10 +45,9 @@ class PhpAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("foo").isPresent());
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "foo.php",
-                """
+        new ProjectFile(project.getRoot(), "foo.php")
+                .write(
+                        """
                 <?php
                 function foo(): int { return 1; }
                 function bar(): int { return 2; }
@@ -59,10 +61,9 @@ class PhpAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "foo.php",
-                """
+        new ProjectFile(project.getRoot(), "foo.php")
+                .write(
+                        """
                 <?php
                 function foo(): int { return 1; }
                 function baz(): int { return 3; }

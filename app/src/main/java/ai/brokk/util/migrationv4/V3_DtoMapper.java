@@ -133,8 +133,7 @@ public class V3_DtoMapper {
             V3_HistoryIo.ContentReader reader) {
         return switch (dto) {
             case V3_FragmentDtos.ProjectFileDto pfd ->
-                ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+                ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
             case V3_FragmentDtos.ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case V3_FragmentDtos.ImageFileDto ifd -> {
@@ -143,10 +142,7 @@ public class V3_DtoMapper {
             }
             case V3_FragmentDtos.GitFileFragmentDto gfd ->
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
-                        gfd.revision(),
-                        reader.readContent(gfd.contentId()),
-                        gfd.id());
+                        mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case V3_FragmentDtos.FrozenFragmentDto ffd -> {
                 // TODO: [Migration4] Frozen fragments are to be replaced and mapped to "Fragments"
                 yield FrozenFragment.fromDto(
@@ -160,7 +156,7 @@ public class V3_DtoMapper {
                         ffd.isTextFragment(),
                         ffd.syntaxStyle(),
                         ffd.files().stream()
-                                .map(V3_DtoMapper::fromProjectFileDto)
+                                .map(p -> fromProjectFileDto(p, mgr))
                                 .collect(Collectors.toSet()),
                         ffd.originalClassName(),
                         ffd.meta(),
@@ -198,7 +194,7 @@ public class V3_DtoMapper {
             }
             case V3_FragmentDtos.SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
-                        .map(V3_DtoMapper::fromCodeUnitDto)
+                        .map(u -> fromCodeUnitDto(u, mgr))
                         .collect(Collectors.toSet());
                 var messages = searchDto.messages().stream()
                         .map(msgDto -> fromChatMessageDto(msgDto, reader))
@@ -256,7 +252,7 @@ public class V3_DtoMapper {
             }
             case V3_FragmentDtos.StacktraceFragmentDto stDto -> {
                 var sources = stDto.sources().stream()
-                        .map(V3_DtoMapper::fromCodeUnitDto)
+                        .map(u -> fromCodeUnitDto(u, mgr))
                         .collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(
                         stDto.id(),
@@ -274,7 +270,7 @@ public class V3_DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case V3_FragmentDtos.CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit(), mgr));
             case V3_FragmentDtos.BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -307,7 +303,7 @@ public class V3_DtoMapper {
         if (path.startsWith(projectRoot)) {
             try {
                 Path relPath = projectRoot.relativize(path);
-                return new ProjectFile(projectRoot, relPath);
+                return mgr.toFile(relPath.toString());
             } catch (IllegalArgumentException e) {
                 return new ExternalFile(path);
             }
@@ -315,8 +311,8 @@ public class V3_DtoMapper {
         return new ExternalFile(path);
     }
 
-    private static ProjectFile fromProjectFileDto(V3_FragmentDtos.ProjectFileDto dto) {
-        return new ProjectFile(Path.of(dto.repoRoot()), Path.of(dto.relPath()));
+    private static ProjectFile fromProjectFileDto(V3_FragmentDtos.ProjectFileDto dto, IContextManager mgr) {
+        return mgr.toFile(dto.relPath());
     }
 
     private static ChatMessage fromChatMessageDto(
@@ -358,9 +354,9 @@ public class V3_DtoMapper {
         throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
     }
 
-    private static CodeUnit fromCodeUnitDto(V3_FragmentDtos.CodeUnitDto dto) {
+    private static CodeUnit fromCodeUnitDto(V3_FragmentDtos.CodeUnitDto dto, IContextManager mgr) {
         V3_FragmentDtos.ProjectFileDto pfd = dto.sourceFile();
-        ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
+        ProjectFile source = mgr.toFile(pfd.relPath());
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }
@@ -379,16 +375,17 @@ public class V3_DtoMapper {
     /* ───────────── entryInfos mapping ───────────── */
 
     public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
-            Map<String, V3_FragmentDtos.EntryInfoDto> dtoMap) {
+            Map<String, V3_FragmentDtos.EntryInfoDto> dtoMap, IContextManager mgr) {
         return dtoMap.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
-                                .map(V3_DtoMapper::fromDeletedFileDto)
+                                .map(df -> fromDeletedFileDto(df, mgr))
                                 .toList())));
     }
 
-    private static ContextHistory.DeletedFile fromDeletedFileDto(V3_FragmentDtos.DeletedFileDto dto) {
-        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file()), dto.content(), dto.wasTracked());
+    private static ContextHistory.DeletedFile fromDeletedFileDto(
+            V3_FragmentDtos.DeletedFileDto dto, IContextManager mgr) {
+        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file(), mgr), dto.content(), dto.wasTracked());
     }
 }
