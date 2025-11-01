@@ -3233,11 +3233,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
-    @Override
-    public List<CodeUnit> keywordSearch(String query) {
-        return keywordSearch(query, 100);
-    }
-
     /**
      * Performs a full-text keyword search across code units using BM25 similarity scoring.
      *
@@ -3252,7 +3247,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     public List<CodeUnit> keywordSearch(String query, int K) {
         // Handle null or blank query
-        if (query == null || query.isBlank()) {
+        if (query.isBlank()) {
             return List.of();
         }
 

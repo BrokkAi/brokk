@@ -285,4 +285,32 @@ public class MultiAnalyzer
     public Map<Language, IAnalyzer> getDelegates() {
         return Collections.unmodifiableMap(delegates);
     }
+
+    /** 
+     * Perform a full‑text keyword search across all delegate analyzers.
+     *
+     * <p>Results from each delegate are combined into a distinct, sorted list.
+     * The combined list may be larger than the {@code K} limit supplied to the
+     * overloaded method; callers can trim the list themselves if desired.
+     *
+     * Note: we do not have a way to compare relevance across sub-analyzers so the
+     * results will not be strictly ordered by relevance; additionally, we will return
+     * the full K results per delegate analyzer.
+     */
+    @Override
+    public List<CodeUnit> keywordSearch(String query, int K) {
+        if (query.isBlank()) {
+            return List.of();
+        }
+
+        return delegates.values().stream()
+                .flatMap(analyzer -> {
+                    try {
+                        return analyzer.keywordSearch(query, K).stream();
+                    } catch (UnsupportedOperationException ignored) {
+                        return Stream.empty();
+                    }
+                })
+                .toList();
+    }
 }

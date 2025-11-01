@@ -6,6 +6,7 @@ import static java.lang.Math.min;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -191,23 +192,24 @@ public class ContextAgent {
         }
 
         // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
-        var existingFiles = context.allFragments()
+        var seedFiles = context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                         || f.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
-        List<ProjectFile> candidates;
-        if (existingFiles.isEmpty()) {
-            candidates = cm.getProject().getAllFiles().stream().sorted().toList();
-            logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
-        } else {
-            candidates = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
-                    .filter(f -> !existingFiles.contains(f))
-                    .sorted()
-                    .toList();
-            logger.debug("Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
+        if (seedFiles.isEmpty()) {
+            seedFiles = analyzer.keywordSearch(goal, Context.MAX_AUTO_CONTEXT_FILES / 10).stream()
+                    .map(CodeUnit::source).collect(Collectors.toSet());
+            logger.debug("Empty workspace; using keyword search results as seed: {}", seedFiles.stream().map(BrokkFile::getFileName).toList());
         }
+        Set<ProjectFile> finalSeedFiles = seedFiles;
+        var adjacencies = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
+                .filter(f -> !finalSeedFiles.contains(f))
+                        .collect(Collectors.toSet());
+        logger.debug("Expanded to Git-based distance candidates: {}", adjacencies.stream().map(BrokkFile::getFileName).toList());
 
+        var candidates = new HashSet<>(seedFiles);
+        candidates.addAll(adjacencies);
         Set<ProjectFile> analyzedFileSet = candidates.stream()
                 .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
                 .collect(Collectors.toSet());
@@ -320,7 +322,7 @@ public class ContextAgent {
         var combinedUsage = Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
 
         var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, combinedReasoning, combinedUsage);
-        var result = createResult(unifiedRec, existingFiles);
+        var result = createResult(unifiedRec, seedFiles);
 
         return new RecommendationResult(success, result, combinedReasoning, combinedUsage);
     }
