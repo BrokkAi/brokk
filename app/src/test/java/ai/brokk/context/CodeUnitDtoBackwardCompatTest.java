@@ -8,6 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests to verify backward-compatible deserialization when CodeUnitDto lacks the optional 'signature' field,
@@ -15,17 +16,21 @@ import org.junit.jupiter.api.Test;
  */
 public class CodeUnitDtoBackwardCompatTest {
 
+    @TempDir
+    Path tempDir;
+
     @Test
     public void jacksonDeserializesMissingSignatureAsNull() throws Exception {
         var json =
                 """
                 {
-                  "sourceFile": { "id": "0", "repoRoot": "/repo/root", "relPath": "src/A.cpp" },
+                  "sourceFile": { "id": "0", "repoRoot": "%s", "relPath": "src/A.cpp" },
                   "kind": "FUNCTION",
                   "packageName": "pkg",
                   "shortName": "A.foo"
                 }
-                """;
+                """
+                        .formatted(tempDir.toString().replace("\\", "\\\\"));
 
         ObjectMapper mapper = new ObjectMapper();
         // Allow comments in the inlined JSON test fixture (some historical fixtures may contain comments)
@@ -40,7 +45,7 @@ public class CodeUnitDtoBackwardCompatTest {
     @Test
     public void codeUnitEqualityAndHashDontDependOnSignature() {
         // Prepare a ProjectFile and common identity fields
-        ProjectFile pf = new ProjectFile(Path.of("/repo/root"), Path.of("src/A.cpp"));
+        ProjectFile pf = new ProjectFile(tempDir, Path.of("src/A.cpp"));
         CodeUnitType kind = CodeUnitType.FUNCTION;
         String pkg = "pkg";
         String shortName = "A.foo";
@@ -65,7 +70,7 @@ public class CodeUnitDtoBackwardCompatTest {
 
     @Test
     public void codeUnitDtoRoundTripPreservesSignature() throws Exception {
-        ProjectFile pf = new ProjectFile(Path.of("/repo/root"), Path.of("src/A.cpp"));
+        ProjectFile pf = new ProjectFile(tempDir, Path.of("src/A.cpp"));
         // Create a CodeUnit with a non-null signature
         CodeUnit original = new CodeUnit(pf, CodeUnitType.FUNCTION, "pkg", "A.foo", "(int)");
 
@@ -103,12 +108,13 @@ public class CodeUnitDtoBackwardCompatTest {
         var json =
                 """
                 {
-                  "sourceFile": { "id": "0", "repoRoot": "/repo/root", "relPath": "src/A.cpp" },
+                  "sourceFile": { "id": "0", "repoRoot": "%s", "relPath": "src/A.cpp" },
                   "kind": "FUNCTION",
                   "packageName": "pkg",
                   "shortName": "A.foo"
                 }
-                """;
+                """
+                        .formatted(tempDir.toString().replace("\\", "\\\\"));
 
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
