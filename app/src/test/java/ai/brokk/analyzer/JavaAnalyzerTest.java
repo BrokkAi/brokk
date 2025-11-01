@@ -755,4 +755,37 @@ public class JavaAnalyzerTest {
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
     }
+
+    @Test
+    public void testKeywordSearchFindsHelloMethod() {
+        var results = analyzer.keywordSearch("hello", 10);
+        assertFalse(results.isEmpty(), "Keyword search for 'hello' should yield results");
+        var fqns = results.stream().map(CodeUnit::fqName).toList();
+        assertTrue(
+                fqns.contains("A.AInner.AInnerInner.method7"),
+                "Should find inner method 'A.AInner.AInnerInner.method7' by keyword search");
+    }
+
+    @Test
+    public void testKeywordSearchFindsConstructor() {
+        var results = analyzer.keywordSearch("constructor", 10);
+        var fqns = results.stream().map(CodeUnit::fqName).toList();
+        assertTrue(
+                fqns.contains("B.B"),
+                "Should find constructor 'B.B' by keyword search for 'constructor'");
+    }
+
+    @Test
+    public void testKeywordSearchWorksAfterSnapshotUpdate() {
+        // Force a snapshot-style analyzer by invoking the targeted update(Set<>) path
+        var file = new ProjectFile(testProject.getRoot(), "A.java");
+        IAnalyzer updated = analyzer.update(Set.of(file));
+
+        var results = updated.keywordSearch("hello", 10);
+        assertFalse(results.isEmpty(), "Keyword search should yield results after snapshot update");
+        var fqns = results.stream().map(CodeUnit::fqName).toList();
+        assertTrue(
+                fqns.contains("A.AInner.AInnerInner.method7"),
+                "Should still find inner method by keyword search after snapshot update");
+    }
 }

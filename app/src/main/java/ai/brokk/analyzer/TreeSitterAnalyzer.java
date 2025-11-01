@@ -122,9 +122,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private volatile AnalyzerState state;
 
     // Lucene indexing infrastructure for keyword search
-    private volatile @Nullable Directory indexDir;
-    private volatile @Nullable IndexSearcher indexSearcher;
-    private volatile @Nullable StandardAnalyzer stdAnalyzer;
+    private Directory indexDir;
+    private IndexSearcher indexSearcher;
+    private StandardAnalyzer stdAnalyzer;
 
     // Thread-safe collector for method documents during parsing
     private final Queue<MethodDoc> methodDocCollector = new ConcurrentLinkedQueue<>();
@@ -353,8 +353,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 symbolKeyIndex,
                 snapshotNanos);
 
-        // Build Lucene index from collected method documents for keyword search
-        buildKeywordSearchIndex();
+        initializeLuceneIndex();
 
         // Log summary of file processing results
         int totalAttempted = totalFilesAttempted.get();
@@ -438,6 +437,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         this.state = prebuiltState;
 
+        // Initialize Lucene index (empty for snapshots, but ensures searcher is available)
+        initializeLuceneIndex();
+
         // Align last update watermark with snapshot's epoch for incremental detection semantics.
         this.lastUpdateEpochNanos.set(prebuiltState.snapshotEpochNanos());
         log.debug(
@@ -445,6 +447,87 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 language.name(),
                 state.codeUnitState().size(),
                 state.fileState().size());
+    }
+
+    /**
+     * Initializes the Lucene in-memory index from collected method documents for keyword search.
+     * Creates index directory, analyzer, writes documents, and opens searcher.
+     * Safe to call with an empty methodDocCollector (creates empty index).
+     */
+    private void initializeLuceneIndex() {
+        // Create in-memory directory for the index
+        var directory = new ByteBuffersDirectory();
+        this.indexDir = directory;
+
+        // Initialize the standard analyzer for indexing and searching
+        var analyzer = new StandardAnalyzer();
+        this.stdAnalyzer = analyzer;
+
+        // Configure index writer with BM25 similarity
+        var iwc = new IndexWriterConfig(analyzer);
+        iwc.setSimilarity(new BM25Similarity());
+
+        // Build method documents directly from the current immutable state so snapshots are fully indexed
+        var docs = new ArrayList<MethodDoc>();
+        try {
+            var current = this.state;
+            current.codeUnitState().forEach((cu, props) -> {
+                if (!cu.isFunction()) {
+                    return;
+                }
+                var srcOpt = cu.source().read();
+                if (srcOpt.isEmpty()) {
+                    return;
+                }
+                var src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
+                var relPath = project.getRoot().relativize(cu.source().absPath()).toString();
+
+                for (var r : props.ranges()) {
+                    // Index from leading comments (commentStartByte) through the end of the definition
+                    var content = ASTTraversalUtils.safeSubstringFromByteOffsets(src, r.commentStartByte(), r.endByte());
+                    if (!content.isBlank()) {
+                        docs.add(new MethodDoc(cu.fqName(), relPath, content));
+                    }
+                }
+            });
+        } catch (Exception e) {
+            log.warn("[{}] Error assembling method docs for keyword index: {}", language.name(), e.getMessage(), e);
+        }
+
+        // Index all collected (state-derived) method documents
+        try (var writer = new IndexWriter(directory, iwc)) {
+            for (MethodDoc methodDoc : docs) {
+                var doc = new Document();
+
+                // Add stored fields for result mapping
+                doc.add(new StringField("fqn", methodDoc.fqn(), Field.Store.YES));
+                doc.add(new StringField("file", methodDoc.file(), Field.Store.YES));
+
+                // Add indexed (but not stored) content field for searching
+                doc.add(new TextField("content", methodDoc.content(), Field.Store.NO));
+
+                writer.addDocument(doc);
+            }
+            writer.commit();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        // Open searcher for keyword search queries
+        DirectoryReader reader;
+        try {
+            reader = DirectoryReader.open(directory);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        var searcher = new IndexSearcher(reader);
+        searcher.setSimilarity(new BM25Similarity());
+        this.indexSearcher = searcher;
+
+        log.debug(
+                "[{}] Built Lucene BM25 keyword search index with {} method documents",
+                this.language.name(),
+                docs.size());
     }
 
     /**
@@ -3175,61 +3258,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         CUWithDepth(CodeUnit cu, int depth) {
             this.cu = cu;
             this.depth = depth;
-        }
-    }
-
-    /**
-     * Builds the Lucene BM25 index from collected method documents. Called once during constructor
-     * initialization after all files have been analyzed. Creates an in-memory RAMDirectory index,
-     * then opens a searcher for use by {@link #keywordSearch(String)}.
-     */
-    private void buildKeywordSearchIndex() {
-        try {
-            // Create in-memory directory for the index
-            var directory = new ByteBuffersDirectory();
-            this.indexDir = directory;
-
-            // Initialize the standard analyzer for indexing and searching
-            var analyzer = new StandardAnalyzer();
-            this.stdAnalyzer = analyzer;
-
-            // Configure index writer with BM25 similarity
-            var iwc = new IndexWriterConfig(analyzer);
-            iwc.setSimilarity(new BM25Similarity());
-
-            // Index all collected method documents
-            try (var writer = new IndexWriter(directory, iwc)) {
-                for (MethodDoc methodDoc : methodDocCollector) {
-                    var doc = new Document();
-
-                    // Add stored fields for result mapping
-                    doc.add(new StringField("fqn", methodDoc.fqn(), Field.Store.YES));
-                    doc.add(new StringField("file", methodDoc.file(), Field.Store.YES));
-
-                    // Add indexed (but not stored) content field for searching
-                    doc.add(new TextField("content", methodDoc.content(), Field.Store.NO));
-
-                    writer.addDocument(doc);
-                }
-                writer.commit();
-            }
-
-            // Open searcher for keyword search queries
-            var reader = DirectoryReader.open(directory);
-            var searcher = new IndexSearcher(reader);
-            searcher.setSimilarity(new BM25Similarity());
-            this.indexSearcher = searcher;
-
-            log.debug(
-                    "[{}] Built Lucene BM25 keyword search index with {} method documents",
-                    language.name(),
-                    methodDocCollector.size());
-        } catch (Exception e) {
-            log.warn("[{}] Failed to build Lucene keyword search index: {}", language.name(), e.getMessage(), e);
-            // Index build failure is non-fatal; keyword search will simply be unavailable
-            this.indexDir = null;
-            this.indexSearcher = null;
-            this.stdAnalyzer = null;
         }
     }
 
