@@ -3239,6 +3239,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public List<CodeUnit> keywordSearch(String query) {
+        return keywordSearch(query, 100);
+    }
+
+    /**
+     * Performs a full-text keyword search across code units using BM25 similarity scoring.
+     *
+     * <p>This method searches method bodies and signatures indexed during analysis. Results are ranked by relevance
+     * score (highest first). Blank or null queries return an empty list. The search index reflects the initial
+     * project state; it is not updated incrementally.
+     *
+     * @param query the search query (e.g., "parse error handling")
+     * @param K the maximum number of top results to return
+     * @return a list of matching {@link CodeUnit}s ranked by relevance score (up to K results), or an empty list if no
+     *     matches or query is blank
+     */
+    public List<CodeUnit> keywordSearch(String query, int K) {
         // Handle null or blank query
         if (query == null || query.isBlank()) {
             return List.of();
@@ -3278,9 +3294,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
             var booleanQuery = booleanQueryBuilder.build();
 
-            // Execute search with reasonable topN
-            int topN = 100;
-            TopDocs topDocs = indexSearcher.search(booleanQuery, topN);
+            // Execute search with the specified K limit
+            TopDocs topDocs = indexSearcher.search(booleanQuery, K);
 
             // Collect results, deduplicating by FQN while preserving rank order
             var seenFqns = new HashSet<String>();
