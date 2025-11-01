@@ -1591,9 +1591,7 @@ public interface ContextFragment {
 
         @Override
         public boolean isEligibleForAutoContext() {
-            // If it's an auto-context fragment itself, it shouldn't contribute to seeding a new auto-context.
-            // A heuristic: auto-context typically CLASS_SKELETON of many classes
-            return getSummaryType() != SummaryType.CODEUNIT_SKELETON;
+            return false;
         }
 
         @Override
@@ -1776,6 +1774,11 @@ public interface ContextFragment {
                         return packageHeader + "\n\n" + pkgCode;
                     })
                     .collect(Collectors.joining("\n\n"));
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            return false;
         }
     }
 
