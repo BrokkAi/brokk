@@ -17,6 +17,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -31,6 +32,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +43,9 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.store.Directory;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
@@ -104,6 +109,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     // transferable snapshot of analyzer state
     private volatile AnalyzerState state;
+
+    // Lucene indexing infrastructure for keyword search
+    private volatile @Nullable Directory indexDir;
+    private volatile @Nullable IndexSearcher indexSearcher;
+    private volatile @Nullable StandardAnalyzer stdAnalyzer;
+
+    // Thread-safe collector for method documents during parsing
+    private final Queue<MethodDoc> methodDocCollector = new ConcurrentLinkedQueue<>();
 
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
@@ -973,6 +986,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         MODULE_STATEMENT, // For individual import/directive lines if treated as CUs
         UNSUPPORTED
     }
+
+    /**
+     * Record representing a method document for indexing. Contains the method's FQN, source file path, and
+     * content (signature and body).
+     */
+    private static record MethodDoc(String fqn, String file, String content) {}
 
     /**
      * Determines the {@link SkeletonType} for a given capture name. This allows subclasses to map their specific query

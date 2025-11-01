@@ -315,6 +315,23 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Performs a full-text keyword search across code units using BM25 similarity scoring.
+     *
+     * <p>This method searches method bodies and signatures indexed during analysis. Results are ranked by relevance
+     * score (highest first). Blank or null queries return an empty list. The search index reflects the initial
+     * project state; it is not updated incrementally.
+     *
+     * <p><b>Implementation Note:</b> Implementations may use Apache Lucene with BM25 similarity for scoring.
+     *
+     * @param query the search query (e.g., "parse error handling")
+     * @return a list of matching {@link CodeUnit}s ranked by relevance score, or an empty list if no matches or query
+     *     is blank
+     */
+    default List<CodeUnit> keywordSearch(String query) {
+        throw new UnsupportedOperationException("Keyword search is not supported by this analyzer");
+    }
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
