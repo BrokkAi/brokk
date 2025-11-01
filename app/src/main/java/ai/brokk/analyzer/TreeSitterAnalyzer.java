@@ -1271,6 +1271,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
             ProjectFile file) {
 
         // Find existing CodeUnit with same fqName
@@ -1286,13 +1287,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // SPECIAL CASE: For functions, prefer the definition (with body) over a forward declaration.
-        // We infer presence of a body from signatures produced earlier in analysis (signature contains
-        // bodyPlaceholder).
+        // Use AST-derived hasBody flag captured during analysis instead of string marker inspection.
         if (cu.isFunction() && existingDuplicate.isFunction()) {
-            List<String> existingSigs = localSignatures.getOrDefault(existingDuplicate, List.of());
-            List<String> candidateSigs = localSignatures.getOrDefault(cu, List.of());
-            boolean existingHasBody = existingSigs.stream().anyMatch(s -> s.contains(bodyPlaceholder()));
-            boolean candidateHasBody = candidateSigs.stream().anyMatch(s -> s.contains(bodyPlaceholder()));
+            boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
+            boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
             if (existingHasBody && !candidateHasBody) {
                 // Keep existing (definition) and ignore new declaration
@@ -1862,7 +1860,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
                     // Top-level CU - use helper to handle duplicates appropriately
-                    addTopLevelCodeUnit(cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
+                    addTopLevelCodeUnit(
+                            cu,
+                            localTopLevelCUs,
+                            localChildren,
+                            localSignatures,
+                            localSourceRanges,
+                            localHasBody,
+                            file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu, classChain);
@@ -1878,7 +1883,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 classChain);
                         // Fallback: add as top-level, but use helper to handle duplicates
                         addTopLevelCodeUnit(
-                                cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
+                                cu,
+                                localTopLevelCUs,
+                                localChildren,
+                                localSignatures,
+                                localSourceRanges,
+                                localHasBody,
+                                file);
                     }
                 }
             }
