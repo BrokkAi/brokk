@@ -91,6 +91,8 @@ dependencies {
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
     implementation(libs.pcollections)
+    implementation(libs.lucene.core)
+    implementation(libs.lucene.queryparser)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 

@@ -10,6 +10,7 @@ treesitter = "0.25.3"
 treesitter-lang = "0.23.4"
 palantirJavaFormat = "2.73.0"
 picocli = "4.7.7"
+lucene = "10.3.1"
 maven-embedder = "3.9.6"
 maven-resolver = "1.9.20"
 dependency-analysis = "3.0.0"
@@ -125,6 +126,10 @@ maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-reso
 
 # NEW: DiskLruCache library
 disklrucache = "com.jakewharton:disklrucache:2.0.2"
+
+# Lucene search engine
+lucene-core = { module = "org.apache.lucene:lucene-core", version.ref = "lucene" }
+lucene-queryparser = { module = "org.apache.lucene:lucene-queryparser", version.ref = "lucene" }
 
 [bundles]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
