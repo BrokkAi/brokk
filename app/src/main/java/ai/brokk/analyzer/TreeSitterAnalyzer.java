@@ -121,6 +121,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
+     */
+    public record CodeUnitProperties(
+            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
+
+        public static CodeUnitProperties empty() {
+            return new CodeUnitProperties(Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
+        }
+    }
+
+    /**
      * Read-only index of symbol keys with efficient prefix scan.
      */
     record SymbolKeyIndex(NavigableSet<String> keys) {
@@ -1437,6 +1448,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
+        Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -1708,6 +1720,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
             }
 
+            // Compute hasBody from AST for function-like code units
+            boolean hasBody = false;
+            if (getSkeletonTypeForCapture(primaryCaptureName) == SkeletonType.FUNCTION_LIKE) {
+                TSNode bodyNodeCandidate = node.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+                hasBody = bodyNodeCandidate != null
+                        && !bodyNodeCandidate.isNull()
+                        && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
+            }
+            localHasBody.put(cu, hasBody);
+
             localCodeUnitsBySymbol
                     .computeIfAbsent(cu.identifier(), k -> new ArrayList<>())
                     .add(cu);
@@ -1883,7 +1905,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
-            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs)));
+            boolean hasBody = localHasBody.getOrDefault(cu, false);
+            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
         }
 
         // Deduplicate top-level CodeUnits to avoid downstream duplicate-key issues
@@ -2951,7 +2974,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         analysisResult.codeUnitState().forEach((cu, newState) -> {
             targetCodeUnitState.compute(cu, (k, existing) -> {
                 if (existing == null) {
-                    return new CodeUnitProperties(newState.children(), newState.signatures(), newState.ranges());
+                    return new CodeUnitProperties(newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -2977,7 +3000,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
                     mergedRanges = List.copyOf(tmp);
                 }
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges);
+                boolean mergedHasBody = existing.hasBody() || newState.hasBody();
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
             });
         });
 
@@ -3045,7 +3069,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 return filteredKids.equals(state.children())
                                         ? state
                                         : new CodeUnitProperties(
-                                                List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                                List.copyOf(filteredKids), state.signatures(), state.ranges(), state.hasBody());
                             });
                             // Purge from symbol index
                             var symbolsToRemove = new ArrayList<String>();
