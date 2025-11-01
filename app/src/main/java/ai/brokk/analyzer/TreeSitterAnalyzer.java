@@ -1607,8 +1607,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // Allow subclasses to enhance the FQN (e.g., C++ function overloads with parameter signatures)
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
             if (!enhancedFqName.equals(cu.fqName())) {
-                // Reconstruct CodeUnit with enhanced FQName
-                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedFqName);
+                // Strip package prefix from enhanced FQN to get the short name
+                // enhancedFqName may be "ns.C.method(int)" but shortName should be "C.method(int)"
+                String enhancedShortName = enhancedFqName;
+                if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
+                    enhancedShortName =
+                            enhancedFqName.substring(cu.packageName().length() + 1);
+                }
+                // Reconstruct CodeUnit with enhanced short name (constructor will prepend package)
+                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName);
             }
 
             localCodeUnitsBySymbol

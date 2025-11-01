@@ -128,7 +128,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         String correctedClassChain = classChain;
         if (!packageName.isEmpty() && classChain.startsWith(packageName + ".")) {
+            // Class is nested within the package namespace, strip the package prefix
             correctedClassChain = classChain.substring(packageName.length() + 1);
+        } else if (!packageName.isEmpty() && classChain.equals(packageName)) {
+            // Free function/class directly in namespace with no nesting, clear classChain
+            correctedClassChain = "";
         }
 
         String fqName = correctedClassChain.isEmpty() ? simpleName : correctedClassChain + delimiter + simpleName;

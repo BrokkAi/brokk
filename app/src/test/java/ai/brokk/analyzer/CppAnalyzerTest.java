@@ -1047,4 +1047,163 @@ public class CppAnalyzerTest {
                 fq != null && fq.contains("std::vector<int>"),
                 "FQN should include intact template argument list: expected to find 'std::vector<int>' in " + fq);
     }
+
+    @Test
+    public void testNamespacedOverloadedFunctionFqNames() {
+        // Test for issue 1: Package duplication in FQNs for namespace-scoped overloaded functions
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("namespace_overloads.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("namespace_overloads.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in namespace_overloads.h");
+
+        logger.debug("Total declarations found: {}", decls.size());
+        decls.forEach(cu -> logger.debug(
+                "  - {} (kind: {}, packageName: '{}', shortName: '{}', fqName: '{}')",
+                cu.identifier(),
+                cu.kind(),
+                cu.packageName(),
+                cu.shortName(),
+                cu.fqName()));
+
+        // Find free function overloads in namespace 'ns'
+        var freeFuncOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("free_func"))
+                .collect(Collectors.toList());
+
+        assertEquals(2, freeFuncOverloads.size(), "Should find 2 overloads of free_func");
+
+        for (var cu : freeFuncOverloads) {
+            logger.debug("Checking free_func overload: {}", cu.fqName());
+
+            // Verify package name is correct
+            assertEquals("ns", cu.packageName(), "Package name should be 'ns' for free_func");
+
+            // Verify NO package duplication in FQN
+            // FQN should be "ns.free_func(int)" or "ns.free_func(double)"
+            // NOT "ns.ns.free_func(int)" or "ns.ns.free_func(double)"
+            assertFalse(
+                    cu.fqName().contains("ns.ns."),
+                    "FQN should NOT contain duplicated package 'ns.ns.' but was: " + cu.fqName());
+
+            // Verify FQN starts with package name exactly once
+            assertTrue(cu.fqName().startsWith("ns."), "FQN should start with 'ns.' but was: " + cu.fqName());
+
+            // Verify shortName doesn't contain package prefix
+            assertFalse(
+                    cu.shortName().startsWith("ns."),
+                    "shortName should NOT start with package prefix 'ns.' but was: " + cu.shortName());
+        }
+
+        // Find method overloads in class C within namespace 'ns'
+        var methodOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("method"))
+                .collect(Collectors.toList());
+
+        assertEquals(2, methodOverloads.size(), "Should find 2 overloads of C.method");
+
+        for (var cu : methodOverloads) {
+            logger.debug("Checking method overload: {}", cu.fqName());
+
+            // Verify package name is correct
+            assertEquals("ns", cu.packageName(), "Package name should be 'ns' for C.method");
+
+            // Verify NO package duplication in FQN
+            // FQN should be "ns.C.method(int)" or "ns.C.method(double)"
+            // NOT "ns.ns.C.method(int)" or "ns.ns.C.method(double)"
+            assertFalse(
+                    cu.fqName().contains("ns.ns."),
+                    "FQN should NOT contain duplicated package 'ns.ns.' but was: " + cu.fqName());
+
+            // Verify FQN starts with package name exactly once
+            assertTrue(cu.fqName().startsWith("ns."), "FQN should start with 'ns.' but was: " + cu.fqName());
+
+            // Verify shortName doesn't contain package prefix (should be "C.method(...)")
+            assertFalse(
+                    cu.shortName().startsWith("ns."),
+                    "shortName should NOT start with package prefix 'ns.' but was: " + cu.shortName());
+        }
+    }
+
+    @Test
+    public void testDefinitionVsDeclarationDetection() {
+        // Test for issue 3: Verify AST-based detection of definitions vs declarations
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("decl_vs_def.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("decl_vs_def.h not found"));
+
+        var skeletons = analyzer.getSkeletons(file);
+        assertFalse(skeletons.isEmpty(), "Should find skeletons in decl_vs_def.h");
+
+        logger.debug("Total skeletons found: {}", skeletons.size());
+        skeletons.forEach((cu, skeleton) -> logger.debug("  - {} (kind: {}):\n{}", cu.fqName(), cu.kind(), skeleton));
+
+        // Find the DeclVsDef class skeleton
+        var classSkeleton = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isClass())
+                .filter(e -> e.getKey().shortName().contains("DeclVsDef"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        assertTrue(classSkeleton.isPresent(), "Should find DeclVsDef class skeleton");
+
+        String classSkeletonContent = classSkeleton.get();
+        logger.debug("DeclVsDef class skeleton:\n{}", classSkeletonContent);
+
+        // Verify declaration_only appears without body placeholder in class skeleton
+        assertTrue(
+                classSkeletonContent.contains("void declaration_only()"),
+                "Class skeleton should contain declaration_only method declaration");
+
+        // Extract just the declaration_only line from the class skeleton
+        var declarationOnlyLine = classSkeletonContent
+                .lines()
+                .filter(line -> line.contains("declaration_only"))
+                .filter(line -> !line.contains("::"))
+                .findFirst()
+                .orElse("");
+
+        logger.debug("declaration_only line in class: '{}'", declarationOnlyLine);
+
+        // Declaration in class body should NOT have body placeholder
+        assertFalse(
+                declarationOnlyLine.contains("{...}") || declarationOnlyLine.contains("{"),
+                "Declaration-only method in class body should NOT contain body placeholder. Line: "
+                        + declarationOnlyLine);
+
+        // Verify inline_definition appears WITH body placeholder in class skeleton
+        var inlineDefinitionLine = classSkeletonContent
+                .lines()
+                .filter(line -> line.contains("inline_definition"))
+                .findFirst()
+                .orElse("");
+
+        logger.debug("inline_definition line in class: '{}'", inlineDefinitionLine);
+
+        assertTrue(
+                inlineDefinitionLine.contains("{...}") || inlineDefinitionLine.contains("{"),
+                "Inline definition should contain body placeholder. Line: " + inlineDefinitionLine);
+
+        // Find out-of-line definition of declaration_only (should have body placeholder)
+        var outOfLineDefinition = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isFunction())
+                .filter(e -> getBaseFunctionName(e.getKey()).equals("declaration_only"))
+                .filter(e -> e.getValue().contains("DeclVsDef::"))
+                .findFirst();
+
+        assertTrue(outOfLineDefinition.isPresent(), "Should find out-of-line definition of declaration_only method");
+
+        String outOfLineSkeleton = outOfLineDefinition.get().getValue();
+        logger.debug("declaration_only (out-of-line definition) skeleton: {}", outOfLineSkeleton);
+
+        // Out-of-line definition should have body placeholder
+        assertTrue(
+                outOfLineSkeleton.contains("{...}"),
+                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + outOfLineSkeleton);
+    }
 }
