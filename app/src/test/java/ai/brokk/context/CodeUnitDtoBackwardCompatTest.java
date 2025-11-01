@@ -43,7 +43,7 @@ public class CodeUnitDtoBackwardCompatTest {
     }
 
     @Test
-    public void codeUnitEqualityAndHashDontDependOnSignature() {
+    public void codeUnitEqualityIncludesSignature() {
         // Prepare a ProjectFile and common identity fields
         ProjectFile pf = new ProjectFile(tempDir, Path.of("src/A.cpp"));
         CodeUnitType kind = CodeUnitType.FUNCTION;
@@ -59,13 +59,19 @@ public class CodeUnitDtoBackwardCompatTest {
         // fqName should be computed solely from packageName and shortName
         assertEquals(cuLegacy.fqName(), cuWithSig.fqName(), "fqName must be identical regardless of signature");
 
-        // equals/hashCode intentionally exclude signature; verify that contract holds
-        assertEquals(cuLegacy, cuWithSig, "CodeUnit equality must ignore the optional signature field");
-        assertEquals(cuLegacy.hashCode(), cuWithSig.hashCode(), "Hash codes must match when only signature differs");
+        // equals/hashCode now INCLUDE signature for overload disambiguation
+        assertNotEquals(cuLegacy, cuWithSig, "CodeUnit equality must consider signature for overload distinction");
+        assertNotEquals(
+                cuLegacy.hashCode(), cuWithSig.hashCode(), "Hash codes must differ when signature differs");
 
         // hasSignature reflects presence/absence
         assertFalse(cuLegacy.hasSignature(), "Legacy CodeUnit should report no signature");
         assertTrue(cuWithSig.hasSignature(), "CodeUnit with signature should report presence");
+
+        // Two CodeUnits with same signature are equal
+        CodeUnit cuWithSig2 = new CodeUnit(pf, kind, pkg, shortName, "(int)");
+        assertEquals(cuWithSig, cuWithSig2, "CodeUnits with same signature should be equal");
+        assertEquals(cuWithSig.hashCode(), cuWithSig2.hashCode(), "Hash codes should match for same signature");
     }
 
     @Test

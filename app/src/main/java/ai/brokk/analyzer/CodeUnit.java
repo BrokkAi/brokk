@@ -159,14 +159,17 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * {@code null} for legacy items or when an analyzer cannot produce a canonical signature.
      * </p>
      *
-     * <p><strong>Migration notes for analyzers and maintainers:</strong></p>
+     * <p><strong>Design notes:</strong></p>
      * <ul>
-     *   <li><strong>Purpose:</strong> {@code signature} supplements (but does not replace) the existing {@code shortName}-based identity.
-     *       For now, {@link #fqName()} continues to be derived from {@code packageName} + {@code shortName}.</li>
-     *   <li><strong>Populate both:</strong> analyzers SHOULD continue to populate {@code shortName} exactly as before and,
-     *       when available, also populate {@code signature}. Passing {@code null} preserves backward compatibility.</li>
-     *   <li><strong>Backwards compatibility:</strong> {@code signature} may be {@code null} for historical data; {@code equals()}
-     *       and {@code hashCode()} intentionally do NOT depend on {@code signature}.</li>
+     *   <li><strong>Identity:</strong> {@code signature} is part of CodeUnit identity for overload disambiguation.
+     *       Two functions with the same {@code fqName} but different signatures (e.g., {@code foo(int)} vs {@code foo(double)})
+     *       are considered distinct CodeUnits.</li>
+     *   <li><strong>FQN derivation:</strong> {@link #fqName()} is derived from {@code packageName} + {@code shortName}
+     *       and does NOT include the signature. Signature is stored separately for clean separation.</li>
+     *   <li><strong>Equality:</strong> {@code equals()} and {@code hashCode()} include {@code signature} to distinguish overloads.
+     *       A CodeUnit with {@code signature=null} is NOT equal to one with {@code signature="(int)"}.</li>
+     *   <li><strong>Legacy data:</strong> CodeUnits deserialized from older JSON may have {@code signature=null}.
+     *       These are treated as distinct from newer CodeUnits with populated signatures.</li>
      * </ul>
      *
      * @return the signature string, or {@code null} if absent.
@@ -219,17 +222,18 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof CodeUnit other)) return false;
-        // Equality based on the derived fully qualified name, kind, AND source file
-        // This ensures that classes/interfaces with the same name in different files are distinct
+        // Equality based on the derived fully qualified name, kind, source file, AND signature
+        // Signature inclusion ensures overloaded functions are distinct (e.g., foo(int) vs foo(double))
         return kind == other.kind
                 && Objects.equals(this.fqName(), other.fqName())
-                && Objects.equals(this.source, other.source);
+                && Objects.equals(this.source, other.source)
+                && Objects.equals(this.signature, other.signature);
     }
 
     @Override
     public int hashCode() {
-        // Hash code based on the derived fully qualified name, kind, AND source file
-        return Objects.hash(kind, fqName(), source);
+        // Hash code based on the derived fully qualified name, kind, source file, AND signature
+        return Objects.hash(kind, fqName(), source, signature);
     }
 
     @Override

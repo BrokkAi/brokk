@@ -46,72 +46,36 @@ public class CppAnalyzerTest {
     }
 
     /**
-     * Extracts the base function name from a CodeUnit shortName that may include parameter signature
-     * and enclosing class/namespace qualifiers.
+     * Extracts the base function name from a CodeUnit shortName, removing enclosing class/namespace qualifiers.
+     *
+     * <p>Since parameters are now in the signature field (not shortName), this method only strips class/namespace
+     * prefixes.
      *
      * Examples:
-     * - "m(int)" -> "m"
-     * - "C.m(int)" -> "m"
-     * - "ns::C::m(int)" -> "m"
-     *
-     * This is defensive: it first strips the parameter list (text after '('), then removes any
-     * qualifying prefixes separated by '::', '.', or '$', returning the final simple name token.
+     * - "m" -> "m"
+     * - "C.m" -> "m"
+     * - "ns::C::m" -> "m"
+     * - "S.operator()" -> "operator()"
+     * - "operator==" -> "operator=="
      */
     private static String getBaseFunctionName(CodeUnit cu) {
         String shortName = cu.shortName();
 
-        // Handle operator names specially: for "operator(...)", we need to find the parameter list parens
-        // not the operator definition parens. E.g., "S::operator()()" should extract "operator()"
-        int parenIndex = -1;
-        if (shortName.contains("operator")) {
-            // Find the parameter list parenthesis by counting opening parens
-            // For "operator()" the first ( is part of the operator name, second ( is parameters
-            int openCount = 0;
-            for (int i = 0; i < shortName.length(); i++) {
-                char c = shortName.charAt(i);
-                if (c == '(') {
-                    openCount++;
-                    // If we've seen 2 opening parens, or if this is the first paren and it's NOT right after "operator"
-                    if (openCount == 2) {
-                        parenIndex = i;
-                        break;
-                    }
-                    if (openCount == 1 && i >= 8) {
-                        // Check if "operator" ends right before this paren (no gap)
-                        String before = shortName.substring(Math.max(0, i - 9), i);
-                        if (!before.contains("operator")) {
-                            // First paren is not part of "operator(...)", so it's the parameter list
-                            parenIndex = i;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (parenIndex < 0) {
-                // Didn't find two parens or any non-operator paren, use first paren as fallback
-                parenIndex = shortName.indexOf('(');
-            }
-        } else {
-            parenIndex = shortName.indexOf('(');
-        }
-
-        String beforeParen = parenIndex > 0 ? shortName.substring(0, parenIndex) : shortName;
-
         // Handle C++ scope operator '::' first
-        int idx = beforeParen.lastIndexOf("::");
-        if (idx >= 0 && idx + 2 < beforeParen.length()) {
-            return beforeParen.substring(idx + 2);
+        int idx = shortName.lastIndexOf("::");
+        if (idx >= 0 && idx + 2 < shortName.length()) {
+            return shortName.substring(idx + 2);
         }
 
         // Fallback: split on common hierarchy separators and take the last token
-        int lastDot = beforeParen.lastIndexOf('.');
-        int lastDollar = beforeParen.lastIndexOf('$');
+        int lastDot = shortName.lastIndexOf('.');
+        int lastDollar = shortName.lastIndexOf('$');
         int sep = Math.max(lastDot, lastDollar);
-        if (sep >= 0 && sep + 1 < beforeParen.length()) {
-            return beforeParen.substring(sep + 1);
+        if (sep >= 0 && sep + 1 < shortName.length()) {
+            return shortName.substring(sep + 1);
         }
 
-        return beforeParen;
+        return shortName;
     }
 
     @Test
@@ -735,12 +699,16 @@ public class CppAnalyzerTest {
 
         assertEquals(2, overloads.size(), "Should find two overloads of f() from templates");
 
-        // Ensure parameter type snippets are present in FQName (normalized)
-        var fqNames = overloads.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        boolean hasMap = fqNames.stream().anyMatch(n -> n.contains("map") || n.contains("std::map"));
-        boolean hasVectorPair = fqNames.stream().anyMatch(n -> n.contains("pair") || n.contains("std::pair"));
-        assertTrue(hasMap, "Should include std::map parameter in at least one FQName");
-        assertTrue(hasVectorPair, "Should include std::pair parameter in at least one FQName");
+        // Ensure parameter type snippets are present in signatures (normalized)
+        var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        boolean hasMap = signatures.stream()
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(sig -> sig.contains("map") || sig.contains("std::map"));
+        boolean hasVectorPair = signatures.stream()
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(sig -> sig.contains("pair") || sig.contains("std::pair"));
+        assertTrue(hasMap, "Should include std::map parameter in at least one signature");
+        assertTrue(hasVectorPair, "Should include std::pair parameter in at least one signature");
     }
 
     @Test
@@ -773,11 +741,17 @@ public class CppAnalyzerTest {
         var fOverloads = decls.stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> getBaseFunctionName(cu).equals("f"))
-                .map(CodeUnit::fqName)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
 
-        // Expect at least 3 distinct FQNs for the qualifiers (const, &, noexcept)
+        // Expect at least 3 distinct overloads (distinguished by qualifiers in signature)
+        // Note: Overloads now have same fqName but different signatures
         assertTrue(fOverloads.size() >= 3, "Should distinguish f() overloads by qualifiers");
+
+        // Verify signatures are distinct
+        var signatures = fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        assertTrue(
+                signatures.size() >= 3,
+                "Should have at least 3 distinct signatures for f() overloads with different qualifiers");
     }
 
     @Test
@@ -799,50 +773,53 @@ public class CppAnalyzerTest {
         logger.debug(
                 "Found {} overloads of f(): {}",
                 fOverloads.size(),
-                fOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toList()));
 
-        // Get their FQNs
-        var fqNames = fOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        // Get their signatures
+        var signatures = fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
 
-        logger.debug("FQN variants for f():");
-        fqNames.forEach(fqn -> logger.debug("  - {}", fqn));
+        logger.debug("Signature variants for f():");
+        signatures.forEach(sig -> logger.debug("  - {}", sig));
 
-        // Assertion (a): Distinct FQNs for volatile vs const volatile variants
-        var volatileFqn = fqNames.stream()
-                .filter(fqn -> fqn.contains("volatile") && !fqn.contains("const volatile"))
+        // Assertion (a): Distinct signatures for volatile vs const volatile variants
+        var volatileSig = signatures.stream()
+                .filter(sig -> sig != null && sig.contains("volatile") && !sig.contains("const volatile"))
                 .findFirst();
-        var constVolatileFqn =
-                fqNames.stream().filter(fqn -> fqn.contains("const volatile")).findFirst();
+        var constVolatileSig = signatures.stream()
+                .filter(sig -> sig != null && sig.contains("const volatile"))
+                .findFirst();
 
         assertTrue(
-                volatileFqn.isPresent(),
-                "Should have FQN containing 'volatile' for volatile member function. Available: " + fqNames);
+                volatileSig.isPresent(),
+                "Should have signature containing 'volatile' for volatile member function. Available: " + signatures);
         assertTrue(
-                constVolatileFqn.isPresent(),
-                "Should have FQN containing 'const volatile' for const volatile member function. Available: "
-                        + fqNames);
+                constVolatileSig.isPresent(),
+                "Should have signature containing 'const volatile' for const volatile member function. Available: "
+                        + signatures);
         assertNotEquals(
-                volatileFqn.get(),
-                constVolatileFqn.get(),
-                "volatile and const volatile variants should have distinct FQNs");
+                volatileSig.get(),
+                constVolatileSig.get(),
+                "volatile and const volatile variants should have distinct signatures");
 
         // Assertion (b): Distinguish & vs && reference qualifiers
-        var lvalueRefFqn = fqNames.stream()
-                .filter(fqn -> fqn.contains("&") && !fqn.contains("&&"))
+        var lvalueRefSig = signatures.stream()
+                .filter(sig -> sig != null && sig.contains("&") && !sig.contains("&&"))
                 .findFirst();
-        var rvalueRefFqn = fqNames.stream().filter(fqn -> fqn.contains("&&")).findFirst();
+        var rvalueRefSig = signatures.stream()
+                .filter(sig -> sig != null && sig.contains("&&"))
+                .findFirst();
 
         assertTrue(
-                lvalueRefFqn.isPresent() || rvalueRefFqn.isPresent(),
-                "Should have at least one reference-qualified variant. Available: " + fqNames);
-        if (lvalueRefFqn.isPresent() && rvalueRefFqn.isPresent()) {
+                lvalueRefSig.isPresent() || rvalueRefSig.isPresent(),
+                "Should have at least one reference-qualified variant. Available: " + signatures);
+        if (lvalueRefSig.isPresent() && rvalueRefSig.isPresent()) {
             assertNotEquals(
-                    lvalueRefFqn.get(),
-                    rvalueRefFqn.get(),
-                    "& and && reference qualifiers should produce distinct FQNs");
+                    lvalueRefSig.get(),
+                    rvalueRefSig.get(),
+                    "& and && reference qualifiers should produce distinct signatures");
         }
 
-        // Assertion (c): Distinct FQNs for noexcept(true) vs noexcept(false)
+        // Assertion (c): Distinct signatures for noexcept(true) vs noexcept(false)
         // Collect h() overloads to test noexcept distinction
         var hOverloads = decls.stream()
                 .filter(CodeUnit::isFunction)
@@ -852,25 +829,29 @@ public class CppAnalyzerTest {
         logger.debug(
                 "Found {} overloads of h(): {}",
                 hOverloads.size(),
-                hOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                hOverloads.stream().map(CodeUnit::signature).collect(Collectors.toList()));
 
-        var hFqNames = hOverloads.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        var hSignatures = hOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
 
-        var noexceptTrueFqn =
-                hFqNames.stream().filter(fqn -> fqn.contains("noexcept(true)")).findFirst();
-        var noexceptFalseFqn =
-                hFqNames.stream().filter(fqn -> fqn.contains("noexcept(false)")).findFirst();
+        var noexceptTrueSig = hSignatures.stream()
+                .filter(sig -> sig != null && sig.contains("noexcept(true)"))
+                .findFirst();
+        var noexceptFalseSig = hSignatures.stream()
+                .filter(sig -> sig != null && sig.contains("noexcept(false)"))
+                .findFirst();
 
         assertTrue(
-                noexceptTrueFqn.isPresent(),
-                "Should have FQN containing 'noexcept(true)' for noexcept(true) variant. Available: " + hFqNames);
+                noexceptTrueSig.isPresent(),
+                "Should have signature containing 'noexcept(true)' for noexcept(true) variant. Available: "
+                        + hSignatures);
         assertTrue(
-                noexceptFalseFqn.isPresent(),
-                "Should have FQN containing 'noexcept(false)' for noexcept(false) variant. Available: " + hFqNames);
+                noexceptFalseSig.isPresent(),
+                "Should have signature containing 'noexcept(false)' for noexcept(false) variant. Available: "
+                        + hSignatures);
         assertNotEquals(
-                noexceptTrueFqn.get(),
-                noexceptFalseFqn.get(),
-                "noexcept(true) and noexcept(false) variants should have distinct FQNs");
+                noexceptTrueSig.get(),
+                noexceptFalseSig.get(),
+                "noexcept(true) and noexcept(false) variants should have distinct signatures");
     }
 
     @Test
@@ -888,7 +869,7 @@ public class CppAnalyzerTest {
         assertFalse(funcs.isEmpty(), "Should find function-like declarations (operators)");
 
         logger.debug("Found {} function declarations in operators.h", funcs.size());
-        funcs.forEach(cu -> logger.debug("  - {} (FQN: {})", cu.shortName(), cu.fqName()));
+        funcs.forEach(cu -> logger.debug("  - {} (signature: {})", cu.shortName(), cu.signature()));
 
         // Check member operator(): base name should be "operator()"
         var memberCallOps = funcs.stream()
@@ -897,14 +878,14 @@ public class CppAnalyzerTest {
         assertFalse(memberCallOps.isEmpty(), "Should find member operator() overload(s)");
 
         logger.debug("Found {} member operator() overload(s)", memberCallOps.size());
-        memberCallOps.forEach(cu -> logger.debug("  - {} (FQN: {})", cu.shortName(), cu.fqName()));
+        memberCallOps.forEach(cu -> logger.debug("  - {} (signature: {})", cu.shortName(), cu.signature()));
 
-        // Ensure at least one member operator FQN contains 'const' qualifier
+        // Ensure at least one member operator signature contains 'const' qualifier
         boolean memberHasConst = memberCallOps.stream()
-                .map(CodeUnit::fqName)
+                .map(CodeUnit::signature)
                 .filter(java.util.Objects::nonNull)
-                .anyMatch(fqn -> fqn.contains("const"));
-        assertTrue(memberHasConst, "Member operator() FQN should include 'const' qualifier");
+                .anyMatch(sig -> sig.contains("const"));
+        assertTrue(memberHasConst, "Member operator() signature should include 'const' qualifier");
 
         // Check non-member operator== exists as a global function and includes int parameter types
         var nonMemberEq = funcs.stream()
@@ -914,14 +895,14 @@ public class CppAnalyzerTest {
         assertFalse(nonMemberEq.isEmpty(), "Should find non-member operator==(int,int) as a global function");
 
         logger.debug("Found {} non-member operator== overload(s)", nonMemberEq.size());
-        nonMemberEq.forEach(
-                cu -> logger.debug("  - {} (FQN: {}, packageName: {})", cu.shortName(), cu.fqName(), cu.packageName()));
+        nonMemberEq.forEach(cu -> logger.debug(
+                "  - {} (signature: {}, packageName: {})", cu.shortName(), cu.signature(), cu.packageName()));
 
         boolean eqHasIntParams = nonMemberEq.stream()
-                .map(CodeUnit::fqName)
+                .map(CodeUnit::signature)
                 .filter(java.util.Objects::nonNull)
-                .anyMatch(fqn -> fqn.contains("operator==(") && fqn.contains("int"));
-        assertTrue(eqHasIntParams, "operator== FQN should include int parameters");
+                .anyMatch(sig -> sig.contains("int"));
+        assertTrue(eqHasIntParams, "operator== signature should include int parameters");
     }
 
     @Test
@@ -1036,16 +1017,16 @@ public class CppAnalyzerTest {
 
         assertFalse(gFuncs.isEmpty(), "Should find function g() in template_fpointers.h");
 
-        // Pick one occurrence and inspect its FQN for intact template argument list
+        // Pick one occurrence and inspect its signature for intact template argument list
         var gCu = gFuncs.get(0);
-        String fq = gCu.fqName();
-        logger.debug("Found g() FQN: {}", fq);
+        String sig = gCu.signature();
+        logger.debug("Found g() signature: {}", sig);
 
-        // The FQN should include the intact template argument list "std::vector<int>"
+        // The signature should include the intact template argument list "std::vector<int>"
         // without splitting on the comma inside the template arguments
         assertTrue(
-                fq != null && fq.contains("std::vector<int>"),
-                "FQN should include intact template argument list: expected to find 'std::vector<int>' in " + fq);
+                sig != null && sig.contains("std::vector<int>"),
+                "Signature should include intact template argument list: expected to find 'std::vector<int>' in " + sig);
     }
 
     @Test
@@ -1205,5 +1186,74 @@ public class CppAnalyzerTest {
         assertTrue(
                 outOfLineSkeleton.contains("{...}"),
                 "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + outOfLineSkeleton);
+    }
+
+    @Test
+    public void testSignatureFieldPopulation() {
+        // Test that signature field is properly populated for C++ functions
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("namespace_overloads.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("namespace_overloads.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in namespace_overloads.h");
+
+        logger.debug("Testing signature field population:");
+        decls.forEach(cu -> logger.debug(
+                "  - {} (kind: {}, signature: '{}', shortName: '{}', fqName: '{}')",
+                cu.identifier(),
+                cu.kind(),
+                cu.signature(),
+                cu.shortName(),
+                cu.fqName()));
+
+        // Find function declarations
+        var functions = decls.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+
+        assertTrue(functions.size() >= 4, "Should find at least 4 function declarations");
+
+        for (var func : functions) {
+            logger.debug("Checking function: {}", func.fqName());
+
+            // All functions should have signature populated
+            assertNotNull(func.signature(), "Signature field should be populated for function: " + func.fqName());
+            assertTrue(func.hasSignature(), "hasSignature() should return true for: " + func.fqName());
+
+            // Signature should contain parentheses
+            assertTrue(
+                    func.signature().startsWith("("),
+                    "Signature should start with '(' for function: " + func.fqName() + ", got: " + func.signature());
+            assertTrue(
+                    func.signature().contains(")"),
+                    "Signature should contain ')' for function: " + func.fqName() + ", got: " + func.signature());
+
+            // FQN should NOT contain parameters
+            var fqName = func.fqName();
+            assertFalse(
+                    fqName.contains("("),
+                    "FQN should NOT contain '(' (parameters should be in signature only): " + fqName);
+
+            // shortName should NOT contain parameters
+            var shortName = func.shortName();
+            assertFalse(
+                    shortName.contains("("),
+                    "shortName should NOT contain '(' (parameters should be in signature only): " + shortName);
+        }
+
+        // Verify specific functions have expected signatures
+        var freeFuncInt = functions.stream()
+                .filter(f -> f.shortName().equals("free_func") && f.signature().contains("int"))
+                .findFirst();
+        assertTrue(freeFuncInt.isPresent(), "Should find free_func with int parameter");
+        assertEquals("(int)", freeFuncInt.get().signature(), "free_func(int) should have signature '(int)'");
+        assertEquals("ns.free_func", freeFuncInt.get().fqName(), "free_func FQN should be 'ns.free_func' without parameters");
+
+        var methodInt = functions.stream()
+                .filter(f -> f.shortName().equals("C.method") && f.signature().contains("int"))
+                .findFirst();
+        assertTrue(methodInt.isPresent(), "Should find C.method with int parameter");
+        assertEquals("(int)", methodInt.get().signature(), "C.method(int) should have signature '(int)'");
+        assertEquals("ns.C.method", methodInt.get().fqName(), "C.method FQN should be 'ns.C.method' without parameters");
     }
 }

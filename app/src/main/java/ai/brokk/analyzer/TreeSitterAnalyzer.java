@@ -528,9 +528,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     public Optional<CodeUnit> getDefinition(String fqName) {
         final String normalizedFqName = normalizeFullName(fqName);
 
+        // First try exact match on fqName
         List<CodeUnit> matches = uniqueCodeUnitList().stream()
                 .filter(cu -> cu.fqName().equals(normalizedFqName))
                 .toList();
+
+        // If no exact match and search string contains "(", try signature-aware matching for backward compatibility
+        // This handles cases like searching for "foo()" when fqName="foo" and signature="()"
+        if (matches.isEmpty() && normalizedFqName.contains("(")) {
+            int parenIndex = normalizedFqName.indexOf('(');
+            String baseName = normalizedFqName.substring(0, parenIndex);
+            String searchSignature = normalizedFqName.substring(parenIndex);
+
+            // Try exact signature match first
+            matches = uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().equals(baseName))
+                    .filter(cu -> {
+                        String cuSig = cu.signature();
+                        return cuSig != null && cuSig.equals(searchSignature);
+                    })
+                    .toList();
+
+            // If no exact signature match, return any CodeUnit with matching baseName
+            if (matches.isEmpty()) {
+                matches = uniqueCodeUnitList().stream()
+                        .filter(cu -> cu.fqName().equals(baseName))
+                        .toList();
+            }
+        }
 
         if (matches.isEmpty()) {
             return Optional.empty();
@@ -1006,6 +1031,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
         return fqName;
+    }
+
+    /**
+     * Extracts the signature string for a callable entity (function/method).
+     * Subclasses can override this to provide language-specific signature extraction.
+     *
+     * @param captureName The capture name from the query
+     * @param definitionNode The AST node for the definition
+     * @param src The source code string
+     * @return The signature string (e.g., "(int, String)"), or null if not applicable
+     */
+    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+        return null;
     }
 
     /**
@@ -1604,18 +1642,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            // Allow subclasses to enhance the FQN (e.g., C++ function overloads with parameter signatures)
+            // Allow subclasses to enhance the FQN (e.g., C++ destructor normalization)
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
-            if (!enhancedFqName.equals(cu.fqName())) {
+
+            // Extract signature separately for function-like entities (C++ overload disambiguation)
+            String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
+
+            // Reconstruct CodeUnit if FQN changed or signature exists
+            if (!enhancedFqName.equals(cu.fqName()) || codeUnitSignature != null) {
                 // Strip package prefix from enhanced FQN to get the short name
-                // enhancedFqName may be "ns.C.method(int)" but shortName should be "C.method(int)"
                 String enhancedShortName = enhancedFqName;
                 if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
                     enhancedShortName =
                             enhancedFqName.substring(cu.packageName().length() + 1);
                 }
-                // Reconstruct CodeUnit with enhanced short name (constructor will prepend package)
-                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName);
+                // Reconstruct CodeUnit with enhanced short name and signature
+                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
             }
 
             localCodeUnitsBySymbol

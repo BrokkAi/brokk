@@ -661,27 +661,47 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        // For functions (including constructors, destructors, and methods), append parameter signature (and qualifiers)
-        // to FQN
+        // For functions, apply name normalization (e.g., destructor tilde) but do NOT append signature
+        // Signature is now extracted separately via extractSignature()
         if (skeletonType == SkeletonType.FUNCTION_LIKE) {
             // Special-case: ensure destructors have a leading '~' in the symbol name.
             // Tree-sitter may expose the underlying identifier without the tilde; normalize here.
             if (CaptureNames.DESTRUCTOR_DEFINITION.equals(captureName) && !fqName.startsWith("~")) {
                 fqName = "~" + fqName;
             }
-
-            String paramSignature = buildCppOverloadSuffix(definitionNode, src);
-            String qualifierSuffix = buildCppQualifierSuffix(definitionNode, src);
-
-            if (!paramSignature.isEmpty()) {
-                return fqName + "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
-            }
-            // Empty parameter list: still append "()" for stable function identity, optionally with qualifiers
-            return fqName + "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+            // Return clean fqName without parameters/qualifiers
+            return fqName;
         }
 
         // For non-function types (classes, fields, modules), return unchanged
         return fqName;
+    }
+
+    /**
+     * Extracts the signature string for a function/method, including parameter types and qualifiers.
+     * This signature is used to populate CodeUnit.signature field for overload disambiguation.
+     *
+     * @param captureName The capture name from the query
+     * @param definitionNode The AST node for the function definition
+     * @param src The source code string
+     * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
+     */
+    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+        var skeletonType = getSkeletonTypeForCapture(captureName);
+
+        // Only extract signature for function-like entities
+        if (skeletonType != SkeletonType.FUNCTION_LIKE) {
+            return null;
+        }
+
+        String paramSignature = buildCppOverloadSuffix(definitionNode, src);
+        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, src);
+
+        if (!paramSignature.isEmpty()) {
+            return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
+        }
+        // Empty parameter list: still return "()" for stable function identity, optionally with qualifiers
+        return "()" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
     }
 
     /**
