@@ -2,7 +2,6 @@ package ai.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.*;
 import ai.brokk.EditBlock;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -207,7 +206,7 @@ public class CodeAgent {
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
                     metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
-                    Optional.ofNullable(streamingResult.tokenUsage()).ifPresent(metrics::addTokens);
+                    Optional.ofNullable(streamingResult.metadata()).ifPresent(metrics::addTokens);
                     metrics.addApiRetries(streamingResult.retries());
                 }
             } catch (InterruptedException e) {
@@ -1476,7 +1475,7 @@ public class CodeAgent {
         int applyRetries = 0;
         int apiRetries = 0;
 
-        void addTokens(@Nullable Llm.RichTokenUsage usage) {
+        void addTokens(@Nullable Llm.ResponseMetadata usage) {
             if (usage == null) {
                 return;
             }

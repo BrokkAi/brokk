@@ -257,6 +257,7 @@ public class Llm {
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
         var fenceOpen = new AtomicBoolean(false);
+        var elapsedMs = new AtomicReference<Long>(0L);
 
         Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
@@ -359,6 +360,7 @@ public class Llm {
 
         var finalHandler =
                 contextManager.getService().usesThinkTags(model) ? new ThinkTagInterceptor(rawHandler) : rawHandler;
+        long startTime = System.currentTimeMillis();
         try {
             model.chat(request, finalHandler);
         } catch (Throwable t) {
@@ -408,6 +410,10 @@ public class Llm {
             throw e; // Propagate interruption
         }
 
+        // Record elapsed time
+        long endTime = System.currentTimeMillis();
+        elapsedMs.set(endTime - startTime);
+
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
             io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
@@ -422,7 +428,7 @@ public class Llm {
             var partialText = accumulatedTextBuilder.toString();
             var partialReasoning = accumulatedReasoningBuilder.toString();
             if (partialText.isEmpty() && partialReasoning.isEmpty()) {
-                return new StreamingResult(null, error);
+                return new StreamingResult(null, error, 0, elapsedMs.get());
             }
 
             // Construct a ChatResponse from accumulated partial text
@@ -431,7 +437,7 @@ public class Llm {
                     "LLM call resulted in error: {}. Partial text captured: {} chars",
                     error.getMessage(),
                     partialText.length());
-            return new StreamingResult(partialResponse, error);
+            return new StreamingResult(partialResponse, error, 0, elapsedMs.get());
         }
 
         // Happy path: successful completion, no errors
@@ -440,7 +446,7 @@ public class Llm {
         if (echo) {
             io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
         }
-        return StreamingResult.fromResponse(response, null);
+        return StreamingResult.fromResponse(response, null, elapsedMs.get());
     }
 
     private long getLlmResponseTimeoutSeconds(boolean firstToken) {
@@ -1381,7 +1387,7 @@ public class Llm {
 
         // Compute and show cost notification if usage/pricing are available
         if (result != null) {
-            var usage = result.tokenUsage();
+            var usage = result.metadata();
             if (usage != null) {
                 var service = contextManager.getService();
                 var modelName = service.nameOf(model);
@@ -1464,7 +1470,23 @@ public class Llm {
         this.io = io;
     }
 
-    public record RichTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {}
+    public record ResponseMetadata(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens, long elapsedMs) {
+        /**
+         * Combines two ResponseMetadata objects by summing their token counts and elapsed time.
+         * Handles null values: returns the other metadata if one is null.
+         */
+        public static @Nullable ResponseMetadata sum(
+                @Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
+            if (a == null) return b;
+            if (b == null) return a;
+            return new ResponseMetadata(
+                    a.inputTokens() + b.inputTokens(),
+                    a.cachedInputTokens() + b.cachedInputTokens(),
+                    a.thinkingTokens() + b.thinkingTokens(),
+                    a.outputTokens() + b.outputTokens(),
+                    a.elapsedMs() + b.elapsedMs());
+        }
+    }
 
     /**
      * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS if the LLM hangs up
@@ -1475,13 +1497,21 @@ public class Llm {
      * <p>Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually inspecting the
      * contents of chatResponse.
      */
-    public record StreamingResult(@Nullable NullSafeResponse chatResponse, @Nullable Throwable error, int retries) {
+    public record StreamingResult(@Nullable NullSafeResponse chatResponse, @Nullable Throwable error, int retries, long elapsedMs) {
         public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error) {
-            this(partialResponse, error, 0);
+            this(partialResponse, error, 0, 0);
+        }
+
+        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error, int retries) {
+            this(partialResponse, error, retries, 0);
         }
 
         public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Throwable error) {
-            return new StreamingResult(new NullSafeResponse(originalResponse), error);
+            return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, 0);
+        }
+
+        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Throwable error, long elapsedMs) {
+            return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, elapsedMs);
         }
 
         public StreamingResult {
@@ -1496,7 +1526,7 @@ public class Llm {
             }
         }
 
-        public @Nullable RichTokenUsage tokenUsage() {
+        public @Nullable ResponseMetadata metadata() {
             if (originalResponse() == null) {
                 return null;
             }
@@ -1522,7 +1552,7 @@ public class Llm {
                 thinkingTokens = outputDetails.reasoningTokens();
             }
 
-            return new RichTokenUsage(inputTokens, cachedInputTokens, thinkingTokens, outputTokens);
+            return new ResponseMetadata(inputTokens, cachedInputTokens, thinkingTokens, outputTokens, elapsedMs);
         }
 
         public String text() {

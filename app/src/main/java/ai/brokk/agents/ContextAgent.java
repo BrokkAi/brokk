@@ -104,14 +104,14 @@ public class ContextAgent {
             boolean success,
             List<ContextFragment> fragments,
             String reasoning,
-            @Nullable Llm.RichTokenUsage tokenUsage) {}
+            @Nullable Llm.ResponseMetadata tokenUsage) {}
 
     /** Result record for the LLM tool call, holding recommended files, class names, and the LLM's reasoning. */
     private record LlmRecommendation(
             Set<ProjectFile> recommendedFiles,
             Set<CodeUnit> recommendedClasses,
             String reasoning,
-            @Nullable Llm.RichTokenUsage tokenUsage) {
+            @Nullable Llm.ResponseMetadata tokenUsage) {
         static final LlmRecommendation EMPTY = new LlmRecommendation(Set.of(), Set.of(), "", null);
 
         public LlmRecommendation(List<ProjectFile> files, List<CodeUnit> classes, String reasoning) {
@@ -317,7 +317,7 @@ public class ContextAgent {
         var combinedReasoning = Stream.of(analyzedRec.reasoning(), unAnalyzedRec.reasoning())
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
-        var combinedUsage = addTokenUsage(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
+        var combinedUsage = Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
 
         var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, combinedReasoning, combinedUsage);
         var result = createResult(unifiedRec, existingFiles);
@@ -362,7 +362,7 @@ public class ContextAgent {
 
         // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
         StringBuilder reasoning = new StringBuilder();
-        Llm.RichTokenUsage usage = null;
+        Llm.ResponseMetadata usage = null;
 
         if (initialTokens > evalBudgetRemaining) {
             logger.debug(
@@ -373,7 +373,7 @@ public class ContextAgent {
             var filenames = workingFiles.stream().map(ProjectFile::toString).toList();
             var pruneRec = askLlmDeepPruneFilenamesWithChunking(
                     filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
-            usage = addTokenUsage(usage, pruneRec.tokenUsage());
+            usage = Llm.ResponseMetadata.sum(usage, pruneRec.tokenUsage());
 
             workingFiles = pruneRec.recommendedFiles().stream().sorted().toList();
             if (!pruneRec.reasoning().isBlank())
@@ -398,7 +398,7 @@ public class ContextAgent {
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
         // If we still get a context-window error, iteratively cut off the least important half.
         LlmRecommendation evalRec = evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm);
-        usage = addTokenUsage(usage, evalRec.tokenUsage());
+        usage = Llm.ResponseMetadata.sum(usage, evalRec.tokenUsage());
         if (!reasoning.isEmpty()) {
             evalRec = new LlmRecommendation(
                     evalRec.recommendedFiles(),
@@ -620,7 +620,7 @@ public class ContextAgent {
                         .forEach(mergedFiles::add);
 
                 var mergedReasoning = (rec1.reasoning() + "\n" + rec2.reasoning()).strip();
-                var mergedUsage = addTokenUsage(rec1.tokenUsage(), rec2.tokenUsage());
+                var mergedUsage = Llm.ResponseMetadata.sum(rec1.tokenUsage(), rec2.tokenUsage());
 
                 return new LlmRecommendation(new HashSet<>(mergedFiles), Set.of(), mergedReasoning, mergedUsage);
             }
@@ -632,7 +632,7 @@ public class ContextAgent {
             return LlmRecommendation.EMPTY;
         }
 
-        var tokenUsage = result.tokenUsage();
+        var tokenUsage = result.metadata();
         var selected = filenames.stream()
                 .parallel()
                 .filter(f -> result.text().contains(f))
@@ -708,7 +708,7 @@ public class ContextAgent {
 
         var combinedFiles = new HashSet<ProjectFile>();
         var combinedReasoning = new StringBuilder();
-        @Nullable Llm.RichTokenUsage combinedUsage = null;
+        @Nullable Llm.ResponseMetadata combinedUsage = null;
 
         for (var f : futures) {
             LlmRecommendation rec;
@@ -722,7 +722,7 @@ public class ContextAgent {
                     .forEach(combinedFiles::add);
             if (!rec.reasoning().isBlank())
                 combinedReasoning.append(rec.reasoning()).append('\n');
-            combinedUsage = addTokenUsage(combinedUsage, rec.tokenUsage());
+            combinedUsage = Llm.ResponseMetadata.sum(combinedUsage, rec.tokenUsage());
         }
 
         if (showBatch1Reasoning) {
@@ -839,7 +839,7 @@ public class ContextAgent {
         logger.debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
         var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-        var tokenUsage = result.tokenUsage();
+        var tokenUsage = result.metadata();
         if (result.error() != null) {
             var error = result.error();
             // Special case: propagate ContextTooLargeException so caller can retry with halving
@@ -911,16 +911,4 @@ public class ContextAgent {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
-    // --- Helper methods ---
-
-    private static @Nullable Llm.RichTokenUsage addTokenUsage(
-            @Nullable Llm.RichTokenUsage a, @Nullable Llm.RichTokenUsage b) {
-        if (a == null) return b;
-        if (b == null) return a;
-        return new Llm.RichTokenUsage(
-                a.inputTokens() + b.inputTokens(),
-                a.cachedInputTokens() + b.cachedInputTokens(),
-                a.thinkingTokens() + b.thinkingTokens(),
-                a.outputTokens() + b.outputTokens());
-    }
 }
