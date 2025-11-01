@@ -236,11 +236,11 @@ public final class MergeOneFile {
 
                     var textOpt = file.read();
                     if (textOpt.isPresent() && !ConflictAnnotator.containsConflictMarkers(textOpt.get())) {
-                        io.llmOutput("Conflicts resolved for " + file, ChatMessageType.AI);
+                        io.llmOutput("\nConflicts resolved for " + file, ChatMessageType.AI);
                         return new Outcome(Status.RESOLVED, null);
                     } else {
                         var details = formatFailure(file, exec.resultText());
-                        io.llmOutput("CodeAgent failed to resolve conflicts for " + file, ChatMessageType.AI);
+                        io.llmOutput("\nCodeAgent failed to resolve conflicts for " + file, ChatMessageType.AI);
                         return new Outcome(Status.UNRESOLVED, details);
                     }
                 }

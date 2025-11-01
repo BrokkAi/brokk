@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
-import ai.brokk.ExceptionReporter;
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import java.awt.*;
@@ -122,14 +123,7 @@ public class FileSelectionTree extends JTree {
         }
 
         // Parent node doesn't exist, create it and its parents recursively
-        Path parentOfTarget = targetParentDirAbs.getParent();
-        if (parentOfTarget == null) { // Should not happen if targetParentDirAbs is under projectRoot
-            RuntimeException ex = new IllegalStateException("Unexpected null parent for path: " + targetParentDirAbs);
-            logger.error("Unexpected null parent for path: {}", targetParentDirAbs);
-            ExceptionReporter.tryReportException(ex);
-            return rootNode; // Fallback
-        }
-
+        Path parentOfTarget = requireNonNull(targetParentDirAbs.getParent());
         DefaultMutableTreeNode parentTreeNode = findOrCreateParentNode(projectRoot, parentOfTarget, rootNode, dirNodes);
 
         // Create the node for targetParentDirAbs

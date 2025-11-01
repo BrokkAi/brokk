@@ -18,12 +18,18 @@ import org.jetbrains.annotations.Nullable;
  * @param log The uncompressed list of chat messages for this task. Null if compressed.
  * @param summary The compressed representation of the chat messages (summary). Null if uncompressed.
  */
-public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
+public record TaskEntry(
+        int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary, @Nullable TaskMeta meta) {
 
     /** Enforce that exactly one of log or summary is non-null */
     public TaskEntry {
         assert (log == null) != (summary == null) : "Exactly one of log or summary must be non-null";
         assert summary == null || !summary.isEmpty();
+    }
+
+    // Backward-compatible overload for existing call-sites (pre-meta)
+    public TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
+        this(sequence, log, summary, null);
     }
 
     /**
@@ -35,12 +41,12 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
     // IContextManager is not needed here, TaskFragment itself will get it via SessionResult.output()
     // which is created with a contextManager in the agents
     public static TaskEntry fromSession(int sequence, TaskResult result) {
-        return new TaskEntry(sequence, result.output(), null);
+        return new TaskEntry(sequence, result.output(), null, result.meta());
     }
 
     public static TaskEntry fromCompressed(
             int sequence, String compressedLog) { // IContextManager not needed for compressed
-        return new TaskEntry(sequence, null, compressedLog);
+        return new TaskEntry(sequence, null, compressedLog, null);
     }
 
     /**

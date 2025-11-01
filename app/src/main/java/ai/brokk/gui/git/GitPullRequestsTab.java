@@ -1,14 +1,12 @@
 package ai.brokk.gui.git;
 
-import static java.util.Objects.requireNonNull;
-
-import ai.brokk.*;
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -17,6 +15,7 @@ import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.FilterBox;
 import ai.brokk.gui.PrTitleFormatter;
 import ai.brokk.gui.components.GitHubTokenMissingPanel;
@@ -38,7 +37,6 @@ import java.util.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -62,7 +60,7 @@ import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
 
-public class GitPullRequestsTab extends JPanel implements SettingsChangeListener {
+public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
 
@@ -583,6 +581,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         updatePrList(); // async
     }
 
+    @Override
+    public void applyTheme(ai.brokk.gui.theme.GuiTheme guiTheme) {
+        // Refresh the entire component tree to apply theme changes
+        SwingUtilities.updateComponentTreeUI(this);
+    }
+
     private class PrTableDoubleClickAdapter extends MouseAdapter {
         @Override
         public void mouseClicked(MouseEvent e) {
@@ -1069,7 +1073,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private List<String> generateFilterOptionsList(Map<String, Integer> counts) {
         List<String> options = new ArrayList<>();
         List<String> sortedItems = new ArrayList<>(counts.keySet());
-        Collections.sort(sortedItems, String.CASE_INSENSITIVE_ORDER);
+        sortedItems.sort(String.CASE_INSENSITIVE_ORDER);
 
         for (String item : sortedItems) {
             options.add(String.format("%s (%d)", item, counts.get(item)));
@@ -1184,10 +1188,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         fetchCiStatusesForDisplayedPrs();
     }
 
-    private class CiStatusFetcherWorker extends SwingWorker<Map<Integer, String>, Void> {
+    private class CiStatusFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, String>, Void> {
         private final List<GHPullRequest> prsToFetch;
 
         public CiStatusFetcherWorker(List<GHPullRequest> prsToFetch) {
+            super(chrome);
             this.prsToFetch = prsToFetch;
         }
 
@@ -1222,33 +1227,32 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 logger.debug("CI status fetch worker cancelled.");
                 return;
             }
-            try {
-                Map<Integer, String> newStatuses = get();
-                ciStatusCache.putAll(newStatuses);
+            // Centralized exception handling
+            super.done();
 
-                // Update the table model with new CI statuses
-                for (int i = 0; i < prTableModel.getRowCount(); i++) {
-                    Object prNumCellObj = prTableModel.getValueAt(i, PR_COL_NUMBER);
-                    if (prNumCellObj instanceof String prNumCell && prNumCell.startsWith("#")) {
-                        try {
-                            int prNumberInTable = Integer.parseInt(prNumCell.substring(1));
-                            if (newStatuses.containsKey(prNumberInTable)) {
-                                prTableModel.setValueAt(newStatuses.get(prNumberInTable), i, PR_COL_STATUS);
-                            }
-                        } catch (NumberFormatException nfe) {
-                            logger.trace("Skipping Status update for non-PR row in table: {}", prNumCell);
+            Map<Integer, String> newStatuses;
+            try {
+                newStatuses = get();
+            } catch (InterruptedException | ExecutionException ignored) {
+                // Already handled by ExceptionAwareSwingWorker.done()
+                return;
+            }
+
+            ciStatusCache.putAll(newStatuses);
+
+            // Update the table model with new CI statuses
+            for (int i = 0; i < prTableModel.getRowCount(); i++) {
+                Object prNumCellObj = prTableModel.getValueAt(i, PR_COL_NUMBER);
+                if (prNumCellObj instanceof String prNumCell && prNumCell.startsWith("#")) {
+                    try {
+                        int prNumberInTable = Integer.parseInt(prNumCell.substring(1));
+                        if (newStatuses.containsKey(prNumberInTable)) {
+                            prTableModel.setValueAt(newStatuses.get(prNumberInTable), i, PR_COL_STATUS);
                         }
+                    } catch (NumberFormatException nfe) {
+                        logger.trace("Skipping Status update for non-PR row in table: {}", prNumCell);
                     }
                 }
-            } catch (InterruptedException e) {
-                logger.warn("CI status fetch worker interrupted", e);
-                Thread.currentThread().interrupt();
-            } catch (CancellationException e) {
-                logger.debug("CI status fetch worker task was cancelled.");
-            } catch (ExecutionException e) {
-                reportBackgroundError("Error executing CI status fetch worker task", requireNonNull(e.getCause()));
-            } catch (Exception e) {
-                reportBackgroundError("Error processing CI status fetch results", e);
             }
         }
     }
@@ -1278,11 +1282,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         contextManager.getBackgroundTasks().submit(activeCiFetcher);
     }
 
-    private class PrFilesFetcherWorker extends SwingWorker<Map<Integer, List<String>>, Void> {
+    private class PrFilesFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, List<String>>, Void> {
         private final List<GHPullRequest> prsToFetchFilesFor;
         private final IProject project;
 
         public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor, IProject project) {
+            super(chrome);
             this.prsToFetchFilesFor = prsToFetchFilesFor;
             this.project = project;
         }
@@ -1405,19 +1410,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 logger.debug("PR files fetcher worker cancelled.");
                 return;
             }
-            try {
-                get(); // Consume the result to complete the future properly
-                // Files are now loaded on demand, no caching
-            } catch (InterruptedException e) {
-                logger.warn("PR files fetcher worker interrupted", e);
-                Thread.currentThread().interrupt();
-            } catch (CancellationException e) {
-                logger.debug("PR files fetcher worker task was cancelled.");
-            } catch (ExecutionException e) {
-                reportBackgroundError("Error executing PR files fetcher worker task", requireNonNull(e.getCause()));
-            } catch (Exception e) {
-                reportBackgroundError("Error processing PR files fetcher results", e);
-            }
+
+            // Centralized exception handling
+            super.done();
         }
     }
 
@@ -1448,7 +1443,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             return;
         }
         GHPullRequest pr = displayedPrs.get(selectedRow);
-        logger.info("Capturing diff for PR #{}", pr.getNumber());
+        logger.debug("Capturing diff for PR #{}", pr.getNumber());
 
         String sessionName = PrTitleFormatter.formatReviewSessionName(pr);
 
@@ -1474,139 +1469,134 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
             // Now perform the capture into the newly created session
             contextManager.submitContextTask(() -> {
+                checkoutSelectedPr();
+
+                var repo = getRepo();
+
+                String prHeadSha = pr.getHead().getSha();
+                String prBaseSha = pr.getBase().getSha();
+                String prTitle = pr.getTitle();
+                int prNumber = pr.getNumber();
+
+                // Ensure SHAs are local
+                String prHeadFetchRef =
+                        String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
+                String prBaseBranchName = pr.getBase().getRef();
+                String prBaseFetchRef =
+                        String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                    chrome.toolError(
+                            "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
+                            "Capture Diff Error");
+                    return;
+                }
+                // It's less critical for baseSha to be at the exact tip of the remote base branch for diffing,
+                // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
+                ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
+
+                GitUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
+
+                // Also edit files mentioned in the diff (excluding binary files)
+                List<GitRepo.ModifiedFile> modifiedFiles;
                 try {
-                    var repo = getRepo();
+                    modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                } catch (GitAPIException e) {
+                    logger.error("Failed to list files changed between branches", e);
+                    chrome.toolError("Unable to diff the PR branch against its target");
+                    return;
+                }
 
-                    String prHeadSha = pr.getHead().getSha();
-                    String prBaseSha = pr.getBase().getSha();
-                    String prTitle = pr.getTitle();
-                    int prNumber = pr.getNumber();
+                var textFiles = GitUiUtil.filterTextFiles(modifiedFiles);
+                var allFiles =
+                        modifiedFiles.stream().map(GitRepo.ModifiedFile::file).toList();
+                var filteredCount = allFiles.size() - textFiles.size();
 
-                    // Ensure SHAs are local
-                    String prHeadFetchRef =
-                            String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                    String prBaseBranchName = pr.getBase().getRef();
-                    String prBaseFetchRef =
-                            String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+                if (filteredCount > 0) {
+                    var filteredFiles =
+                            allFiles.stream().filter(f -> !f.isText()).toList();
+                    logger.info(
+                            "Filtered {} binary/non-text file(s) from PR #{}: {}",
+                            filteredCount,
+                            prNumber,
+                            filteredFiles.stream()
+                                            .limit(5)
+                                            .map(BrokkFile::getFileName)
+                                            .collect(Collectors.joining(", "))
+                                    + (filteredFiles.size() > 5 ? "..." : ""));
+                }
 
-                    if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
-                        chrome.toolError(
-                                "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
-                                "Capture Diff Error");
-                        return;
+                if (!textFiles.isEmpty()) {
+                    contextManager.addFiles(new HashSet<>(textFiles));
+                    logger.info("Added {} changed file(s) from PR #{} to editable context", textFiles.size(), prNumber);
+                }
+
+                // Capture PR description (markdown). If blank, try first issue comment by PR author.
+                String descriptionText = "";
+                try {
+                    String body = pr.getBody();
+                    if (body != null) {
+                        descriptionText = body.trim();
                     }
-                    // It's less critical for baseSha to be at the exact tip of the remote base branch for diffing,
-                    // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
-                    ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
+                } catch (Exception e) {
+                    logger.warn("Unable to fetch PR body for PR #{}: {}", prNumber, e.getMessage());
+                }
 
-                    GitUiUtil.capturePrDiffToContext(
-                            contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
-
-                    // Also edit files mentioned in the diff (excluding binary files)
-                    List<GitRepo.ModifiedFile> modifiedFiles =
-                            repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
-
-                    var textFiles = GitUiUtil.filterTextFiles(modifiedFiles);
-                    var allFiles = modifiedFiles.stream()
-                            .map(GitRepo.ModifiedFile::file)
-                            .collect(Collectors.toList());
-                    var filteredCount = allFiles.size() - textFiles.size();
-
-                    if (filteredCount > 0) {
-                        var filteredFiles =
-                                allFiles.stream().filter(f -> !f.isText()).collect(Collectors.toList());
-                        logger.info(
-                                "Filtered {} binary/non-text file(s) from PR #{}: {}",
-                                filteredCount,
-                                prNumber,
-                                filteredFiles.stream()
-                                                .limit(5)
-                                                .map(f -> f.getFileName().toString())
-                                                .collect(Collectors.joining(", "))
-                                        + (filteredFiles.size() > 5 ? "..." : ""));
-                    }
-
-                    if (!textFiles.isEmpty()) {
-                        contextManager.addFiles(new HashSet<>(textFiles));
-                        logger.info(
-                                "Added {} changed file(s) from PR #{} to editable context", textFiles.size(), prNumber);
-                    }
-
-                    // Capture PR description (markdown). If blank, try first issue comment by PR author.
-                    String descriptionText = "";
+                if (descriptionText.isBlank()) {
                     try {
-                        String body = pr.getBody();
-                        if (body != null) {
-                            descriptionText = body.trim();
+                        String authorLogin = null;
+                        try {
+                            var author = pr.getUser();
+                            if (author != null) {
+                                authorLogin = author.getLogin();
+                            }
+                        } catch (Exception e) {
+                            logger.warn("Unable to fetch PR author for PR #{}: {}", prNumber, e.getMessage());
+                        }
+
+                        try {
+                            var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+                            GHIssue issue = auth.getIssue(prNumber);
+                            List<GHIssueComment> comments = issue.getComments();
+                            for (GHIssueComment c : comments) {
+                                try {
+                                    var cUser = c.getUser();
+                                    if (cUser != null && authorLogin != null && authorLogin.equals(cUser.getLogin())) {
+                                        String candidate = c.getBody();
+                                        if (candidate != null && !candidate.isBlank()) {
+                                            descriptionText = candidate.trim();
+                                            break;
+                                        }
+                                    }
+                                } catch (Exception inner) {
+                                    logger.debug(
+                                            "Skipping an issue comment while finding PR description: {}",
+                                            inner.getMessage());
+                                }
+                            }
+                        } catch (Exception e) {
+                            logger.warn("Unable to fetch issue comments for PR #{}: {}", prNumber, e.getMessage());
                         }
                     } catch (Exception e) {
-                        logger.warn("Unable to fetch PR body for PR #{}: {}", prNumber, e.getMessage());
+                        logger.warn(
+                                "Error while attempting PR description fallback for PR #{}: {}",
+                                prNumber,
+                                e.getMessage());
                     }
+                }
 
-                    if (descriptionText.isBlank()) {
-                        try {
-                            String authorLogin = null;
-                            try {
-                                var author = pr.getUser();
-                                if (author != null) {
-                                    authorLogin = author.getLogin();
-                                }
-                            } catch (Exception e) {
-                                logger.warn("Unable to fetch PR author for PR #{}: {}", prNumber, e.getMessage());
-                            }
-
-                            try {
-                                var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
-                                GHIssue issue = auth.getIssue(prNumber);
-                                List<GHIssueComment> comments = issue.getComments();
-                                for (GHIssueComment c : comments) {
-                                    try {
-                                        var cUser = c.getUser();
-                                        if (cUser != null
-                                                && authorLogin != null
-                                                && authorLogin.equals(cUser.getLogin())) {
-                                            String candidate = c.getBody();
-                                            if (candidate != null && !candidate.isBlank()) {
-                                                descriptionText = candidate.trim();
-                                                break;
-                                            }
-                                        }
-                                    } catch (Exception inner) {
-                                        logger.debug(
-                                                "Skipping an issue comment while finding PR description: {}",
-                                                inner.getMessage());
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.warn("Unable to fetch issue comments for PR #{}: {}", prNumber, e.getMessage());
-                            }
-                        } catch (Exception e) {
-                            logger.warn(
-                                    "Error while attempting PR description fallback for PR #{}: {}",
-                                    prNumber,
-                                    e.getMessage());
-                        }
+                if (!descriptionText.isBlank()) {
+                    try {
+                        var descriptionFragment = new ContextFragment.StringFragment(
+                                contextManager,
+                                descriptionText,
+                                PrTitleFormatter.formatDescriptionTitle(prNumber),
+                                "markdown");
+                        contextManager.addVirtualFragment(descriptionFragment);
+                        logger.info("Added PR description fragment for PR #{}", prNumber);
+                    } catch (Exception e) {
+                        logger.warn("Failed to add PR description fragment for PR #{}: {}", prNumber, e.getMessage());
                     }
-
-                    if (!descriptionText.isBlank()) {
-                        try {
-                            var descriptionFragment = new ContextFragment.StringFragment(
-                                    contextManager,
-                                    descriptionText,
-                                    PrTitleFormatter.formatDescriptionTitle(prNumber),
-                                    "markdown");
-                            contextManager.addVirtualFragment(descriptionFragment);
-                            logger.info("Added PR description fragment for PR #{}", prNumber);
-                        } catch (Exception e) {
-                            logger.warn(
-                                    "Failed to add PR description fragment for PR #{}: {}", prNumber, e.getMessage());
-                        }
-                    }
-
-                } catch (Exception ex) {
-                    logger.error("Error capturing diff for PR #{}", pr.getNumber(), ex);
-                    chrome.toolError(
-                            PrTitleFormatter.formatCaptureError(pr.getNumber(), ex.getMessage()), "Capture Diff Error");
                 }
             });
         });
@@ -2056,16 +2046,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             }
                         }
                     });
-                } catch (InterruptedException e) {
-                    logger.warn("PR files fetcher worker interrupted", e);
-                    Thread.currentThread().interrupt();
-                } catch (CancellationException e) {
-                    logger.debug("PR files fetcher worker task was cancelled.");
-                } catch (ExecutionException e) {
-                    var cause = requireNonNull(e.getCause());
-                    reportBackgroundError("Error executing PR files fetcher worker task", cause);
-                } catch (Exception e) {
-                    reportBackgroundError("Error processing PR files fetcher results", e);
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new RuntimeException(e);
                 }
             }
         };

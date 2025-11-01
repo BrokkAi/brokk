@@ -28,12 +28,8 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -73,9 +69,6 @@ public class CodeAgent {
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
     private Context context;
-
-    @VisibleForTesting
-    boolean javaParsingEnabled = false;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
@@ -137,7 +130,7 @@ public class CodeAgent {
 
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
-        var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
+        var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
         // Seed the local Context reference for this task
         context = initialContext;
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
@@ -548,9 +541,8 @@ public class CodeAgent {
         // Determine stop reason based on LLM response
         TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
-            String errorMessage = Objects.toString(result.error().getMessage(), "Unknown LLM error during quick edit");
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMessage);
-            io.toolError("Quick edit failed: " + errorMessage);
+            stopDetails = TaskResult.StopDetails.fromResponse(result);
+            io.toolError("Quick edit failed: " + stopDetails.explanation());
         } else {
             // Success from LLM perspective
             pendingHistory.add(result.aiMessage());
@@ -604,9 +596,9 @@ public class CodeAgent {
         if (llmError != null) {
             // If there's no usable text, this is a fatal error
             if (streamingResultFromLlm.isEmpty()) {
-                String message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
-                TaskResult.StopDetails fatalDetails = new TaskResult.StopDetails(
-                        TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
+                var fatalDetails = TaskResult.StopDetails.fromResponse(streamingResultFromLlm);
+                String message =
+                        "LLM returned an error even after retries: " + fatalDetails.explanation() + ". Ending task";
                 io.toolError(message);
                 return new Step.Fatal(fatalDetails);
             }
@@ -669,48 +661,28 @@ public class CodeAgent {
         if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
             if (!es.javaLintDiagnostics().isEmpty()) {
-                // Write one markdown file per source file to capture pre-lint findings and sources.
-                try {
-                    var tmp = System.getProperty("java.io.tmpdir");
-                    var timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HH-mm")
-                            .format(LocalDateTime.now(ZoneId.systemDefault()));
-                    var subdir = Path.of(tmp, "brokk", "codeagent-" + timestamp);
-                    Files.createDirectories(subdir);
+                // Build a concise summary of the pre‑lint diagnostics and report it directly.
+                var sb = new StringBuilder();
+                sb.append("Java pre‑lint false positives after successful build: ")
+                        .append(es.javaLintDiagnostics().size())
+                        .append(" file(s).\n");
 
-                    for (var entry : es.javaLintDiagnostics().entrySet()) {
-                        ProjectFile pf = entry.getKey();
-                        var list = entry.getValue();
-                        var diagsString =
-                                list.stream().map(JavaDiagnostic::description).collect(Collectors.joining("\n"));
-
-                        var unique = System.currentTimeMillis() + "-"
-                                + UUID.randomUUID().toString().substring(0, 8);
-                        var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
-                        var out = subdir.resolve(fileName);
-
-                        var markdownContent =
-                                """
-                                # False Positive for %s
-
-                                %s
-
-                                # Source
-
-                                ```java
-                                %s
-                                ```
-                                """
-                                        .formatted(
-                                                pf.getFileName(),
-                                                diagsString,
-                                                pf.read().orElse(""));
-
-                        Files.writeString(out, markdownContent);
-                        logger.info("Wrote pre-lint findings for {} to {}", pf.getFileName(), out.toString());
-                    }
-                } catch (IOException e) {
-                    logger.warn("Failed to write pre-lint diagnostics file(s)", e);
+                for (var entry : es.javaLintDiagnostics().entrySet()) {
+                    var pf = entry.getKey();
+                    var diags = entry.getValue();
+                    sb.append("- ")
+                            .append(pf.getFileName())
+                            .append(": ")
+                            .append(diags.size())
+                            .append(" issue(s)\n");
+                    // Include up to three diagnostic snippets for quick inspection.
+                    diags.stream()
+                            .forEach(d ->
+                                    sb.append("  * ").append(d.description()).append("\n"));
                 }
+
+                // Send the summary string to the server via ExceptionReporter.
+                contextManager.reportException(new JavaPreLintFalsePositiveException(sb.toString()));
             }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");
@@ -737,6 +709,12 @@ public class CodeAgent {
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
+        }
+    }
+
+    private static class JavaPreLintFalsePositiveException extends RuntimeException {
+        public JavaPreLintFalsePositiveException(String message) {
+            super(message);
         }
     }
 
@@ -980,10 +958,6 @@ public class CodeAgent {
      * expensive full build. Goal is to catch as many true positives as possible with zero false positives.
      */
     Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
-        if (!javaParsingEnabled) {
-            return new Step.Continue(cs, es);
-        }
-
         // Only run if there were edits since the last build attempt (PJ-21)
         if (es.blocksAppliedWithoutBuild() == 0) {
             return new Step.Continue(cs, es);
@@ -1004,11 +978,11 @@ public class CodeAgent {
         // Map from ProjectFile -> diagnostic list for that file
         var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
 
-        javaFiles.parallelStream().forEach(file -> {
-            var absPath = projectRoot.resolve(file.toString());
+        // JDT internals are not threadsafe, even with a per-thread ASTParser
+        for (var file : javaFiles) {
             String src = file.read().orElse("");
             if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
-                return;
+                continue;
             }
             char[] sourceChars = src.toCharArray();
 
@@ -1019,7 +993,7 @@ public class CodeAgent {
             parser.setResolveBindings(true);
             parser.setStatementsRecovery(true);
             parser.setBindingsRecovery(true);
-            parser.setUnitName(absPath.getFileName().toString());
+            parser.setUnitName(file.getFileName());
             parser.setEnvironment(new String[0], new String[0], null, true);
             var options = JavaCore.getOptions();
             JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
@@ -1049,14 +1023,14 @@ public class CodeAgent {
                     continue;
                 }
 
-                var description = formatJdtProblem(absPath, cu, prob, src);
+                var description = formatJdtProblem(file.absPath(), cu, prob, src);
                 diags.add(new JavaDiagnostic(id, catId, description));
             }
 
             if (!diags.isEmpty()) {
                 perFileProblems.put(file, diags);
             }
-        });
+        }
 
         // Save diagnostics per-file and continue (non-blocking pre-lint)
         var nextEs = es.withJavaLintDiagnostics(perFileProblems);

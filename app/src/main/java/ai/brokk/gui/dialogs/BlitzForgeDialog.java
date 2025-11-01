@@ -4,8 +4,11 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.MainProject;
+import ai.brokk.ModelSpec;
 import ai.brokk.Service;
+import ai.brokk.TaskMeta;
 import ai.brokk.TaskResult;
+import ai.brokk.TaskType;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.agents.BuildAgent;
@@ -1328,7 +1331,7 @@ public class BlitzForgeDialog extends JDialog {
                         instructions,
                         fContextFilter,
                         contextFilter);
-                scope.append(parallelResult);
+                scope.append(parallelResult, new TaskMeta(TaskType.BLITZFORGE, ModelSpec.from(perFileModel, service)));
 
                 // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
                 if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -1397,11 +1400,12 @@ public class BlitzForgeDialog extends JDialog {
                         """
                                 .formatted(instructions, parallelDetails, effectiveGoal);
 
-                TaskResult postProcessResult;
                 if (fRunOption == PostProcessingOption.ASK) {
                     mainIo.systemNotify(
                             "Ask command has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
-                    postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                    TaskResult postProcessResult =
+                            InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                    scope.append(postProcessResult, new TaskMeta(TaskType.ASK, ModelSpec.from(perFileModel, service)));
                 } else {
                     mainIo.systemNotify(
                             "Architect has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
@@ -1411,9 +1415,13 @@ public class BlitzForgeDialog extends JDialog {
                             perFileModel,
                             agentInstructions,
                             scope);
-                    postProcessResult = agent.executeWithSearch();
+                    TaskResult postProcessResult = agent.executeWithSearch();
+                    scope.append(
+                            postProcessResult,
+                            new TaskMeta(
+                                    TaskType.ARCHITECT,
+                                    ModelSpec.from(chrome.getInstructionsPanel().getSelectedModel(), service)));
                 }
-                scope.append(postProcessResult);
             } finally {
                 analyzerWrapper.resume();
             }

@@ -4,24 +4,49 @@ import ai.brokk.ExceptionReporter;
 import ai.brokk.MainProject;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.CancellationException;
+import java.util.function.Consumer;
 import javax.swing.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-public class OomShutdownHandler implements UncaughtExceptionHandler {
-
-    private static final Logger logger = LoggerFactory.getLogger(OomShutdownHandler.class);
+public class GlobalExceptionHandler implements UncaughtExceptionHandler {
+    private static final Logger logger = LogManager.getLogger(GlobalExceptionHandler.class);
 
     @Override
-    public void uncaughtException(Thread t, Throwable throwable) {
-        logger.error("An uncaught exception occurred on thread: {}", t.getName(), throwable);
+    public void uncaughtException(Thread thread, Throwable throwable) {
+        handle(thread, throwable, st -> {});
+    }
 
-        // Attempt to report the exception to the server
-        ExceptionReporter.tryReportException(throwable);
+    /**
+     * 1. Log exception
+     * 2. Upload it
+     * 3. Call notifier
+     * 4. Shut down if OOM
+     *
+     * Note: InterruptedException and CancellationException are globally suppressed here.
+     * These are expected, non-exceptional conditions (cancellations). Callers that need
+     * special handling (like UserActionManager) may handle them explicitly before calling this.
+     */
+    public static void handle(Thread thread, Throwable th, Consumer<String> notifier) {
+        // Globally suppress IE and CE—these are expected, not exceptional
+        if (isCausedBy(th, InterruptedException.class) || isCausedBy(th, CancellationException.class)) {
+            logger.debug("Suppressing cancellation/interrupt on thread %s".formatted(thread.getName()), th);
+            return;
+        }
 
-        // Check if the error is an OutOfMemoryError and handle specially
-        if (isOomError(throwable)) {
-            logger.error("OutOfMemoryError detected, initiating shutdown with recovery");
+        logger.error("Uncaught exception on thread %s".formatted(thread), th);
+
+        try {
+            ExceptionReporter.tryReportException(th);
+        } catch (Throwable reportingError) {
+            logger.warn("Failed to upload exception report", reportingError);
+        }
+
+        notifier.accept("Internal error %s%s"
+                .formatted(th.getClass().getName(), th.getMessage() == null ? "" : ": " + th.getMessage()));
+
+        if (isOomError(th)) {
             shutdownWithRecovery();
         }
     }
@@ -89,15 +114,16 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
         }
     }
 
+    private static boolean isOomError(Throwable th) {
+        return isCausedBy(th, OutOfMemoryError.class);
+    }
+
     /**
-     * Helper to recursively check for OOM in the cause chain.
-     *
-     * @param e the given throwable
-     * @return true if a {@link OutOfMemoryError} is part of the throwable cause chain.
+     * @return true if the given Class is part of the throwable cause chain.
      */
-    public static boolean isOomError(Throwable e) {
-        if (e instanceof OutOfMemoryError) return true;
-        else if (e.getCause() == null) return false;
-        else return isOomError(e.getCause());
+    public static boolean isCausedBy(Throwable th, Class<? extends Throwable> cls) {
+        if (cls.isInstance(th)) return true;
+        else if (th.getCause() == null) return false;
+        else return isCausedBy(th.getCause(), cls);
     }
 }

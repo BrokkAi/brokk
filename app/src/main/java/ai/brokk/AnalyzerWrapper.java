@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -83,6 +82,10 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         if (analyzerListener == null) {
             this.watchService = new IWatchService() {};
         } else {
+            Path globalGitignorePath = null;
+            if (project instanceof AbstractProject abstractProject) {
+                globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
+            }
             // Build list of listeners
             var listeners = new ArrayList<IWatchService.Listener>();
             listeners.add(this); // Analyzer listener
@@ -94,7 +97,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             // Note: If no fileWatchListener is provided, only analyzer events will be handled.
             // Callers should use the new constructor and add their own listeners via watchService.addListener()
 
-            this.watchService = new ProjectWatchService(root, gitRepoRoot, listeners);
+            this.watchService = new ProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
         // Initialize executor and analyzer
@@ -187,6 +190,37 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
         // AnalyzerWrapper now focuses only on analyzer-relevant changes.
         // Git metadata and tracked file change notifications are handled by ContextManager's listener.
+
+        int repoChangeCallbacks = 0;
+        int trackedFileChangeCallbacks = 0;
+
+        logger.debug(
+                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
+                batch.files.size(),
+                batch.isOverflowed,
+                batch.untrackedGitignoreChanged);
+
+        // 1) Handle untracked gitignore file changes by invalidating project cache
+        if (batch.untrackedGitignoreChanged) {
+            logger.debug("Untracked gitignore files changed, invalidating project file cache");
+            project.invalidateAllFiles();
+        }
+
+        // 2) Possibly refresh Git
+        if (gitRepoRoot != null) {
+            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
+            boolean gitMetaTouched =
+                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+            if (batch.isOverflowed || gitMetaTouched) {
+                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
+                if (listener != null) {
+                    listener.onRepoChange();
+                    repoChangeCallbacks++;
+                    listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
+                    trackedFileChangeCallbacks++;
+                }
+            }
+        }
 
         // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed) {
@@ -306,7 +340,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                 continue;
             }
             // Filter tracked files relevant to this language
-            List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
+            Set<ProjectFile> tracked = project.getAnalyzableFiles(lang);
             if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 
@@ -385,7 +419,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      *
      * <p>The caller guarantees that {@code analyzerPath} is non-null and exists.
      */
-    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles) {
+    private boolean isStale(Language lang, Path analyzerPath, Set<ProjectFile> trackedFiles) {
         // An explicit external rebuild request always wins.
         if (externalRebuildRequested) {
             return true;

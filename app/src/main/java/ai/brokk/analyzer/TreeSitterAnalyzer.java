@@ -251,24 +251,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var successfullyProcessed = new AtomicInteger(0);
         var failedFiles = new AtomicInteger(0);
 
-        // Collect files to process
-        List<ProjectFile> filesToProcess = project.getAllFiles().stream()
-                .filter(pf -> {
-                    var filePath = pf.absPath().toAbsolutePath().normalize();
-
-                    var excludedBy = normalizedExcludedPaths.stream()
-                            .filter(filePath::startsWith)
-                            .findFirst();
-
-                    if (excludedBy.isPresent()) {
-                        log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
-                        return false;
-                    }
-
-                    var extension = pf.extension();
-                    return validExtensions.contains(extension);
-                })
-                .toList();
+        // Collect files to process using gitignore-filtered analyzable files
+        Set<ProjectFile> filesToProcess = project.getAnalyzableFiles(language);
 
         var timing = ConstructionTiming.create();
         // Local mutable maps to accumulate analysis results, then snapshotted into immutable PMaps
@@ -1349,15 +1333,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             TSParser localParser,
             @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
         log.trace("analyzeFileContent: Parsing file: {}", file);
-        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
-
-        String src = new String(fileBytes, StandardCharsets.UTF_8);
-
-        // Check if file is binary early and skip processing if so
-        if (BrokkFile.isBinary(src)) {
-            log.debug("Skipping binary file: {}", file);
+        // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
+        if (fileBytes.length == 0) {
+            log.trace("Skipping binary/empty file: {}", file);
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
         }
+
+        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
+        String src = new String(fileBytes, StandardCharsets.UTF_8);
 
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
@@ -2713,6 +2696,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private byte[] readFileBytes(ProjectFile pf, @Nullable ConstructionTiming timing) {
         long __readStart = System.nanoTime();
         try {
+            if (pf.isBinary()) {
+                log.trace("Detected binary file during read, skipping: {}", pf);
+                return new byte[0];
+            }
+
             int attempt = 0;
             while (true) {
                 attempt++;

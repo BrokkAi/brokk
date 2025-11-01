@@ -4,7 +4,10 @@ import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.IContextManager;
+import ai.brokk.ModelSpec;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskMeta;
+import ai.brokk.TaskType;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -65,14 +68,38 @@ public class DtoMapper {
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
+                    // Build TaskMeta if present and valid (ModelSpec requires non-null name)
+                    TaskMeta meta = null;
+                    boolean anyMetaPresent = taskRefDto.taskType() != null
+                            || taskRefDto.primaryModelName() != null
+                            || taskRefDto.primaryModelReasoning() != null;
+                    if (anyMetaPresent && taskRefDto.primaryModelName() != null) {
+                        var type = TaskType.safeParse(taskRefDto.taskType()).orElse(TaskType.NONE);
+                        var pm = new ModelSpec(taskRefDto.primaryModelName(), taskRefDto.primaryModelReasoning());
+                        meta = new TaskMeta(type, pm);
+                        logger.debug(
+                                "Reconstructed TaskMeta for sequence {}: type={}, model={}",
+                                taskRefDto.sequence(),
+                                meta.type(),
+                                meta.primaryModel().name());
+                    } else if (anyMetaPresent) {
+                        // Incomplete meta present (e.g., older sessions missing model name) - ignore gracefully
+                        logger.debug(
+                                "Ignoring incomplete TaskMeta fields for sequence {} (taskType={}, modelName={}, reasoning={})",
+                                taskRefDto.sequence(),
+                                taskRefDto.taskType(),
+                                taskRefDto.primaryModelName(),
+                                taskRefDto.primaryModelReasoning());
+                    }
+
                     if (taskRefDto.logId() != null) {
                         var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
                         if (logFragment != null) {
-                            return new TaskEntry(taskRefDto.sequence(), logFragment, null);
+                            return new TaskEntry(taskRefDto.sequence(), logFragment, null, meta);
                         }
                     } else if (taskRefDto.summaryContentId() != null) {
                         String summary = contentReader.readContent(taskRefDto.summaryContentId());
-                        return TaskEntry.fromCompressed(taskRefDto.sequence(), summary);
+                        return new TaskEntry(taskRefDto.sequence(), null, summary, meta);
                     }
                     return null;
                 })
@@ -149,8 +176,9 @@ public class DtoMapper {
             ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd ->
+                // Use current project root for cross-platform compatibility
                 ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+                        new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath())), pfd.id(), mgr);
             case ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
@@ -158,8 +186,9 @@ public class DtoMapper {
                 yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case GitFileFragmentDto gfd ->
+                // Use current project root for cross-platform compatibility
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
+                        new ProjectFile(mgr.getProject().getRoot(), Path.of(gfd.relPath())),
                         gfd.revision(),
                         reader.readContent(gfd.contentId()),
                         gfd.id());
@@ -174,7 +203,9 @@ public class DtoMapper {
                         imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
                         ffd.isTextFragment(),
                         ffd.syntaxStyle(),
-                        ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
+                        ffd.files().stream()
+                                .map(fileDto -> fromProjectFileDto(fileDto, mgr))
+                                .collect(Collectors.toSet()),
                         ffd.originalClassName(),
                         ffd.meta(),
                         ffd.repr());
@@ -211,7 +242,7 @@ public class DtoMapper {
             }
             case SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
-                        .map(DtoMapper::fromCodeUnitDto)
+                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
                         .collect(Collectors.toSet());
                 var messages = searchDto.messages().stream()
                         .map(msgDto -> fromChatMessageDto(msgDto, reader))
@@ -271,8 +302,9 @@ public class DtoMapper {
                 }
             }
             case StacktraceFragmentDto stDto -> {
-                var sources =
-                        stDto.sources().stream().map(DtoMapper::fromCodeUnitDto).collect(Collectors.toSet());
+                var sources = stDto.sources().stream()
+                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
+                        .collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(
                         stDto.id(),
                         mgr,
@@ -289,11 +321,12 @@ public class DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit(), mgr));
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
                 yield new ContextFragment.StringFragment(
+                        bfDto.id(),
                         mgr,
                         text,
                         ContextFragment.BUILD_RESULTS.description(),
@@ -511,8 +544,10 @@ public class DtoMapper {
         return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
     }
 
-    private static ProjectFile fromProjectFileDto(ProjectFileDto dto) {
-        return new ProjectFile(Path.of(dto.repoRoot()), Path.of(dto.relPath()));
+    private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
+        // Use the current project root instead of the serialized one to handle cross-platform compatibility
+        // (e.g., when a history ZIP was created on Unix but deserialized on Windows)
+        return new ProjectFile(mgr.getProject().getRoot(), Path.of(dto.relPath()));
     }
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
@@ -561,9 +596,10 @@ public class DtoMapper {
         throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
     }
 
-    private static CodeUnit fromCodeUnitDto(CodeUnitDto dto) {
+    private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {
         ProjectFileDto pfd = dto.sourceFile();
-        ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
+        // Use current project root for cross-platform compatibility
+        ProjectFile source = new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath()));
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName(), dto.signature());
     }
@@ -586,12 +622,12 @@ public class DtoMapper {
     }
 
     public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
-            Map<String, EntryInfoDto> dtoMap) {
+            Map<String, EntryInfoDto> dtoMap, IContextManager mgr) {
         return dtoMap.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
-                                .map(DtoMapper::fromDeletedFileDto)
+                                .map(dto -> fromDeletedFileDto(dto, mgr))
                                 .toList())));
     }
 
@@ -599,7 +635,7 @@ public class DtoMapper {
         return new DeletedFileDto(toProjectFileDto(df.file()), df.content(), df.wasTracked());
     }
 
-    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto) {
-        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file()), dto.content(), dto.wasTracked());
+    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto, IContextManager mgr) {
+        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file(), mgr), dto.content(), dto.wasTracked());
     }
 }

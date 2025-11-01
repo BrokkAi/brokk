@@ -1044,8 +1044,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
         removeButton.setToolTipText("Remove selected favorite model");
+        var defaultsButton = new MaterialButton("Defaults");
+        defaultsButton.setToolTipText("Restore default favorite models");
         buttonPanel.add(addButton);
         buttonPanel.add(removeButton);
+        buttonPanel.add(defaultsButton);
 
         addButton.addActionListener(e -> {
             if (quickModelsTable.isEditing()) {
@@ -1066,6 +1069,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         });
 
         removeButton.addActionListener(e -> {
+            int rowCount = quickModelsTableModel.getRowCount();
+            if (rowCount <= 1) {
+                JOptionPane.showMessageDialog(
+                        panel,
+                        "At least one favorite model is required.",
+                        "Cannot Remove",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
             int viewRow = quickModelsTable.getSelectedRow();
             if (viewRow != -1) {
                 if (quickModelsTable.isEditing()) {
@@ -1075,6 +1087,52 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 quickModelsTableModel.removeFavorite(modelRow);
             }
         });
+
+        defaultsButton.addActionListener(e -> {
+            int result = JOptionPane.showConfirmDialog(
+                    panel,
+                    "This will replace all your current favorite models with the default set.\n\nAre you sure you want to restore defaults?",
+                    "Restore Default Favorite Models",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+
+            if (result != JOptionPane.YES_OPTION) {
+                return;
+            }
+
+            if (quickModelsTable.isEditing()) {
+                quickModelsTable.getCellEditor().stopCellEditing();
+            }
+
+            // Restore the predefined default favorite models
+            var defaultFavorites = new ArrayList<>(MainProject.DEFAULT_FAVORITE_MODELS);
+
+            // Restore defaults and select the first one
+            quickModelsTableModel.setFavorites(defaultFavorites);
+            if (!defaultFavorites.isEmpty()) {
+                int viewRowIndex = quickModelsTable.convertRowIndexToView(0);
+                quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
+            }
+
+            JOptionPane.showMessageDialog(
+                    panel,
+                    "Favorite models restored to defaults.",
+                    "Defaults Restored",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
+
+        // Keep Remove disabled when only one row remains or when there's no selection
+        Runnable updateRemoveButtonEnabled = () -> {
+            boolean hasSelection = quickModelsTable.getSelectedRow() != -1;
+            int rowCount = quickModelsTableModel.getRowCount();
+            removeButton.setEnabled(hasSelection && rowCount > 1);
+        };
+        quickModelsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) updateRemoveButtonEnabled.run();
+        });
+        quickModelsTableModel.addTableModelListener(e -> updateRemoveButtonEnabled.run());
+        // Initialize enabled state
+        updateRemoveButtonEnabled.run();
 
         // Create top panel with preferred code model selector
         var topPanel = new JPanel(new GridBagLayout());
@@ -1358,7 +1416,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
 
         // Quick Models Tab
+        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
         var loadedFavorites = MainProject.loadFavoriteModels();
+        if (loadedFavorites.isEmpty()) {
+            var defaultAlias = "default";
+            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
+            loadedFavorites = new ArrayList<>();
+            loadedFavorites.add(defaultFavorite);
+            try {
+                MainProject.saveFavoriteModels(loadedFavorites);
+            } catch (Exception ignore) {
+                // best-effort; will be saved on Apply as well
+            }
+        }
         quickModelsTableModel.setFavorites(loadedFavorites);
 
         // Populate preferred code model combo with favorite aliases
@@ -1368,7 +1438,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Select the favorite that matches the current code config
-        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
         String selectedAlias = null;
         for (Service.FavoriteModel favorite : loadedFavorites) {
             if (favorite.config().name().equals(currentCodeConfig.name())
@@ -1574,7 +1643,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
         }
-        MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
+        var toSaveFavorites = quickModelsTableModel.getFavorites();
+        if (toSaveFavorites.isEmpty()) {
+            var defaultAlias = "default";
+            var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
+            toSaveFavorites = new ArrayList<>();
+            toSaveFavorites.add(defaultFavorite);
+            quickModelsTableModel.setFavorites(toSaveFavorites);
+        }
+        MainProject.saveFavoriteModels(toSaveFavorites);
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // Preferred Code Model
@@ -2801,6 +2879,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         public void removeFavorite(int rowIndex) {
+            if (favorites.size() <= 1) {
+                // Enforce at least one favorite remains
+                return;
+            }
             if (rowIndex >= 0 && rowIndex < favorites.size()) {
                 favorites.remove(rowIndex);
                 fireTableRowsDeleted(rowIndex, rowIndex);

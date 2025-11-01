@@ -33,6 +33,8 @@ public class ModelBenchmarkData {
 
     public record ModelKey(String modelName, Service.ReasoningLevel reasoningLevel) {}
 
+    public record SuccessRateResult(int successRate, boolean isTested) {}
+
     private static final Map<ModelKey, Map<TokenRange, Integer>> BENCHMARK_DATA = new HashMap<>();
 
     static {
@@ -178,5 +180,18 @@ public class ModelBenchmarkData {
         }
 
         return getSuccessRate(modelName, reasoningLevel, tokenCount);
+    }
+
+    public static SuccessRateResult getSuccessRateWithTesting(
+            String modelName, Service.ReasoningLevel reasoningLevel, int tokenCount) {
+        int successRate = getSuccessRate(modelName, reasoningLevel, tokenCount);
+        boolean isTested = tokenCount <= 131071;
+        return new SuccessRateResult(successRate, isTested);
+    }
+
+    public static SuccessRateResult getSuccessRateWithTesting(Service.ModelConfig config, int tokenCount) {
+        int successRate = getSuccessRate(config, tokenCount);
+        boolean isTested = tokenCount <= 131071;
+        return new SuccessRateResult(successRate, isTested);
     }
 }
