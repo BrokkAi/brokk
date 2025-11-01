@@ -4,10 +4,12 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
@@ -48,6 +50,14 @@ public final class GitDistance {
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static Set<ProjectFile> getRelatedFiles(GitRepo repo, Set<ProjectFile> seedFiles, int k) throws InterruptedException {
+        var weights = seedFiles.stream()
+                .collect(Collectors.toMap(pf -> pf, pf -> 1.0));
+        return getRelatedFiles(repo, weights, k, false).stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .collect(Collectors.toSet());
     }
 
     private static List<IAnalyzer.FileRelevance> computeConditionalScores(

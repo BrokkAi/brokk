@@ -14,6 +14,7 @@ import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitDistance;
+import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
@@ -203,7 +204,7 @@ public class ContextAgent {
             logger.debug("Empty workspace; using keyword search results as seed: {}", seedFiles.stream().map(BrokkFile::getFileName).toList());
         }
         Set<ProjectFile> finalSeedFiles = seedFiles;
-        var adjacencies = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
+        var adjacencies = GitDistance.getRelatedFiles((GitRepo) cm.getRepo(), seedFiles, Context.MAX_AUTO_CONTEXT_FILES).stream()
                 .filter(f -> !finalSeedFiles.contains(f))
                         .collect(Collectors.toSet());
         logger.debug("Expanded to Git-based distance candidates: {}", adjacencies.stream().map(BrokkFile::getFileName).toList());
