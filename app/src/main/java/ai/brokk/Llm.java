@@ -1470,13 +1470,13 @@ public class Llm {
         this.io = io;
     }
 
-    public record ResponseMetadata(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens, long elapsedMs) {
+    public record ResponseMetadata(
+            int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens, long elapsedMs) {
         /**
          * Combines two ResponseMetadata objects by summing their token counts and elapsed time.
          * Handles null values: returns the other metadata if one is null.
          */
-        public static @Nullable ResponseMetadata sum(
-                @Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
+        public static @Nullable ResponseMetadata sum(@Nullable ResponseMetadata a, @Nullable ResponseMetadata b) {
             if (a == null) return b;
             if (b == null) return a;
             return new ResponseMetadata(
@@ -1497,7 +1497,8 @@ public class Llm {
      * <p>Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually inspecting the
      * contents of chatResponse.
      */
-    public record StreamingResult(@Nullable NullSafeResponse chatResponse, @Nullable Throwable error, int retries, long elapsedMs) {
+    public record StreamingResult(
+            @Nullable NullSafeResponse chatResponse, @Nullable Throwable error, int retries, long elapsedMs) {
         public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error) {
             this(partialResponse, error, 0, 0);
         }
@@ -1510,7 +1511,8 @@ public class Llm {
             return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, 0);
         }
 
-        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Throwable error, long elapsedMs) {
+        public static StreamingResult fromResponse(
+                @Nullable ChatResponse originalResponse, @Nullable Throwable error, long elapsedMs) {
             return new StreamingResult(new NullSafeResponse(originalResponse), error, 0, elapsedMs);
         }
 

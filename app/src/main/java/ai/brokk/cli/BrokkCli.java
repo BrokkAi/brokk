@@ -471,7 +471,7 @@ public final class BrokkCli implements Callable<Integer> {
             var agent = new ContextAgent(cm, planModel, goalForScan);
             var recommendations = agent.getRecommendations(cm.liveContext());
             io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
+                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
 
             if (recommendations.success()) {
                 io.showNotification(

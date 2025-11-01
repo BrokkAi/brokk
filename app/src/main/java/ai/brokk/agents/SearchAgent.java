@@ -663,7 +663,12 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "searchSymbols", "getUsages", "searchSubstrings", "keywordSearch", "searchFilenames", "searchGitCommitMessages" -> 6;
+            case "searchSymbols",
+                    "getUsages",
+                    "searchSubstrings",
+                    "keywordSearch",
+                    "searchFilenames",
+                    "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
 
@@ -750,7 +755,6 @@ public class SearchAgent {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
-        long scanStartTime = System.currentTimeMillis();
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, model, goal);
@@ -764,8 +768,8 @@ public class SearchAgent {
             // create a history entry
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
             context = scope.append(contextAgentResult, meta);
-            long scanTime = System.currentTimeMillis() - scanStartTime;
-            metrics.recordContextScan(0, scanTime, false, Set.of());
+            var md = recommendation.metadata();
+            metrics.recordContextScan(0, false, Set.of(), md);
             return;
         }
 
@@ -797,8 +801,8 @@ public class SearchAgent {
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
-        long scanTime = System.currentTimeMillis() - scanStartTime;
-        metrics.recordContextScan(filesAdded.size(), scanTime, false, toRelativePaths(filesAdded));
+        var md = recommendation.metadata();
+        metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
     }
 
     public void scanInitialContext() throws InterruptedException {

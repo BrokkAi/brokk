@@ -17,7 +17,6 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -44,6 +43,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -51,11 +51,10 @@ import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.jetbrains.annotations.Nullable;
@@ -1650,7 +1649,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (getSkeletonTypeForCapture(primaryCaptureName) == SkeletonType.FUNCTION_LIKE) {
                 String methodContent = textSlice(finalRange.commentStartByte(), finalRange.endByte(), finalFileBytes);
                 if (!methodContent.isBlank()) {
-                    String fileRelPath = project.getRoot().relativize(file.absPath()).toString();
+                    String fileRelPath =
+                            project.getRoot().relativize(file.absPath()).toString();
                     methodDocCollector.offer(new MethodDoc(cu.fqName(), fileRelPath, methodContent));
                     log.trace("Enqueued method doc for keyword search: fqn={}, file={}", cu.fqName(), fileRelPath);
                 }
@@ -3225,11 +3225,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     language.name(),
                     methodDocCollector.size());
         } catch (Exception e) {
-            log.warn(
-                    "[{}] Failed to build Lucene keyword search index: {}",
-                    language.name(),
-                    e.getMessage(),
-                    e);
+            log.warn("[{}] Failed to build Lucene keyword search index: {}", language.name(), e.getMessage(), e);
             // Index build failure is non-fatal; keyword search will simply be unavailable
             this.indexDir = null;
             this.indexSearcher = null;
@@ -3288,8 +3284,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // Build BooleanQuery with SHOULD clauses for each token
             var booleanQueryBuilder = new org.apache.lucene.search.BooleanQuery.Builder();
             for (String token : tokens) {
-                var termQuery = new org.apache.lucene.search.TermQuery(
-                        new org.apache.lucene.index.Term("content", token));
+                var termQuery =
+                        new org.apache.lucene.search.TermQuery(new org.apache.lucene.index.Term("content", token));
                 booleanQueryBuilder.add(termQuery, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
             }
             var booleanQuery = booleanQueryBuilder.build();

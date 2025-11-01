@@ -104,7 +104,7 @@ public class ContextAgent {
             boolean success,
             List<ContextFragment> fragments,
             String reasoning,
-            @Nullable Llm.ResponseMetadata tokenUsage) {}
+            @Nullable Llm.ResponseMetadata metadata) {}
 
     /** Result record for the LLM tool call, holding recommended files, class names, and the LLM's reasoning. */
     private record LlmRecommendation(
@@ -910,5 +910,4 @@ public class ContextAgent {
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
-
 }
