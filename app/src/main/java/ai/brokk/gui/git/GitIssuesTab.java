@@ -1182,17 +1182,23 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
 
         for (URI imageUri : attachmentUris) {
-            if (ImageUtil.isImageUri(imageUri, clientToUse)) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Downloading image: " + imageUri.toString());
-                Image image = ImageUtil.downloadImage(imageUri, clientToUse);
-                if (image != null) {
-                    String description = String.format("Issue %s: Image", header.id());
-                    contextManager.addPastedImageFragment(image, description);
-                    capturedImageCount++;
-                } else {
-                    logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
-                    chrome.toolError("Failed to download image: " + imageUri.toString());
+            try {
+                if (ImageUtil.isImageUri(imageUri, clientToUse)) {
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Downloading image: " + imageUri.toString());
+                    Image image = ImageUtil.downloadImage(imageUri, clientToUse);
+                    if (image != null) {
+                        String description = String.format("Issue %s: Image", header.id());
+                        contextManager.addPastedImageFragment(image, description);
+                        capturedImageCount++;
+                    } else {
+                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
+                        chrome.toolError("Failed to download image: " + imageUri.toString());
+                    }
                 }
+            } catch (Exception e) {
+                logger.error("Error downloading image: {}", imageUri.toString(), e);
+                chrome.toolError("Error downloading image: " + imageUri.toString() + " - " + e.getMessage());
             }
         }
         return capturedImageCount;

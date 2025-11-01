@@ -14,9 +14,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ConflictInspectorTest {
+
+    @BeforeEach
+    void setUp() {
+        // Ensure the factory is reset to default before each test
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Restore to default after each test to avoid affecting other tests
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
     /**
      * Parse a single-file BRK_* annotated conflict into structured sections so tests can assert on exact lines in
      * OUR/BASE/THEIR blocks without relying on brittle substring matching.

@@ -457,12 +457,12 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         return switch (originalClassName) {
             case "io.github.jbellis.brokk.context.ContextFragment$ProjectPathFragment",
                     "ai.brokk.context.ContextFragment$ProjectPathFragment" -> {
-                var repoRoot = meta.get("repoRoot");
                 var relPath = meta.get("relPath");
-                if (repoRoot == null || relPath == null) {
+                if (relPath == null) {
                     throw new IllegalArgumentException("Missing metadata for ProjectPathFragment");
                 }
-                var file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                // Use current project root for cross-platform compatibility
+                var file = new ProjectFile(cm.getProject().getRoot(), Path.of(relPath));
                 yield new ContextFragment.ProjectPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
@@ -471,7 +471,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 if (absPath == null) {
                     throw new IllegalArgumentException("Missing metadata for ExternalPathFragment");
                 }
-                var file = new ExternalFile(Path.of(absPath));
+                var file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                 yield new ContextFragment.ExternalPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
@@ -483,14 +483,14 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
                 BrokkFile file;
                 if ("true".equals(meta.get("isProjectFile"))) {
-                    var repoRoot = meta.get("repoRoot");
                     var relPath = meta.get("relPath");
-                    if (repoRoot == null || relPath == null) {
+                    if (relPath == null) {
                         throw new IllegalArgumentException("Missing ProjectFile metadata for ImageFileFragment");
                     }
-                    file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                    // Use current project root for cross-platform compatibility
+                    file = new ProjectFile(cm.getProject().getRoot(), Path.of(relPath));
                 } else {
-                    file = new ExternalFile(Path.of(absPath));
+                    file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                 }
                 yield new ContextFragment.ImageFileFragment(file, cm);
             }
@@ -553,12 +553,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 var packageName = meta.get("packageName");
                 var shortName = meta.get("shortName");
                 CodeUnit unit;
-                if (repoRoot != null
-                        && relPath != null
-                        && kindStr != null
-                        && packageName != null
-                        && shortName != null) {
-                    var pf = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                if (relPath != null && kindStr != null && packageName != null && shortName != null) {
+                    // Use current project root for cross-platform compatibility
+                    var pf = new ProjectFile(cm.getProject().getRoot(), Path.of(relPath));
                     var kind = CodeUnitType.valueOf(kindStr);
                     unit = new CodeUnit(pf, kind, packageName, shortName);
                 } else {
