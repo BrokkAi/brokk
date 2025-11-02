@@ -194,7 +194,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         int repoChangeCallbacks = 0;
         int trackedFileChangeCallbacks = 0;
 
-        logger.debug(
+        logger.trace(
                 "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
                 batch.files.size(),
                 batch.isOverflowed,
