@@ -67,6 +67,14 @@ repositories {
     }
 }
 
+// Create a resolvable configuration for Error Prone that extends the declarable 'errorprone' configuration
+// This is needed for our custom compileJavaErrorProne task
+val errorproneCompile by configurations.creating {
+    extendsFrom(configurations.getByName("errorprone"))
+    isCanBeResolved = true
+    isCanBeConsumed = false
+}
+
 dependencies {
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
@@ -252,8 +260,26 @@ tasks.named<JavaCompile>("compileJava") {
         "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
     ))
 
-    // Disable ErrorProne for fast incremental compiles
-    options.errorprone.isEnabled = false
+    // Enable ErrorProne for regular builds (without NullAway for speed)
+    options.errorprone {
+        // Disable NullAway for regular builds (only run on analyze/check tasks)
+        disable("NullAway")
+
+        // Disable same Error Prone checks as the full analysis task
+        disable("FutureReturnValueIgnored")
+        disable("MissingSummary")
+        disable("EmptyBlockTag")
+        disable("NonCanonicalType")
+
+        // Enable RedundantNullCheck
+        enable("RedundantNullCheck")
+
+        // Exclude dev/ and eu/ directories
+        excludedPaths = ".*/src/main/java/(dev/|eu/).*"
+
+        // RedundantNullCheck configuration
+        option("RedundantNullCheck:CheckRequireNonNull", "true")
+    }
 }
 
 // Separate task for Error Prone analysis (runs only during check)
@@ -314,6 +340,24 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
         option("RedundantNullCheck:CheckRequireNonNull", "true")
+    }
+}
+
+// Manually wire up Error Prone for tasks that need it
+// The Error Prone Gradle plugin doesn't auto-configure lazily-registered custom tasks,
+// so we need to explicitly enable it and configure the processor path.
+tasks.withType<JavaCompile>().configureEach {
+    // Configure both compileJava (regular builds) and compileJavaErrorProne (full analysis)
+    if (name == "compileJava" || name == "compileJavaErrorProne") {
+        // Enable Error Prone (this adds -Xplugin:ErrorProne to compiler args)
+        options.errorprone.isEnabled = true
+
+        // Add Error Prone JARs to annotation processor path so the compiler can find the plugin
+        // This is what the Error Prone Gradle plugin normally does automatically
+        options.annotationProcessorPath = files(
+            options.annotationProcessorPath ?: files(),
+            errorproneCompile
+        )
     }
 }
 
