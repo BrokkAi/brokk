@@ -1301,9 +1301,8 @@ public class CppAnalyzerTest {
                 processSig.contains("callback") || processSig.contains("int") || processSig.length() > 10,
                 "process signature should contain complex parameter: " + processSig);
 
-        var signal = functions.stream()
-                .filter(f -> f.shortName().contains("signal"))
-                .findFirst();
+        var signal =
+                functions.stream().filter(f -> f.shortName().contains("signal")).findFirst();
         assertTrue(signal.isPresent(), "Should find signal function");
         // Signal has complex nested function pointers in its shortName
         assertTrue(
@@ -1331,23 +1330,21 @@ public class CppAnalyzerTest {
 
         // Verify all have distinct signatures
         var signatures = refPtrOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
-        assertEquals(
-                5,
-                signatures.size(),
-                "All 5 refPtrTest overloads should have distinct signatures: " + signatures);
+        assertEquals(5, signatures.size(), "All 5 refPtrTest overloads should have distinct signatures: " + signatures);
 
         // Verify specific signature patterns exist
         var sigList = refPtrOverloads.stream().map(CodeUnit::signature).collect(Collectors.toList());
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("int") && !s.contains("&") && !s.contains("*")),
+        assertTrue(
+                sigList.stream().anyMatch(s -> s.contains("int") && !s.contains("&") && !s.contains("*")),
                 "Should find int value parameter");
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("int&") || s.contains("int &")),
+        assertTrue(
+                sigList.stream().anyMatch(s -> s.contains("int&") || s.contains("int &")),
                 "Should find int& reference parameter");
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("int*") || s.contains("int *")),
+        assertTrue(
+                sigList.stream().anyMatch(s -> s.contains("int*") || s.contains("int *")),
                 "Should find int* pointer parameter");
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("const")),
-                "Should find const int& parameter");
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("&&")),
-                "Should find int&& rvalue reference parameter");
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("const")), "Should find const int& parameter");
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("&&")), "Should find int&& rvalue reference parameter");
     }
 
     @Test
@@ -1372,7 +1369,9 @@ public class CppAnalyzerTest {
         var implCrossInt = implDecls.stream()
                 .filter(CodeUnit::isFunction)
                 .filter(cu -> getBaseFunctionName(cu).equals("cross"))
-                .filter(cu -> cu.signature() != null && cu.signature().contains("int") && !cu.signature().contains(","))
+                .filter(cu -> cu.signature() != null
+                        && cu.signature().contains("int")
+                        && !cu.signature().contains(","))
                 .findFirst();
 
         assertTrue(implCrossInt.isPresent(), "Should find cross(int) in implementation");
@@ -1415,9 +1414,8 @@ public class CppAnalyzerTest {
         assertTrue(allComputeFunctions.size() >= 3, "Should find at least 3 compute overloads");
 
         // Verify distinct signatures
-        var computeSignatures = allComputeFunctions.stream()
-                .map(CodeUnit::signature)
-                .collect(Collectors.toSet());
+        var computeSignatures =
+                allComputeFunctions.stream().map(CodeUnit::signature).collect(Collectors.toSet());
         assertTrue(computeSignatures.size() >= 3, "Should have at least 3 distinct compute signatures");
     }
 
@@ -1465,9 +1463,7 @@ public class CppAnalyzerTest {
 
         // Verify FQNames include nested namespace
         for (var cu : ctorDtorFunctions) {
-            assertTrue(
-                    cu.fqName().contains("outer.inner"),
-                    "FQName should include nested namespace: " + cu.fqName());
+            assertTrue(cu.fqName().contains("outer.inner"), "FQName should include nested namespace: " + cu.fqName());
         }
     }
 
@@ -1502,9 +1498,7 @@ public class CppAnalyzerTest {
                 .findFirst();
         assertTrue(nestedCase.isPresent(), "Should find noexceptEdge1 with nested parentheses");
         var nestedSig = nestedCase.get().signature();
-        assertTrue(
-                nestedSig.contains("noexcept(noexcept"),
-                "Should preserve nested noexcept expression: " + nestedSig);
+        assertTrue(nestedSig.contains("noexcept(noexcept"), "Should preserve nested noexcept expression: " + nestedSig);
 
         // Find the complex expression case
         var exprCase = noexceptEdges.stream()
@@ -1512,9 +1506,7 @@ public class CppAnalyzerTest {
                 .findFirst();
         assertTrue(exprCase.isPresent(), "Should find noexceptEdge2 with complex expression");
         var exprSig = exprCase.get().signature();
-        assertTrue(
-                exprSig.contains("sizeof"),
-                "Should preserve sizeof expression in noexcept: " + exprSig);
+        assertTrue(exprSig.contains("sizeof"), "Should preserve sizeof expression in noexcept: " + exprSig);
 
         // Find the whitespace case
         var spaceCase = noexceptEdges.stream()
@@ -1523,9 +1515,7 @@ public class CppAnalyzerTest {
         assertTrue(spaceCase.isPresent(), "Should find noexceptEdge3 with whitespace");
         // Signature should have noexcept(true) with normalized spacing
         var spaceSig = spaceCase.get().signature();
-        assertTrue(
-                spaceSig.contains("noexcept"),
-                "Should contain noexcept: " + spaceSig);
+        assertTrue(spaceSig.contains("noexcept"), "Should contain noexcept: " + spaceSig);
     }
 
     @Test
@@ -1559,7 +1549,8 @@ public class CppAnalyzerTest {
 
         // Find and verify specific overloads
         var volatileOnly = multiParamOverloads.stream()
-                .filter(cu -> cu.signature().contains("volatile") && !cu.signature().contains("const"))
+                .filter(cu ->
+                        cu.signature().contains("volatile") && !cu.signature().contains("const"))
                 .findFirst();
         assertTrue(volatileOnly.isPresent(), "Should find volatile overload");
 
@@ -1569,8 +1560,8 @@ public class CppAnalyzerTest {
         assertTrue(constVolatile.isPresent(), "Should find const volatile overload");
 
         // At least one should have && rvalue reference qualifier
-        var hasRvalue = multiParamOverloads.stream()
-                .anyMatch(cu -> cu.signature().contains("&&"));
+        var hasRvalue =
+                multiParamOverloads.stream().anyMatch(cu -> cu.signature().contains("&&"));
         assertTrue(hasRvalue, "Should find at least one overload with && qualifier");
     }
 }
