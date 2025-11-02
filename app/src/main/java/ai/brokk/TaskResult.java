@@ -127,7 +127,7 @@ public record TaskResult(
             return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
         }
 
-        public static Optional<Type> safeParse(String value) {
+        public static Optional<Type> safeParse(@Nullable String value) {
             if (value == null) {
                 return Optional.empty();
             }

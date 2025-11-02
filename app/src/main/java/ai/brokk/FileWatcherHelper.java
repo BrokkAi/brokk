@@ -30,10 +30,6 @@ public class FileWatcherHelper {
      * @return true if git metadata was modified
      */
     public boolean isGitMetadataChanged(EventBatch batch) {
-        if (gitRepoRoot == null) {
-            return false;
-        }
-
         Path relativeGitMetaDir = projectRoot.relativize(gitRepoRoot.resolve(".git"));
         return batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
     }

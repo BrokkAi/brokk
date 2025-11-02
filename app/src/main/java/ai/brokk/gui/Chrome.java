@@ -176,9 +176,6 @@ public class Chrome
     // Pin exact Instructions height (in px) during collapse so only Output resizes
     private int pinnedInstructionsHeightPx = -1;
 
-    // Save the Workspace↔Instructions divider as a proportion (0..1) to restore Workspace height precisely
-    private double savedTopSplitProportion = -1.0;
-
     // Guard to prevent recursion when clamping the Output↔Bottom divider
     private boolean adjustingMainDivider = false;
 
@@ -1284,18 +1281,16 @@ public class Chrome
         });
 
         // Alt/Cmd+2 for Tests panel
-        if (testRunnerPanel != null) {
-            KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
-                    "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-            bindKey(rootPane, switchToTests, "switchToTests");
-            rootPane.getActionMap().put("switchToTests", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
-                }
-            });
-        }
+        KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
+                "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        bindKey(rootPane, switchToTests, "switchToTests");
+        rootPane.getActionMap().put("switchToTests", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+            }
+        });
 
         // Alt/Cmd+3 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
@@ -2411,27 +2406,6 @@ public class Chrome
             g.flush();
         } catch (Exception ignored) {
             // Non-fatal persistence failure
-        }
-    }
-
-    /** Returns the per-project collapsed setting if present; otherwise returns null. */
-    private @Nullable Boolean readProjectWorkspaceCollapsed() {
-        try {
-            var p = projectPrefsNode();
-            String raw = p.get(PREF_KEY_WORKSPACE_COLLAPSED, null);
-            return (raw == null) ? null : Boolean.valueOf(raw);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    /** Returns the global default collapsed setting, defaulting to false if unset. */
-    private boolean readGlobalWorkspaceCollapsed() {
-        try {
-            var g = prefsRoot();
-            return g.getBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, false);
-        } catch (Exception ignored) {
-            return false;
         }
     }
 
@@ -3573,18 +3547,6 @@ public class Chrome
 
             if (collapsed) {
                 // Also save as a proportion for robust restore after resizes
-                try {
-                    int t = Math.max(0, topSplitPane.getHeight());
-                    if (t > 0) {
-                        double p = (double) Math.max(0, topSplitPane.getDividerLocation()) / (double) t;
-                        // Clamp to avoid pathological values
-                        savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
-                    }
-                } catch (Exception ex) {
-                    // Non-fatal: we'll use default proportion on restore
-                    logger.debug("Failed to save top split proportion; using defaults on restore", ex);
-                }
-
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
                 int instructionsHeightPx = 0;
                 try {

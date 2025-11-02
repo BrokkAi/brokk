@@ -191,9 +191,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         // AnalyzerWrapper now focuses only on analyzer-relevant changes.
         // Git metadata and tracked file change notifications are handled by ContextManager's listener.
 
-        int repoChangeCallbacks = 0;
-        int trackedFileChangeCallbacks = 0;
-
         logger.trace(
                 "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
                 batch.files.size(),
@@ -215,9 +212,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
-                    repoChangeCallbacks++;
                     listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-                    trackedFileChangeCallbacks++;
                 }
             }
         }

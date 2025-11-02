@@ -891,7 +891,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (methodSources.isEmpty()) {
             log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
         }
-        return methodSources;
+        return Set.copyOf(methodSources);
     }
 
     @Override
@@ -1215,8 +1215,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<CodeUnit> kids,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            ProjectFile file) {
+            Map<CodeUnit, List<Range>> localSourceRanges) {
 
         if (!kids.contains(cu)) {
             kids.add(cu);
@@ -1623,7 +1622,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, file);
+                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -1643,7 +1642,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, file);
+                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",

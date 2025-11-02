@@ -31,15 +31,6 @@ public class MultiAnalyzer
         return Optional.empty();
     }
 
-    private <K, V> Map<K, List<V>> mergeMapsFromAnalyzers(Function<IAnalyzer, Map<K, List<V>>> extractor) {
-        return delegates.values().stream()
-                .flatMap(analyzer -> extractor.apply(analyzer).entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (list1, list2) -> Stream.concat(
-                                list1.stream(), list2.stream())
-                        .distinct()
-                        .collect(Collectors.toList())));
-    }
-
     /**
      * Get the delegate analyzer for the language of the given CodeUnit.
      *

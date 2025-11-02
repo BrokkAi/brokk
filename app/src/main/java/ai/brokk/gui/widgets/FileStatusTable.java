@@ -194,10 +194,11 @@ public final class FileStatusTable extends JScrollPane implements ThemeAware {
 
             // Ensure any nested ThemeAware children (unlikely here) get themed as well
             Component view = getViewport().getView();
-            if (view instanceof ThemeAware) {
+            if (view instanceof ThemeAware themeAware) {
                 try {
-                    ((ThemeAware) view).applyTheme(guiTheme);
+                    themeAware.applyTheme(guiTheme);
                 } catch (Exception ignored) {
+                    // Ignore theme application errors for nested components
                 }
             }
         } catch (Exception ex) {

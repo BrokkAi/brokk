@@ -100,6 +100,7 @@ public class MenuBar {
                         try {
                             onClose.run();
                         } catch (Throwable ignored) {
+                            // Ignore errors from cleanup handler
                         }
                         return;
                     }
@@ -108,13 +109,15 @@ public class MenuBar {
                     // Avoid calling generic dispose/close on arbitrary components to prevent
                     // accidentally closing shared/reused components owned elsewhere.
                     try {
-                        if (content instanceof TerminalPanel) {
+                        if (content instanceof TerminalPanel terminalPanel) {
                             try {
-                                ((TerminalPanel) content).dispose();
+                                terminalPanel.dispose();
                             } catch (Throwable ignored) {
+                                // Ignore errors disposing terminal panel
                             }
                         }
                     } catch (Throwable ignored) {
+                        // Ignore errors during cleanup
                     }
                 }
 

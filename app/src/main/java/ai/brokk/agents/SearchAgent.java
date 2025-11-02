@@ -78,7 +78,6 @@ public class SearchAgent {
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
-    private final ContextManager.TaskScope scope;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -109,7 +108,6 @@ public class SearchAgent {
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
-        this.scope = scope;
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();

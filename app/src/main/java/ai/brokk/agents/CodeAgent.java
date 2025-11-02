@@ -976,7 +976,6 @@ public class CodeAgent {
         }
 
         // Use Eclipse JDT ASTParser without classpath/bindings
-        var projectRoot = contextManager.getProject().getRoot();
 
         // Map from ProjectFile -> diagnostic list for that file
         var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();

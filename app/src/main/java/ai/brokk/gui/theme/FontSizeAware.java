@@ -32,8 +32,8 @@ public interface FontSizeAware {
     default float getExplicitFontSize() {
         if (this instanceof EditorFontSizeControl control) {
             int index = control.getCurrentFontIndex();
-            if (index >= 0 && index < EditorFontSizeControl.FONT_SIZES.length) {
-                return EditorFontSizeControl.FONT_SIZES[index];
+            if (index >= 0 && index < EditorFontSizeControl.FONT_SIZES.size()) {
+                return EditorFontSizeControl.FONT_SIZES.get(index);
             }
         }
         return -1;

@@ -198,11 +198,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
     }
 
-    /** Logs an error and shows a toolErrorRaw message to the user. */
-    private void reportBackgroundError(String contextMessage, Throwable e) {
-        chrome.toolError(contextMessage + (e.getMessage() != null ? ": " + e.getMessage() : ""));
-    }
-
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private static final List<String> REVIEW_FILTER_OPTIONS = List.of(

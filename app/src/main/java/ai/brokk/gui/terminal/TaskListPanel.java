@@ -2093,6 +2093,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
         } catch (Exception ignore) {
+            // Ignore errors finding parent tabbed pane during cleanup
         }
 
         runningFadeTimer.stop();

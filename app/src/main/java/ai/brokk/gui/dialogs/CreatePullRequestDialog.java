@@ -30,7 +30,6 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -799,11 +798,6 @@ public class CreatePullRequestDialog extends JDialog {
                 showDescriptionHint(suggestion.usedCommitMessages());
             });
         }
-    }
-
-    private static void setTextAndResetCaret(JTextComponent textComponent, String text) {
-        textComponent.setText(text);
-        textComponent.setCaretPosition(0);
     }
 
     private void createPullRequest() {

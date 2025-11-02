@@ -547,7 +547,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             }
             case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                     "ai.brokk.context.ContextFragment$CodeFragment" -> {
-                var repoRoot = meta.get("repoRoot");
                 var relPath = meta.get("relPath");
                 var kindStr = meta.get("kind");
                 var packageName = meta.get("packageName");

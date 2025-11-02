@@ -24,14 +24,12 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.Constants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** Code that uses LLMs to interact with Git goes here, instead of GitRepo. */
 public final class GitWorkflow {
     private static final Logger logger = LogManager.getLogger(GitWorkflow.class);
-    private static final int EXPLAIN_COMMIT_FILE_LIMIT = 50;
 
     public record CommitResult(String commitId, String firstLine) {}
 
@@ -253,17 +251,6 @@ public final class GitWorkflow {
     public static boolean isSyntheticBranchName(String branchName) {
         // Callers (evaluatePushPull, push, pull) ensure branchName is not null.
         return "stashes".equals(branchName) || branchName.startsWith("Search:");
-    }
-
-    private String parentOrEmptyTree(String rev) {
-        var parentRev = rev + "^";
-        try {
-            // If parent cannot be resolved (e.g., rev is a root commit), fall back to the empty tree.
-            repo.resolveToObject(parentRev);
-            return parentRev;
-        } catch (GitAPIException e) {
-            return Constants.EMPTY_TREE_ID.getName();
-        }
     }
 
     /**
