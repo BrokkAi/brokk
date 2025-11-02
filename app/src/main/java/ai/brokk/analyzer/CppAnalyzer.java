@@ -264,9 +264,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             signature += " " + ASTTraversalUtils.extractNodeText(throwsNode, src);
         }
 
-        // Presentation-only marker: we still append bodyPlaceholder() to the rendered signature for UI clarity.
-        // NOTE: Duplicate/definition preference no longer relies on this string marker; it uses the AST-derived
-        // hasBody flag stored in CodeUnitProperties (see TreeSitterAnalyzer). Keep this strictly for display.
+        // PHASE 1 of two-phase definition detection: Check AST for function body presence
+        // If present, append bodyPlaceholder() marker ("{...}") to signature string.
+        // This marker will later be used by addTopLevelCodeUnit() (Phase 2) to prefer
+        // definitions (with bodies) over forward declarations (without bodies) when
+        // duplicate functions are found. See TreeSitterAnalyzer.bodyPlaceholder() JavaDoc
+        // for complete explanation of the two-phase pattern and its brittleness.
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
@@ -729,68 +732,42 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (decl == null) return "";
         }
 
-        // Look for textual qualifiers in the trailing portion after the parameter list.
-        // IMPORTANT: In C++, member-function qualifiers (const/volatile/ref/noexcept) may appear AFTER the parameters
-        // but OUTSIDE the function_declarator node. So we must scan from params end up to the start of the body (if any),
-        // or to the end of the outer node when there is no body.
+        // Look for textual qualifiers in the trailing portion of the declarator node (after parameters)
         TSNode paramsNode = decl.getChildByFieldName("parameters");
         int tailStart = (paramsNode != null && !paramsNode.isNull()) ? paramsNode.getEndByte() : decl.getStartByte();
-
-        // Determine an outer end bound to include qualifiers that may be outside the declarator
-        int outerTailEnd;
-        TSNode bodyNode = funcOrDeclNode.getChildByFieldName("body");
-        if (bodyNode != null && !bodyNode.isNull()) {
-            outerTailEnd = bodyNode.getStartByte();
-        } else {
-            outerTailEnd = funcOrDeclNode.getEndByte();
-        }
-
-        // Scan from params end up to the outer bound
-        int tailEnd = outerTailEnd;
+        int tailEnd = decl.getEndByte();
         if (tailStart >= tailEnd) return "";
 
-        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd).strip();
-
-        // Augment textual detection with AST-based scanning for robust qualifier extraction
-        boolean nodeHasConst = false;
-        boolean nodeHasVolatile = false;
-
-        // Scan both the outer node and the function_declarator node for TYPE_QUALIFIER children in the tail region
-        nodeHasConst = nodeHasConst || scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = nodeHasVolatile || scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
-        nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, src, "volatile");
+        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd)
+                .strip();
+        if (tail.isEmpty()) return "";
 
         var quals = new ArrayList<String>();
         var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
 
-        // Extract const qualifier (word boundary aware + AST-based)
-        if ((tail != null && !tail.isEmpty() && hasKeywordWithBoundary(tail, "const")) || nodeHasConst) {
-            if (addedQualTypes.add("const")) {
-                quals.add("const");
-            }
+        // Extract const qualifier (word boundary aware)
+        if (hasKeywordWithBoundary(tail, "const") && addedQualTypes.add("const")) {
+            quals.add("const");
         }
 
-        // Extract volatile qualifier (word boundary aware + AST-based)
-        if ((tail != null && !tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile")) || nodeHasVolatile) {
-            if (addedQualTypes.add("volatile")) {
-                quals.add("volatile");
-            }
+        // Extract volatile qualifier (word boundary aware)
+        if (hasKeywordWithBoundary(tail, "volatile") && addedQualTypes.add("volatile")) {
+            quals.add("volatile");
         }
 
         // Extract reference qualifier: && takes precedence over & (check && first)
-        if (tail != null && tail.contains("&&")) {
+        if (tail.contains("&&")) {
             if (addedQualTypes.add("&&")) {
                 quals.add("&&");
             }
-        } else if (tail != null && tail.contains("&")) {
+        } else if (tail.contains("&")) {
             if (addedQualTypes.add("&")) {
                 quals.add("&");
             }
         }
 
         // Extract full noexcept clause (including optional parenthesized condition)
-        String noexceptClause = (tail == null || tail.isEmpty()) ? "" : extractNoexceptClause(tail);
+        String noexceptClause = extractNoexceptClause(tail);
         if (!noexceptClause.isEmpty() && addedQualTypes.add("noexcept")) {
             quals.add(noexceptClause);
         }
@@ -801,7 +778,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         String result = String.join(" ", quals).strip();
         if (log.isDebugEnabled()) {
-            log.debug("Extracted qualifier suffix '{}' from declarator tail: {}", result, (tail == null ? "" : tail));
+            log.debug("Extracted qualifier suffix '{}' from declarator tail: {}", result, tail);
         }
         return result;
     }
@@ -896,29 +873,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         return clause;
-    }
-
-    /**
-     * Scans immediate named children of the given parent node within the [tailStart, tailEnd) byte range
-     * for TYPE_QUALIFIER nodes containing the specified qualifier token.
-     */
-    private boolean scanForQualifier(TSNode parent, int tailStart, int tailEnd, String src, String qualifier) {
-        if (parent == null || parent.isNull()) return false;
-        int count = parent.getNamedChildCount();
-        for (int i = 0; i < count; i++) {
-            TSNode child = parent.getNamedChild(i);
-            if (child == null || child.isNull()) continue;
-            int sb = child.getStartByte();
-            if (sb < tailStart || sb >= tailEnd) continue;
-            String t = child.getType();
-            if (TYPE_QUALIFIER.equals(t)) {
-                String q = ASTTraversalUtils.extractNodeText(child, src).strip();
-                if (q.contains(qualifier)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     @Override
