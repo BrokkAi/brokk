@@ -18,6 +18,23 @@ public:
     void h() noexcept(true);
     void h() noexcept(false);
 
+    // Reference/pointer type variations to distinguish overloads
+    void refPtrTest(int val);
+    void refPtrTest(int& ref);
+    void refPtrTest(int* ptr);
+    void refPtrTest(const int& constRef);
+    void refPtrTest(int&& rvalueRef);
+
+    // Edge-case noexcept expressions with nested parentheses
+    void noexceptEdge1() noexcept(noexcept(int()));
+    void noexceptEdge2() noexcept(sizeof(int) < 8);
+    void noexceptEdge3() noexcept  (  true  );  // Multiple spaces
+
+    // Volatile with multiple parameters
+    void multiParam(int a, double b) volatile;
+    void multiParam(int a, double b) const volatile;
+    void multiParam(int a, double b, char* c) const volatile &&;
+
 private:
     int value;
 };

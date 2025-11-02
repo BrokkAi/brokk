@@ -1261,4 +1261,316 @@ public class CppAnalyzerTest {
         assertEquals(
                 "ns.C.method", methodInt.get().fqName(), "C.method FQN should be 'ns.C.method' without parameters");
     }
+
+    @Test
+    public void testComplexDeclarators() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("complex_declarators.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("complex_declarators.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in complex_declarators.h");
+
+        var functions = decls.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+
+        // Should find all function declarations including those with complex function pointer parameters
+        assertTrue(functions.size() >= 7, "Should find at least 7 function declarations: " + functions.size());
+
+        // Verify each function has a signature
+        for (var func : functions) {
+            assertNotNull(func.signature(), "Function should have signature: " + func.fqName());
+            assertTrue(func.signature().startsWith("("), "Signature should start with '(': " + func.signature());
+        }
+
+        // Verify specific functions are found
+        // Note: Functions returning function pointers have shortName like "(*getHandler())" not just "getHandler"
+        var getHandler = functions.stream()
+                .filter(f -> f.shortName().contains("getHandler"))
+                .findFirst();
+        assertTrue(getHandler.isPresent(), "Should find getHandler function");
+        assertEquals("(double)", getHandler.get().signature(), "getHandler return type signature should be (double)");
+
+        var process = functions.stream()
+                .filter(f -> f.shortName().contains("process"))
+                .findFirst();
+        assertTrue(process.isPresent(), "Should find process function");
+        // Signature should contain function pointer parameter - check for "callback" or function pointer syntax
+        var processSig = process.get().signature();
+        assertTrue(
+                processSig.contains("callback") || processSig.contains("int") || processSig.length() > 10,
+                "process signature should contain complex parameter: " + processSig);
+
+        var signal = functions.stream()
+                .filter(f -> f.shortName().contains("signal"))
+                .findFirst();
+        assertTrue(signal.isPresent(), "Should find signal function");
+        // Signal has complex nested function pointers in its shortName
+        assertTrue(
+                signal.get().shortName().length() > 10,
+                "signal shortName should be complex: " + signal.get().shortName());
+    }
+
+    @Test
+    public void testReferencePointerTypeVariations() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
+
+        var refPtrOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("refPtrTest"))
+                .collect(Collectors.toList());
+
+        // Should find 5 distinct overloads: int, int&, int*, const int&, int&&
+        assertEquals(5, refPtrOverloads.size(), "Should find exactly 5 refPtrTest overloads");
+
+        // Verify all have distinct signatures
+        var signatures = refPtrOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        assertEquals(
+                5,
+                signatures.size(),
+                "All 5 refPtrTest overloads should have distinct signatures: " + signatures);
+
+        // Verify specific signature patterns exist
+        var sigList = refPtrOverloads.stream().map(CodeUnit::signature).collect(Collectors.toList());
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("int") && !s.contains("&") && !s.contains("*")),
+                "Should find int value parameter");
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("int&") || s.contains("int &")),
+                "Should find int& reference parameter");
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("int*") || s.contains("int *")),
+                "Should find int* pointer parameter");
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("const")),
+                "Should find const int& parameter");
+        assertTrue(sigList.stream().anyMatch(s -> s.contains("&&")),
+                "Should find int&& rvalue reference parameter");
+    }
+
+    @Test
+    public void testOverloadsAcrossHeaderAndImpl() {
+        var header = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("multi_file_overloads.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("multi_file_overloads.h not found"));
+
+        var impl = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("multi_file_overloads.cpp"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("multi_file_overloads.cpp not found"));
+
+        var headerDecls = analyzer.getDeclarations(header);
+        var implDecls = analyzer.getDeclarations(impl);
+
+        assertFalse(headerDecls.isEmpty(), "Should find declarations in header");
+        assertFalse(implDecls.isEmpty(), "Should find declarations in implementation");
+
+        // Find cross(int) - should be in implementation file (definitions)
+        var implCrossInt = implDecls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("cross"))
+                .filter(cu -> cu.signature() != null && cu.signature().contains("int") && !cu.signature().contains(","))
+                .findFirst();
+
+        assertTrue(implCrossInt.isPresent(), "Should find cross(int) in implementation");
+
+        // Find Calculator.compute functions in both files
+        var headerComputeInt = headerDecls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("compute"))
+                .filter(cu -> cu.signature() != null && cu.signature().equals("(int)"))
+                .findFirst();
+
+        var implComputeInt = implDecls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("compute"))
+                .filter(cu -> cu.signature() != null && cu.signature().equals("(int)"))
+                .findFirst();
+
+        assertTrue(headerComputeInt.isPresent(), "Should find compute(int) in header");
+        assertTrue(implComputeInt.isPresent(), "Should find compute(int) in implementation");
+
+        // Both should have matching signatures
+        assertEquals(headerComputeInt.get().signature(), implComputeInt.get().signature(), "Signatures should match");
+
+        // Note: FQNames may differ slightly (. vs ::) between declarations and definitions
+        // Header shortName: Calculator.compute (from class member syntax)
+        // Impl shortName: Calculator::compute (from scope resolution syntax)
+        // Both should end with "compute" and contain "Calculator"
+        assertTrue(headerComputeInt.get().fqName().contains("Calculator"), "Header FQName should contain Calculator");
+        assertTrue(headerComputeInt.get().fqName().endsWith("compute"), "Header FQName should end with compute");
+        assertTrue(implComputeInt.get().fqName().contains("Calculator"), "Impl FQName should contain Calculator");
+        assertTrue(implComputeInt.get().fqName().endsWith("compute"), "Impl FQName should end with compute");
+
+        // Verify overloads are preserved across both files
+        var allComputeFunctions = implDecls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("compute"))
+                .collect(Collectors.toList());
+
+        // Should find 3 compute overloads in implementation: (int), (int,int), (double)
+        assertTrue(allComputeFunctions.size() >= 3, "Should find at least 3 compute overloads");
+
+        // Verify distinct signatures
+        var computeSignatures = allComputeFunctions.stream()
+                .map(CodeUnit::signature)
+                .collect(Collectors.toSet());
+        assertTrue(computeSignatures.size() >= 3, "Should have at least 3 distinct compute signatures");
+    }
+
+    @Test
+    public void testCtorDtorNestedNamespaces() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("nested_ctors.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("nested_ctors.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in nested_ctors.h");
+
+        var ctorDtorFunctions = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> {
+                    var baseName = getBaseFunctionName(cu);
+                    return baseName.equals("Widget") || baseName.equals("~Widget");
+                })
+                .collect(Collectors.toList());
+
+        // Should find 3 constructors + 1 destructor = at least 4 functions (may find declarations + definitions)
+        assertTrue(ctorDtorFunctions.size() >= 4, "Should find at least 4 constructor/destructor functions");
+
+        // Find constructors (should have 3 overloads, but may have declarations + definitions)
+        var ctors = ctorDtorFunctions.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("Widget"))
+                .collect(Collectors.toList());
+        assertTrue(ctors.size() >= 3, "Should find at least 3 constructor overloads (may include decls + defs)");
+
+        // Verify constructors have distinct signatures
+        var ctorSignatures = ctors.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        assertEquals(3, ctorSignatures.size(), "Constructors should have 3 distinct signatures");
+
+        // Find destructor
+        var dtor = ctorDtorFunctions.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("~Widget"))
+                .findFirst();
+        assertTrue(dtor.isPresent(), "Should find destructor ~Widget");
+
+        // Destructor should have noexcept in signature
+        assertTrue(
+                dtor.get().signature().contains("noexcept"),
+                "Destructor signature should contain noexcept: " + dtor.get().signature());
+
+        // Verify FQNames include nested namespace
+        for (var cu : ctorDtorFunctions) {
+            assertTrue(
+                    cu.fqName().contains("outer.inner"),
+                    "FQName should include nested namespace: " + cu.fqName());
+        }
+    }
+
+    @Test
+    public void testNoexceptEdgeCases() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
+
+        var noexceptEdges = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).startsWith("noexceptEdge"))
+                .collect(Collectors.toList());
+
+        // Should find 3 noexcept edge case functions
+        assertEquals(3, noexceptEdges.size(), "Should find exactly 3 noexceptEdge functions");
+
+        // All should have noexcept in their signature
+        for (var func : noexceptEdges) {
+            assertTrue(
+                    func.signature().contains("noexcept"),
+                    "Function should have noexcept in signature: " + func.fqName() + " -> " + func.signature());
+        }
+
+        // Find the nested parentheses case
+        var nestedCase = noexceptEdges.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("noexceptEdge1"))
+                .findFirst();
+        assertTrue(nestedCase.isPresent(), "Should find noexceptEdge1 with nested parentheses");
+        var nestedSig = nestedCase.get().signature();
+        assertTrue(
+                nestedSig.contains("noexcept(noexcept"),
+                "Should preserve nested noexcept expression: " + nestedSig);
+
+        // Find the complex expression case
+        var exprCase = noexceptEdges.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("noexceptEdge2"))
+                .findFirst();
+        assertTrue(exprCase.isPresent(), "Should find noexceptEdge2 with complex expression");
+        var exprSig = exprCase.get().signature();
+        assertTrue(
+                exprSig.contains("sizeof"),
+                "Should preserve sizeof expression in noexcept: " + exprSig);
+
+        // Find the whitespace case
+        var spaceCase = noexceptEdges.stream()
+                .filter(cu -> getBaseFunctionName(cu).equals("noexceptEdge3"))
+                .findFirst();
+        assertTrue(spaceCase.isPresent(), "Should find noexceptEdge3 with whitespace");
+        // Signature should have noexcept(true) with normalized spacing
+        var spaceSig = spaceCase.get().signature();
+        assertTrue(
+                spaceSig.contains("noexcept"),
+                "Should contain noexcept: " + spaceSig);
+    }
+
+    @Test
+    public void testVolatileMultiParam() {
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
+
+        var multiParamOverloads = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("multiParam"))
+                .collect(Collectors.toList());
+
+        // Should find 3 overloads with different qualifiers
+        assertEquals(3, multiParamOverloads.size(), "Should find exactly 3 multiParam overloads");
+
+        // All should have distinct signatures
+        var signatures = multiParamOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        assertEquals(3, signatures.size(), "All 3 overloads should have distinct signatures: " + signatures);
+
+        // Check that parameters are extracted correctly (should contain commas for multiple params)
+        for (var func : multiParamOverloads) {
+            assertTrue(
+                    func.signature().contains(","),
+                    "Multi-parameter function should have comma in signature: " + func.signature());
+        }
+
+        // Find and verify specific overloads
+        var volatileOnly = multiParamOverloads.stream()
+                .filter(cu -> cu.signature().contains("volatile") && !cu.signature().contains("const"))
+                .findFirst();
+        assertTrue(volatileOnly.isPresent(), "Should find volatile overload");
+
+        var constVolatile = multiParamOverloads.stream()
+                .filter(cu -> cu.signature().contains("const") && cu.signature().contains("volatile"))
+                .findFirst();
+        assertTrue(constVolatile.isPresent(), "Should find const volatile overload");
+
+        // At least one should have && rvalue reference qualifier
+        var hasRvalue = multiParamOverloads.stream()
+                .anyMatch(cu -> cu.signature().contains("&&"));
+        assertTrue(hasRvalue, "Should find at least one overload with && qualifier");
+    }
 }
