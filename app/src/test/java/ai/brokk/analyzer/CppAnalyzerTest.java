@@ -989,14 +989,98 @@ public class CppAnalyzerTest {
         // There should be a skeleton entry (definition) for foo() and its skeleton should include body placeholder or
         // implementation
         var fooEntry = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isFunction())
                 .filter(e -> getBaseFunctionName(e.getKey()).equals("foo"))
                 .findFirst();
 
         assertTrue(fooEntry.isPresent(), "Should find skeleton for foo()");
+
+        // Ensure we prefer the single definition over any prototype in the header
+        int skeletonFooCount = (int) skeletons.keySet().stream()
+                .filter(CodeUnit::isFunction)
+                .filter(k -> getBaseFunctionName(k).equals("foo"))
+                .count();
+        assertEquals(1, skeletonFooCount, "Should prefer single definition for foo() over prototype in header");
+
+        // Also verify declarations set contains exactly one function CodeUnit for foo()
+        var decls = analyzer.getDeclarations(file);
+        long declFooCount = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("foo"))
+                .count();
+        assertEquals(1, declFooCount, "Only one function CodeUnit for foo() should be present (the definition)");
+
         String sig = fooEntry.get().getValue();
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
         assertTrue(
-                sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
+                sig.contains("{...}") || sig.contains("{"),
+                "Expected function skeleton to indicate a body for foo()");
+    }
+
+    @Test
+    public void testDefinitionPreferredInSameFile() {
+        // Validate semantics don't rely on placeholder strings by using a file that contains:
+        // - a class method declaration inside the class
+        // - an out-of-line definition of that method later in the same file
+        //
+        // The analyzer should expose a single top-level function CodeUnit for the definition,
+        // even though the in-class declaration has a differently formatted signature (no body).
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("decl_vs_def.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("decl_vs_def.h not found"));
+
+        // Declarations: ensure we only consider the out-of-line definition (scope-resolved name)
+        var decls = analyzer.getDeclarations(file);
+        var outOfLineFuncs = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("declaration_only"))
+                .filter(cu -> cu.fqName().contains("::") || cu.shortName().contains("::"))
+                .collect(Collectors.toList());
+
+        // Deduplicate by signature to avoid double-captures of the same definition
+        var uniqueOutOfLineSigs = outOfLineFuncs.stream()
+                .map(CodeUnit::signature)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        assertEquals(
+                1,
+                uniqueOutOfLineSigs.size(),
+                "Should have exactly one unique out-of-line definition signature for 'declaration_only'. "
+                        + "Candidates: " + outOfLineFuncs.stream().map(CodeUnit::fqName).collect(Collectors.toList())
+                        + ", Signatures: " + uniqueOutOfLineSigs);
+
+        // Skeletons: confirm the corresponding skeleton contains a body placeholder for the definition
+        var skeletons = analyzer.getSkeletons(file);
+        var funcSkeletonEntry = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isFunction())
+                .filter(e -> getBaseFunctionName(e.getKey()).equals("declaration_only"))
+                .findFirst();
+
+        assertTrue(funcSkeletonEntry.isPresent(), "Should have skeleton for out-of-line definition");
+        String skeleton = funcSkeletonEntry.get().getValue();
+        assertTrue(
+                skeleton.contains("{...}"),
+                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + skeleton);
+
+        // Sanity: ensure in-class declaration is still present in the class skeleton and does not have body placeholder
+        var classSkeleton = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isClass())
+                .filter(e -> e.getKey().shortName().contains("DeclVsDef"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        assertTrue(classSkeleton.isPresent(), "DeclVsDef class skeleton should be present");
+        String classSkelText = classSkeleton.get();
+        var declLine = classSkelText
+                .lines()
+                .filter(line -> line.contains("declaration_only"))
+                .filter(line -> !line.contains("::"))
+                .findFirst()
+                .orElse("");
+        assertFalse(
+                declLine.contains("{...}") || declLine.contains("{"),
+                "Class-scope declaration should not include body placeholder");
     }
 
     @Test
@@ -1260,5 +1344,182 @@ public class CppAnalyzerTest {
         assertEquals("(int)", methodInt.get().signature(), "C.method(int) should have signature '(int)'");
         assertEquals(
                 "ns.C.method", methodInt.get().fqName(), "C.method FQN should be 'ns.C.method' without parameters");
+    }
+
+    @Test
+    public void testHasBodyFlagPrefersDefinitionInSameFile() {
+        // Validate hasBody flag semantics for in-class declaration vs out-of-line definition in the same file.
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("decl_vs_def.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("decl_vs_def.h not found"));
+
+        var decls = analyzer.getDeclarations(file);
+        assertFalse(decls.isEmpty(), "Should find declarations in decl_vs_def.h");
+
+        // Collect all function CodeUnits named 'declaration_only'
+        var candidates = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("declaration_only"))
+                .collect(Collectors.toList());
+
+        assertTrue(
+                candidates.size() >= 2,
+                "Should find at least 2 CodeUnits for declaration_only (in-class declaration and out-of-line definition)");
+
+        // Determine hasBody for each
+        class CUHasBody {
+            final CodeUnit cu;
+            final boolean hasBody;
+
+            CUHasBody(CodeUnit cu, boolean hasBody) {
+                this.cu = cu;
+                this.hasBody = hasBody;
+            }
+        }
+
+        var withFlags = candidates.stream()
+                .map(cu -> new CUHasBody(
+                        cu,
+                        analyzer.withCodeUnitProperties(map -> map
+                                .getOrDefault(
+                                        cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                                .hasBody())))
+                .collect(Collectors.toList());
+
+        // Identify out-of-line definition (prefer those with hasBody == true)
+        var outOfLineOpt = withFlags.stream().filter(x -> x.hasBody).map(x -> x.cu).findFirst();
+        assertTrue(outOfLineOpt.isPresent(), "Out-of-line definition with hasBody=true should exist");
+        CodeUnit outOfLine = outOfLineOpt.get();
+
+        // Identify class-scope declaration (hasBody == false)
+        var inClassOpt = withFlags.stream().filter(x -> !x.hasBody).map(x -> x.cu).findFirst();
+        assertTrue(inClassOpt.isPresent(), "In-class declaration with hasBody=false should exist");
+        CodeUnit inClass = inClassOpt.get();
+
+        // Sanity: ensure they are distinct CUs
+        assertNotEquals(outOfLine, inClass, "Out-of-line definition and in-class declaration should be distinct");
+
+        // Verify the skeleton for the out-of-line definition contains display placeholder "{...}"
+        var skeletons = analyzer.getSkeletons(file);
+        String defSkeleton = skeletons.get(outOfLine);
+        assertNotNull(defSkeleton, "Skeleton for out-of-line definition should exist");
+        assertTrue(
+                defSkeleton.contains("{...}"),
+                "Out-of-line definition skeleton should contain '{...}' body placeholder. Skeleton: " + defSkeleton);
+    }
+
+    @Test
+    public void testHasBodyFlagAcrossHeaderAndSourceFiles() {
+        // Validate hasBody semantics across header prototype and source definition (forward_decl.h)
+        var headerFile = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("forward_decl.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("forward_decl.h not found"));
+
+        // Gather header declarations and filter for functions named 'foo'
+        var headerDecls = analyzer.getDeclarations(headerFile);
+        assertFalse(headerDecls.isEmpty(), "Should find declarations in forward_decl.h");
+
+        var headerCandidates = headerDecls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("foo"))
+                .collect(Collectors.toList());
+        assertFalse(
+                headerCandidates.isEmpty(),
+                "Should find at least one function named 'foo' in header. Available: "
+                        + headerDecls.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+
+        // Try to select a true header prototype with hasBody == false
+        CodeUnit headerProto = null;
+        for (var cu : headerCandidates) {
+            boolean hasBody = analyzer.withCodeUnitProperties(map -> map
+                    .getOrDefault(cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                    .hasBody());
+            if (!hasBody) {
+                headerProto = cu;
+                break;
+            }
+        }
+
+        if (headerProto != null) {
+            final var headerProtoFinal = headerProto;
+            boolean headerHasBody = analyzer.withCodeUnitProperties(map -> map
+                    .getOrDefault(headerProtoFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                    .hasBody());
+            assertFalse(headerHasBody, "Header prototype should have hasBody == false");
+
+            // Search across all declarations for a definition (hasBody == true) with the same FQN
+            var allDecls = getAllDeclarations();
+            CodeUnit sourceDef = null;
+            for (var cu : allDecls) {
+                if (!cu.isFunction()) continue;
+                if (!getBaseFunctionName(cu).equals("foo")) continue;
+                if (!cu.fqName().equals(headerProto.fqName())) continue;
+
+                final var candidateFinal = cu;
+                boolean hasBody = analyzer.withCodeUnitProperties(map -> map
+                        .getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody());
+                if (hasBody) {
+                    sourceDef = cu;
+                    break;
+                }
+            }
+
+            assertNotNull(
+                    sourceDef,
+                    "Should find a source definition with hasBody == true for 'foo' and FQN " + headerProto.fqName());
+
+            // Verify the skeleton for the source definition contains the display placeholder
+            var sourceFile = sourceDef.source();
+            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
+            String srcSkel = sourceSkeletons.get(sourceDef);
+            assertNotNull(srcSkel, "Source skeleton for definition should exist");
+            assertTrue(
+                    srcSkel.contains("{...}"),
+                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+        } else {
+            // No header prototype (hasBody==false) found: header may contain definition or merges occurred
+            var allDecls = getAllDeclarations();
+            CodeUnit sourceDef = null;
+            for (var cu : allDecls) {
+                if (!cu.isFunction()) continue;
+                if (!getBaseFunctionName(cu).equals("foo")) continue;
+
+                final var candidateFinal = cu;
+                boolean hasBody = analyzer.withCodeUnitProperties(map -> map
+                        .getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody());
+                if (hasBody) {
+                    sourceDef = cu;
+                    break;
+                }
+            }
+
+            assertNotNull(
+                    sourceDef,
+                    "Could not find a definition (hasBody==true) for function 'foo' across all declarations.");
+
+            // Verify the skeleton for the found definition contains the display placeholder
+            var sourceFile = sourceDef.source();
+            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
+            String srcSkel = sourceSkeletons.get(sourceDef);
+            assertNotNull(srcSkel, "Source skeleton for definition should exist");
+            assertTrue(
+                    srcSkel.contains("{...}"),
+                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+
+            // Additionally, ensure the header skeletons prefer a single function entry for 'foo'
+            var headerSkeletons = analyzer.getSkeletons(headerFile);
+            long headerFooCount = headerSkeletons.keySet().stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(k -> getBaseFunctionName(k).equals("foo"))
+                    .count();
+            assertEquals(
+                    1L,
+                    headerFooCount,
+                    "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
+        }
     }
 }

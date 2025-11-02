@@ -1305,17 +1305,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localTopLevelCUs.add(cu);
                 removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 return;
+            } else {
+                // If both have body or both lack body, check if signatures are identical; if so, treat as true duplicate.
+                String sigExisting = existingDuplicate.signature();
+                String sigCandidate = cu.signature();
+                if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
+                    log.trace(
+                            "Ignoring duplicate function with identical signature for {} in {}",
+                            cu.fqName(),
+                            file.getFileName());
+                    return;
+                }
             }
-            // If both have body or both lack body, fall through to general duplicate handling below
-
-            // Guard against duplicate body-less prototypes: if neither has a body, keep the first one
-            if (!existingHasBody && !candidateHasBody) {
-                log.trace(
-                        "Ignoring duplicate declaration for {} in {} because both are body-less prototypes",
-                        cu.fqName(),
-                        file.getFileName());
-                return;
-            }
+            // Otherwise fall through to general duplicate handling below (e.g., distinct overloads)
         }
 
         if (shouldReplaceOnDuplicate(cu)) {
@@ -1432,8 +1434,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
             kids.add(cu);
         } else {
-            // For languages that don't allow replacement, just skip the duplicate (preserves overloads elsewhere)
-            log.trace("Skipping duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
+            // For languages that don't allow replacement, treat non-equal CodeUnits (e.g., overloads) as distinct,
+            // but collapse exact duplicates where both FQN and signature match.
+            if (existingDuplicate.equals(cu)) {
+                // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
+                log.trace("Skipping true duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
+            } else {
+                // If both are functions and signatures are identical, treat as duplicate and skip
+                if (cu.isFunction() && existingDuplicate.isFunction()) {
+                    String sigExisting = existingDuplicate.signature();
+                    String sigCandidate = cu.signature();
+                    if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
+                        log.trace(
+                                "Skipping duplicate function child with identical signature: {} in parent {}",
+                                cu.fqName(),
+                                parentCu.fqName());
+                        return;
+                    }
+                }
+                // Different CodeUnits (e.g., overloads with different signatures) - add it
+                kids.add(cu);
+                log.trace(
+                        "Adding non-duplicate child (e.g., overload): {} in parent {}",
+                        cu.fqName(),
+                        parentCu.fqName());
+            }
         }
     }
 
