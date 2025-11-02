@@ -130,6 +130,7 @@ disklrucache = "com.jakewharton:disklrucache:2.0.2"
 # Lucene search engine
 lucene-core = { module = "org.apache.lucene:lucene-core", version.ref = "lucene" }
 lucene-queryparser = { module = "org.apache.lucene:lucene-queryparser", version.ref = "lucene" }
+lucene-codecs = { module = "org.apache.lucene:lucene-codecs", version.ref = "lucene" }
 
 [bundles]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]

@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.pcollections)
     implementation(libs.lucene.core)
     implementation(libs.lucene.queryparser)
+    implementation(libs.lucene.codecs)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 
