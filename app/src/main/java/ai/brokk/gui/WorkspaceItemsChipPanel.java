@@ -1251,12 +1251,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private Component createChip(ContextFragment fragment) {
-        // Defensive pre-checks: guard against nulls and visually-empty fragments.
+        // Defensive pre-check: guard against null fragments.
         if (fragment == null) return null;
-        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-            logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
-            return null;
-        }
 
         // Safely read commonly-used fragment properties with fallbacks.
         String safeShortDescription;
@@ -1279,20 +1275,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             safeDescription = "";
         }
 
-        // Last-line safety: re-check that the fragment still has renderable content before building UI.
-        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-            logger.debug("Avoiding chip creation after re-check for fragment {}", fragment);
-            return null;
-        }
+        
 
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
+        // Use a default "Loading..." label for any ComputedFragment; otherwise derive from fragment kind
         ChipKind kindForLabel = classify(fragment);
         String labelText;
-        if (kindForLabel == ChipKind.SUMMARY) {
+        if (fragment instanceof ContextFragment.ComputedFragment) {
+            labelText = "Loading...";
+        } else if (kindForLabel == ChipKind.SUMMARY) {
             labelText = buildSummaryLabel(fragment);
         } else if (kindForLabel == ChipKind.OTHER) {
             labelText = capitalizeFirst(safeShortDescription);
@@ -1300,18 +1294,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             labelText = safeShortDescription;
         }
         var label = new JLabel(labelText);
-
-        // If this is a computed fragment and we expect more info later, show a lightweight loading hint
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            try {
-                // For summaries, prefer an explicit Loading suffix before files() is ready
-                if (kindForLabel == ChipKind.SUMMARY && cf.computedFiles().tryGet().isEmpty()) {
-                    label.setText("Summary (Loading...)");
-                }
-            } catch (Exception ignored) {
-                // best-effort only
-            }
-        }
 
         // Improve discoverability and accessibility with wrapped HTML tooltips
         try {
