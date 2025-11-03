@@ -55,6 +55,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
+    private @Nullable JComponent syntheticSummaryChip = null;
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
     private boolean readOnly = false;
@@ -443,24 +444,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Entry debug
         try {
             logger.debug(
-                    "updateChips called with {} fragments (forceToolEmulation={} readOnly={})",
+                    "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
                     fragments.size(),
                     MainProject.getForceToolEmulation(),
                     readOnly);
         } catch (Exception ignored) {
         }
-        // Dispose existing subscriptions before clearing UI
-        for (var comp : getComponents()) {
-            if (comp instanceof JComponent jc) {
-                disposeChipSubscriptions(jc);
-            }
-        }
-
-        removeAll();
-        chipById.clear();
 
         // Filter out visually-empty fragments unless dev-mode override is enabled.
-        // The helper hasRenderableContent() encodes the conservative visibility rules.
         var visibleFragments = fragments.stream()
                 .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
                 .toList();
@@ -483,42 +474,118 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception ignored) {
         }
 
-        // Add individual chips for non-summaries (createChip may return null if fragment lacks renderable content)
-        for (var fragment : others) {
-            // Final cheap guard before invoking potentially heavier createChip(...). This avoids creating
-            // UI for fragments that became visually-empty between the earlier filter and creation.
-            if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-                logger.debug(
-                        "Skipping creation of chip for fragment (filtered by final hasRenderableContent): {}",
-                        fragment);
-                continue;
-            }
+        // Build a new map for others (non-summaries) by id, preserving order
+        Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
+        for (var f : others) {
+            newOthersById.put(f.id(), f);
+        }
 
-            Component c = createChip(fragment);
-            if (c != null) {
-                add(c);
+        // 1) Remove chips that are no longer present
+        var toRemove = chipById.keySet().stream()
+                .filter(oldId -> !newOthersById.containsKey(oldId))
+                .toList();
+        for (var id : toRemove) {
+            var chip = chipById.remove(id);
+            if (chip != null) {
+                disposeChipSubscriptions(chip);
+                remove(chip);
             }
         }
 
-        // Add synthetic summary chip if we have summaries that are renderable (or dev override)
+        // 2) Add chips that are new
+        for (var entry : newOthersById.entrySet()) {
+            var id = entry.getKey();
+            var frag = entry.getValue();
+            if (!chipById.containsKey(id)) {
+                // Final guard before creating UI
+                if (!MainProject.getForceToolEmulation() && !hasRenderableContent(frag)) {
+                    logger.debug("Skipping creation for newly-added fragment filtered by renderability: {}", frag);
+                    continue;
+                }
+                var comp = createChip(frag);
+                if (comp != null) {
+                    add(comp);
+                    chipById.put(id, (RoundedChipPanel) comp);
+                }
+            }
+        }
+
+        // 3) Reorder chips to match 'others' order
+        int z = 0;
+        for (var f : others) {
+            var chip = chipById.get(f.id());
+            if (chip != null) {
+                try {
+                    setComponentZOrder(chip, z++);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        // 4) Synthetic "Summaries" chip incremental management
         boolean anyRenderableSummary =
                 summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
-        if (anyRenderableSummary) {
-            Component synthetic = createSyntheticSummaryChip(summaries);
-            if (synthetic != null) {
-                add(synthetic);
+
+        if (!anyRenderableSummary) {
+            // Remove synthetic chip if present
+            if (syntheticSummaryChip != null) {
+                disposeChipSubscriptions(syntheticSummaryChip);
+                remove(syntheticSummaryChip);
+                syntheticSummaryChip = null;
+            }
+        } else {
+            if (syntheticSummaryChip == null) {
+                var synthetic = createSyntheticSummaryChip(summaries);
+                if (synthetic != null) {
+                    syntheticSummaryChip = (JComponent) synthetic;
+                    add(syntheticSummaryChip);
+                }
+            } else {
+                // Update label/tooltip and subscribe to any newly observed summaries
+                try {
+                    var labelObj = syntheticSummaryChip.getClientProperty("brokk.chip.label");
+                    if (labelObj instanceof JLabel lbl) {
+                        refreshSyntheticSummaryChip(syntheticSummaryChip, lbl, summaries);
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Failed to refresh existing synthetic summary chip", ex);
+                }
+
+                // Subscribe to new summary ids if needed
+                try {
+                    @SuppressWarnings("unchecked")
+                    Set<String> prevIds = (Set<String>) syntheticSummaryChip.getClientProperty("brokk.summary.ids");
+                    if (prevIds == null) prevIds = Set.of();
+                    Set<String> nowIds =
+                            summaries.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
+
+                    // Subscribe for newly added summary ids
+                    for (var f : summaries) {
+                        if (!prevIds.contains(f.id()) && f instanceof ContextFragment.ComputedFragment) {
+                            subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, (JLabel)
+                                    syntheticSummaryChip.getClientProperty("brokk.chip.label"));
+                        }
+                    }
+                    syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
+                } catch (Exception ex) {
+                    logger.debug("Failed to update synthetic summary subscriptions", ex);
+                }
+            }
+
+            // Keep synthetic at end
+            if (syntheticSummaryChip != null) {
+                try {
+                    setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
+                } catch (Exception ignored) {
+                }
             }
         }
 
-        // Re-layout this panel
-        try {
-            logger.debug("updateChips: rendered {} chip components", getComponentCount());
-        } catch (Exception ignored) {
-        }
+        // Re-layout this panel minimally
         revalidate();
         repaint();
 
-        // Also nudge ancestors so containers like BoxLayout recompute heights
+        // Also nudge ancestors so containers like BoxLayout recompute heights (rarely needed but safe)
         Container p = getParent();
         while (p != null) {
             if (p instanceof JComponent jc) {
