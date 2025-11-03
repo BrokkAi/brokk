@@ -252,20 +252,16 @@ public final class HeadlessExecutorMain {
       var sessionIdHeader = exchange.getRequestHeaders().getFirst("X-Session-Id");
       var sessionId = sessionIdHeader != null && !sessionIdHeader.isBlank()
           ? UUID.fromString(sessionIdHeader)
-          : UUID.randomUUID(); // newSessionId() is package-private; use UUID.randomUUID() instead
+          : UUID.randomUUID();
 
-      // Write zip file to disk
-      var sessionZipPath = sessionsDir.resolve(sessionId + ".zip");
+      // Read zip data from request body
+      byte[] zipData;
       try (InputStream requestBody = exchange.getRequestBody()) {
-        Files.write(sessionZipPath, requestBody.readAllBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        zipData = requestBody.readAllBytes();
       }
 
-      logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
-
-      // Switch ContextManager to this session
-      contextManager.switchSessionAsync(sessionId).join();
-      currentSessionId.set(sessionId);
-      logger.info("Switched to session: {}", sessionId);
+      // Import session and get the imported session ID
+      importSessionZip(zipData, sessionId);
 
       var response = Map.of("sessionId", sessionId.toString());
       SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -278,6 +274,28 @@ public final class HeadlessExecutorMain {
       var error = ErrorPayload.internalError("Failed to process session upload", e);
       SimpleHttpServer.sendJsonResponse(exchange, 500, error);
     }
+  }
+
+  /**
+   * Import a session zip file by writing it to sessionsDir and switching ContextManager to it.
+   * This helper encapsulates the core session import logic for reusability.
+   *
+   * @param zipData the zip file contents
+   * @param sessionId the UUID for this session
+   * @throws IOException if writing the zip file fails
+   * @throws Exception if switching the session fails
+   */
+  private void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
+    // Write zip file to disk
+    var sessionZipPath = sessionsDir.resolve(sessionId + ".zip");
+    Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+    logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
+
+    // Switch ContextManager to this session
+    contextManager.switchSessionAsync(sessionId).join();
+    currentSessionId.set(sessionId);
+    logger.info("Switched to session: {}", sessionId);
   }
 
   /**
