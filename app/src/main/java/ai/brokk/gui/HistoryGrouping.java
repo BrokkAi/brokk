@@ -131,7 +131,12 @@ public final class HistoryGrouping {
                             .orElse(null);
 
                     out.add(new GroupDescriptor(
-                            GroupType.GROUP_BY_ID, groupId.toString(), preferredLabel, children, true, false));
+                            GroupType.GROUP_BY_ID,
+                            groupId.toString(),
+                            preferredLabel != null ? preferredLabel : groupId.toString(),
+                            children,
+                            true,
+                            false));
                     i = j;
                 } else {
                     // If this item is a boundary and ungrouped, it must not be absorbed into a legacy run.

@@ -1094,14 +1094,16 @@ Would you like to resolve these conflicts with the Merge Agent?
         }
 
         // Update titled border
-        if (panelBg != null) {
-            titledPanel.setBackground(panelBg);
-        }
-        Border border = titledPanel.getBorder();
-        if (border instanceof TitledBorder titledBorder) {
-            var titleFg = UIManager.getColor("TitledBorder.titleColor");
-            if (titleFg != null) {
-                titledBorder.setTitleColor(titleFg);
+        if (titledPanel != null) {
+            if (panelBg != null) {
+                titledPanel.setBackground(panelBg);
+            }
+            Border border = titledPanel.getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                var titleFg = UIManager.getColor("TitledBorder.titleColor");
+                if (titleFg != null) {
+                    titledBorder.setTitleColor(titleFg);
+                }
             }
         }
 

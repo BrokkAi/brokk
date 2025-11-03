@@ -2840,7 +2840,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         }
 
-                        if (earliestContent != null) {
+                        if (earliestContent != null && latestContent != null) {
                             // Compute net diff for this fragment
                             int[] netCounts = computeNetLineCounts(earliestContent, latestContent);
                             totalAdded += netCounts[0];

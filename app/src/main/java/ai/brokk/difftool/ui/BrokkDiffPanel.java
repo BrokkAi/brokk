@@ -430,9 +430,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private final MaterialButton captureDiffButton = new MaterialButton();
 
     // Font size adjustment buttons
-    private MaterialButton btnDecreaseFont;
-    private MaterialButton btnResetFont;
-    private MaterialButton btnIncreaseFont;
+    private @Nullable MaterialButton btnDecreaseFont;
+    private @Nullable MaterialButton btnResetFont;
+    private @Nullable MaterialButton btnIncreaseFont;
 
     // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
