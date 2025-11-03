@@ -113,15 +113,19 @@ public class ImportDependencyDialog {
         private GitRepo.RemoteInfo remoteInfo;
 
         DialogHelper(Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
-            this.chrome = chrome;
-            this.owner = owner;
-            this.dependenciesRoot = chrome.getProject()
-                    .getRoot()
-                    .resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.DEPENDENCIES_DIR);
-            this.listener = listener;
-
-            CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
+        this.chrome = chrome;
+        this.owner = owner;
+        this.dependenciesRoot = chrome.getProject()
+        .getRoot()
+        .resolve(AbstractProject.BROKK_DIR)
+        .resolve(AbstractProject.DEPENDENCIES_DIR);
+        this.listener = listener;
+        
+        CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
+        
+        // Stable names for UI testing
+        tabbedPane.setName("importTabbedPane");
+        importButton.setName("importConfirmButton");
         }
 
         void buildAndShow() {
@@ -187,6 +191,8 @@ public class ImportDependencyDialog {
             });
 
             var cancelButton = new MaterialButton("Cancel");
+            // Stable name for UI testing
+            cancelButton.setName("importCancelButton");
             cancelButton.addActionListener(e -> dialog.dispose());
 
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -266,18 +272,24 @@ public class ImportDependencyDialog {
             panel.add(new JPanel(), gbc);
 
             panel.setBorder(new EmptyBorder(5, 5, 5, 5));
-
+            
+            // Stable names for UI testing
+            panel.setName("repoTab");
+            gitUrlField.setName("gitUrlInput");
+            validateGitRepoButton.setName("validateRepoButton");
+            gitRefComboBox.setName("gitRefComboBox");
+            
             validateGitRepoButton.addActionListener(e -> validateRepository());
             gitUrlField.getDocument().addDocumentListener(new SimpleDocumentListener() {
-                @Override
-                public void update(DocumentEvent e) {
-                    remoteInfo = null;
-                    requireNonNull(gitRefComboBox).removeAllItems();
-                    gitRefComboBox.setEnabled(false);
-                    updateImportButtonState();
-                }
+            @Override
+            public void update(DocumentEvent e) {
+            remoteInfo = null;
+            requireNonNull(gitRefComboBox).removeAllItems();
+            gitRefComboBox.setEnabled(false);
+            updateImportButtonState();
+            }
             });
-
+            
             return panel;
         }
 
@@ -298,15 +310,19 @@ public class ImportDependencyDialog {
                     helpText);
 
             dirSelectionPanel = new FileSelectionPanel(fspConfig);
+            // Name the file input so tests can target the input element directly.
+            dirSelectionPanel.getFileInputComponent().setName("localDirInput");
             dirSelectionPanel.getFileInputComponent().getDocument().addDocumentListener(new SimpleDocumentListener() {
-                @Override
-                public void update(DocumentEvent e) {
-                    onDirectoryInputChange();
-                }
+            @Override
+            public void update(DocumentEvent e) {
+            onDirectoryInputChange();
+            }
             });
-
+            
             var wrapper = new JPanel(new BorderLayout());
             wrapper.add(dirSelectionPanel, BorderLayout.CENTER);
+            // Name the wrapper panel (the Local Directory tab)
+            wrapper.setName("localDirTab");
             return wrapper;
         }
 
