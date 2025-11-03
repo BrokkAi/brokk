@@ -45,6 +45,7 @@ public class ProjectFilesPanel extends JPanel {
     private MaterialButton refreshButton;
     private MaterialButton dependenciesButton;
     private BadgedIcon dependenciesBadgedIcon;
+    private JPanel buttonPanel;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
@@ -73,7 +74,7 @@ public class ProjectFilesPanel extends JPanel {
         var layeredPane = searchOverlay.createLayeredPane(searchField);
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
 
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
 
         refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
@@ -125,6 +126,13 @@ public class ProjectFilesPanel extends JPanel {
 
     public void toggleDependencies() {
         toggleDependenciesPanel();
+    }
+
+    public void updateDependenciesBadge(int count) {
+        assert SwingUtilities.isEventDispatchThread();
+        dependenciesBadgedIcon.setCount(count, buttonPanel);
+        dependenciesButton.setToolTipText(count > 0 ? "Dependencies (" + count + " enabled)" : "Dependencies");
+        dependenciesButton.repaint();
     }
 
     private void updateBorderTitle() {
