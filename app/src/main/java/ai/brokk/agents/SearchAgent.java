@@ -42,6 +42,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -64,11 +65,28 @@ import org.jetbrains.annotations.Nullable;
 public class SearchAgent {
     private static final Logger logger = LogManager.getLogger(SearchAgent.class);
 
-    public enum Terminal {
+    private enum Terminal {
         TASK_LIST,
         ANSWER,
         WORKSPACE,
         CODE
+    }
+
+    public enum Objective {
+        ANSWER_ONLY(EnumSet.of(Terminal.ANSWER)),
+        TASKS_ONLY(EnumSet.of(Terminal.TASK_LIST)),
+        WORKSPACE_ONLY(EnumSet.of(Terminal.WORKSPACE)),
+        LUTZ(EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST));
+
+        private final EnumSet<Terminal> terminals;
+
+        Objective(EnumSet<Terminal> terminals) {
+            this.terminals = terminals;
+        }
+
+        public EnumSet<Terminal> terminals() {
+            return terminals;
+        }
     }
 
     // Keep thresholds consistent with other agents
@@ -82,7 +100,7 @@ public class SearchAgent {
     private final Llm summarizer;
     private final IConsoleIO io;
     private final String goal;
-    private final Set<Terminal> allowedTerminals;
+    private final Objective objective;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
 
@@ -100,7 +118,7 @@ public class SearchAgent {
             Context initialContext,
             String goal,
             StreamingChatModel model,
-            Set<Terminal> allowedTerminals,
+            Objective objective,
             ContextManager.TaskScope scope) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
@@ -117,7 +135,7 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.codeAgentJustSucceeded = false;
-        this.allowedTerminals = Set.copyOf(allowedTerminals);
+        this.objective = objective;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
@@ -185,6 +203,7 @@ public class SearchAgent {
             var allowedToolNames = calculateAllowedToolNames();
 
             // Agent-owned tools (instance methods)
+            var allowedTerminals = objective.terminals();
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
                 agentTerminalTools.add("answer");
@@ -457,6 +476,7 @@ public class SearchAgent {
             }
         }
 
+        var allowedTerminals = objective.terminals();
         var finals = new ArrayList<String>();
         if (allowedTerminals.contains(Terminal.ANSWER)) {
             finals.add(
@@ -616,50 +636,37 @@ public class SearchAgent {
     private record TerminalObjective(String type, String text) {}
 
     private TerminalObjective buildTerminalObjective() {
-        boolean hasAnswer = allowedTerminals.contains(Terminal.ANSWER);
-        boolean hasTaskList = allowedTerminals.contains(Terminal.TASK_LIST);
-        boolean hasWorkspace = allowedTerminals.contains(Terminal.WORKSPACE);
-
-        if (hasAnswer && hasTaskList) {
-            assert !hasWorkspace;
-            return new TerminalObjective(
-                    "query",
-                    """
-                    Deliver either a written answer or a task list:
-                      - Prefer answer(String) when no code changes are needed.
-                      - Prefer createTaskList(List<String>) if code changes will be needed next.
-                    """);
-        }
-
-        if (hasAnswer && !hasTaskList) {
-            assert !hasWorkspace;
-            return new TerminalObjective(
-                    "query",
-                    """
+        return switch (objective) {
+            case ANSWER_ONLY ->
+                new TerminalObjective(
+                        "query",
+                        """
                     Deliver a written answer using the answer(String) tool.
                     """);
-        }
-
-        if (hasTaskList && !hasAnswer) {
-            assert !hasWorkspace;
-            return new TerminalObjective(
-                    "task",
-                    """
+            case TASKS_ONLY ->
+                new TerminalObjective(
+                        "instructions",
+                        """
                     Deliver a task list using the createTaskList(List<String>) tool.
                     """);
-        }
-
-        if (hasWorkspace) {
-            assert !hasAnswer && !hasTaskList;
-            return new TerminalObjective(
-                    "task",
-                    """
+            case WORKSPACE_ONLY ->
+                new TerminalObjective(
+                        "task",
+                        """
                     Deliver a curated Workspace containing everything required for the follow-on Code Agent
                     to solve the given task.
                     """);
-        }
-
-        throw new IllegalStateException();
+            case LUTZ ->
+                new TerminalObjective(
+                        "query_or_instructions",
+                        """
+                    Either deliver a written answer, solve the problem by invoking code agent, or decompose the problem into a task list.
+                    In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
+                      - Prefer answer(String) when no code changes are needed.
+                      - Prefer callCodeAgent(String) if the requested change is small.
+                      - Otherwise, decompose the problem with createTaskList(List<String>); do not attempt to write code yet.
+                    """);
+        };
     }
 
     private enum ToolCategory {

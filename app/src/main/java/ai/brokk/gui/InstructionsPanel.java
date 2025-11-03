@@ -54,7 +54,6 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1516,13 +1515,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
-            var context = cm.liveContext();
-            SearchAgent agent = new SearchAgent(
-                    context,
-                    query,
-                    modelToUse,
-                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.CODE, SearchAgent.Terminal.TASK_LIST),
-                    scope);
+var context = cm.liveContext();
+SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
             try {
                 agent.scanInitialContext();
             } catch (InterruptedException e) {
