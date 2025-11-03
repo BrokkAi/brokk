@@ -35,6 +35,7 @@ public final class HeadlessExecutorMain {
   private final SessionManager sessionManager;
   private final AtomicReference<UUID> currentSessionId = new AtomicReference<>();
   private final AtomicReference<String> currentJobId = new AtomicReference<>();
+  private final ai.brokk.executor.jobs.JobRunner jobRunner;
 
   /**
    * Parse command-line arguments into a map of normalized keys to values.
@@ -117,6 +118,9 @@ public final class HeadlessExecutorMain {
     this.contextManager = new ContextManager(project);
     this.contextManager.createHeadless();
 
+    // Initialize JobRunner
+    this.jobRunner = new ai.brokk.executor.jobs.JobRunner(this.contextManager, this.jobStore);
+
     // Create HTTP server with authentication
     this.server = new SimpleHttpServer(host, port, authToken, 4);
 
@@ -163,11 +167,18 @@ public final class HeadlessExecutorMain {
 
   /**
    * Asynchronously execute a job. Called after a new job is created.
-   * Stub for now; will be implemented in next task.
+   * Delegates to JobRunner and manages currentJobId lifecycle.
    */
   private void executeJobAsync(String jobId, ai.brokk.executor.jobs.JobSpec jobSpec) {
-    // TODO: Implement job execution in next task
-    logger.info("Job execution scheduled (not yet implemented): {}", jobId);
+    logger.info("Starting job execution: {}", jobId);
+    jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
+      if (throwable != null) {
+        logger.error("Job {} execution failed", jobId, throwable);
+      } else {
+        logger.info("Job {} execution finished", jobId);
+      }
+      currentJobId.compareAndSet(jobId, null);
+    });
   }
 
   public void start() {
@@ -427,8 +438,8 @@ public final class HeadlessExecutorMain {
         return;
       }
 
-      // Interrupt LLM action and return 202 Accepted (regardless of current state)
-      contextManager.interruptLlmAction();
+      // Request job cancellation via JobRunner
+      jobRunner.cancel(jobId);
       logger.info("Cancelled job: {}", jobId);
 
       exchange.sendResponseHeaders(202, 0);
