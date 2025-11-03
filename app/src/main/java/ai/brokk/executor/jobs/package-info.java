@@ -1,2 +1,2 @@
 @org.jspecify.annotations.NullMarked
-package ai.brokk.executor.io;
+package ai.brokk.executor.jobs;
