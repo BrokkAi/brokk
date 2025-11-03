@@ -20,7 +20,6 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     private record JavaParseResult(ProjectFile file, CodeAgent.Step step) {}
 
     private JavaParseResult runParseJava(String fileName, String src) throws IOException {
-        codeAgent.javaParsingEnabled = true;
         var javaFile = contextManager.toFile(fileName);
         javaFile.write(src);
         contextManager.addEditableFile(javaFile);
@@ -161,7 +160,6 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     // PJ-6: parseJavaPhase - multiple files with syntax/identifier errors aggregate diagnostics and continue
     @Test
     void testParseJavaPhase_multipleFiles_collectsDiagnostics_andContinues() throws IOException {
-        codeAgent.javaParsingEnabled = true;
         var f1 = contextManager.toFile("Bad1.java");
         var s1 = """
                 class Bad1 { void m( { int a = b; } }
@@ -433,7 +431,6 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     // PJ-21: parseJavaPhase - when there are no edits since last build, skip parsing (no diagnostics)
     @Test
     void testParseJavaPhase_noEdits_skipsParsing_diagnosticsEmpty() throws IOException {
-        codeAgent.javaParsingEnabled = true;
         var javaFile = contextManager.toFile("NoEdits.java");
         javaFile.write(
                 """

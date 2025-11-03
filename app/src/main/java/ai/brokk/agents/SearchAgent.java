@@ -4,10 +4,8 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.ModelSpec;
-import ai.brokk.TaskMeta;
+import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.TaskType;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -209,7 +207,7 @@ public class SearchAgent {
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             long llmTimeMs = System.currentTimeMillis() - turnStartTime;
-            var tokenUsage = result.tokenUsage();
+            var tokenUsage = result.metadata();
             int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
             int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
             int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
@@ -220,7 +218,7 @@ public class SearchAgent {
                 var details = TaskResult.StopDetails.fromResponse(result);
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
-                return errorResult(details);
+                return errorResult(details, taskMeta());
             }
 
             // Record turn
@@ -230,8 +228,10 @@ public class SearchAgent {
             // De-duplicate requested tools and handle answer/abort isolation
             var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             if (!ai.hasToolExecutionRequests()) {
-                return errorResult(new TaskResult.StopDetails(
-                        TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."));
+                return errorResult(
+                        new TaskResult.StopDetails(
+                                TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
+                        taskMeta());
             }
 
             // Get workspace snapshot for file diff tracking
@@ -285,14 +285,17 @@ public class SearchAgent {
                     sessionMessages.add(ToolExecutionResultMessage.from(termReq, display));
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
-                        return errorResult(new TaskResult.StopDetails(
-                                TaskResult.StopReason.TOOL_ERROR,
-                                "Terminal tool '" + termReq.name() + "' failed: " + display));
+                        return errorResult(
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.TOOL_ERROR,
+                                        "Terminal tool '" + termReq.name() + "' failed: " + display),
+                                taskMeta());
                     }
 
                     if (termReq.name().equals("abortSearch")) {
                         return errorResult(
-                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display));
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display),
+                                taskMeta());
                     }
                     return createResult(termReq.name(), goal);
                 }
@@ -743,29 +746,27 @@ public class SearchAgent {
 
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
+     * Returns a TaskResult that the caller should append to scope.
      * Callers should invoke this before calling execute() if they want the initial context scan.
      */
-    public void scanInitialContext(StreamingChatModel model) throws InterruptedException {
+    public TaskResult scanInitialContext(StreamingChatModel model) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
-        long scanStartTime = System.currentTimeMillis();
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, model, goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
+        var md = recommendation.metadata();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
 
-        var meta = new TaskMeta(TaskType.CONTEXT, ModelSpec.from(model, cm.getService()));
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.CUSTOM);
-            // create a history entry
-            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-            context = scope.append(contextAgentResult, meta);
-            long scanTime = System.currentTimeMillis() - scanStartTime;
-            metrics.recordContextScan(0, scanTime, false, Set.of());
-            return;
+            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
+            metrics.recordContextScan(0, false, Set.of(), md);
+            return contextAgentResult;
         }
 
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
@@ -788,20 +789,20 @@ public class SearchAgent {
                     ChatMessageType.AI);
         }
 
-        // create a history entry
-        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal);
-        context = scope.append(contextAgentResult, meta);
+        // create a history entry and return it
+        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
 
         // Track metrics
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
-        long scanTime = System.currentTimeMillis() - scanStartTime;
-        metrics.recordContextScan(filesAdded.size(), scanTime, false, toRelativePaths(filesAdded));
+        metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
+
+        return contextAgentResult;
     }
 
-    public void scanInitialContext() throws InterruptedException {
-        scanInitialContext(cm.getService().getScanModel());
+    public TaskResult scanInitialContext() throws InterruptedException {
+        return scanInitialContext(cm.getService().getScanModel());
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
@@ -904,6 +905,10 @@ public class SearchAgent {
     // =======================
 
     private TaskResult createResult(String action, String goal) {
+        return createResult(action, goal, taskMeta());
+    }
+
+    private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
@@ -917,10 +922,14 @@ public class SearchAgent {
         recordFinalWorkspaceState();
         metrics.recordOutcome(stopDetails.reason(), getWorkspaceFileSet().size());
 
-        return new TaskResult(action, fragment, context, stopDetails);
+        return new TaskResult(action, fragment, context, stopDetails, meta);
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
+        return errorResult(details, null);
+    }
+
+    private TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
@@ -934,7 +943,7 @@ public class SearchAgent {
         recordFinalWorkspaceState();
         metrics.recordOutcome(details.reason(), getWorkspaceFileSet().size());
 
-        return new TaskResult(action, fragment, context, details);
+        return new TaskResult(action, fragment, context, details, meta);
     }
 
     // =======================
@@ -1047,5 +1056,9 @@ public class SearchAgent {
             logger.error("Error parsing request args for {}: {}", request.name(), e.getMessage());
             return Map.of();
         }
+    }
+
+    private TaskResult.TaskMeta taskMeta() {
+        return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
     }
 }

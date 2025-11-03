@@ -1,9 +1,18 @@
 package ai.brokk.agents;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.MainProject;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
+import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class BuildAgentTest {
     @Test
@@ -57,6 +66,177 @@ class BuildAgentTest {
     }
 
     @Test
+    void testGitignoreProcessingSkipsGlobPatterns(@TempDir Path tempDir) throws Exception {
+        // Create a git repo with complex .gitignore containing glob patterns
+        var gitignoreContent =
+                """
+                GPATH
+                GRTAGS
+                GTAGS
+                **/*dependency-reduced-pom.xml
+                **/*flattened-pom.xml
+                **/target/
+                report
+                *.ipr
+                *.iws
+                **/*.iml
+                **/*.lock.db
+                **/.checkstyle
+                **/.classpath
+                **/.idea/
+                **/.project
+                **/.settings
+                **/bin/
+                **/derby.log
+                *.tokens
+                .clover
+                ^build
+                out
+                *~
+                test-output
+                travis-settings*.xml
+                .build-oracle
+                .factorypath
+                .brokk/**
+                /.brokk/workspace.properties
+                /.brokk/sessions/
+                /.brokk/dependencies/
+                /.brokk/history.zip
+                !.brokk/style.md
+                !.brokk/review.md
+                !.brokk/project.properties
+                """;
+
+        // Initialize git repo properly
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            // Write .gitignore
+            Files.writeString(tempDir.resolve(".gitignore"), gitignoreContent);
+
+            // Create the directories that should be extracted
+            Files.createDirectories(tempDir.resolve(".brokk/sessions"));
+            Files.createDirectories(tempDir.resolve(".brokk/dependencies"));
+            Files.createDirectory(tempDir.resolve("out"));
+            Files.createDirectory(tempDir.resolve("report"));
+
+            // Make initial commit
+            git.add().addFilepattern(".gitignore").call();
+            git.commit().setMessage("Initial commit").call();
+        }
+
+        // Read .gitignore patterns directly for testing
+        var gitignoreFile = tempDir.resolve(".gitignore");
+        var ignoredPatterns = Files.lines(gitignoreFile)
+                .map(String::trim)
+                .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                .toList();
+
+        // Helper to detect glob patterns
+        Predicate<String> containsGlobPattern =
+                s -> s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
+
+        // Simulate BuildAgent's gitignore processing logic (SHOULD skip globs explicitly)
+        var extractedDirectories = new ArrayList<String>();
+        for (var pattern : ignoredPatterns) {
+            // Skip glob patterns explicitly (don't rely on Path.of() throwing - it doesn't on Unix!)
+            if (containsGlobPattern.test(pattern)) {
+                continue;
+            }
+
+            Path path;
+            try {
+                path = tempDir.resolve(pattern);
+            } catch (IllegalArgumentException e) {
+                // Skip invalid paths
+                continue;
+            }
+
+            var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
+            if (!pattern.startsWith("!") && isDirectory) {
+                extractedDirectories.add(pattern);
+            }
+        }
+
+        // Verify only literal directory paths were extracted, not glob patterns
+        assertTrue(extractedDirectories.contains("/.brokk/sessions/"), "Should extract /.brokk/sessions/");
+        assertTrue(extractedDirectories.contains("/.brokk/dependencies/"), "Should extract /.brokk/dependencies/");
+
+        // Verify glob patterns were NOT extracted
+        assertFalse(
+                extractedDirectories.stream().anyMatch(d -> d.contains("**/")), "Should not extract patterns with **/");
+        assertFalse(
+                extractedDirectories.stream().anyMatch(d -> d.contains("*")),
+                "Should not extract patterns with wildcards");
+        assertFalse(extractedDirectories.contains("**/.idea/"), "Should not extract **/.idea/");
+        assertFalse(extractedDirectories.contains("**/target/"), "Should not extract **/target/");
+        assertFalse(extractedDirectories.contains("**/bin/"), "Should not extract **/bin/");
+
+        // Verify negation patterns were NOT extracted
+        assertFalse(
+                extractedDirectories.stream().anyMatch(d -> d.startsWith("!")), "Should not extract negation patterns");
+    }
+
+    @Test
+    void testIsDirectoryIgnoredDoesNotExcludeEmptyOrNonCodeDirectories(@TempDir Path tempDir) throws Exception {
+        // Initialize git repo
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            // Create .gitignore that only excludes build/
+            Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
+
+            // Create empty directory (should NOT be ignored)
+            Files.createDirectories(tempDir.resolve("tests/fixtures"));
+
+            // Create directory with only non-code files (should NOT be ignored)
+            var docsDir = tempDir.resolve("docs/images");
+            Files.createDirectories(docsDir);
+            Files.writeString(docsDir.resolve("diagram.png"), "fake image data");
+
+            // Create directory with code that should be included
+            Files.createDirectories(tempDir.resolve("src"));
+            Files.writeString(tempDir.resolve("src/Main.java"), "class Main {}");
+
+            // Create actually gitignored directory (SHOULD be ignored)
+            Files.createDirectories(tempDir.resolve("build/output"));
+            Files.writeString(tempDir.resolve("build/output/Generated.java"), "class Generated {}");
+
+            // Commit files
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("Initial commit").call();
+        }
+
+        // Create project and test isDirectoryIgnored method
+        var project = new MainProject(tempDir);
+
+        // Verify empty directory is NOT ignored
+        assertFalse(project.isDirectoryIgnored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
+        assertFalse(project.isDirectoryIgnored(Path.of("tests")), "Parent of empty directory should NOT be ignored");
+
+        // Verify directory with only non-code files is NOT ignored
+        assertFalse(
+                project.isDirectoryIgnored(Path.of("docs/images")),
+                "Directory with only non-code files should NOT be ignored");
+        assertFalse(project.isDirectoryIgnored(Path.of("docs")), "Parent of non-code directory should NOT be ignored");
+
+        // Verify directory with code is NOT ignored
+        assertFalse(project.isDirectoryIgnored(Path.of("src")), "Directory with code should NOT be ignored");
+
+        // Verify actually gitignored directory IS ignored
+        assertTrue(project.isDirectoryIgnored(Path.of("build")), "Gitignored directory SHOULD be ignored");
+        assertTrue(
+                project.isDirectoryIgnored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
+
+        project.close();
+    }
+
     void testInterpolatePythonVersionVariable() {
         String template = "python{{pyver}} -m pytest";
         List<String> empty = List.of();

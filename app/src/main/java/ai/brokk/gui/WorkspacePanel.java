@@ -221,7 +221,13 @@ public class WorkspacePanel extends JPanel {
                         actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileData));
                     }
 
-                    actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileData));
+                    // Summarize the exact fragment instance that was clicked, so we can drop that same instance after.
+                    actions.add(new AbstractAction("Summarize " + fileData.getFullPath()) {
+                        @Override
+                        public void actionPerformed(ActionEvent e) {
+                            panel.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
+                        }
+                    });
                 });
             } else {
                 var selectedFragments = List.of(fragment);
@@ -1719,7 +1725,7 @@ public class WorkspacePanel extends JPanel {
                     case PASTE -> doPasteAction();
                     case RUN_TESTS -> doRunTestsAction(selectedFragments);
                 }
-            } catch (CancellationException cex) {
+            } catch (CancellationException | InterruptedException cex) {
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " canceled.");
             } finally {
                 SwingUtilities.invokeLater(chrome::focusInput);
@@ -1936,7 +1942,7 @@ public class WorkspacePanel extends JPanel {
         contextManager.dropWithHistorySemantics(selectedFragments);
     }
 
-    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) {
+    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
         var testFiles = selectedFragments.stream()
                 .flatMap(frag -> frag.files().stream())
                 .filter(ContextManager::isTestFile)
@@ -2011,6 +2017,22 @@ public class WorkspacePanel extends JPanel {
         boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
         if (!success) {
             chrome.toolError("No summarizable content found in the selected files or symbols.");
+            return;
+        }
+
+        // Easy fix: if user summarized a single chip, drop that exact fragment instance (same as clicking the chip
+        // "X").
+        if (selectedFragments.size() == 1) {
+            contextManager.drop(List.of(selectedFragments.get(0)));
+            return;
+        }
+
+        // Fallback (multi-select): drop only editable fragments using history-aware semantics.
+        var editFragmentsToRemove =
+                selectedFragments.stream().filter(f -> f.getType().isEditable()).toList();
+
+        if (!editFragmentsToRemove.isEmpty()) {
+            contextManager.dropWithHistorySemantics(editFragmentsToRemove);
         }
     }
 

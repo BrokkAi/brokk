@@ -56,13 +56,14 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Gets all files in the project that match the given language's extensions. This is a convenience method that
-     * filters getAllFiles() by the language's file extensions.
+     * Gets all analyzable files for the given language after gitignore and baseline filtering.
+     * This method returns files that should be analyzed by the language-specific analyzer,
+     * excluding files that are ignored by .gitignore or baseline exclusions.
      *
-     * @param language The language to filter files for
-     * @return Set of ProjectFiles that match the language's extensions
+     * @param language The language to get analyzable files for
+     * @return Set of ProjectFile objects that are analyzable for the given language
      */
-    default Set<ProjectFile> getFiles(Language language) {
+    default Set<ProjectFile> getAnalyzableFiles(Language language) {
         var extensions = language.getExtensions();
         return getAllFiles().stream()
                 .filter(pf -> extensions.contains(pf.extension()))
@@ -70,6 +71,18 @@ public interface IProject extends AutoCloseable {
     }
 
     default void invalidateAllFiles() {}
+
+    /**
+     * Checks if a directory is ignored by gitignore rules.
+     * This is used by BuildAgent to identify excluded directories for LLM context.
+     * Uses explicit gitignore validation with isDirectory=true rather than inferring from absence.
+     *
+     * @param directoryRelPath Path relative to project root
+     * @return true if the directory is ignored by gitignore rules, false otherwise
+     */
+    default boolean isDirectoryIgnored(Path directoryRelPath) {
+        return false; // Conservative default: assume not ignored
+    }
 
     /**
      * Gets the structured build details inferred by the BuildAgent.

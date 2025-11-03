@@ -7,11 +7,8 @@ import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
-import ai.brokk.ModelSpec;
 import ai.brokk.Service;
-import ai.brokk.TaskMeta;
 import ai.brokk.TaskResult;
-import ai.brokk.TaskType;
 import ai.brokk.WorktreeProject;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
@@ -384,10 +381,11 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new SearchAgent(
                         cm.liveContext(), searchWorkspace, searchModel, EnumSet.of(Terminal.WORKSPACE), scope);
                 if (!disableContextScan) {
-                    agent.scanInitialContext(searchModel);
+                    var scanResult = agent.scanInitialContext(searchModel);
+                    scope.append(scanResult);
                 }
                 searchResult = agent.execute();
-                scope.append(searchResult, new TaskMeta(TaskType.SEARCH, ModelSpec.from(searchModel, service)));
+                scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
             }
 
@@ -471,7 +469,7 @@ public final class BrokkCli implements Callable<Integer> {
             var agent = new ContextAgent(cm, planModel, goalForScan);
             var recommendations = agent.getRecommendations(cm.liveContext());
             io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
+                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
 
             if (recommendations.success()) {
                 io.showNotification(
@@ -535,11 +533,7 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     var agent = new ArchitectAgent(cm, planModel, codeModel, architectPrompt, scope);
                     result = agent.execute();
-                    context = scope.append(
-                            result,
-                            new TaskMeta(
-                                    TaskType.ARCHITECT,
-                                    ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                    context = scope.append(result);
                 } else if (codePrompt != null) {
                     // CodeAgent must use codemodel only
                     if (codeModel == null) {
@@ -548,22 +542,14 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     var agent = new CodeAgent(cm, codeModel);
                     result = agent.runTask(codePrompt, Set.of());
-                    context = scope.append(
-                            result,
-                            new TaskMeta(
-                                    TaskType.CODE,
-                                    ModelSpec.from(codeModel, service == null ? cm.getService() : service)));
+                    context = scope.append(result);
                 } else if (askPrompt != null) {
                     if (codeModel == null) {
                         System.err.println("Error: --ask requires --codemodel to be specified.");
                         return 1;
                     }
                     result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
-                    context = scope.append(
-                            result,
-                            new TaskMeta(
-                                    TaskType.ASK,
-                                    ModelSpec.from(codeModel, service == null ? cm.getService() : service)));
+                    context = scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
                         System.err.println("Error: --merge requires --planmodel to be specified.");
@@ -587,11 +573,7 @@ public final class BrokkCli implements Callable<Integer> {
                     try {
                         result = mergeAgent.execute();
                         // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
-                        context = scope.append(
-                                result,
-                                new TaskMeta(
-                                        TaskType.MERGE,
-                                        ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                        context = scope.append(result);
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
                         return 1;
@@ -608,13 +590,10 @@ public final class BrokkCli implements Callable<Integer> {
                             planModel,
                             EnumSet.of(Terminal.ANSWER),
                             scope);
-                    agent.scanInitialContext();
+                    var tr = agent.scanInitialContext();
+                    context = scope.append(tr);
                     result = agent.execute();
-                    context = scope.append(
-                            result,
-                            new TaskMeta(
-                                    TaskType.SEARCH,
-                                    ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                    context = scope.append(result);
                 } else if (build) {
                     String buildError = BuildAgent.runVerification(cm);
                     io.showNotification(
@@ -646,11 +625,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
                     var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
-                    context = scope.append(
-                            taskResult,
-                            new TaskMeta(
-                                    TaskType.ARCHITECT,
-                                    ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                    context = scope.append(taskResult);
                     result = taskResult;
                 } else { // lutzPrompt != null
                     if (planModel == null) {
@@ -667,13 +642,10 @@ public final class BrokkCli implements Callable<Integer> {
                             planModel,
                             EnumSet.of(Terminal.TASK_LIST),
                             scope);
-                    agent.scanInitialContext();
+                    var tr = agent.scanInitialContext();
+                    context = scope.append(tr);
                     result = agent.execute();
-                    context = scope.append(
-                            result,
-                            new TaskMeta(
-                                    TaskType.SEARCH,
-                                    ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                    context = scope.append(result);
 
                     // Execute pending tasks sequentially
                     var tasksData = cm.getTaskList();
@@ -690,11 +662,7 @@ public final class BrokkCli implements Callable<Integer> {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
                             var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
-                            context = scope.append(
-                                    taskResult,
-                                    new TaskMeta(
-                                            TaskType.ARCHITECT,
-                                            ModelSpec.from(planModel, service == null ? cm.getService() : service)));
+                            context = scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 
                             if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {

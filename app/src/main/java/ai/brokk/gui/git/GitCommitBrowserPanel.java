@@ -1,7 +1,6 @@
 package ai.brokk.gui.git;
 
 import ai.brokk.ContextManager;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
@@ -1515,13 +1514,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage());
                     pullButton.setEnabled(true);
                 });
-            } catch (Exception ex) {
-                logger.error("Unexpected error pulling {}: {}", branchName, ex.getMessage(), ex);
-                ExceptionReporter.tryReportException(ex);
-                SwingUtil.runOnEdt(() -> {
-                    chrome.toolError("Unexpected error pulling " + branchName + ": " + ex.getMessage());
-                    pullButton.setEnabled(true);
-                });
             }
         });
     }
@@ -1538,15 +1530,6 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                     refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
-                });
-            } catch (GitRepo.GitPushRejectedException ex) {
-                logger.warn("Push rejected for {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> {
-                    chrome.toolError(
-                            "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: "
-                                    + ex.getMessage(),
-                            "Push Rejected");
-                    pushButton.setEnabled(true);
                 });
             } catch (TransportException ex) {
                 logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
@@ -1569,19 +1552,11 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     } else {
                         chrome.toolError("Push failed for " + branchName + ": " + ex.getMessage());
                     }
-                    pushButton.setEnabled(true);
                 });
             } catch (GitAPIException ex) {
-                logger.error("Error pushing {}: {}", branchName, ex.getMessage());
+                chrome.toolError("Push error for " + branchName + ": " + ex.getMessage());
+            } finally {
                 SwingUtil.runOnEdt(() -> {
-                    chrome.toolError("Push error for " + branchName + ": " + ex.getMessage());
-                    pushButton.setEnabled(true);
-                });
-            } catch (Exception ex) {
-                logger.error("Unexpected error pushing {}: {}", branchName, ex.getMessage(), ex);
-                ExceptionReporter.tryReportException(ex);
-                SwingUtil.runOnEdt(() -> {
-                    chrome.toolError("Unexpected error pushing " + branchName + ": " + ex.getMessage());
                     pushButton.setEnabled(true);
                 });
             }

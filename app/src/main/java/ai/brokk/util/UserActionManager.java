@@ -1,6 +1,8 @@
 package ai.brokk.util;
 
+import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
+import ai.brokk.exception.GlobalExceptionHandler;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.concurrent.Callable;
@@ -92,8 +94,8 @@ public class UserActionManager {
     // ---------- Cancelable (interruptible) ----------
 
     /**
-     * Runs the given task on userExecutor and returns a CompletableFuture<Void>. InterruptedException is translated to
-     * CancellationException; other exceptions complete the future exceptionally.
+     * Runs the given task on userExecutor and returns a CompletableFuture<Void>.
+     * Exceptions complete the future exceptionally.
      */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
         return userExecutor.submit(() -> {
@@ -101,12 +103,6 @@ public class UserActionManager {
             io.disableActionButtons();
             try {
                 task.run();
-            } catch (InterruptedException ie) {
-                logger.error("LLM task did not handle interruption correctly", ie);
-                throw new CancellationException(ie.getMessage());
-            } catch (CancellationException cex) {
-                logger.error("LLM task did not handle interruption correctly", cex);
-                throw cex; // propagates as exceptional completion
             } catch (Exception ex) {
                 // let LoggingExecutorService handle
                 throw new RuntimeException(ex);
@@ -122,17 +118,22 @@ public class UserActionManager {
 
     // ---------- helpers ----------
 
-    // TODO figure out how to DRY this w/ the executors in ContextManager
     private LoggingExecutorService createLoggingExecutor(ExecutorService delegate) {
         Consumer<Throwable> onError = th -> {
-            if (th instanceof InterruptedException) {
-                logger.debug("Interrupted task in executor", th);
-                return;
+            if (GlobalExceptionHandler.isCausedBy(th, InterruptedException.class)
+                    || GlobalExceptionHandler.isCausedBy(th, CancellationException.class)) {
+                // UAM-specific policy: log and upload InterruptedException for telemetry because this indicates that a
+                // UI action wired up to the Go/Stop button did not handle it correctly.
+                logger.warn("Cancelable user action was interrupted/canceled", th);
+                try {
+                    ExceptionReporter.tryReportException(th);
+                } catch (Throwable reportingError) {
+                    logger.warn("Failed to upload exception report", reportingError);
+                }
+            } else {
+                GlobalExceptionHandler.handle(
+                        Thread.currentThread(), th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
             }
-            logger.error("Uncaught exception in UserActionManager executor", th);
-            String message = "Uncaught exception in user action thread %s\n%s"
-                    .formatted(Thread.currentThread().getName(), getStackTraceAsString(th));
-            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         };
         return new LoggingExecutorService(delegate, onError);
     }

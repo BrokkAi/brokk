@@ -9,9 +9,23 @@ import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ConflictAnnotatorTest {
+
+    @BeforeEach
+    void setUp() {
+        // Ensure the factory is reset to default before each test
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Restore to default after each test to avoid affecting other tests
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
 
     @Test
     void testMerge() throws Exception {

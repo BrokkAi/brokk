@@ -5,9 +5,9 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.EditBlock;
 import ai.brokk.IConsoleIO;
+import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
@@ -958,7 +958,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Submit the quick-edit session to a background future
         var future = cm.submitExclusiveAction(() -> {
-            var agent = new CodeAgent(cm, cm.getService().quickModel());
+            var agent = new CodeAgent(cm, cm.getService().quickEditModel());
             return agent.runQuickTask(file, selectedText, instructions);
         });
 
@@ -1201,11 +1201,21 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         // Build resulting Context by adding the saved file if it is not already editable
                         var ctx = cm.liveContext().addPathFragments(cm.toPathFragments(List.of(file)));
-                        var saveResult = new TaskResult(
+
+                        // Determine TaskMeta only if there was LLM activity in quick edits.
+                        TaskResult.TaskMeta meta = null;
+                        boolean llmInvolved = quickEditMessages.stream().anyMatch(m -> m instanceof AiMessage);
+                        if (llmInvolved) {
+                            var svc = cm.getService();
+                            var model = svc.quickEditModel();
+                            var modelConfig = Service.ModelConfig.from(model, svc);
+                            meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, modelConfig);
+                        }
+
+                        var saveResult = TaskResult.humanResult(
                                 cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTask("File changed saved", false)) {
-                            // Local non-LLM save
-                            scope.append(saveResult, null);
+                            scope.append(saveResult);
                         }
                         logger.debug("Added history entry for changes in: {}", file);
                     } catch (Exception e) {

@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.Llm;
@@ -14,7 +13,6 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildOutputPreprocessor;
@@ -43,12 +41,10 @@ import java.io.StringWriter;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -112,7 +108,8 @@ public class BuildAgent {
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
         // Determine build system and set initial excluded directories
-        var files = project.getAllFiles().stream()
+        // Use tracked files directly (not filtered) to ensure build files are visible
+        var files = project.getRepo().getTrackedFiles().stream()
                 .parallel()
                 .filter(f -> f.getParent().equals(Path.of("")))
                 .map(ProjectFile::toString)
@@ -124,35 +121,45 @@ public class BuildAgent {
                 detectedSystem,
                 this.currentExcludedDirectories);
 
-        // Add exclusions from .gitignore
-        var repo = project.getRepo();
-        if (repo instanceof GitRepo gitRepo) {
-            var ignoredPatterns = gitRepo.getIgnoredPatterns();
-            var addedFromGitignore = new ArrayList<String>();
-            for (var pattern : ignoredPatterns) {
-                Path path;
-                try {
-                    path = project.getRoot().resolve(pattern);
-                } catch (InvalidPathException e) {
-                    // for now we only support literal paths, not globs
-                    continue;
+        // Add directory exclusions based on gitignore filtering
+        // Walk the directory tree and explicitly validate each directory using gitignore semantics.
+        // This is correct: validates actual gitignore rules rather than inferring from file absence,
+        // which prevents false positives (empty directories, directories with only non-code files).
+        var addedFromGitignore = new ArrayList<String>();
+        if (project.hasGit()) {
+            try {
+                // Walk the full directory tree to find gitignored directories.
+                // Note: This full tree walk is acceptable here because it's a one-time operation
+                // at agent startup, not in the hot filtering path. For frequent file filtering
+                // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
+                // with direct path checking instead.
+                try (var dirStream = Files.walk(project.getRoot())) {
+                    dirStream
+                            .filter(Files::isDirectory)
+                            .filter(path -> !path.equals(project.getRoot())) // Skip root
+                            .map(path -> project.getRoot().relativize(path))
+                            .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
+                            .filter(relPath -> {
+                                // Explicitly check if directory is gitignored using proper gitignore semantics
+                                // This prevents false positives from empty or non-code directories
+                                return project.isDirectoryIgnored(relPath);
+                            })
+                            .forEach(relPath -> {
+                                var dirName = relPath.toString();
+                                this.currentExcludedDirectories.add(dirName);
+                                addedFromGitignore.add(dirName);
+                            });
                 }
-                // include non-existing paths if they end with `/` in case they get created later
-                var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!pattern.startsWith("!") && isDirectory) {
-                    this.currentExcludedDirectories.add(pattern);
-                    addedFromGitignore.add(pattern);
-                }
-            }
-            if (!addedFromGitignore.isEmpty()) {
-                logger.debug(
-                        "Added the following directory patterns from .gitignore to excluded directories: {}",
-                        addedFromGitignore);
-            }
 
-        } else {
+            } catch (IOException e) {
+                logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
+            }
+        }
+
+        if (!addedFromGitignore.isEmpty()) {
             logger.debug(
-                    "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
+                    "Added the following directory patterns from gitignore analysis to excluded directories: {}",
+                    addedFromGitignore);
         }
 
         // 2. Iteration Loop
@@ -174,10 +181,7 @@ public class BuildAgent {
             try {
                 result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, tr));
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.error("Unexpected request cancellation in build agent");
-                ExceptionReporter.tryReportException(e);
-                return BuildDetails.EMPTY;
+                throw new RuntimeException(e);
             }
 
             if (result.error() != null) {
@@ -297,6 +301,8 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore.
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
+                IMPORTANT: Only provide literal directory paths. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
+                these are already handled by .gitignore processing.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
@@ -328,9 +334,11 @@ public class BuildAgent {
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
                     List<String> excludedDirectories) {
         // Combine baseline excluded directories with those suggested by the LLM
+        // Filter out glob patterns defensively even though the prompt instructs against them
         var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
+                .filter(s -> !containsGlobPattern(s))
                 .map(s -> Path.of(s).normalize())
                 .map(Path::toString)
                 .collect(Collectors.toSet());
@@ -349,6 +357,10 @@ public class BuildAgent {
         this.abortReason = explanation;
         logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
         return "Abort signal received and processed.";
+    }
+
+    private static boolean containsGlobPattern(String s) {
+        return s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
     }
 
     /** Holds semi-structured information about a project's build process */
@@ -372,7 +384,7 @@ public class BuildAgent {
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
-    public static @Nullable String determineVerificationCommand(Context ctx) {
+    public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
 
         // Retrieve build details from the project associated with the ContextManager
@@ -427,7 +439,7 @@ public class BuildAgent {
     }
 
     /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) {
+    public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
         return determineVerificationCommand(cm.topContext());
     }
 
@@ -451,7 +463,8 @@ public class BuildAgent {
      *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            throws InterruptedException {
 
         String testSomeTemplate = details.testSomeCommand();
 
@@ -499,13 +512,7 @@ public class BuildAgent {
             return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
         }
 
-        IAnalyzer analyzer;
-        try {
-            analyzer = cm.getAnalyzer();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CancellationException("Interrupted while retrieving analyzer");
-        }
+        IAnalyzer analyzer = cm.getAnalyzer();
 
         if (analyzer.isEmpty()) {
             logger.warn("Analyzer is empty; falling back to build/lint: {}", details.buildLintCommand());
@@ -655,7 +662,7 @@ public class BuildAgent {
      * If the template doesn't contain {{pyver}}, returns the original command.
      */
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
-        if (command == null || command.isEmpty()) {
+        if (command.isEmpty()) {
             return command;
         }
         String pythonVersion = getPythonVersionForProject(projectRoot);
