@@ -93,6 +93,10 @@ public class ProjectFilesPanel extends JPanel {
         dependenciesButton.addActionListener(e -> toggleDependencies());
         buttonPanel.add(dependenciesButton);
 
+        // Initialize badge with current live dependencies count
+        int liveCount = chrome.getProject().getLiveDependencies().size();
+        updateDependenciesBadge(liveCount);
+
         searchBarPanel.add(buttonPanel, BorderLayout.EAST);
 
         add(searchBarPanel, BorderLayout.NORTH);
