@@ -9,7 +9,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.WorkspacePanel;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Decompiler;
 import java.awt.BorderLayout;
@@ -62,6 +61,7 @@ public final class DependenciesPanel extends JPanel {
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
+    private ImportDependencyLauncher importLauncher = new ImportDependencyLauncher.DefaultImportDependencyLauncher();
     private boolean isProgrammaticChange = false;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
@@ -281,7 +281,7 @@ public final class DependenciesPanel extends JPanel {
                 }
             };
             var parentWindow = SwingUtilities.getWindowAncestor(DependenciesPanel.this);
-            ImportDependencyDialog.show(chrome, parentWindow, listener);
+            importLauncher.show(chrome, parentWindow, listener);
         });
 
         removeButton.addActionListener(e -> removeSelectedDependency());
@@ -416,6 +416,10 @@ public final class DependenciesPanel extends JPanel {
                 updateBottomSpacer();
             }
         });
+    }
+
+    public void setImportLauncherForTest(ImportDependencyLauncher launcher) {
+        this.importLauncher = requireNonNull(launcher);
     }
 
     private void addPendingDependencyRow(String name) {
