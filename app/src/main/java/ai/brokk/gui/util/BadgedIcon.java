@@ -157,15 +157,23 @@ public class BadgedIcon implements Icon {
         }
     }
 
+    /**
+     * Intentionally returns a constant width of baseIcon.getIconWidth() + 2, regardless of badge count.
+     * The extra 2px reserve prevents toolbar reflow when the badge appears or disappears.
+     * The badge is drawn entirely within these reserved bounds.
+     */
     @Override
     public int getIconWidth() {
-        // Always reserve 2px to keep layout stable regardless of badge visibility
         return baseIcon.getIconWidth() + 2;
     }
 
+    /**
+     * Intentionally returns a constant height of baseIcon.getIconHeight() + 2, regardless of badge count.
+     * The extra 2px reserve prevents toolbar reflow when the badge appears or disappears.
+     * The badge is drawn entirely within these reserved bounds.
+     */
     @Override
     public int getIconHeight() {
-        // Always reserve 2px to keep layout stable regardless of badge visibility
         return baseIcon.getIconHeight() + 2;
     }
 }
