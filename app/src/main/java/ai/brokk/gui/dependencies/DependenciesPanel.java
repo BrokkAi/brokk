@@ -5,8 +5,8 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.BorderUtils;
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.Chrome;
 import ai.brokk.gui.WorkspacePanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
@@ -57,7 +57,8 @@ public final class DependenciesPanel extends JPanel {
 
     private static final Logger logger = LogManager.getLogger(DependenciesPanel.class);
 
-    private final Chrome chrome;
+    // Test seam: host abstraction (wraps Chrome in production)
+    private final DependenciesHost host;
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
@@ -127,7 +128,17 @@ public final class DependenciesPanel extends JPanel {
         }
     }
 
+    /**
+     * Preserve existing production constructor for compatibility.
+     */
     public DependenciesPanel(Chrome chrome) {
+        this(new DependenciesHost.DefaultDependenciesHost(chrome));
+    }
+
+    /**
+     * Testable constructor accepting a host abstraction.
+     */
+    public DependenciesPanel(DependenciesHost host) {
         super(new BorderLayout());
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -136,7 +147,7 @@ public final class DependenciesPanel extends JPanel {
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        this.chrome = chrome;
+        this.host = requireNonNull(host);
 
         var contentPanel = new JPanel(new BorderLayout());
 
@@ -258,7 +269,7 @@ public final class DependenciesPanel extends JPanel {
                     setControlsLocked(true);
                     // Pause watcher to avoid churn during import I/O
                     try {
-                        chrome.getContextManager().getAnalyzerWrapper().pause();
+                        host.getContextManager().getAnalyzerWrapper().pause();
                     } catch (Exception ex) {
                         logger.debug("Error pausing watcher before dependency import", ex);
                     }
@@ -272,7 +283,7 @@ public final class DependenciesPanel extends JPanel {
                     var future = saveChangesAsync();
                     future.whenComplete((r, ex) -> {
                         try {
-                            chrome.getContextManager().getAnalyzerWrapper().resume();
+                            host.getContextManager().getAnalyzerWrapper().resume();
                         } catch (Exception e2) {
                             logger.debug("Error resuming watcher after dependency import", e2);
                         }
@@ -281,7 +292,7 @@ public final class DependenciesPanel extends JPanel {
                 }
             };
             var parentWindow = SwingUtilities.getWindowAncestor(DependenciesPanel.this);
-            importLauncher.show(chrome, parentWindow, listener);
+            importLauncher.show(host, parentWindow, listener);
         });
 
         removeButton.addActionListener(e -> removeSelectedDependency());
@@ -396,7 +407,7 @@ public final class DependenciesPanel extends JPanel {
         SwingUtilities.invokeLater(this::updateBottomSpacer);
 
         // Update spacer when the Workspace layout changes
-        var workspacePanel = chrome.getContextPanel();
+        var workspacePanel = host.getContextPanel();
         workspacePanel.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
@@ -435,7 +446,7 @@ public final class DependenciesPanel extends JPanel {
     private class DependenciesLoaderWorker extends SwingWorker<AsyncLoadResult, Void> {
         @Override
         protected AsyncLoadResult doInBackground() {
-            var project = chrome.getProject();
+            var project = host.getProject();
             var allDeps = project.getAllOnDiskDependencies();
             var liveDeps = new HashSet<>(project.getLiveDependencies());
 
@@ -492,7 +503,7 @@ public final class DependenciesPanel extends JPanel {
 
             var pf = dependencyProjectFileMap.get(name);
             if (pf != null) {
-                var depTopLevelDir = chrome.getProject()
+                var depTopLevelDir = host.getProject()
                         .getMasterRootPathForConfig()
                         .resolve(".brokk")
                         .resolve("dependencies")
@@ -501,9 +512,9 @@ public final class DependenciesPanel extends JPanel {
             }
         }
 
-        var cm = chrome.getContextManager();
+        var cm = host.getContextManager();
         return cm.submitBackgroundTask("Save dependency configuration", () -> {
-            var project = chrome.getProject();
+            var project = host.getProject();
             var analyzer = cm.getAnalyzerWrapper();
             analyzer.pause();
             try {
@@ -598,7 +609,7 @@ public final class DependenciesPanel extends JPanel {
 
     private void updateBottomSpacer() {
         try {
-            var wp = chrome.getContextPanel();
+            var wp = host.getContextPanel();
             int target = wp.getBottomControlsPreferredHeight();
             int controls = addRemovePanel.getPreferredSize().height;
             int filler = Math.max(0, target - controls);
@@ -651,7 +662,7 @@ public final class DependenciesPanel extends JPanel {
             return;
         }
 
-        var project = chrome.getProject();
+        var project = host.getProject();
         var depOpt = project.getLiveDependencies().stream()
                 .filter(d -> d.root().equals(pf))
                 .findFirst();
@@ -660,7 +671,7 @@ public final class DependenciesPanel extends JPanel {
         }
         var dep = depOpt.get();
 
-        var cm = chrome.getContextManager();
+        var cm = host.getContextManager();
         cm.submitContextTask(() -> {
             cm.addSummaries(dep.files(), Set.of());
         });
@@ -674,7 +685,7 @@ public final class DependenciesPanel extends JPanel {
         int selectedRowInModel = table.convertRowIndexToModel(selectedRowInView);
 
         String depName = (String) tableModel.getValueAt(selectedRowInModel, 1);
-        int choice = chrome.showConfirmDialog(
+        int choice = host.showConfirmDialog(
                 this,
                 "Are you sure you want to delete the dependency '" + depName + "'?\nThis action cannot be undone.",
                 "Confirm Deletion",
@@ -684,7 +695,7 @@ public final class DependenciesPanel extends JPanel {
         if (choice == JOptionPane.YES_OPTION) {
             var pf = dependencyProjectFileMap.get(depName);
             if (pf != null) {
-                var cm = chrome.getContextManager();
+                var cm = host.getContextManager();
                 cm.getAnalyzerWrapper().pause();
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());

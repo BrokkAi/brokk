@@ -56,6 +56,34 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Returns the set of on-disk dependency root directories found under the project's
+     * .brokk/dependencies directory. Default implementation returns an empty set.
+     */
+    default Set<ProjectFile> getAllOnDiskDependencies() {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of currently enabled \"live\" dependencies for this project.
+     * Implementations that support live dependencies (e.g. MainProject/WorktreeProject)
+     * should override this. Default implementation throws to make missing implementations
+     * explicit.
+     */
+    default Set<Dependency> getLiveDependencies() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Persist the set of top-level dependency directories that should be considered live.
+     * Implementations that support live dependencies should override this.
+     *
+     * @param dependencyTopLevelDirs set of absolute top-level directory Paths to persist as live
+     */
+    default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
      * Gets all analyzable files for the given language after gitignore and baseline filtering.
      * This method returns files that should be analyzed by the language-specific analyzer,
      * excluding files that are ignored by .gitignore or baseline exclusions.
