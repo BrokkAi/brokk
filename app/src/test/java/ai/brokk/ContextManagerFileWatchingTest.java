@@ -12,6 +12,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import dev.langchain4j.data.message.ChatMessageType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,7 +103,7 @@ class ContextManagerFileWatchingTest {
         @Override
         public void llmOutput(
                 String token,
-                dev.langchain4j.data.message.ChatMessageType type,
+                ChatMessageType type,
                 boolean isNewMessage,
                 boolean isReasoning) {}
 

@@ -9,6 +9,7 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -82,7 +83,7 @@ class AnalyzerWrapperTest {
 
         // Create watch service with no initial listeners
         watchService = new ProjectWatchService(projectRoot, null, null, List.of());
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
         Thread.sleep(500);
@@ -149,7 +150,7 @@ class AnalyzerWrapperTest {
         analyzerWrapper.getWatchService().addListener(customListener);
 
         // Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
         // Create a file to trigger an event

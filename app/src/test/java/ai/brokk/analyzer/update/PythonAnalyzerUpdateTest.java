@@ -6,26 +6,33 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class PythonAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(rootDir, "mod.py", """
+        // create initial file in the temp directory
+        var initial = new ProjectFile(tempDir, "mod.py");
+        initial.write("""
         def foo():
             return 1
         """);
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
+        project = new TestProject(tempDir, Languages.PYTHON);
         analyzer = new PythonAnalyzer(project);
     }
 
@@ -40,10 +47,9 @@ class PythonAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("mod.bar").isEmpty());
 
         // change: add bar()
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "mod.py",
-                """
+        new ProjectFile(project.getRoot(), "mod.py")
+                .write(
+                        """
         def foo():
             return 1
 
@@ -60,7 +66,7 @@ class PythonAnalyzerUpdateTest {
     @Test
     void autoDetectChangesAndDeletes() throws IOException {
         // modify file
-        UpdateTestUtil.writeFile(project.getRoot(), "mod.py", """
+        new ProjectFile(project.getRoot(), "mod.py").write("""
         def foo():
             return 42
         """);
