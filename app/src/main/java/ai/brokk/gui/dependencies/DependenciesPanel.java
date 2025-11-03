@@ -469,6 +469,10 @@ public final class DependenciesPanel extends JPanel {
                 isProgrammaticChange = false;
             }
 
+            // Update dependencies badge with current live dependency count
+            int count = chrome.getProject().getLiveDependencies().size();
+            SwingUtilities.invokeLater(() -> chrome.getProjectFilesPanel().updateDependenciesBadge(count));
+
             // count files in background
             new FileCountingWorker().execute();
         }
