@@ -125,9 +125,13 @@ public interface ContextFragment {
     }
 
     final class FragmentExecutorHolder {
+        // Use equal core/max with an unbounded queue to avoid IllegalArgumentException on low-core runners.
+        // On some CI (e.g., macOS runners with 2 vCPUs), setting corePoolSize (4) > maximumPoolSize
+        // (availableProcessors)
+        // caused static init failure. Keep core <= max by making both nThreads.
         static final LoggingExecutorService INSTANCE = new LoggingExecutorService(
                 new ThreadPoolExecutor(
-                        4,
+                        Math.min(4, Runtime.getRuntime().availableProcessors()),
                         Runtime.getRuntime().availableProcessors(),
                         60L,
                         TimeUnit.SECONDS,
