@@ -26,10 +26,10 @@ public class BrowserLabel extends JLabel {
      * Creates a new BrowserLabel for the specified URL with custom display text.
      *
      * @param url The URL to link to.
-     * @param text The text to display on the label (will be wrapped in HTML link tags).
+     * @param text The text to display on the label.
      */
     public BrowserLabel(String url, String text) {
-        super("<html><a href=\"" + url + "\">" + text + "</a></html>");
+        super(formatLinkText(text));
         this.url = url;
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         addMouseListener(new MouseAdapter() {
@@ -38,6 +38,18 @@ public class BrowserLabel extends JLabel {
                 openBrowser();
             }
         });
+    }
+
+    private static String formatLinkText(String text) {
+        return "<html><u>" + escapeHtml(text) + "</u></html>";
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private void openBrowser() {

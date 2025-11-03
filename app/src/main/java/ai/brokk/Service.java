@@ -60,6 +60,22 @@ public class Service implements IExceptionReportingService {
         public ModelConfig(String name) {
             this(name, ReasoningLevel.DEFAULT);
         }
+
+        public static ModelConfig from(StreamingChatModel model, Service svc) {
+            var canonicalName = svc.nameOf(model);
+            var tier = Service.getProcessingTier(model);
+
+            ReasoningLevel reasoning = ReasoningLevel.DEFAULT;
+            if (model instanceof OpenAiStreamingChatModel om) {
+                var params = om.defaultRequestParameters();
+                var effort = params == null ? null : params.reasoningEffort();
+                if (effort != null && !effort.isBlank()) {
+                    reasoning = ReasoningLevel.fromString(effort, ReasoningLevel.DEFAULT);
+                }
+            }
+
+            return new ModelConfig(canonicalName, reasoning, tier);
+        }
     }
 
     public record PriceBand(
@@ -226,6 +242,7 @@ public class Service implements IExceptionReportingService {
 
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
+    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_MINI = "gpt-5-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -248,6 +265,7 @@ public class Service implements IExceptionReportingService {
     // Default models - now instance fields
     private final StreamingChatModel quickModel;
     private final StreamingChatModel quickestModel;
+    private final StreamingChatModel quickEditModel;
     private final SpeechToTextModel sttModel;
 
     public Service(IProject project) {
@@ -284,7 +302,29 @@ public class Service implements IExceptionReportingService {
         // these should always be available
         var qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
-        // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
+
+        // Determine whether the user is on a free tier (balance < MINIMUM_PAID_BALANCE)
+        boolean freeTier = false;
+        try {
+            float balance = getUserBalance();
+            freeTier = balance < MINIMUM_PAID_BALANCE;
+            logger.info("User balance = {}, free‑tier = {}", balance, freeTier);
+        } catch (IOException | IllegalArgumentException e) {
+            // If we cannot determine balance (network error or invalid/missing key), assume paid tier
+            // to avoid silently disabling the Cerebras model
+            logger.warn("Unable to fetch user balance for quick‑edit model selection: {}", e.getMessage());
+        }
+
+        // If on free tier, fall back to the quickModel; otherwise attempt to load the Cerebras model
+        if (freeTier) {
+            logger.info("Free tier detected – using quickModel for quick‑edit operations.");
+            quickEditModel = quickModel;
+        } else {
+            var qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
+            quickEditModel = qe == null ? qm : qe;
+        }
+
+        // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
         var qqm = getModel(
                 new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
                 OpenAiChatRequestParameters.builder().temperature(0.0));
@@ -448,7 +488,12 @@ public class Service implements IExceptionReportingService {
 
         var authHeader = "Bearer dummy-key";
         if (isBrokk) {
-            var kp = parseKey(MainProject.getBrokkKey());
+            String brokkKey = MainProject.getBrokkKey();
+            if (brokkKey.isEmpty()) {
+                logger.warn("Brokk API key is empty, cannot fetch models from Brokk proxy");
+                return;
+            }
+            var kp = parseKey(brokkKey);
             authHeader = "Bearer " + kp.token();
         }
         Request request = new Request.Builder()
@@ -1034,6 +1079,11 @@ public class Service implements IExceptionReportingService {
         return quickModel;
     }
 
+    /** Returns the dedicated model for Quick‑Edit operations (Cerebras GPT‑OSS‑120B). */
+    public StreamingChatModel quickEditModel() {
+        return quickEditModel;
+    }
+
     /** Returns the default speech-to-text model instance. */
     public SpeechToTextModel sttModel() {
         return sttModel;
@@ -1041,7 +1091,7 @@ public class Service implements IExceptionReportingService {
 
     /** Returns a model optimized for scanning tasks. */
     public StreamingChatModel getScanModel() {
-        var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
+        var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GPT_5_MINI;
         var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {
             logger.error("Failed to get scan model '{}'", modelName);

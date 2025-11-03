@@ -40,11 +40,13 @@ public interface IWatchService extends AutoCloseable {
     /** mutable since we will collect events until they stop arriving */
     class EventBatch {
         boolean isOverflowed;
+        boolean untrackedGitignoreChanged;
         Set<ProjectFile> files = new HashSet<>();
 
         @Override
         public String toString() {
-            return "EventBatch{" + "isOverflowed=" + isOverflowed + ", files=" + files + '}';
+            return "EventBatch{" + "isOverflowed=" + isOverflowed + ", untrackedGitignoreChanged="
+                    + untrackedGitignoreChanged + ", files=" + files + '}';
         }
     }
 }

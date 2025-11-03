@@ -5,6 +5,9 @@ import ai.brokk.context.ContextFragment;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents the outcome of an agent session, containing all necessary information to update the context history.
@@ -16,60 +19,11 @@ public record TaskResult(
         ContextFragment.TaskFragment output,
         Context context,
         StopDetails stopDetails,
-        @org.jetbrains.annotations.Nullable TaskMeta meta) {
+        @Nullable TaskMeta meta) {
 
     public TaskResult {
         assert !context.containsFrozenFragments();
     }
-
-    // Backward-compatible overload for existing call-sites
-    public TaskResult(
-            String actionDescription,
-            ai.brokk.context.ContextFragment.TaskFragment output,
-            ai.brokk.context.Context context,
-            StopDetails stopDetails) {
-        this(actionDescription, output, context, stopDetails, null);
-    }
-
-    public TaskResult(
-            IContextManager contextManager,
-            String actionDescription,
-            List<ChatMessage> uiMessages,
-            Context resultingContext,
-            StopDetails stopDetails) {
-        this(
-                actionDescription,
-                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
-                resultingContext,
-                stopDetails,
-                null);
-    }
-
-    public TaskResult(
-            IContextManager contextManager,
-            String actionDescription,
-            List<ChatMessage> uiMessages,
-            Context resultingContext,
-            StopReason simpleReason) {
-        this(
-                actionDescription,
-                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
-                resultingContext,
-                new StopDetails(simpleReason),
-                null);
-    }
-
-    /** Creates a new TaskResult by replacing the messages in an existing one while preserving the resulting context. */
-    public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager) {
-        this(
-                base.actionDescription(),
-                new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
-                base.context(),
-                base.stopDetails(),
-                null);
-    }
-
-    // Overloads that accept optional TaskMeta for callers that can supply metadata
 
     public TaskResult(
             IContextManager contextManager,
@@ -77,7 +31,7 @@ public record TaskResult(
             List<ChatMessage> uiMessages,
             Context resultingContext,
             StopDetails stopDetails,
-            @org.jetbrains.annotations.Nullable TaskMeta meta) {
+            TaskMeta meta) {
         this(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
@@ -86,19 +40,18 @@ public record TaskResult(
                 meta);
     }
 
-    public TaskResult(
+    public static TaskResult humanResult(
             IContextManager contextManager,
             String actionDescription,
             List<ChatMessage> uiMessages,
             Context resultingContext,
-            StopReason simpleReason,
-            @org.jetbrains.annotations.Nullable TaskMeta meta) {
-        this(
+            StopReason simpleReason) {
+        return new TaskResult(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
                 new StopDetails(simpleReason),
-                meta);
+                null);
     }
 
     /** Enum representing the reason a session concluded. */
@@ -151,6 +104,49 @@ public record TaskResult(
             }
             return new TaskResult.StopDetails(
                     TaskResult.StopReason.LLM_ERROR, response.error().getMessage());
+        }
+    }
+
+    public record TaskMeta(Type type, Service.ModelConfig primaryModel) {}
+
+    public enum Type {
+        NONE,
+        ARCHITECT,
+        CODE,
+        ASK,
+        SEARCH,
+        CONTEXT,
+        MERGE,
+        BLITZFORGE;
+
+        public String displayName() {
+            if (this == SEARCH) {
+                return "Lutz Mode";
+            }
+            var lower = name().toLowerCase(Locale.ROOT);
+            return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
+        }
+
+        public static Optional<Type> safeParse(String value) {
+            if (value == null) {
+                return Optional.empty();
+            }
+            var s = value.trim();
+            if (s.isEmpty()) {
+                return Optional.empty();
+            }
+
+            for (var t : values()) {
+                if (t.name().equalsIgnoreCase(s)) {
+                    return Optional.of(t);
+                }
+            }
+            for (var t : values()) {
+                if (t.displayName().equalsIgnoreCase(s)) {
+                    return Optional.of(t);
+                }
+            }
+            return Optional.empty();
         }
     }
 }

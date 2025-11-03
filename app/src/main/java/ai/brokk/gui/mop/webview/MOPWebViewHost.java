@@ -218,6 +218,12 @@ public final class MOPWebViewHost extends JPanel {
                         if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
                         originalInfo.apply(console, arguments);
                     };
+// do not send debug messages to Java (to costly; uncomment if needed)
+//                    console.debug = function() {
+//                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+//                        if (window.javaBridge) window.javaBridge.jsLog('DEBUG', msg);
+//                        originalInfo.apply(console, arguments);
+//                    };
                 })();
                 """); // Install wheel event override for platform-specific scroll speed
                     var wheelOverrideJs = String.format(

@@ -2,7 +2,6 @@ package ai.brokk.gui.git;
 
 import ai.brokk.*;
 import ai.brokk.ContextManager;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.MainProject;
@@ -19,6 +18,8 @@ import ai.brokk.gui.components.IssueHeaderCellRenderer;
 import ai.brokk.gui.components.LoadingTextBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.WrapLayout;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.*;
@@ -62,7 +63,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class GitIssuesTab extends JPanel implements SettingsChangeListener {
+public class GitIssuesTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
 
     private final Chrome chrome;
@@ -578,6 +579,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         MainProject.addSettingsChangeListener(this);
         updateIssueList(); // async
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        // Refresh the entire component tree to apply theme changes
+        SwingUtilities.updateComponentTreeUI(this);
     }
 
     @Override
@@ -1190,9 +1197,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     }
                 }
             } catch (Exception e) {
-                logger.error("Unexpected error processing image {}: {}", imageUri.toString(), e.getMessage(), e);
-                ExceptionReporter.tryReportException(e);
-                chrome.toolError("Error processing image " + imageUri.toString() + ": " + e.getMessage());
+                logger.error("Error downloading image: {}", imageUri.toString(), e);
+                chrome.toolError("Error downloading image: " + imageUri.toString() + " - " + e.getMessage());
             }
         }
         return capturedImageCount;

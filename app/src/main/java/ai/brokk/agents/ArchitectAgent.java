@@ -6,11 +6,9 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
-import ai.brokk.ModelSpec;
-import ai.brokk.TaskMeta;
+import ai.brokk.Service.ModelConfig;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
-import ai.brokk.TaskType;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -157,7 +155,7 @@ public class ArchitectAgent {
         var reason = stopDetails.reason();
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
-        context = scope.append(result, new TaskMeta(TaskType.CODE, ModelSpec.from(codeModel, cm.getService())));
+        context = scope.append(result);
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild
@@ -197,9 +195,7 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(
-                resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal),
-                new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
+        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
     }
 
     @Tool(
@@ -239,7 +235,8 @@ public class ArchitectAgent {
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
         var searchAgent =
                 new SearchAgent(context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), scope);
-        searchAgent.scanInitialContext();
+        var tr = searchAgent.scanInitialContext();
+        context = scope.append(tr);
         var result = searchAgent.execute();
         // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
         threadlocalSearchResult.set(result);
@@ -282,24 +279,17 @@ public class ArchitectAgent {
      *
      * <p>Returns the search result if it fails, otherwise returns the Architect result.
      */
-    public TaskResult executeWithSearch() throws InterruptedException {
+    public TaskResult executeWithScan() throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent =
                 new SearchAgent(context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), this.scope);
-        searchAgent.scanInitialContext();
-
-        // Hardcode a Search first using the scan model (fast, token-friendly).
-        // No errors here are fatal; this hardcoded search is intended as an optimization to save the architect a turn.
-        io.llmOutput("**Search Agent** engaged: " + goal, ChatMessageType.AI);
-        var searchResult = searchAgent.execute();
-        // Synchronize local context with search results before continuing
-        context = scope.append(searchResult, new TaskMeta(TaskType.SEARCH, ModelSpec.from(scanModel, cm.getService())));
+        var scanResult = searchAgent.scanInitialContext();
+        context = scope.append(scanResult);
 
         // Run Architect proper
         var archResult = this.execute();
-        context = scope.append(
-                archResult, new TaskMeta(TaskType.ARCHITECT, ModelSpec.from(planningModel, cm.getService())));
+        context = scope.append(archResult);
         return archResult;
     }
 
@@ -646,12 +636,19 @@ public class ArchitectAgent {
                 "Architect finished work for: " + goal,
                 io.getLlmRawMessages(),
                 context,
-                new TaskResult.StopDetails(StopReason.SUCCESS));
+                new TaskResult.StopDetails(StopReason.SUCCESS),
+                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
     }
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
-        return new TaskResult(cm, message, io.getLlmRawMessages(), context, new TaskResult.StopDetails(reason));
+        return new TaskResult(
+                cm,
+                message,
+                io.getLlmRawMessages(),
+                context,
+                new TaskResult.StopDetails(reason),
+                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
     }
 
     private TaskResult resultWithMessages(StopReason reason) {

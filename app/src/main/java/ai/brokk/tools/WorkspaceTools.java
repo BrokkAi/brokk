@@ -3,7 +3,6 @@ package ai.brokk.tools;
 import ai.brokk.AbstractProject;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -184,10 +183,6 @@ public class WorkspaceTools {
         } catch (IOException e) {
             logger.error("Failed to fetch or process URL content: {}", urlString, e);
             throw new RuntimeException("Failed to fetch URL content for " + urlString + ": " + e.getMessage(), e);
-        } catch (Exception e) {
-            logger.error("Unexpected error processing URL: {}", urlString, e);
-            ExceptionReporter.tryReportException(e);
-            throw new RuntimeException("Unexpected error processing URL " + urlString + ": " + e.getMessage(), e);
         }
     }
 
@@ -252,6 +247,7 @@ public class WorkspaceTools {
             discardedJson = mapper.writeValueAsString(mergedDiscarded);
         } catch (Exception e) {
             logger.error("Failed to serialize DISCARDED_CONTEXT JSON", e);
+            context.getContextManager().reportException(e);
             return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
         }
 

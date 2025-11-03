@@ -2461,7 +2461,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Centralized icon mapping for task types; future-proofed for differentiation.
-    private javax.swing.Icon iconFor(TaskType type) {
+    private javax.swing.Icon iconFor(TaskResult.Type type) {
         switch (type) {
             case ARCHITECT -> {
                 return Icons.ARCHITECT;
@@ -2493,7 +2493,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
 
     /** Returns the last TaskMeta in the given Context's task history, or null if not present. */
-    private @Nullable TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
+    private @Nullable TaskResult.TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
         var history = ctx.getTaskHistory();
         if (history.isEmpty()) return null;
         var last = history.getLast();
@@ -2501,7 +2501,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /** Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable. */
-    private @Nullable ModelSpec modelOf(ai.brokk.context.Context ctx) {
+    private @Nullable Service.ModelConfig modelOf(ai.brokk.context.Context ctx) {
         var meta = lastMetaOf(ctx);
         return (meta == null) ? null : meta.primaryModel();
     }
@@ -2512,10 +2512,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /** Returns a short, human-friendly model string: "name (reasoning)" or just "name". */
-    private static String summarizeModel(ModelSpec spec) {
+    private static String summarizeModel(Service.ModelConfig spec) {
         var name = spec.name();
-        var rl = spec.reasoningLevel();
-        if (rl != null && !rl.isBlank()) {
+        var rl = spec.reasoning().name();
+        if (!rl.isBlank()) {
             return name + " (" + rl + ")";
         }
         return name;

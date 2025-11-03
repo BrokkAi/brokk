@@ -1,6 +1,5 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.IssueProvider;
@@ -729,7 +728,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             settingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
             // File count label above per-language settings (formatted with commas and padded to match details panel)
-            int fileCount = project.getFiles(lang).size();
+            int fileCount = project.getAnalyzableFiles(lang).size();
             var fileCountLabel = new JLabel("Files: " + String.format("%,d", fileCount));
             fileCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
             fileCountLabel.setFont(
@@ -759,7 +758,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             int maxModelIdx = 0;
             int maxCount = -1;
             for (int i = 0; i < languagesToShow.size(); i++) {
-                int cnt = project.getFiles(languagesToShow.get(i)).size();
+                int cnt = project.getAnalyzableFiles(languagesToShow.get(i)).size();
                 if (cnt > maxCount) {
                     maxCount = cnt;
                     maxModelIdx = i;
@@ -875,10 +874,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 } catch (IOException ioException) {
                     logger.warn("Jira connection test failed: {}", ioException.getMessage());
                     return "Connection failed: " + ioException.getMessage();
-                } catch (Exception ex) {
-                    logger.error("Unexpected error during Jira connection test: {}", ex.getMessage(), ex);
-                    ExceptionReporter.tryReportException(ex);
-                    return "Connection failed with unexpected error: " + ex.getMessage();
                 }
             }
 

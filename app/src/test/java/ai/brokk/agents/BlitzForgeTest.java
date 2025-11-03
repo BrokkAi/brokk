@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
+import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.HeadlessConsole;
@@ -51,7 +52,7 @@ class BlitzForgeTest {
 
         BlitzForge.RunConfig cfg = new BlitzForge.RunConfig(
                 "Do thing",
-                null,
+                new Service.UnavailableStreamingModel(),
                 (Supplier<String>) () -> "",
                 (Supplier<String>) () -> "",
                 "",

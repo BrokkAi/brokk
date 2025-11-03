@@ -1,6 +1,6 @@
 package ai.brokk.util;
 
-import ai.brokk.ExceptionReporter;
+import ai.brokk.exception.GlobalExceptionHandler;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -27,8 +27,7 @@ public final class ExecutorServiceUtil {
                 t.setName(threadPrefix + ++count);
                 t.setDaemon(true);
                 t.setUncaughtExceptionHandler((thr, ex) -> {
-                    logger.error("Unhandled exception in {}", thr.getName(), ex);
-                    ExceptionReporter.tryReportException(ex);
+                    GlobalExceptionHandler.handle(thr, ex, s -> {});
                 });
                 return t;
             }
@@ -67,8 +66,7 @@ public final class ExecutorServiceUtil {
 
                 var t = Thread.ofVirtual().name(threadPrefix + ++count).unstarted(wrapped);
                 t.setUncaughtExceptionHandler((thr, ex) -> {
-                    logger.error("Unhandled exception in {}", thr.getName(), ex);
-                    ExceptionReporter.tryReportException(ex);
+                    GlobalExceptionHandler.handle(thr, ex, s -> {});
                 });
                 return t;
             }

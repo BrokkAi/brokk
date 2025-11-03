@@ -3,10 +3,9 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
-import ai.brokk.ModelSpec;
+import ai.brokk.Service;
 import ai.brokk.TaskEntry;
-import ai.brokk.TaskMeta;
-import ai.brokk.TaskType;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
@@ -292,21 +291,13 @@ public class ContextSerializationTest {
             // Accept null or default-like meta (NONE + null model)
             if (actualMeta != null) {
                 assertEquals(
-                        TaskType.NONE, actualMeta.type(), "When expected meta is null, actual type should be NONE");
+                        TaskResult.Type.NONE,
+                        actualMeta.type(),
+                        "When expected meta is null, actual type should be NONE");
                 assertNull(actualMeta.primaryModel(), "When expected meta is null, actual primaryModel should be null");
             }
         } else {
-            assertNotNull(actualMeta, "TaskMeta should be present");
-            assertEquals(expectedMeta.type(), actualMeta.type(), "TaskMeta type mismatch");
-            assertNotNull(actualMeta.primaryModel(), "TaskMeta primaryModel should be present");
-            assertEquals(
-                    expectedMeta.primaryModel().name(),
-                    actualMeta.primaryModel().name(),
-                    "TaskMeta primaryModel.name mismatch");
-            assertEquals(
-                    Objects.toString(expectedMeta.primaryModel().reasoningLevel(), null),
-                    Objects.toString(actualMeta.primaryModel().reasoningLevel(), null),
-                    "TaskMeta primaryModel.reasoningLevel mismatch");
+            assertEquals(expectedMeta, actualMeta);
         }
     }
 
@@ -1302,7 +1293,9 @@ public class ContextSerializationTest {
         var messages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
         var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Test Task");
 
-        TaskMeta meta = new TaskMeta(TaskType.CODE, new ModelSpec("test-model", "short"));
+        TaskResult.TaskMeta meta = new TaskResult.TaskMeta(
+                TaskResult.Type.CODE,
+                new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
         var taskEntry = new TaskEntry(42, taskFragment, null, meta);
 
         var ctx = new Context(mockContextManager, "ctx")
@@ -1315,9 +1308,11 @@ public class ContextSerializationTest {
 
         TaskEntry loadedEntry = loaded.getHistory().get(0).getTaskHistory().get(0);
         assertNotNull(loadedEntry.meta(), "TaskMeta should be present after round-trip");
-        assertEquals(TaskType.CODE, loadedEntry.meta().type());
+        assertEquals(TaskResult.Type.CODE, loadedEntry.meta().type());
         assertNotNull(loadedEntry.meta().primaryModel());
         assertEquals("test-model", loadedEntry.meta().primaryModel().name());
-        assertEquals("short", loadedEntry.meta().primaryModel().reasoningLevel());
+        assertEquals(
+                Service.ReasoningLevel.DEFAULT,
+                loadedEntry.meta().primaryModel().reasoning());
     }
 }

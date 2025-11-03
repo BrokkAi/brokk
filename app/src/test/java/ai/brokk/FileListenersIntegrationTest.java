@@ -53,7 +53,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Step 1: Create IWatchService (like ContextManager does)
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Step 2: Create AnalyzerWrapper with injected watch service (like ContextManager does)
         // Note: Pass null for analyzerListener to avoid git repo access in tests
@@ -97,7 +97,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
@@ -134,7 +134,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
@@ -172,7 +172,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Simulate two different components accessing the watch service
