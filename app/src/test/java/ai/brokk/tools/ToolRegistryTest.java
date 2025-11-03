@@ -255,10 +255,11 @@ class ToolRegistryTest {
                 .arguments(json)
                 .build();
 
-        // Should NOT throw - validation errors return empty string (details logged only)
+        // Should NOT throw - validation errors return a short, user-friendly message (details also logged)
         String explanation = registry.getExplanationForToolRequest(req);
 
-        assertTrue(explanation.isBlank());
+        assertFalse(explanation.isBlank());
+        assertEquals("Skip invalid tool request.", explanation);
     }
 
     @Test
@@ -268,10 +269,11 @@ class ToolRegistryTest {
                 .arguments("not valid json at all")
                 .build();
 
-        // Should NOT throw - validation errors return empty string (details logged only)
+        // Should NOT throw - validation errors return a short, user-friendly message (details also logged)
         String explanation = registry.getExplanationForToolRequest(req);
 
-        assertTrue(explanation.isBlank());
+        assertFalse(explanation.isBlank());
+        assertEquals("Skip invalid tool request.", explanation);
     }
 
     @Test
@@ -281,10 +283,11 @@ class ToolRegistryTest {
                 .arguments("{}")
                 .build();
 
-        // Should NOT throw - validation errors return empty string (details logged only)
+        // Should NOT throw - validation errors return a short, user-friendly message (details also logged)
         String explanation = registry.getExplanationForToolRequest(req);
 
-        assertTrue(explanation.isBlank());
+        assertFalse(explanation.isBlank());
+        assertEquals("Skip invalid tool request.", explanation);
     }
 
     // Build a JSON args string using actual parameter names as seen by reflection,

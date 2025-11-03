@@ -125,7 +125,7 @@ class BuildAgentTest {
 
             // Make initial commit
             git.add().addFilepattern(".gitignore").call();
-            git.commit().setMessage("Initial commit").call();
+            git.commit().setSign(false).setMessage("Initial commit").call();
         }
 
         // Read .gitignore patterns directly for testing
@@ -187,6 +187,9 @@ class BuildAgentTest {
             var config = git.getRepository().getConfig();
             config.setString("user", null, "name", "Test User");
             config.setString("user", null, "email", "test@example.com");
+            config.save();
+            // Ensure JGit does not attempt to GPG-sign commits in tests
+            config.setBoolean("commit", null, "gpgsign", false);
             config.save();
 
             // Create .gitignore that only excludes build/

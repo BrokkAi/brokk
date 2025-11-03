@@ -35,7 +35,7 @@ class ProjectFilteringGitRepoTest {
             // Create initial commit
             Files.writeString(tempDir.resolve("README.md"), "# Test Project");
             git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").call();
+            git.commit().setSign(false).setMessage("Initial commit").call();
         }
     }
 
@@ -1841,7 +1841,10 @@ class ProjectFilteringGitRepoTest {
         try (var git = Git.open(tempDir.toFile())) {
             git.add().addFilepattern("important.log").call();
             git.add().addFilepattern("src/Main.java").call();
-            git.commit().setMessage("Add tracked files including log").call();
+            git.commit()
+                    .setSign(false)
+                    .setMessage("Add tracked files including log")
+                    .call();
         }
 
         // Verify file is tracked by Git
