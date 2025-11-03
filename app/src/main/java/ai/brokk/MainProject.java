@@ -339,6 +339,7 @@ public final class MainProject extends AbstractProject {
             saveProjectProperties();
         }
         setBuildDetails(details);
+        invalidateAllFiles();
     }
 
     public void setBuildDetails(BuildAgent.BuildDetails details) {
@@ -552,8 +553,7 @@ public final class MainProject extends AbstractProject {
         }
 
         if (languageSizes.containsKey(Languages.SQL)) {
-            boolean addedByThisRule = detectedLanguages.add(Languages.SQL);
-            if (addedByThisRule) {
+            if (detectedLanguages.add(Languages.SQL)) {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
             }
         }
@@ -1390,8 +1390,9 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig("gpt-5-mini")),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel("Flash 2.5", new ModelConfig("gemini-2.5-flash")),
-            new Service.FavoriteModel("Sonnet 4", new ModelConfig("claude-4-sonnet", Service.ReasoningLevel.LOW)));
+            new Service.FavoriteModel(
+                    "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.MEDIUM)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();

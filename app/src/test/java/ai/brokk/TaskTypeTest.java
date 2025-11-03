@@ -9,26 +9,26 @@ public class TaskTypeTest {
 
     @Test
     void testSearchDisplayNameIsLutzMode() {
-        assertEquals("Lutz Mode", TaskType.SEARCH.displayName(), "SEARCH displayName must remain 'Lutz Mode'");
+        assertEquals("Lutz Mode", TaskResult.Type.SEARCH.displayName(), "SEARCH displayName must remain 'Lutz Mode'");
     }
 
     @Test
     void testSafeParseByEnumName() {
-        assertEquals(Optional.of(TaskType.CODE), TaskType.safeParse("CODE"));
-        assertEquals(Optional.of(TaskType.CODE), TaskType.safeParse("code"));
+        assertEquals(Optional.of(TaskResult.Type.CODE), TaskResult.Type.safeParse("CODE"));
+        assertEquals(Optional.of(TaskResult.Type.CODE), TaskResult.Type.safeParse("code"));
     }
 
     @Test
     void testSafeParseByDisplayName() {
         // Search maps to "Lutz Mode"
-        assertEquals(Optional.of(TaskType.SEARCH), TaskType.safeParse("Lutz Mode"));
-        assertEquals(Optional.of(TaskType.SEARCH), TaskType.safeParse("lutz mode"));
+        assertEquals(Optional.of(TaskResult.Type.SEARCH), TaskResult.Type.safeParse("Lutz Mode"));
+        assertEquals(Optional.of(TaskResult.Type.SEARCH), TaskResult.Type.safeParse("lutz mode"));
     }
 
     @Test
     void testSafeParseInvalid() {
-        assertEquals(Optional.empty(), TaskType.safeParse(null));
-        assertEquals(Optional.empty(), TaskType.safeParse(""));
-        assertEquals(Optional.empty(), TaskType.safeParse("unknown"));
+        assertEquals(Optional.empty(), TaskResult.Type.safeParse(null));
+        assertEquals(Optional.empty(), TaskResult.Type.safeParse(""));
+        assertEquals(Optional.empty(), TaskResult.Type.safeParse("unknown"));
     }
 }

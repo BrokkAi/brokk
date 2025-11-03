@@ -33,6 +33,9 @@ public class GitRepoTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Ensure the factory is reset to default before each test
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+
         projectRoot = tempDir.resolve("testRepo");
         Files.createDirectories(projectRoot);
 
@@ -54,6 +57,8 @@ public class GitRepoTest {
     @AfterEach
     void tearDown() throws Exception {
         GitTestCleanupUtil.cleanupGitResources(repo);
+        // Restore to default after each test to avoid affecting other tests
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
     }
 
     @Test

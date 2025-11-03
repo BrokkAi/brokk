@@ -13,13 +13,13 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystemLoopException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -185,7 +185,8 @@ public final class NodeJsDependencyHelper {
 
     private static long countNodeFiles(Path root) {
         try (var stream = Files.walk(root, Integer.MAX_VALUE, FileVisitOption.FOLLOW_LINKS)) {
-            var skipDirs = Set.of("node_modules", "dist", "build", "coverage", ".git");
+            // do not skip build/dist, that's where you find usually the lib code
+            var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
             return stream.filter(Files::isRegularFile)
                     .filter(p -> {
                         var rel =
@@ -212,8 +213,10 @@ public final class NodeJsDependencyHelper {
     }
 
     private static void copyNodePackage(Path source, Path destination) throws IOException {
-        var skipDirs = new LinkedHashSet<>(List.of("node_modules", "dist", "build", "coverage", ".git"));
-        try (var stream = Files.walk(source)) {
+        // do not skip build/dist, that's where you find usually the lib code
+        var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
+        // pnpm is based on symlinks, we need to follow it to find deps
+        try (var stream = Files.walk(source, FileVisitOption.FOLLOW_LINKS)) {
             stream.forEach(src -> {
                 try {
                     var rel = source.relativize(src);
@@ -246,6 +249,8 @@ public final class NodeJsDependencyHelper {
                             Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
                         }
                     }
+                } catch (FileSystemLoopException e) {
+                    logger.warn("Circular symlink detected at {}, skipping", src);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }

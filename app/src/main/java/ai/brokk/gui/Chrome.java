@@ -1126,7 +1126,7 @@ public class Chrome
     }
 
     /** Executes a set of test files and streams the output to the test runner panel. */
-    public void runTests(Set<ProjectFile> testFiles) {
+    public void runTests(Set<ProjectFile> testFiles) throws InterruptedException {
         testRunnerPanel.runTests(testFiles);
     }
 

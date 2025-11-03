@@ -113,7 +113,7 @@ public final class GitDistance {
 
                         for (var seed : seedsInCommit) {
                             for (var target : changedFiles) {
-                                if (target.equals(seed)) continue;
+                                if (seedWeights.containsKey(target)) continue;
                                 jointMass.merge(new FileEdge(seed, target), commitPairMass, Double::sum);
                             }
                         }

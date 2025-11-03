@@ -479,14 +479,18 @@ public class ContextMenuBuilder {
     }
 
     private void runTests(FileMenuContext context) {
-        context.contextManager().submitExclusiveAction(() -> {
+        context.contextManager().submitLlmAction(() -> {
             var testProjectFiles =
                     context.files().stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
 
             if (testProjectFiles.isEmpty()) {
                 context.chrome().toolError("No test files were selected to run");
             } else {
-                context.chrome().runTests(testProjectFiles);
+                try {
+                    context.chrome().runTests(testProjectFiles);
+                } catch (InterruptedException e) {
+                    logger.debug("Tests interrupted", e);
+                }
             }
         });
     }

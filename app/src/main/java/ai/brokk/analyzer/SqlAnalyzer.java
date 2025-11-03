@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -43,26 +42,11 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                 .collect(Collectors.toSet());
         this.lastAnalysisTimeNanos = System.nanoTime();
 
-        analyzeSqlFiles(this.normalizedExcludedPaths);
+        analyzeSqlFiles();
     }
 
-    private void analyzeSqlFiles(Set<Path> normalizedExclusions) {
-
-        var filesToAnalyze = project.getAllFiles().stream()
-                .filter(pf -> {
-                    // Check extension
-                    if (!pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql")) {
-                        return false;
-                    }
-                    // Check exclusions
-                    Path absPfPath = pf.absPath().normalize();
-                    if (normalizedExclusions.stream().anyMatch(absPfPath::startsWith)) {
-                        logger.debug("Skipping excluded SQL file: {}", pf.absPath());
-                        return false;
-                    }
-                    return true;
-                })
-                .toList();
+    private void analyzeSqlFiles() {
+        var filesToAnalyze = project.getAnalyzableFiles(Languages.SQL);
 
         logger.info("Found {} SQL files to analyze for project {}", filesToAnalyze.size(), project.getRoot());
 
@@ -280,9 +264,9 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         }
 
         // Filter to only SQL files
-        var relevantFiles = changedFiles.stream()
-                .filter(pf -> pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql"))
-                .collect(Collectors.toSet());
+        var analyzableSet = project.getAnalyzableFiles(Languages.SQL);
+        var relevantFiles =
+                changedFiles.stream().filter(analyzableSet::contains).collect(Collectors.toSet());
 
         if (relevantFiles.isEmpty()) {
             return this;
@@ -314,9 +298,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         Set<ProjectFile> changedFiles = new HashSet<>();
 
         // Check for modified or deleted files
-        var sqlFiles = project.getAllFiles().stream()
-                .filter(pf -> pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql"))
-                .collect(Collectors.toSet());
+        var sqlFiles = project.getAnalyzableFiles(Languages.SQL);
 
         for (var file : sqlFiles) {
             if (!Files.exists(file.absPath())) {

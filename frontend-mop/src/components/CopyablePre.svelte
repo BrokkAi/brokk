@@ -6,8 +6,19 @@
   let copied = $state(false);
   let captured = $state(false);
   let preElem: HTMLElement;
+  // Read tool-call annotations (set by rehype tool-calls plugin)
+  const toolHeadline = rest['data-tool-headline'] as string | undefined;
+  const collapseDefault = rest['data-collapse-default'] === 'true';
+  const preId = 'code-' + Math.random().toString(36).slice(2);
+
+  // Tool calls start collapsed if headline present or collapse-default attribute is 'true'
+  let showCode = $state(!(toolHeadline || collapseDefault));
   let copyTimeout: number | null = null;
   let captureTimeout: number | null = null;
+
+  function toggleCode() {
+    showCode = !showCode;
+  }
 
   function handleWheel(event: WheelEvent) {
     // Only intervene if the pre element doesn't need to scroll vertically
@@ -106,15 +117,34 @@
 </script>
 
 <div class="custom-code-block">
-  <div class="custom-code-header">
-    <Icon icon="mdi:code-braces" />
-    <span class="language-name">{rest['data-language'] || 'Code'}</span>
+  <div class="custom-code-header" on:click={toggleCode}>
+    <button
+      type="button"
+      class="toggle-icon"
+      on:click|stopPropagation={toggleCode}
+      aria-label={showCode ? 'Collapse code' : 'Expand code'}
+      title={showCode ? 'Collapse code' : 'Expand code'}
+      aria-expanded={showCode}
+      aria-controls={preId}
+    >
+      <Icon icon={showCode ? 'mdi:chevron-down' : 'mdi:chevron-right'} />
+    </button>
+
+    <span class="title">
+      {#if toolHeadline}
+        <span class="tool-headline" title={toolHeadline}>{toolHeadline}</span>
+      {:else}
+        <span class="language-name">{rest['data-language'] || 'Code'}</span>
+      {/if}
+    </span>
+
     <span class="spacer"></span>
+
     <button
       type="button"
       class="copy-btn"
       class:captured={captured}
-      on:click={captureToWorkspace}
+      on:click|stopPropagation={captureToWorkspace}
       aria-label={captured ? 'Captured!' : 'Capture code to workspace'}
       title={captured ? 'Captured!' : 'Capture code to workspace'}
     >
@@ -124,7 +154,7 @@
       type="button"
       class="copy-btn"
       class:copied={copied}
-      on:click={copyToClipboard}
+      on:click|stopPropagation={copyToClipboard}
       aria-label={copied ? 'Copied!' : 'Copy code to clipboard'}
       title={copied ? 'Copied!' : 'Copy code to clipboard'}
     >
@@ -134,7 +164,9 @@
       {copied ? 'Copied to clipboard' : captured ? 'Captured to workspace' : ''}
     </span>
   </div>
-  <pre bind:this={preElem} on:wheel={handleWheel} {...rest}>{@render children?.()}</pre>
+  {#if showCode}
+    <pre id={preId} bind:this={preElem} on:wheel={handleWheel} {...rest}>{@render children?.()}</pre>
+  {/if}
 </div>
 
 <style>
@@ -154,13 +186,36 @@
     padding: 0.3em 0.6em;
     font-size: 0.8em;
     font-weight: 600;
-    background: var(--code-block-background);
+    background-color: color-mix(in srgb, var(--code-block-background) 95%, var(--code-block-border));
     border-bottom: 1px solid var(--border-color-hex);
     color: var(--chat-text);
+    cursor: pointer;
+  }
+
+  .custom-code-header:hover {
+    background-color: color-mix(in srgb, var(--code-block-background) 75%, var(--code-block-border));
   }
 
   .language-name {
     text-transform: uppercase;
+  }
+
+  .title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    min-width: 0; /* allow children to shrink and ellipsize */
+  }
+
+  .tool-headline {
+    font-weight: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .title-sep {
+    opacity: 0.7;
   }
 
   /* Only apply reduced opacity in non-high-contrast themes for subtlety */
@@ -173,7 +228,8 @@
     flex: 1;
   }
 
-  .copy-btn {
+  .copy-btn,
+  .toggle-icon {
     background: transparent;
     border: none;
     cursor: pointer;
@@ -183,11 +239,13 @@
     transition: opacity 0.2s;
   }
 
-  .copy-btn:hover {
+  .copy-btn:hover,
+  .toggle-icon:hover {
     opacity: 1;
   }
 
-  .copy-btn:focus {
+  .copy-btn:focus,
+  .toggle-icon:focus {
     outline: none;
     opacity: 1;
   }

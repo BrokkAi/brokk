@@ -54,7 +54,7 @@ class ProjectWatchServiceTest {
 
         // Create watch service with all three listeners
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new ProjectWatchService(tempDir, null, listeners);
+        watchService = new ProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give the watch service time to start (increased for CI reliability)
@@ -95,7 +95,7 @@ class ProjectWatchServiceTest {
         testListeners.add(listener3);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new ProjectWatchService(tempDir, null, listeners);
+        watchService = new ProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize (increased for CI reliability)
@@ -118,32 +118,6 @@ class ProjectWatchServiceTest {
     }
 
     /**
-     * Test that the deprecated single-listener constructor still works.
-     */
-    @Test
-    @SuppressWarnings("deprecation")
-    void testBackwardCompatibleSingleListener() throws Exception {
-        TestListener listener = new TestListener("SingleListener");
-
-        // Use deprecated constructor
-        watchService = new ProjectWatchService(tempDir, null, listener);
-        watchService.start(CompletableFuture.completedFuture(null));
-
-        // Give watcher more time to fully initialize (race condition on slower CI systems)
-        Thread.sleep(500);
-
-        // Create a file to trigger an event
-        Path testFile = tempDir.resolve("test.txt");
-        Files.writeString(testFile, "test content");
-
-        // Wait for listener to receive the event
-        assertTrue(listener.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener should receive event");
-
-        // Verify listener received the event
-        assertEquals(1, listener.filesChangedCount.get(), "Listener should receive 1 file change");
-    }
-
-    /**
      * Test that all listeners receive onNoFilesChangedDuringPollInterval events.
      * Note: This test may be flaky depending on system timing and whether the application
      * has focus. We verify the mechanism works but allow for timing variations.
@@ -156,7 +130,7 @@ class ProjectWatchServiceTest {
         testListeners.add(listener2);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new ProjectWatchService(tempDir, null, listeners);
+        watchService = new ProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -195,7 +169,7 @@ class ProjectWatchServiceTest {
         testListeners.add(listener2);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new ProjectWatchService(tempDir, null, listeners);
+        watchService = new ProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize (increased for CI reliability)
@@ -237,7 +211,7 @@ class ProjectWatchServiceTest {
     @Test
     void testEmptyListenerList() throws Exception {
         // Create watch service with empty list
-        watchService = new ProjectWatchService(tempDir, null, List.of());
+        watchService = new ProjectWatchService(tempDir, null, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize (increased for CI reliability)
@@ -260,7 +234,7 @@ class ProjectWatchServiceTest {
         TestListener listener1 = new TestListener("Listener1");
         testListeners.add(listener1);
 
-        watchService = new ProjectWatchService(tempDir, null, List.of(listener1));
+        watchService = new ProjectWatchService(tempDir, null, null, List.of(listener1));
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -297,7 +271,7 @@ class ProjectWatchServiceTest {
         testListeners.add(listener2);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new ProjectWatchService(tempDir, null, listeners);
+        watchService = new ProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -326,7 +300,7 @@ class ProjectWatchServiceTest {
     @Test
     void testMultipleDynamicListenerOperations() throws Exception {
         // Start with empty listener list
-        watchService = new ProjectWatchService(tempDir, null, List.of());
+        watchService = new ProjectWatchService(tempDir, null, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize

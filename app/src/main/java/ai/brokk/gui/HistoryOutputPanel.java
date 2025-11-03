@@ -26,6 +26,7 @@ import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -2189,7 +2190,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         chrome.showOutputSpinner("Creating task list...");
         contextManager.submitLlmAction(() -> {
             try {
-                var model = contextManager.getService().quickModel();
+                var model = contextManager.getService().getScanModel();
                 var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
                 llm.setOutput(chrome);
 
@@ -2224,7 +2225,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         .register(new WorkspaceTools(contextManager))
                         .build();
 
-                var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
+                var toolSpecs = new ArrayList<ToolSpecification>();
                 toolSpecs.addAll(tr.getTools(List.of("createTaskList")));
                 if (toolSpecs.isEmpty()) {
                     chrome.toolError("Required tool 'createTaskList' is not registered.", "Task List");
@@ -2385,14 +2386,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     String taskType = null;
                     if (titleHint.contains(InstructionsPanel.ACTION_CODE)) {
                         taskType = InstructionsPanel.ACTION_CODE;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_ARCHITECT)) {
-                        taskType = InstructionsPanel.ACTION_ARCHITECT;
                     } else if (titleHint.contains(InstructionsPanel.ACTION_SEARCH)) {
                         taskType = InstructionsPanel.ACTION_SEARCH;
                     } else if (titleHint.contains(InstructionsPanel.ACTION_ASK)) {
                         taskType = InstructionsPanel.ACTION_ASK;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_RUN)) {
-                        taskType = InstructionsPanel.ACTION_RUN;
                     }
                     if (taskType != null) {
                         windowTitle = String.format("Output (%s in progress)", taskType);
@@ -2462,7 +2459,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Centralized icon mapping for task types; future-proofed for differentiation.
-    private javax.swing.Icon iconFor(TaskType type) {
+    private javax.swing.Icon iconFor(TaskResult.Type type) {
         switch (type) {
             case ARCHITECT -> {
                 return Icons.ARCHITECT;
@@ -2494,7 +2491,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
 
     /** Returns the last TaskMeta in the given Context's task history, or null if not present. */
-    private @Nullable TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
+    private @Nullable TaskResult.TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
         var history = ctx.getTaskHistory();
         if (history.isEmpty()) return null;
         var last = history.getLast();
@@ -2502,7 +2499,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /** Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable. */
-    private @Nullable ModelSpec modelOf(ai.brokk.context.Context ctx) {
+    private @Nullable Service.ModelConfig modelOf(ai.brokk.context.Context ctx) {
         var meta = lastMetaOf(ctx);
         return (meta == null) ? null : meta.primaryModel();
     }
@@ -2513,10 +2510,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /** Returns a short, human-friendly model string: "name (reasoning)" or just "name". */
-    private static String summarizeModel(ModelSpec spec) {
+    private static String summarizeModel(Service.ModelConfig spec) {
         var name = spec.name();
-        var rl = spec.reasoningLevel();
-        if (rl != null && !rl.isBlank()) {
+        var rl = spec.reasoning().name();
+        if (!rl.isBlank()) {
             return name + " (" + rl + ")";
         }
         return name;
@@ -2567,9 +2564,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     if (comp instanceof JLabel lbl) {
                         if (ctx.isAiResult() && meta != null) {
                             var chosen = iconFor(meta.type());
-                            if (chosen != null) {
-                                lbl.setIcon(chosen);
-                            }
+                            lbl.setIcon(chosen);
                         } else if (!ctx.isAiResult()) {
                             // Ensure non-AI rows have no type icon override
                             lbl.setIcon(null);

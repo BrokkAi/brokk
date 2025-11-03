@@ -22,7 +22,6 @@ export function onWorkerResult(msg: ResultMsg): void {
     if (handler) {
         handler(msg);
     } else {
-        // This can happen if a reparse is triggered for a bubble that was subsequently cleared
-        console.warn(`[parseRouter] No handler for seq ${msg.seq}`);
+        console.debug(`[parseRouter] No handler for seq ${msg.seq}`);
     }
 }

@@ -30,30 +30,43 @@ public class ProjectWatchService implements IWatchService {
     @Nullable
     private final Path gitMetaDir;
 
+    @Nullable
+    private final Path globalGitignorePath;
+
+    @Nullable
+    private final Path globalGitignoreRealPath;
+
     private final List<Listener> listeners;
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
 
     /**
-     * Create a ProjectWatchService with a single listener.
-     * @deprecated Use {@link #ProjectWatchService(Path, Path, List)} for multiple listeners
-     */
-    @Deprecated
-    @SuppressWarnings("InlineMeSuggester")
-    public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, Listener listener) {
-        this(root, gitRepoRoot, List.of(listener));
-    }
-
-    /**
      * Create a ProjectWatchService with multiple listeners.
      * All registered listeners will be notified of file system events.
      */
-    public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, List<Listener> listeners) {
+    public ProjectWatchService(
+            Path root, @Nullable Path gitRepoRoot, @Nullable Path globalGitignorePath, List<Listener> listeners) {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;
+        this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
         this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+
+        // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
+        if (globalGitignorePath != null) {
+            Path realPath;
+            try {
+                realPath = globalGitignorePath.toRealPath();
+            } catch (IOException e) {
+                // If file doesn't exist or can't be resolved, use original path as fallback
+                realPath = globalGitignorePath;
+                logger.debug("Could not resolve global gitignore to real path: {}", e.getMessage());
+            }
+            this.globalGitignoreRealPath = realPath;
+        } else {
+            this.globalGitignoreRealPath = null;
+        }
     }
 
     @Override
@@ -80,6 +93,26 @@ public class ProjectWatchService implements IWatchService {
                         gitRepoRoot.resolve(".git"));
             } else {
                 logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
+            }
+
+            // Watch global gitignore file directory if it exists
+            if (globalGitignorePath != null && Files.exists(globalGitignorePath)) {
+                Path globalGitignoreDir = globalGitignorePath.getParent();
+                if (globalGitignoreDir != null && Files.isDirectory(globalGitignoreDir)) {
+                    logger.debug("Watching global gitignore directory for changes: {}", globalGitignoreDir);
+                    try {
+                        globalGitignoreDir.register(
+                                watchService,
+                                StandardWatchEventKinds.ENTRY_CREATE,
+                                StandardWatchEventKinds.ENTRY_DELETE,
+                                StandardWatchEventKinds.ENTRY_MODIFY);
+                    } catch (IOException e) {
+                        logger.warn(
+                                "Failed to watch global gitignore directory {}: {}",
+                                globalGitignoreDir,
+                                e.getMessage());
+                    }
+                }
             }
 
             // Wait for the initial future to complete.
@@ -132,6 +165,56 @@ public class ProjectWatchService implements IWatchService {
         }
     }
 
+    /**
+     * Checks if a gitignore-related file change should trigger cache invalidation.
+     * This targets untracked .gitignore files, .git/info/exclude, and global gitignore files
+     * which are not covered by git metadata watching.
+     */
+    private boolean shouldInvalidateForGitignoreChange(Path eventPath) {
+        var fileName = eventPath.getFileName().toString();
+
+        // .git/info/exclude is never tracked by git
+        // Use path traversal instead of string matching for cross-platform compatibility
+        if (fileName.equals("exclude")) {
+            var parent = eventPath.getParent();
+            if (parent != null && parent.getFileName().toString().equals("info")) {
+                var grandParent = parent.getParent();
+                if (grandParent != null && grandParent.getFileName().toString().equals(".git")) {
+                    logger.debug("Git info exclude file changed: {}", eventPath);
+                    return true;
+                }
+            }
+        }
+
+        // For .gitignore files, only trigger if they're likely untracked
+        // (tracked .gitignore changes are handled by git metadata watching)
+        if (fileName.equals(".gitignore")) {
+            // We can't easily determine if it's tracked here, so we'll be conservative
+            // and invalidate. The performance impact is minimal since this is rare.
+            logger.debug("Gitignore file changed: {}", eventPath);
+            return true;
+        }
+
+        // Check if this is the global gitignore file
+        if (globalGitignoreRealPath != null) {
+            try {
+                Path eventRealPath = eventPath.toRealPath();
+                if (eventRealPath.equals(globalGitignoreRealPath)) {
+                    logger.debug("Global gitignore file changed: {}", eventPath);
+                    return true;
+                }
+            } catch (IOException e) {
+                // If toRealPath() fails (file deleted during event), fall back to simple comparison
+                if (eventPath.equals(globalGitignorePath)) {
+                    logger.debug("Global gitignore file changed: {} (fallback comparison)", eventPath);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private void collectEventsFromKey(WatchKey key, WatchService watchService, EventBatch batch) {
         Path watchPath = (Path) key.watchable();
         for (WatchEvent<?> event : key.pollEvents()) {
@@ -148,6 +231,12 @@ public class ProjectWatchService implements IWatchService {
 
             // convert to ProjectFile
             Path eventPath = watchPath.resolve(ctx);
+
+            // Check if this is an untracked gitignore change that should invalidate cache
+            if (shouldInvalidateForGitignoreChange(eventPath)) {
+                batch.untrackedGitignoreChanged = true;
+            }
+
             Path relativized;
             try {
                 relativized = root.relativize(eventPath);

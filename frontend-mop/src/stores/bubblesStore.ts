@@ -14,7 +14,7 @@ threadStore.setThreadCollapsed(currentThreadId, false, 'live');
 
 /* ─── main entry from Java bridge ─────────────────────── */
 export function onBrokkEvent(evt: BrokkEvent): void {
-    console.log('Received event in onBrokkEvent:', JSON.stringify(evt));
+    console.debug('Received event in onBrokkEvent:', evt.type);
     bubblesStore.update(list => {
         switch (evt.type) {
             case 'clear':
