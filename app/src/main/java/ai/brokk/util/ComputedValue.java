@@ -159,7 +159,8 @@ public final class ComputedValue<T> {
             return Optional.empty();
         }
         try {
-            return Optional.of(f.join());
+            //noinspection OptionalOfNullableMisuse (this may in fact be null)
+            return Optional.ofNullable(f.join());
         } catch (CancellationException | CompletionException ex) {
             return Optional.empty();
         }
@@ -177,6 +178,7 @@ public final class ComputedValue<T> {
         startInternal();
         try {
             var v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            //noinspection OptionalOfNullableMisuse (this may in fact be null)
             return Optional.ofNullable(v);
         } catch (TimeoutException e) {
             return Optional.empty();
