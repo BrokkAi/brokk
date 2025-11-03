@@ -137,8 +137,8 @@ public class BadgedIcon implements Icon {
 
     @Override
     public int getIconWidth() {
-        // Reserve just 2 pixels for minimal badge overlap
-        return baseIcon.getIconWidth() + (count > 0 ? 2 : 0);
+        // Always reserve 2px to keep layout stable regardless of badge visibility
+        return baseIcon.getIconWidth() + 2;
     }
 
     @Override
