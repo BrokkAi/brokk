@@ -39,6 +39,14 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: ./gradlew check -PexcludeGitRepoTest
 
+    - name: Start Xvfb (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb
+        Xvfb :99 -screen 0 1024x768x24 > /tmp/xvfb.log 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
     - name: Run tests with full static analysis (Unix)
       if: matrix.os != 'windows-latest'
       run: ./gradlew check shadowJar

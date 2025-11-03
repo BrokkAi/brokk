@@ -123,6 +123,7 @@ dependencies {
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
+    testImplementation("org.assertj:assertj-swing-junit:3.17.1")
 
     // Error Prone and NullAway for null safety checking
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
@@ -458,7 +459,7 @@ tasks.withType<Test> {
 
     // System properties for tests
     systemProperty("brokk.test.mode", "true")
-    systemProperty("java.awt.headless", "true")
+    systemProperty("java.awt.headless", "false")
 }
 
 tasks.register<JavaExec>("runCli") {
