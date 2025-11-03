@@ -264,7 +264,7 @@ public class SearchAgent {
                 for (var req : sortedNonterminalCalls) {
                     ToolExecutionResult toolResult;
                     try {
-                        toolResult = tr.executeTool(req);
+                        toolResult = executeTool(req, tr, wst);
                     } catch (FatalLlmException e) {
                         var details = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, e.getMessage());
                         return errorResult(details, taskMeta());
@@ -741,13 +741,8 @@ public class SearchAgent {
         // Execute tool requests
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
-            try {
-                tr.executeTool(req);
-            } catch (Exception e) {
-                logger.warn("Tool execution failed during initial pruning for {}: {}", req.name(), e.getMessage());
-            }
+            executeTool(req, tr, wst);
         }
-        context = wst.getContext();
     }
 
     private List<ChatMessage> buildInitialPruningPrompt() {
