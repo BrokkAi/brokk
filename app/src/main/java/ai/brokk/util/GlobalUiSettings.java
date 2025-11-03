@@ -459,4 +459,12 @@ public final class GlobalUiSettings {
         // keep a safe margin to avoid degenerate layouts
         return Math.max(0.05, Math.min(0.95, p));
     }
+
+    /**
+     * Test hook: clear the cached properties so a new config dir (e.g., via brokk.ui.config.dir)
+     * is picked up by the next loadProps() call.
+     */
+    public static synchronized void resetForTests() {
+        cachedProps = null;
+    }
 }
