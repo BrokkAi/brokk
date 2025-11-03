@@ -277,6 +277,10 @@ public final class DependenciesPanel extends JPanel {
                             logger.debug("Error resuming watcher after dependency import", e2);
                         }
                     });
+                    // Update dependencies badge after save completes on EDT
+                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() ->
+                            chrome.getProjectFilesPanel().updateDependenciesBadge(
+                                    chrome.getProject().getLiveDependencies().size())));
                     setControlsLocked(false);
                 }
             };
