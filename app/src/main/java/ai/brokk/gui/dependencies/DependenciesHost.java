@@ -1,32 +1,41 @@
 package ai.brokk.gui.dependencies;
 
+import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
-import ai.brokk.ContextManager;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.WorkspacePanel;
-import java.awt.Component;
-import javax.swing.JFrame;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+import java.awt.*;
+
 /**
- * Lightweight host abstraction used by DependenciesPanel to avoid depending on the full Chrome surface
- * in tests. The DefaultDependenciesHost wraps a real Chrome instance for production usage.
+ * Lightweight host abstraction that exposes the handful of operations DependenciesPanel needs from Chrome.
+ *
+ * This allows tests to provide a small test-specific implementation (see test-only
+ * {@code TestDependenciesHost}) while production code uses {@link DefaultDependenciesHost} which
+ * delegates to {@link Chrome}.
  */
 public interface DependenciesHost {
     IProject getProject();
+
     ContextManager getContextManager();
+
     JFrame getFrame();
-    int showConfirmDialog(
-            @Nullable Component parent, String message, String title, int optionType, int messageType);
+
+    int showConfirmDialog(@Nullable Component parent, String message, String title, int optionType, int messageType);
+
     void showNotification(IConsoleIO.NotificationRole role, String message);
+
     void toolError(String msg, String title);
+
     WorkspacePanel getContextPanel();
 
     /**
-     * Production implementation backed by a Chrome instance.
+     * Production adapter that delegates to Chrome.
      */
-    class DefaultDependenciesHost implements DependenciesHost {
+    final class DefaultDependenciesHost implements DependenciesHost {
         private final Chrome chrome;
 
         public DefaultDependenciesHost(Chrome chrome) {
@@ -35,7 +44,8 @@ public interface DependenciesHost {
 
         @Override
         public IProject getProject() {
-            return chrome.getProject();
+            // Prefer context manager's project for stability
+            return chrome.getContextManager().getProject();
         }
 
         @Override
@@ -49,13 +59,15 @@ public interface DependenciesHost {
         }
 
         @Override
-        public int showConfirmDialog(
-                @Nullable Component parent, String message, String title, int optionType, int messageType) {
-            return chrome.showConfirmDialog(parent, message, title, optionType, messageType);
+        public int showConfirmDialog(@Nullable Component parent, String message, String title, int optionType, int messageType) {
+            // Delegate to standard JOptionPane using Chrome's frame as owner when parent is null
+            Component owner = parent != null ? parent : chrome.getFrame();
+            return JOptionPane.showConfirmDialog(owner, message, title, optionType, messageType);
         }
 
         @Override
         public void showNotification(IConsoleIO.NotificationRole role, String message) {
+            // Chrome implements IConsoleIO; delegate
             chrome.showNotification(role, message);
         }
 
@@ -70,8 +82,8 @@ public interface DependenciesHost {
         }
 
         /**
-         * Expose the wrapped Chrome for callers that need the concrete (e.g. launching legacy dialogs).
-         * Tests should prefer using the DependenciesHost API methods instead of calling this.
+         * Expose the underlying Chrome instance for code that requires direct access (production compatibility).
+         * Tests should prefer providing their own DependenciesHost implementation instead of relying on this.
          */
         public Chrome getChrome() {
             return chrome;
