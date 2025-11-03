@@ -180,8 +180,7 @@ public class DtoMapper {
         return switch (dto) {
             case ProjectFileDto pfd ->
                 // Use current project root for cross-platform compatibility
-                ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath())), pfd.id(), mgr);
+                ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
             case ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
@@ -191,10 +190,7 @@ public class DtoMapper {
             case GitFileFragmentDto gfd ->
                 // Use current project root for cross-platform compatibility
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(mgr.getProject().getRoot(), Path.of(gfd.relPath())),
-                        gfd.revision(),
-                        reader.readContent(gfd.contentId()),
-                        gfd.id());
+                        mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case FrozenFragmentDto ffd -> {
                 yield FrozenFragment.fromDto(
                         ffd.id(),
@@ -419,7 +415,7 @@ public class DtoMapper {
         if (path.startsWith(projectRoot)) {
             try {
                 Path relPath = projectRoot.relativize(path);
-                return new ProjectFile(projectRoot, relPath);
+                return mgr.toFile(relPath.toString());
             } catch (IllegalArgumentException e) {
                 return new ExternalFile(path);
             }
@@ -550,7 +546,7 @@ public class DtoMapper {
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
         // Use the current project root instead of the serialized one to handle cross-platform compatibility
         // (e.g., when a history ZIP was created on Unix but deserialized on Windows)
-        return new ProjectFile(mgr.getProject().getRoot(), Path.of(dto.relPath()));
+        return mgr.toFile(dto.relPath());
     }
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
@@ -602,7 +598,7 @@ public class DtoMapper {
     private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {
         ProjectFileDto pfd = dto.sourceFile();
         // Use current project root for cross-platform compatibility
-        ProjectFile source = new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath()));
+        ProjectFile source = mgr.toFile(pfd.relPath());
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName(), dto.signature());
     }
