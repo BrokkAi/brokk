@@ -5,6 +5,7 @@ import ai.brokk.Completions;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -979,6 +980,79 @@ public class Context {
                 CompletableFuture.completedFuture("Build results updated (failure)"),
                 null,
                 null);
+    }
+
+    /**
+     * Retrieves the Task List fragment if present.
+     */
+    public Optional<ContextFragment.StringFragment> getTaskListFragment() {
+        var desc = ContextFragment.TASK_LIST.description();
+        return virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                .map(ContextFragment.StringFragment.class::cast)
+                .findFirst();
+    }
+
+    /**
+     * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
+     */
+    public TaskList.TaskListData getTaskListDataOrEmpty() {
+        var existing = getTaskListFragment();
+        if (existing.isEmpty()) {
+            return new TaskList.TaskListData(List.of());
+        }
+        var mapper = ai.brokk.util.Json.getMapper();
+        try {
+            return mapper.readValue(existing.get().text(), TaskList.TaskListData.class);
+        } catch (Exception e) {
+            logger.warn("Failed to parse Task List JSON", e);
+            return new TaskList.TaskListData(List.of());
+        }
+    }
+
+    /**
+     * Updates the Task List fragment with the provided JSON. Clears previous Task List fragments before adding a new one.
+     */
+    public Context withTaskList(String json) {
+        var desc = ContextFragment.TASK_LIST.description();
+
+        var idsToDrop = virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING
+                        && f instanceof ContextFragment.StringFragment sf
+                        && desc.equals(sf.description()))
+                .map(ContextFragment::id)
+                .toList();
+
+        var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
+
+        var sf = new ContextFragment.StringFragment(
+                getContextManager(), json, desc, ContextFragment.TASK_LIST.syntaxStyle());
+
+        var newFragments = new ArrayList<>(afterClear.fragments);
+        newFragments.add(sf);
+
+        return new Context(
+                newContextId(),
+                getContextManager(),
+                newFragments,
+                afterClear.taskHistory,
+                afterClear.parsedOutput,
+                CompletableFuture.completedFuture("Task list updated"),
+                null,
+                null);
+    }
+
+    /**
+     * Serializes and updates the Task List fragment using TaskList.TaskListData.
+     */
+    public Context withTaskList(TaskList.TaskListData data) {
+        try {
+            String json = ai.brokk.util.Json.getMapper().writeValueAsString(data);
+            return withTaskList(json);
+        } catch (Exception e) {
+            logger.warn("Failed to serialize Task List to JSON", e);
+            return withTaskList("{\"tasks\":[]}");
+        }
     }
 
     private boolean isNewFileInGit(FrozenFragment ff) {
