@@ -26,18 +26,8 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
 
-    public TestProject() {
-        // No-arg constructor to satisfy test discovery (classes named Test* are picked up by test runners).
-        // Use current working directory as a safe default root so discovery/instantiation does not fail.
-        this.root = Path.of(".").toAbsolutePath();
-        this.language = Languages.NONE;
-    }
-
     public TestProject(Path root) {
-        assertTrue(Files.exists(root), "TestProject root does not exist: " + root);
-        assertTrue(Files.isDirectory(root), "TestProject root is not a directory: " + root);
-        this.root = root;
-        this.language = Languages.NONE;
+        this(root, Languages.NONE);
     }
 
     public TestProject(Path root, Language language) {
