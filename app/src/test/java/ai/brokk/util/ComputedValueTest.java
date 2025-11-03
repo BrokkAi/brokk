@@ -19,17 +19,18 @@ public class ComputedValueTest {
             return 42;
         });
 
-        // Not started yet
+        // Not started yet (lazy constructor must not start)
         assertEquals(1L, started.getCount(), "supplier should not have started yet");
 
         // tryGet should not start computation
         assertTrue(cv.tryGet().isEmpty());
         assertEquals(1L, started.getCount(), "supplier should still not have started");
 
-        // future should start computation
+        // future() should start computation
+        var fut = cv.future();
         assertTrue(
                 started.await(500, java.util.concurrent.TimeUnit.MILLISECONDS), "supplier should start after future()");
-        assertEquals(42, cv.futureRef.get().intValue());
+        assertEquals(42, fut.get().intValue());
     }
 
     @Test
@@ -40,8 +41,11 @@ public class ComputedValueTest {
             return 7;
         });
 
+        // Explicitly request eager start to avoid race with constructor return
+        cv.start();
+
         assertTrue(started.await(500, java.util.concurrent.TimeUnit.MILLISECONDS), "supplier should start eagerly");
-        assertEquals(7, cv.futureRef.get().intValue());
+        assertEquals(7, cv.future().get().intValue());
     }
 
     @Test
@@ -82,7 +86,7 @@ public class ComputedValueTest {
             throw new IllegalStateException("boom");
         });
 
-        var fut = cv.futureRef;
+        var fut = cv.future();
         var ex = assertThrows(java.util.concurrent.CompletionException.class, fut::join);
         assertTrue(ex.getCause() instanceof IllegalStateException);
         assertEquals("boom", ex.getCause().getMessage());
@@ -96,7 +100,7 @@ public class ComputedValueTest {
             return 99;
         });
 
-        cv.futureRef.get();
+        cv.future().get();
         assertNotNull(threadName.get());
         assertTrue(threadName.get().startsWith("cv-nameCheck-"));
     }

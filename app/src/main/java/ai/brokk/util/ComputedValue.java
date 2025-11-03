@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
@@ -18,13 +19,16 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * One-shot, self-materializing computed value.
  *
  * Characteristics:
- * - Autostarts a single, short-lived daemon thread (or executor task) upon construction for non-preseeded values.
- * - Predictable thread names: cv-<name>-<sequence>.
+ * - Lazy by default when no Executor is provided; computation starts on first call to future()/start()/await()
+ *   (never on tryGet()).
+ * - If constructed with a non-null Executor, the computation autostarts exactly once on that executor.
+ * - Predictable thread names when using the dedicated thread: cv-<name>-<sequence>.
  * - Non-blocking probe via {@link #tryGet()}.
  * - Best-effort bounded wait via {@link #await(Duration)}. If invoked on the Swing EDT, returns Optional.empty()
  *   immediately (never blocks the EDT).
@@ -40,33 +44,90 @@ public final class ComputedValue<T> {
     private final String name;
     private final Supplier<T> supplier;
 
+    // Exposed for same-package tests; use future() in production call sites.
     final CompletableFuture<T> futureRef;
+
+    private final @Nullable Executor executor;
+    private final AtomicBoolean started = new AtomicBoolean(false);
 
     // listeners registered via onComplete; guarded by 'this'
     private final List<BiConsumer<? super T, ? super Throwable>> listeners = new ArrayList<>();
 
     /**
      * Create the computation with a predictable name for the thread.
-     * The computation autostarts by default.
+     * Lazy by default (does not start until future()/start()/await() is called).
      *
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
      */
+    @TestOnly
     public ComputedValue(String name, Supplier<T> supplier) {
-        this(name, supplier, (Executor) null);
+        this(name, supplier, null, new CompletableFuture<>());
     }
 
     /**
      * Create the computation with a predictable name for the thread.
-     * The computation autostarts by default.
+     * If executor is non-null, the computation autostarts exactly once on that executor.
      *
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
-     * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used
+     * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used on start()
      */
     public ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor) {
-        this(name, supplier, new CompletableFuture<>());
-        // Start exactly once at construction time
+        this(name, supplier, executor, new CompletableFuture<>());
+        // Autostart when an executor is provided to preserve existing eager semantics for fragment computations.
+        if (executor != null) {
+            startInternal();
+        }
+    }
+
+    private ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor, CompletableFuture<T> future) {
+        this.name = name.isBlank() ? "value" : name;
+        this.supplier = supplier;
+        this.executor = executor;
+        this.futureRef = future;
+    }
+
+    /**
+     * Create an already-completed ComputedValue with a custom name. No worker thread is started.
+     */
+    public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
+        return new ComputedValue<>(name, () -> value, null, CompletableFuture.completedFuture(value));
+    }
+
+    /**
+     * Create an already-completed ComputedValue with the default name. No worker thread is started.
+     */
+    public static <T> ComputedValue<T> completed(@Nullable T value) {
+        return completed("value", value);
+    }
+
+    /**
+     * Returns the underlying future, starting the computation if necessary.
+     */
+    public CompletableFuture<T> future() {
+        startInternal();
+        return futureRef;
+    }
+
+    /**
+     * Non-blocking. If the value is available, returns it; otherwise returns the provided placeholder.
+     */
+    public T renderNowOr(T placeholder) {
+        return tryGet().orElse(placeholder);
+    }
+
+    /**
+     * Explicitly start the computation (no-op if already started).
+     */
+    public void start() {
+        startInternal();
+    }
+
+    private void startInternal() {
+        if (!started.compareAndSet(false, true)) {
+            return;
+        }
         var f = futureRef;
         String threadName = "cv-" + this.name + "-" + SEQ.incrementAndGet();
         Runnable task = () -> {
@@ -89,40 +150,6 @@ public final class ComputedValue<T> {
         }
     }
 
-    private ComputedValue(String name, Supplier<T> supplier, CompletableFuture<T> future) {
-        this.name = name.isBlank() ? "value" : name;
-        this.supplier = supplier;
-        this.futureRef = future;
-    }
-
-    /**
-     * Create an already-completed ComputedValue with a custom name. No worker thread is started.
-     */
-    public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
-        return new ComputedValue<>(name, () -> value, CompletableFuture.completedFuture(value));
-    }
-
-    /**
-     * Create an already-completed ComputedValue with the default name. No worker thread is started.
-     */
-    public static <T> ComputedValue<T> completed(@Nullable T value) {
-        return completed("value", value);
-    }
-
-    /**
-     * Non-blocking. If the value is available, returns it; otherwise returns the provided placeholder.
-     */
-    public T renderNowOr(T placeholder) {
-        return tryGet().orElse(placeholder);
-    }
-
-    /**
-     * No-op: computations start at construction time for non-preseeded values.
-     */
-    public void start() {
-        // already started in constructor
-    }
-
     /**
      * Non-blocking probe. Empty if not completed, or if completed exceptionally.
      */
@@ -131,7 +158,11 @@ public final class ComputedValue<T> {
         if (!f.isDone()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(f.join());
+        try {
+            return Optional.ofNullable(f.join());
+        } catch (CancellationException | CompletionException ex) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -143,6 +174,7 @@ public final class ComputedValue<T> {
             logger.warn("ComputedValue.await() called on Swing EDT for {}", name);
             return Optional.empty();
         }
+        startInternal();
         try {
             var v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
             return Optional.ofNullable(v);
@@ -162,8 +194,6 @@ public final class ComputedValue<T> {
      */
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
         synchronized (this) {
-            // double-check after acquiring the lock
-            /* no-op */
             if (futureRef.isDone()) {
                 T v = null;
                 Throwable ex = null;
