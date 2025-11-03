@@ -67,7 +67,8 @@ public class SearchAgent {
     public enum Terminal {
         TASK_LIST,
         ANSWER,
-        WORKSPACE
+        WORKSPACE,
+        CODE
     }
 
     // Keep thresholds consistent with other agents
@@ -93,6 +94,7 @@ public class SearchAgent {
 
     // State toggles
     private boolean beastMode;
+    private boolean codeAgentJustSucceeded;
 
     public SearchAgent(
             Context initialContext,
@@ -114,6 +116,7 @@ public class SearchAgent {
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;
+        this.codeAgentJustSucceeded = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
@@ -185,9 +188,13 @@ public class SearchAgent {
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
                 agentTerminalTools.add("answer");
+                agentTerminalTools.add("askForClarification");
             }
             if (allowedTerminals.contains(Terminal.WORKSPACE)) {
                 agentTerminalTools.add("workspaceComplete");
+            }
+            if (allowedTerminals.contains(Terminal.CODE)) {
+                agentTerminalTools.add("callCodeAgent");
             }
             // Always allow abort
             agentTerminalTools.add("abortSearch");
@@ -255,11 +262,17 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
-                    ToolExecutionResult exec = executeTool(req, tr, wst);
+                    ToolExecutionResult toolResult;
+                    try {
+                        toolResult = tr.executeTool(req);
+                    } catch (FatalLlmException e) {
+                        var details = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, e.getMessage());
+                        return errorResult(details, taskMeta());
+                    }
 
                     // Summarize large results
-                    var display = exec.resultText();
-                    boolean summarize = exec.status() == ToolExecutionResult.Status.SUCCESS
+                    var display = toolResult.resultText();
+                    boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
                             && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
                             && shouldSummarize(req.name());
                     if (summarize) {
@@ -304,8 +317,14 @@ public class SearchAgent {
                         return errorResult(
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display),
                                 taskMeta());
+                    } else if (termReq.name().equals("callCodeAgent")) {
+                        if (codeAgentJustSucceeded) {
+                            return createResult(termReq.name(), goal);
+                        }
+                        // If CodeAgent did not succeed, continue planning/search loop
+                    } else {
+                        return createResult(termReq.name(), goal);
                     }
-                    return createResult(termReq.name(), goal);
                 }
             } finally {
                 // End turn tracking - always called even on exceptions
@@ -442,6 +461,8 @@ public class SearchAgent {
         if (allowedTerminals.contains(Terminal.ANSWER)) {
             finals.add(
                     "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
+            finals.add(
+                    "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
@@ -458,6 +479,10 @@ public class SearchAgent {
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
             finals.add(
                     "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
+        }
+        if (allowedTerminals.contains(Terminal.CODE)) {
+            finals.add(
+                    "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
         }
         finals.add(
                 "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
@@ -645,7 +670,12 @@ public class SearchAgent {
 
     private ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
-            case "answer", "createTaskList", "workspaceComplete", "abortSearch" -> ToolCategory.TERMINAL;
+            case "answer",
+                    "askForClarification",
+                    "callCodeAgent",
+                    "createTaskList",
+                    "workspaceComplete",
+                    "abortSearch" -> ToolCategory.TERMINAL;
             case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
             default -> ToolCategory.RESEARCH;
         };
@@ -677,8 +707,9 @@ public class SearchAgent {
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
+            case "callCodeAgent" -> 99;
             case "createTaskList" -> 100;
-            case "answer", "workspaceComplete" -> 101; // should never co-occur
+            case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
             case "abortSearch" -> 200;
             default -> 9;
         };
@@ -889,6 +920,14 @@ public class SearchAgent {
     }
 
     @Tool(
+            "Ask the human for clarification when the goal is unclear or necessary information cannot be found. Outputs the provided question to the user and stops.")
+    public String askForClarification(
+            @P("A concise question or clarification request for the human user.") String queryForUser) {
+        io.llmOutput(queryForUser, ChatMessageType.AI);
+        return queryForUser;
+    }
+
+    @Tool(
             "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
     public String workspaceComplete() {
         logger.debug("workspaceComplete selected");
@@ -936,6 +975,51 @@ public class SearchAgent {
             logger.error(err, e);
             return err;
         }
+    }
+
+    @Tool(
+            "Invoke the Code Agent to implement the current goal in a single shot using your provided instructions. Provide complete, self-contained instructions; only the Workspace and your instructions are visible to the Code Agent.")
+    public String callCodeAgent(
+            @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
+                    String instructions)
+            throws InterruptedException, FatalLlmException {
+        logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
+
+        io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
+        var agent = new CodeAgent(cm, model);
+        var opts = new HashSet<CodeAgent.Option>();
+
+        var result = agent.runTask(context, List.of(), instructions, opts);
+        var stopDetails = result.stopDetails();
+        var reason = stopDetails.reason();
+
+        var initialContext = context;
+        context = scope.append(result);
+
+        if (reason == TaskResult.StopReason.SUCCESS) {
+            var resultString = "CodeAgent finished with a successful build! Details are in the Workspace messages.";
+            logger.debug("SearchAgent.callCodeAgent finished successfully");
+            codeAgentJustSucceeded = true;
+            return resultString;
+        }
+
+        // propagate critical failures
+        if (reason == TaskResult.StopReason.INTERRUPTED) {
+            throw new InterruptedException();
+        }
+        if (reason == TaskResult.StopReason.LLM_ERROR) {
+            logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
+            throw new FatalLlmException(stopDetails.explanation());
+        }
+
+        // Non-success outcomes: continue planning on next loop
+        codeAgentJustSucceeded = false;
+        logger.debug("SearchAgent.callCodeAgent failed with reason {}; continuing planning", reason);
+        return """
+                CodeAgent was not able to get to a clean build. Details are in the Workspace.
+                Changes were made but can be undone with 'undoLastChanges' if they are negative progress.
+                Continuing search and planning.
+                """;
     }
 
     // =======================

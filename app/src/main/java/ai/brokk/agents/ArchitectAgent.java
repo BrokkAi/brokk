@@ -119,12 +119,6 @@ public class ArchitectAgent {
         return reason;
     }
 
-    private static class FatalLlmException extends RuntimeException { // Made static
-        public FatalLlmException(String message) {
-            super(message);
-        }
-    }
-
     /**
      * A tool that invokes the CodeAgent to solve the current top task using the given instructions. The instructions
      * can incorporate the stack's current top task or anything else.
