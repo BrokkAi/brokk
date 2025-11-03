@@ -152,6 +152,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (!(fragment instanceof ContextFragment.ComputedFragment cf)) {
             return;
         }
+        logger.debug("subscribeToComputedUpdates: attaching listeners for fragment {}", fragment);
 
         // Kick off background computations
         try {
@@ -174,8 +175,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Files completion => update label and tooltip (affects Summary count)
         var s1 = cf.computedFiles().onComplete((v, ex) -> {
+            logger.debug("subscribeToComputedUpdates: computedFiles completed for fragment {} (success={})", fragment, ex == null);
             SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, (JComponent) chip)) return;
+                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                    logger.debug("subscribeToComputedUpdates: skipping stale chip after files completion for fragment {}", fragment);
+                    return;
+                }
                 refreshChipLabelAndTooltip(chip, label, fragment);
             });
         });
@@ -183,8 +188,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Description completion => update tooltip
         var s2 = cf.computedDescription().onComplete((v, ex) -> {
+            logger.debug("subscribeToComputedUpdates: computedDescription completed for fragment {} (success={})", fragment, ex == null);
             SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, (JComponent) chip)) return;
+                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                    logger.debug("subscribeToComputedUpdates: skipping stale chip after description completion for fragment {}", fragment);
+                    return;
+                }
                 refreshChipLabelAndTooltip(chip, label, fragment);
             });
         });
@@ -192,8 +201,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Text completion => metrics/tooltips update
         var s3 = cf.computedText().onComplete((v, ex) -> {
+            logger.debug("subscribeToComputedUpdates: computedText completed for fragment {} (success={})", fragment, ex == null);
             SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, (JComponent) chip)) return;
+                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                    logger.debug("subscribeToComputedUpdates: skipping stale chip after text completion for fragment {}", fragment);
+                    return;
+                }
                 refreshChipLabelAndTooltip(chip, label, fragment);
             });
         });
@@ -406,6 +419,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
+        // Entry debug
+        try {
+            logger.debug("updateChips called with {} fragments (forceToolEmulation={} readOnly={})",
+                    fragments.size(), MainProject.getForceToolEmulation(), readOnly);
+        } catch (Exception ignored) {}
         // Dispose existing subscriptions before clearing UI
         for (var comp : getComponents()) {
             if (comp instanceof JComponent jc) {
@@ -429,6 +447,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var others = visibleFragments.stream()
                 .filter(f -> classify(f) != ChipKind.SUMMARY)
                 .toList();
+
+        try {
+            logger.debug("updateChips: {} visible ({} summaries, {} others) out of {}",
+                    visibleFragments.size(), summaries.size(), others.size(), fragments.size());
+        } catch (Exception ignored) {}
 
         // Add individual chips for non-summaries (createChip may return null if fragment lacks renderable content)
         for (var fragment : others) {
@@ -458,6 +481,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
 
         // Re-layout this panel
+        try {
+            logger.debug("updateChips: rendered {} chip components", getComponentCount());
+        } catch (Exception ignored) {}
         revalidate();
         repaint();
 
@@ -1240,7 +1266,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     private Component createChip(ContextFragment fragment) {
         // Defensive pre-check: guard against null fragments.
-        if (fragment == null) return null;
+        if (fragment == null) {
+            logger.debug("createChip: fragment is null, returning null");
+            return null;
+        }
 
         // Safely read commonly-used fragment properties with fallbacks.
         String safeShortDescription;
