@@ -2844,7 +2844,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             builder.addComparison(left, right);
         }
 
-        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+        // Do not write GlobalUiSettings here; BrokkDiffPanel persists view mode on user toggle (Fixes #1679)
         var panel = builder.build();
         panel.showInFrame("Diff: " + ctx.getAction());
     }
@@ -3047,7 +3047,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             builder.addComparison(left, right);
         }
 
-        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+        // Do not write GlobalUiSettings here; BrokkDiffPanel persists view mode on user toggle (Fixes #1679)
         var diffPanel = builder.build();
         aggregatedChangesPanel = diffPanel;
         // Ensure the embedded diff reflects the current theme immediately
