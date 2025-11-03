@@ -2178,11 +2178,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return result.context();
             }
 
-            // If there is literally nothing to record (no messages and no context/file changes), skip
-            // Compare live contexts directly; use workspaceContentEquals for structural comparison
-            if (result.output().messages().isEmpty() && result.context().workspaceContentEquals(topContext())) {
-                logger.debug("Empty TaskResult");
-                return result.context();
+            // If there is literally nothing to record (no messages and no content changes), skip
+            if (result.output().messages().isEmpty()) {
+                try {
+                    // Treat result.context() as new (right) and current topContext() as old (left)
+                    var diffs = result.context().getDiff(topContext());
+                    if (diffs.isEmpty()) {
+                        logger.debug("Empty TaskResult (no messages and no content changes)");
+                        return result.context();
+                    }
+                } catch (Exception e) {
+                    // Be conservative: if diff computation fails, proceed to record the result
+                    logger.warn("Failed to compute diff for empty-result check; proceeding to record result", e);
+                }
             }
 
             var action = result.actionDescription();
