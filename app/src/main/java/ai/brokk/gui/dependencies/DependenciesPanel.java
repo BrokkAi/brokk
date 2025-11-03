@@ -359,6 +359,10 @@ public final class DependenciesPanel extends JPanel {
                                     inFlightToggleSave = null;
                                     // Unlock UI after save completes (success or failure).
                                     setControlsLocked(false);
+
+                                    // Update dependencies badge with the latest enabled count
+                                    int count = chrome.getProject().getLiveDependencies().size();
+                                    chrome.getProjectFilesPanel().updateDependenciesBadge(count);
                                 }));
                     }
                 }
