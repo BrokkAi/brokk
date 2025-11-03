@@ -13,6 +13,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -57,6 +58,215 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
     private boolean readOnly = false;
+
+    // Key for storing ComputedValue subscription list on a chip
+    private static final String CV_SUBSCRIPTIONS_KEY = "brokk.cv.subs";
+
+    // Register a ComputedValue subscription on a chip for later disposal
+    @SuppressWarnings("unchecked")
+    private void registerCvSubscription(JComponent chip, ComputedValue.Subscription sub) {
+        var existing = (List<ai.brokk.util.ComputedValue.Subscription>) chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
+        if (existing == null) {
+            existing = new ArrayList<>();
+            chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, existing);
+        }
+        existing.add(sub);
+    }
+
+    // Dispose all subscriptions associated with a chip (best-effort)
+    private void disposeChipSubscriptions(JComponent chip) {
+        var existing = chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
+        if (existing instanceof List<?> subs) {
+            for (var sObj : subs) {
+                try {
+                    if (sObj instanceof ComputedValue.Subscription subscription) {
+                        subscription.dispose();
+                    }
+                } catch (Exception ignored) {
+                    // safe cleanup
+                }
+            }
+            chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, null);
+        }
+    }
+
+    // Ensure the chip still represents this fragment and is still attached
+    private boolean isChipCurrent(ContextFragment fragment, JComponent chip) {
+        var current = chipById.get(fragment.id());
+        if (current != chip) return false;
+        // Also ensure the chip hasn't been removed from this panel
+        for (var c : getComponents()) {
+            if (c == chip) return true;
+        }
+        return false;
+    }
+
+    // Recompute label/tooltip for a chip based on current computed values and restyle
+    private void refreshChipLabelAndTooltip(JComponent chip, JLabel label, ContextFragment fragment) {
+        if (!isChipCurrent(fragment, chip)) return;
+
+        var kind = classify(fragment);
+        String newLabelText;
+        if (kind == ChipKind.SUMMARY) {
+            newLabelText = buildSummaryLabel(fragment);
+        } else if (kind == ChipKind.OTHER) {
+            // Guard shortDescription()
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                sd = "";
+            }
+            newLabelText = capitalizeFirst(sd);
+        } else {
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                sd = "";
+            }
+            newLabelText = sd.isBlank() ? label.getText() : sd;
+        }
+        label.setText(newLabelText);
+
+        try {
+            if (kind == ChipKind.SUMMARY) {
+                label.setToolTipText(buildSummaryTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            } else {
+                label.setToolTipText(buildDefaultTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            }
+        } catch (Exception ex) {
+            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+        }
+
+        // Restyle to account for label size/separator height
+        styleChip((JPanel) chip, label, fragment);
+        chip.revalidate();
+        chip.repaint();
+    }
+
+    // Subscribe to computed values to update the chip asynchronously; also set initial placeholder
+    private void subscribeToComputedUpdates(ContextFragment fragment, JComponent chip, JLabel label) {
+        if (!(fragment instanceof ContextFragment.ComputedFragment cf)) {
+            return;
+        }
+
+        // Kick off background computations
+        try {
+            cf.computedText().start();
+        } catch (Exception ignored) {}
+        try {
+            cf.computedDescription().start();
+        } catch (Exception ignored) {}
+        try {
+            cf.computedFiles().start();
+        } catch (Exception ignored) {}
+
+        // Initial placeholder for summaries if files are not yet known
+        if (classify(fragment) == ChipKind.SUMMARY) {
+            var filesOpt = cf.computedFiles().tryGet();
+            if (filesOpt.isEmpty()) {
+                label.setText("Summary (Loading...)");
+            }
+        }
+
+        // Files completion => update label and tooltip (affects Summary count)
+        var s1 = cf.computedFiles().onComplete((v, ex) -> {
+            SwingUtilities.invokeLater(() -> {
+                if (!isChipCurrent(fragment, (JComponent) chip)) return;
+                refreshChipLabelAndTooltip(chip, label, fragment);
+            });
+        });
+        registerCvSubscription((JComponent) chip, s1);
+
+        // Description completion => update tooltip
+        var s2 = cf.computedDescription().onComplete((v, ex) -> {
+            SwingUtilities.invokeLater(() -> {
+                if (!isChipCurrent(fragment, (JComponent) chip)) return;
+                refreshChipLabelAndTooltip(chip, label, fragment);
+            });
+        });
+        registerCvSubscription((JComponent) chip, s2);
+
+        // Text completion => metrics/tooltips update
+        var s3 = cf.computedText().onComplete((v, ex) -> {
+            SwingUtilities.invokeLater(() -> {
+                if (!isChipCurrent(fragment, (JComponent) chip)) return;
+                refreshChipLabelAndTooltip(chip, label, fragment);
+            });
+        });
+        registerCvSubscription((JComponent) chip, s3);
+    }
+
+    // Update synthetic summary chip label/tooltip from current computed values
+    private void refreshSyntheticSummaryChip(JComponent chip, JLabel label, List<ContextFragment> summaries) {
+        // Chip presence check
+        boolean present = false;
+        for (var c : getComponents()) {
+            if (c == chip) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) return;
+
+        int totalFiles = (int) summaries.stream()
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
+                .map(ProjectFile::toString)
+                .distinct()
+                .count();
+        String text = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+        label.setText(text);
+        try {
+            label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+        } catch (Exception ex) {
+            logger.debug("Failed to refresh synthetic summary tooltip", ex);
+        }
+        styleChip((JPanel) chip, label, null);
+        chip.revalidate();
+        chip.repaint();
+    }
+
+    // Subscribe to each summary's computed values to keep the synthetic chip updated
+    private void subscribeSummaryGroupUpdates(List<ContextFragment> summaries, JComponent chip, JLabel label) {
+        for (var f : summaries) {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                try {
+                    cf.computedFiles().start();
+                } catch (Exception ignored) {}
+                var s = cf.computedFiles().onComplete((v, ex) -> {
+                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
+                });
+                registerCvSubscription(chip, s);
+
+                // Also update on description/text changes to improve tooltips
+                try {
+                    cf.computedDescription().start();
+                } catch (Exception ignored) {}
+                var sDesc = cf.computedDescription().onComplete((v, ex) -> {
+                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
+                });
+                registerCvSubscription(chip, sDesc);
+
+                try {
+                    cf.computedText().start();
+                } catch (Exception ignored) {}
+                var sText = cf.computedText().onComplete((v, ex) -> {
+                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
+                });
+                registerCvSubscription(chip, sText);
+            }
+        }
+    }
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -196,6 +406,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
+        // Dispose existing subscriptions before clearing UI
+        for (var comp : getComponents()) {
+            if (comp instanceof JComponent jc) {
+                disposeChipSubscriptions(jc);
+            }
+        }
+
         removeAll();
         chipById.clear();
 
@@ -1084,6 +1301,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         var label = new JLabel(labelText);
 
+        // If this is a computed fragment and we expect more info later, show a lightweight loading hint
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            try {
+                // For summaries, prefer an explicit Loading suffix before files() is ready
+                if (kindForLabel == ChipKind.SUMMARY && cf.computedFiles().tryGet().isEmpty()) {
+                    label.setText("Summary (Loading...)");
+                }
+            } catch (Exception ignored) {
+                // best-effort only
+            }
+        }
+
         // Improve discoverability and accessibility with wrapped HTML tooltips
         try {
             if (kindForLabel == ChipKind.SUMMARY) {
@@ -1139,6 +1368,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
 
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        // Subscribe to computed updates to refresh label/tooltip asynchronously (non-blocking)
+        subscribeToComputedUpdates(fragment, chip, label);
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label. Icon will be set by styleChip() after background color is determined.
@@ -1349,6 +1581,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         String labelText = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         var label = new JLabel(labelText);
 
+        // If any summary hasn't computed its files yet, show a friendly loading placeholder
+        boolean anyLoading = renderableSummaries.stream().anyMatch(f -> {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                return cf.computedFiles().tryGet().isEmpty();
+            }
+            return false;
+        });
+        if (anyLoading) {
+            label.setText("Summaries (Loading...)");
+        }
+
         // Aggregated tooltip
         try {
             label.setToolTipText(buildAggregateSummaryTooltip(renderableSummaries));
@@ -1432,6 +1675,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
 
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        // Subscribe to summaries' computed updates
+        subscribeSummaryGroupUpdates(renderableSummaries, chip, label);
 
         var close = new MaterialButton("");
         close.setFocusable(false);
