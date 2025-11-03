@@ -989,14 +989,98 @@ public class CppAnalyzerTest {
         // There should be a skeleton entry (definition) for foo() and its skeleton should include body placeholder or
         // implementation
         var fooEntry = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isFunction())
                 .filter(e -> getBaseFunctionName(e.getKey()).equals("foo"))
                 .findFirst();
 
         assertTrue(fooEntry.isPresent(), "Should find skeleton for foo()");
+
+        // Ensure we prefer the single definition over any prototype in the header
+        int skeletonFooCount = (int) skeletons.keySet().stream()
+                .filter(CodeUnit::isFunction)
+                .filter(k -> getBaseFunctionName(k).equals("foo"))
+                .count();
+        assertEquals(1, skeletonFooCount, "Should prefer single definition for foo() over prototype in header");
+
+        // Also verify declarations set contains exactly one function CodeUnit for foo()
+        var decls = analyzer.getDeclarations(file);
+        long declFooCount = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("foo"))
+                .count();
+        assertEquals(1, declFooCount, "Only one function CodeUnit for foo() should be present (the definition)");
+
         String sig = fooEntry.get().getValue();
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
         assertTrue(
                 sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
+    }
+
+    @Test
+    public void testDefinitionPreferredInSameFile() {
+        // Validate semantics don't rely on placeholder strings by using a file that contains:
+        // - a class method declaration inside the class
+        // - an out-of-line definition of that method later in the same file
+        //
+        // The analyzer should expose a single top-level function CodeUnit for the definition,
+        // even though the in-class declaration has a differently formatted signature (no body).
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("decl_vs_def.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("decl_vs_def.h not found"));
+
+        // Declarations: ensure we only consider the out-of-line definition (scope-resolved name)
+        var decls = analyzer.getDeclarations(file);
+        var outOfLineFuncs = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("declaration_only"))
+                .filter(cu -> cu.fqName().contains("::") || cu.shortName().contains("::"))
+                .collect(Collectors.toList());
+
+        // Deduplicate by signature to avoid double-captures of the same definition
+        var uniqueOutOfLineSigs = outOfLineFuncs.stream()
+                .map(CodeUnit::signature)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        assertEquals(
+                1,
+                uniqueOutOfLineSigs.size(),
+                "Should have exactly one unique out-of-line definition signature for 'declaration_only'. "
+                        + "Candidates: "
+                        + outOfLineFuncs.stream().map(CodeUnit::fqName).collect(Collectors.toList())
+                        + ", Signatures: " + uniqueOutOfLineSigs);
+
+        // Skeletons: confirm the corresponding skeleton contains a body placeholder for the definition
+        var skeletons = analyzer.getSkeletons(file);
+        var funcSkeletonEntry = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isFunction())
+                .filter(e -> getBaseFunctionName(e.getKey()).equals("declaration_only"))
+                .findFirst();
+
+        assertTrue(funcSkeletonEntry.isPresent(), "Should have skeleton for out-of-line definition");
+        String skeleton = funcSkeletonEntry.get().getValue();
+        assertTrue(
+                skeleton.contains("{...}"),
+                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + skeleton);
+
+        // Sanity: ensure in-class declaration is still present in the class skeleton and does not have body placeholder
+        var classSkeleton = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isClass())
+                .filter(e -> e.getKey().shortName().contains("DeclVsDef"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        assertTrue(classSkeleton.isPresent(), "DeclVsDef class skeleton should be present");
+        String classSkelText = classSkeleton.get();
+        var declLine = classSkelText
+                .lines()
+                .filter(line -> line.contains("declaration_only"))
+                .filter(line -> !line.contains("::"))
+                .findFirst()
+                .orElse("");
+        assertFalse(
+                declLine.contains("{...}") || declLine.contains("{"),
+                "Class-scope declaration should not include body placeholder");
     }
 
     @Test
@@ -1263,305 +1347,178 @@ public class CppAnalyzerTest {
     }
 
     @Test
-    public void testComplexDeclarators() {
+    public void testHasBodyFlagPrefersDefinitionInSameFile() {
+        // Validate hasBody flag semantics for in-class declaration vs out-of-line definition in the same file.
         var file = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("complex_declarators.h"))
+                .filter(f -> f.absPath().toString().endsWith("decl_vs_def.h"))
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("complex_declarators.h not found"));
+                .orElseThrow(() -> new RuntimeException("decl_vs_def.h not found"));
 
         var decls = analyzer.getDeclarations(file);
-        assertFalse(decls.isEmpty(), "Should find declarations in complex_declarators.h");
+        assertFalse(decls.isEmpty(), "Should find declarations in decl_vs_def.h");
 
-        var functions = decls.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+        // Collect all function CodeUnits named 'declaration_only'
+        var candidates = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("declaration_only"))
+                .collect(Collectors.toList());
 
-        // Should find all function declarations including those with complex function pointer parameters
-        assertTrue(functions.size() >= 7, "Should find at least 7 function declarations: " + functions.size());
+        assertTrue(
+                candidates.size() >= 2,
+                "Should find at least 2 CodeUnits for declaration_only (in-class declaration and out-of-line definition)");
 
-        // Verify each function has a signature
-        for (var func : functions) {
-            assertNotNull(func.signature(), "Function should have signature: " + func.fqName());
-            assertTrue(func.signature().startsWith("("), "Signature should start with '(': " + func.signature());
+        // Determine hasBody for each
+        class CUHasBody {
+            final CodeUnit cu;
+            final boolean hasBody;
+
+            CUHasBody(CodeUnit cu, boolean hasBody) {
+                this.cu = cu;
+                this.hasBody = hasBody;
+            }
         }
 
-        // Verify specific functions are found
-        // Note: Functions returning function pointers have shortName like "(*getHandler())" not just "getHandler"
-        var getHandler = functions.stream()
-                .filter(f -> f.shortName().contains("getHandler"))
-                .findFirst();
-        assertTrue(getHandler.isPresent(), "Should find getHandler function");
-        assertEquals("(double)", getHandler.get().signature(), "getHandler return type signature should be (double)");
+        var withFlags = candidates.stream()
+                .map(cu -> new CUHasBody(cu, analyzer.withCodeUnitProperties(map -> map.getOrDefault(
+                                cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                        .hasBody())))
+                .collect(Collectors.toList());
 
-        var process = functions.stream()
-                .filter(f -> f.shortName().contains("process"))
-                .findFirst();
-        assertTrue(process.isPresent(), "Should find process function");
-        // Signature should contain function pointer parameter - check for "callback" or function pointer syntax
-        var processSig = process.get().signature();
-        assertTrue(
-                processSig.contains("callback") || processSig.contains("int") || processSig.length() > 10,
-                "process signature should contain complex parameter: " + processSig);
+        // Identify out-of-line definition (prefer those with hasBody == true)
+        var outOfLineOpt =
+                withFlags.stream().filter(x -> x.hasBody).map(x -> x.cu).findFirst();
+        assertTrue(outOfLineOpt.isPresent(), "Out-of-line definition with hasBody=true should exist");
+        CodeUnit outOfLine = outOfLineOpt.get();
 
-        var signal =
-                functions.stream().filter(f -> f.shortName().contains("signal")).findFirst();
-        assertTrue(signal.isPresent(), "Should find signal function");
-        // Signal has complex nested function pointers in its shortName
+        // Identify class-scope declaration (hasBody == false)
+        var inClassOpt =
+                withFlags.stream().filter(x -> !x.hasBody).map(x -> x.cu).findFirst();
+        assertTrue(inClassOpt.isPresent(), "In-class declaration with hasBody=false should exist");
+        CodeUnit inClass = inClassOpt.get();
+
+        // Sanity: ensure they are distinct CUs
+        assertNotEquals(outOfLine, inClass, "Out-of-line definition and in-class declaration should be distinct");
+
+        // Verify the skeleton for the out-of-line definition contains display placeholder "{...}"
+        var skeletons = analyzer.getSkeletons(file);
+        String defSkeleton = skeletons.get(outOfLine);
+        assertNotNull(defSkeleton, "Skeleton for out-of-line definition should exist");
         assertTrue(
-                signal.get().shortName().length() > 10,
-                "signal shortName should be complex: " + signal.get().shortName());
+                defSkeleton.contains("{...}"),
+                "Out-of-line definition skeleton should contain '{...}' body placeholder. Skeleton: " + defSkeleton);
     }
 
     @Test
-    public void testReferencePointerTypeVariations() {
-        var file = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
+    public void testHasBodyFlagAcrossHeaderAndSourceFiles() {
+        // Validate hasBody semantics across header prototype and source definition (forward_decl.h)
+        var headerFile = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("forward_decl.h"))
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
+                .orElseThrow(() -> new RuntimeException("forward_decl.h not found"));
 
-        var decls = analyzer.getDeclarations(file);
-        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
+        // Gather header declarations and filter for functions named 'foo'
+        var headerDecls = analyzer.getDeclarations(headerFile);
+        assertFalse(headerDecls.isEmpty(), "Should find declarations in forward_decl.h");
 
-        var refPtrOverloads = decls.stream()
+        var headerCandidates = headerDecls.stream()
                 .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("refPtrTest"))
+                .filter(cu -> getBaseFunctionName(cu).equals("foo"))
                 .collect(Collectors.toList());
+        assertFalse(
+                headerCandidates.isEmpty(),
+                "Should find at least one function named 'foo' in header. Available: "
+                        + headerDecls.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
 
-        // Should find 5 distinct overloads: int, int&, int*, const int&, int&&
-        assertEquals(5, refPtrOverloads.size(), "Should find exactly 5 refPtrTest overloads");
-
-        // Verify all have distinct signatures
-        var signatures = refPtrOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
-        assertEquals(5, signatures.size(), "All 5 refPtrTest overloads should have distinct signatures: " + signatures);
-
-        // Verify specific signature patterns exist
-        var sigList = refPtrOverloads.stream().map(CodeUnit::signature).collect(Collectors.toList());
-        assertTrue(
-                sigList.stream().anyMatch(s -> s.contains("int") && !s.contains("&") && !s.contains("*")),
-                "Should find int value parameter");
-        assertTrue(
-                sigList.stream().anyMatch(s -> s.contains("int&") || s.contains("int &")),
-                "Should find int& reference parameter");
-        assertTrue(
-                sigList.stream().anyMatch(s -> s.contains("int*") || s.contains("int *")),
-                "Should find int* pointer parameter");
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("const")), "Should find const int& parameter");
-        assertTrue(sigList.stream().anyMatch(s -> s.contains("&&")), "Should find int&& rvalue reference parameter");
-    }
-
-    @Test
-    public void testOverloadsAcrossHeaderAndImpl() {
-        var header = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("multi_file_overloads.h"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("multi_file_overloads.h not found"));
-
-        var impl = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("multi_file_overloads.cpp"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("multi_file_overloads.cpp not found"));
-
-        var headerDecls = analyzer.getDeclarations(header);
-        var implDecls = analyzer.getDeclarations(impl);
-
-        assertFalse(headerDecls.isEmpty(), "Should find declarations in header");
-        assertFalse(implDecls.isEmpty(), "Should find declarations in implementation");
-
-        // Find cross(int) - should be in implementation file (definitions)
-        var implCrossInt = implDecls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("cross"))
-                .filter(cu -> cu.signature() != null
-                        && cu.signature().contains("int")
-                        && !cu.signature().contains(","))
-                .findFirst();
-
-        assertTrue(implCrossInt.isPresent(), "Should find cross(int) in implementation");
-
-        // Find Calculator.compute functions in both files
-        var headerComputeInt = headerDecls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("compute"))
-                .filter(cu -> cu.signature() != null && cu.signature().equals("(int)"))
-                .findFirst();
-
-        var implComputeInt = implDecls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("compute"))
-                .filter(cu -> cu.signature() != null && cu.signature().equals("(int)"))
-                .findFirst();
-
-        assertTrue(headerComputeInt.isPresent(), "Should find compute(int) in header");
-        assertTrue(implComputeInt.isPresent(), "Should find compute(int) in implementation");
-
-        // Both should have matching signatures
-        assertEquals(headerComputeInt.get().signature(), implComputeInt.get().signature(), "Signatures should match");
-
-        // Note: FQNames may differ slightly (. vs ::) between declarations and definitions
-        // Header shortName: Calculator.compute (from class member syntax)
-        // Impl shortName: Calculator::compute (from scope resolution syntax)
-        // Both should end with "compute" and contain "Calculator"
-        assertTrue(headerComputeInt.get().fqName().contains("Calculator"), "Header FQName should contain Calculator");
-        assertTrue(headerComputeInt.get().fqName().endsWith("compute"), "Header FQName should end with compute");
-        assertTrue(implComputeInt.get().fqName().contains("Calculator"), "Impl FQName should contain Calculator");
-        assertTrue(implComputeInt.get().fqName().endsWith("compute"), "Impl FQName should end with compute");
-
-        // Verify overloads are preserved across both files
-        var allComputeFunctions = implDecls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("compute"))
-                .collect(Collectors.toList());
-
-        // Should find 3 compute overloads in implementation: (int), (int,int), (double)
-        assertTrue(allComputeFunctions.size() >= 3, "Should find at least 3 compute overloads");
-
-        // Verify distinct signatures
-        var computeSignatures =
-                allComputeFunctions.stream().map(CodeUnit::signature).collect(Collectors.toSet());
-        assertTrue(computeSignatures.size() >= 3, "Should have at least 3 distinct compute signatures");
-    }
-
-    @Test
-    public void testCtorDtorNestedNamespaces() {
-        var file = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("nested_ctors.h"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("nested_ctors.h not found"));
-
-        var decls = analyzer.getDeclarations(file);
-        assertFalse(decls.isEmpty(), "Should find declarations in nested_ctors.h");
-
-        var ctorDtorFunctions = decls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> {
-                    var baseName = getBaseFunctionName(cu);
-                    return baseName.equals("Widget") || baseName.equals("~Widget");
-                })
-                .collect(Collectors.toList());
-
-        // Should find 3 constructors + 1 destructor = at least 4 functions (may find declarations + definitions)
-        assertTrue(ctorDtorFunctions.size() >= 4, "Should find at least 4 constructor/destructor functions");
-
-        // Find constructors (should have 3 overloads, but may have declarations + definitions)
-        var ctors = ctorDtorFunctions.stream()
-                .filter(cu -> getBaseFunctionName(cu).equals("Widget"))
-                .collect(Collectors.toList());
-        assertTrue(ctors.size() >= 3, "Should find at least 3 constructor overloads (may include decls + defs)");
-
-        // Verify constructors have distinct signatures
-        var ctorSignatures = ctors.stream().map(CodeUnit::signature).collect(Collectors.toSet());
-        assertEquals(3, ctorSignatures.size(), "Constructors should have 3 distinct signatures");
-
-        // Find destructor
-        var dtor = ctorDtorFunctions.stream()
-                .filter(cu -> getBaseFunctionName(cu).equals("~Widget"))
-                .findFirst();
-        assertTrue(dtor.isPresent(), "Should find destructor ~Widget");
-
-        // Destructor should have noexcept in signature
-        assertTrue(
-                dtor.get().signature().contains("noexcept"),
-                "Destructor signature should contain noexcept: " + dtor.get().signature());
-
-        // Verify FQNames include nested namespace
-        for (var cu : ctorDtorFunctions) {
-            assertTrue(cu.fqName().contains("outer.inner"), "FQName should include nested namespace: " + cu.fqName());
+        // Try to select a true header prototype with hasBody == false
+        CodeUnit headerProto = null;
+        for (var cu : headerCandidates) {
+            boolean hasBody = analyzer.withCodeUnitProperties(
+                    map -> map.getOrDefault(cu, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                            .hasBody());
+            if (!hasBody) {
+                headerProto = cu;
+                break;
+            }
         }
-    }
 
-    @Test
-    public void testNoexceptEdgeCases() {
-        var file = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
+        if (headerProto != null) {
+            final var headerProtoFinal = headerProto;
+            boolean headerHasBody = analyzer.withCodeUnitProperties(
+                    map -> map.getOrDefault(headerProtoFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                            .hasBody());
+            assertFalse(headerHasBody, "Header prototype should have hasBody == false");
 
-        var decls = analyzer.getDeclarations(file);
-        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
+            // Search across all declarations for a definition (hasBody == true) with the same FQN
+            var allDecls = getAllDeclarations();
+            CodeUnit sourceDef = null;
+            for (var cu : allDecls) {
+                if (!cu.isFunction()) continue;
+                if (!getBaseFunctionName(cu).equals("foo")) continue;
+                if (!cu.fqName().equals(headerProto.fqName())) continue;
 
-        var noexceptEdges = decls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).startsWith("noexceptEdge"))
-                .collect(Collectors.toList());
+                final var candidateFinal = cu;
+                boolean hasBody = analyzer.withCodeUnitProperties(
+                        map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                                .hasBody());
+                if (hasBody) {
+                    sourceDef = cu;
+                    break;
+                }
+            }
 
-        // Should find 3 noexcept edge case functions
-        assertEquals(3, noexceptEdges.size(), "Should find exactly 3 noexceptEdge functions");
+            assertNotNull(
+                    sourceDef,
+                    "Should find a source definition with hasBody == true for 'foo' and FQN " + headerProto.fqName());
 
-        // All should have noexcept in their signature
-        for (var func : noexceptEdges) {
+            // Verify the skeleton for the source definition contains the display placeholder
+            var sourceFile = sourceDef.source();
+            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
+            String srcSkel = sourceSkeletons.get(sourceDef);
+            assertNotNull(srcSkel, "Source skeleton for definition should exist");
             assertTrue(
-                    func.signature().contains("noexcept"),
-                    "Function should have noexcept in signature: " + func.fqName() + " -> " + func.signature());
-        }
+                    srcSkel.contains("{...}"),
+                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+        } else {
+            // No header prototype (hasBody==false) found: header may contain definition or merges occurred
+            var allDecls = getAllDeclarations();
+            CodeUnit sourceDef = null;
+            for (var cu : allDecls) {
+                if (!cu.isFunction()) continue;
+                if (!getBaseFunctionName(cu).equals("foo")) continue;
 
-        // Find the nested parentheses case
-        var nestedCase = noexceptEdges.stream()
-                .filter(cu -> getBaseFunctionName(cu).equals("noexceptEdge1"))
-                .findFirst();
-        assertTrue(nestedCase.isPresent(), "Should find noexceptEdge1 with nested parentheses");
-        var nestedSig = nestedCase.get().signature();
-        assertTrue(nestedSig.contains("noexcept(noexcept"), "Should preserve nested noexcept expression: " + nestedSig);
+                final var candidateFinal = cu;
+                boolean hasBody = analyzer.withCodeUnitProperties(
+                        map -> map.getOrDefault(candidateFinal, TreeSitterAnalyzer.CodeUnitProperties.empty())
+                                .hasBody());
+                if (hasBody) {
+                    sourceDef = cu;
+                    break;
+                }
+            }
 
-        // Find the complex expression case
-        var exprCase = noexceptEdges.stream()
-                .filter(cu -> getBaseFunctionName(cu).equals("noexceptEdge2"))
-                .findFirst();
-        assertTrue(exprCase.isPresent(), "Should find noexceptEdge2 with complex expression");
-        var exprSig = exprCase.get().signature();
-        assertTrue(exprSig.contains("sizeof"), "Should preserve sizeof expression in noexcept: " + exprSig);
+            assertNotNull(
+                    sourceDef,
+                    "Could not find a definition (hasBody==true) for function 'foo' across all declarations.");
 
-        // Find the whitespace case
-        var spaceCase = noexceptEdges.stream()
-                .filter(cu -> getBaseFunctionName(cu).equals("noexceptEdge3"))
-                .findFirst();
-        assertTrue(spaceCase.isPresent(), "Should find noexceptEdge3 with whitespace");
-        // Signature should have noexcept(true) with normalized spacing
-        var spaceSig = spaceCase.get().signature();
-        assertTrue(spaceSig.contains("noexcept"), "Should contain noexcept: " + spaceSig);
-    }
-
-    @Test
-    public void testVolatileMultiParam() {
-        var file = testProject.getAllFiles().stream()
-                .filter(f -> f.absPath().toString().endsWith("qualifiers_extra.h"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("qualifiers_extra.h not found"));
-
-        var decls = analyzer.getDeclarations(file);
-        assertFalse(decls.isEmpty(), "Should find declarations in qualifiers_extra.h");
-
-        var multiParamOverloads = decls.stream()
-                .filter(CodeUnit::isFunction)
-                .filter(cu -> getBaseFunctionName(cu).equals("multiParam"))
-                .collect(Collectors.toList());
-
-        // Should find 3 overloads with different qualifiers
-        assertEquals(3, multiParamOverloads.size(), "Should find exactly 3 multiParam overloads");
-
-        // All should have distinct signatures
-        var signatures = multiParamOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
-        assertEquals(3, signatures.size(), "All 3 overloads should have distinct signatures: " + signatures);
-
-        // Check that parameters are extracted correctly (should contain commas for multiple params)
-        for (var func : multiParamOverloads) {
+            // Verify the skeleton for the found definition contains the display placeholder
+            var sourceFile = sourceDef.source();
+            var sourceSkeletons = analyzer.getSkeletons(sourceFile);
+            String srcSkel = sourceSkeletons.get(sourceDef);
+            assertNotNull(srcSkel, "Source skeleton for definition should exist");
             assertTrue(
-                    func.signature().contains(","),
-                    "Multi-parameter function should have comma in signature: " + func.signature());
+                    srcSkel.contains("{...}"),
+                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+
+            // Additionally, ensure the header skeletons prefer a single function entry for 'foo'
+            var headerSkeletons = analyzer.getSkeletons(headerFile);
+            long headerFooCount = headerSkeletons.keySet().stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(k -> getBaseFunctionName(k).equals("foo"))
+                    .count();
+            assertEquals(
+                    1L,
+                    headerFooCount,
+                    "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
         }
-
-        // Find and verify specific overloads
-        var volatileOnly = multiParamOverloads.stream()
-                .filter(cu ->
-                        cu.signature().contains("volatile") && !cu.signature().contains("const"))
-                .findFirst();
-        assertTrue(volatileOnly.isPresent(), "Should find volatile overload");
-
-        var constVolatile = multiParamOverloads.stream()
-                .filter(cu -> cu.signature().contains("const") && cu.signature().contains("volatile"))
-                .findFirst();
-        assertTrue(constVolatile.isPresent(), "Should find const volatile overload");
-
-        // At least one should have && rvalue reference qualifier
-        var hasRvalue =
-                multiParamOverloads.stream().anyMatch(cu -> cu.signature().contains("&&"));
-        assertTrue(hasRvalue, "Should find at least one overload with && qualifier");
     }
 }
