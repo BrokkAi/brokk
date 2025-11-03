@@ -349,8 +349,9 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
 tasks.withType<JavaCompile>().configureEach {
     // Configure both compileJava (regular builds) and compileJavaErrorProne (full analysis)
     if (name == "compileJava" || name == "compileJavaErrorProne") {
-        // Enable Error Prone (this adds -Xplugin:ErrorProne to compiler args)
-        options.errorprone.isEnabled = true
+        // Only enable ErrorProne for compileJavaErrorProne (used by analyze/check tasks)
+        // Regular compileJava runs without ErrorProne overhead for faster development builds
+        options.errorprone.isEnabled = (name == "compileJavaErrorProne")
 
         // Add Error Prone JARs to annotation processor path so the compiler can find the plugin
         // This is what the Error Prone Gradle plugin normally does automatically
@@ -390,7 +391,7 @@ tasks.register("analyze") {
     dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
-// Make check depend on Error Prone compilation
+// Make check task run ErrorProne compilation for CI validation
 tasks.named("check") {
     dependsOn("compileJavaErrorProne")
 }
