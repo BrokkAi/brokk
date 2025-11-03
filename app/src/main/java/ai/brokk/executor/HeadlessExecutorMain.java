@@ -3,13 +3,23 @@ package ai.brokk.executor;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.MainProject;
+import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
+import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.model.ErrorPayload;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -21,6 +31,10 @@ public final class HeadlessExecutorMain {
   private final ContextManager contextManager;
   private final Path workspaceDir;
   private final Path sessionsDir;
+  private final JobStore jobStore;
+  private final SessionManager sessionManager;
+  private final AtomicReference<UUID> currentSessionId = new AtomicReference<>();
+  private final AtomicReference<String> currentJobId = new AtomicReference<>();
 
   /**
    * Parse command-line arguments into a map of normalized keys to values.
@@ -91,6 +105,13 @@ public final class HeadlessExecutorMain {
 
     logger.info("Initializing HeadlessExecutorMain: execId={}, listen={}:{}, workspace={}", execId, host, port, workspaceDir);
 
+    // Ensure sessions directory exists
+    Files.createDirectories(sessionsDir);
+
+    // Initialize JobStore and SessionManager
+    this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+    this.sessionManager = new SessionManager(sessionsDir);
+
     // Initialize ContextManager
     var project = new MainProject(workspaceDir);
     this.contextManager = new ContextManager(project);
@@ -102,6 +123,12 @@ public final class HeadlessExecutorMain {
     // Register endpoints
     this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
     this.server.registerAuthenticatedContext("/v1/executor", this::handleExecutor);
+    this.server.registerAuthenticatedContext("/v1/session", this::handlePostSession);
+    this.server.registerAuthenticatedContext("/v1/jobs", this::handlePostJobs);
+    this.server.registerAuthenticatedContext("/v1/jobs/{jobId}", this::handleGetJob);
+    this.server.registerAuthenticatedContext("/v1/jobs/{jobId}/events", this::handleGetJobEvents);
+    this.server.registerAuthenticatedContext("/v1/jobs/{jobId}/cancel", this::handleCancelJob);
+    this.server.registerAuthenticatedContext("/v1/jobs/{jobId}/diff", this::handleGetJobDiff);
 
     logger.info("HeadlessExecutorMain initialized successfully");
   }
@@ -134,9 +161,18 @@ public final class HeadlessExecutorMain {
     SimpleHttpServer.sendJsonResponse(exchange, response);
   }
 
+  /**
+   * Asynchronously execute a job. Called after a new job is created.
+   * Stub for now; will be implemented in next task.
+   */
+  private void executeJobAsync(String jobId, ai.brokk.executor.jobs.JobSpec jobSpec) {
+    // TODO: Implement job execution in next task
+    logger.info("Job execution scheduled (not yet implemented): {}", jobId);
+  }
+
   public void start() {
     this.server.start();
-    logger.info("HTTP server started");
+    logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.");
   }
 
   public void stop(int delaySeconds) {
@@ -145,8 +181,304 @@ public final class HeadlessExecutorMain {
     } catch (Exception e) {
       logger.warn("Error closing ContextManager", e);
     }
+    try {
+      this.sessionManager.close();
+    } catch (Exception e) {
+      logger.warn("Error closing SessionManager", e);
+    }
     this.server.stop(delaySeconds);
     logger.info("HeadlessExecutorMain stopped");
+  }
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
+
+  /**
+   * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
+   */
+  private static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
+    var parts = path.split("/");
+    if (parts.length >= 4 && "jobs".equals(parts[2])) {
+      return parts[3];
+    }
+    return null;
+  }
+
+  /**
+   * Parse query string into a map.
+   */
+  private static Map<String, String> parseQueryParams(@org.jetbrains.annotations.Nullable String query) {
+    var params = new HashMap<String, String>();
+    if (query == null || query.isBlank()) {
+      return params;
+    }
+
+    for (var pair : query.split("&")) {
+      var keyValue = pair.split("=", 2);
+      var key = keyValue[0];
+      var value = keyValue.length > 1 ? keyValue[1] : "";
+      params.put(key, value);
+    }
+    return params;
+  }
+
+  // ============================================================================
+  // Session and Job Handlers
+  // ============================================================================
+
+  /**
+   * POST /v1/session - Accept zip file, store it, switch ContextManager to the session.
+   */
+  private void handlePostSession(HttpExchange exchange) throws IOException {
+    if (!exchange.getRequestMethod().equals("POST")) {
+      SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+      return;
+    }
+
+    try {
+      // Get sessionId from header or generate new one
+      var sessionIdHeader = exchange.getRequestHeaders().getFirst("X-Session-Id");
+      var sessionId = sessionIdHeader != null && !sessionIdHeader.isBlank()
+          ? UUID.fromString(sessionIdHeader)
+          : UUID.randomUUID(); // newSessionId() is package-private; use UUID.randomUUID() instead
+
+      // Write zip file to disk
+      var sessionZipPath = sessionsDir.resolve(sessionId + ".zip");
+      try (InputStream requestBody = exchange.getRequestBody()) {
+        Files.write(sessionZipPath, requestBody.readAllBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+      }
+
+      logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
+
+      // Switch ContextManager to this session
+      contextManager.switchSessionAsync(sessionId).join();
+      currentSessionId.set(sessionId);
+      logger.info("Switched to session: {}", sessionId);
+
+      var response = Map.of("sessionId", sessionId.toString());
+      SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+    } catch (IllegalArgumentException e) {
+      logger.warn("Invalid session ID in header", e);
+      var error = ErrorPayload.validationError("Invalid X-Session-Id header: " + e.getMessage());
+      SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+    } catch (Exception e) {
+      logger.error("Error handling POST /v1/session", e);
+      var error = ErrorPayload.internalError("Failed to process session upload", e);
+      SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+    }
+  }
+
+  /**
+   * POST /v1/jobs - Create job with idempotency key.
+   */
+  private void handlePostJobs(HttpExchange exchange) throws IOException {
+    if (!exchange.getRequestMethod().equals("POST")) {
+      SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+      return;
+    }
+
+    try {
+      var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+      if (idempotencyKey == null || idempotencyKey.isBlank()) {
+        var error = ErrorPayload.validationError("Idempotency-Key header is required");
+        SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        return;
+      }
+
+      // Check if a job is already running
+      if (currentJobId.get() != null) {
+        var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+        SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+        return;
+      }
+
+      // Parse JobSpec from request body (using jobs package DTO for JobStore compatibility)
+      var jobSpec = SimpleHttpServer.parseJsonRequest(exchange, ai.brokk.executor.jobs.JobSpec.class);
+      if (jobSpec == null) {
+        var error = ErrorPayload.validationError("Invalid JobSpec in request body");
+        SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        return;
+      }
+
+      // Create or get job (idempotent)
+      var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+      var jobId = createResult.jobId();
+      var isNewJob = createResult.isNewJob();
+
+      logger.info("Job {}: isNewJob={}, jobId={}", idempotencyKey, isNewJob, jobId);
+
+      // Load job status
+      var status = jobStore.loadStatus(jobId);
+      var state = status != null ? status.state() : "queued";
+
+      var response = Map.of(
+          "jobId", jobId,
+          "state", state);
+
+      int statusCode = isNewJob ? 201 : 200;
+      SimpleHttpServer.sendJsonResponse(exchange, statusCode, response);
+
+      // If this is a new job, start execution asynchronously
+      if (isNewJob) {
+        currentJobId.set(jobId);
+        executeJobAsync(jobId, jobSpec);
+      }
+    } catch (Exception e) {
+      logger.error("Error handling POST /v1/jobs", e);
+      var error = ErrorPayload.internalError("Failed to create job", e);
+      SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+    }
+  }
+
+  /**
+   * GET /v1/jobs/{jobId} - Get job status.
+   */
+  private void handleGetJob(HttpExchange exchange) throws IOException {
+    try {
+      var jobId = extractJobIdFromPath(exchange.getRequestURI().getPath());
+      if (jobId == null) {
+        var error = ErrorPayload.validationError("Invalid job ID in path");
+        SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        return;
+      }
+
+      var status = jobStore.loadStatus(jobId);
+      if (status == null) {
+        var error = ErrorPayload.jobNotFound(jobId);
+        SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+        return;
+      }
+
+      SimpleHttpServer.sendJsonResponse(exchange, status);
+    } catch (Exception e) {
+      logger.error("Error handling GET /v1/jobs/{jobId}", e);
+      var error = ErrorPayload.internalError("Failed to retrieve job status", e);
+      SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+    }
+  }
+
+  /**
+   * GET /v1/jobs/{jobId}/events - Get job events.
+   */
+  private void handleGetJobEvents(HttpExchange exchange) throws IOException {
+    try {
+      var jobId = extractJobIdFromPath(exchange.getRequestURI().getPath());
+      if (jobId == null) {
+        var error = ErrorPayload.validationError("Invalid job ID in path");
+        SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        return;
+      }
+
+      // Parse query parameters
+      var queryParams = parseQueryParams(exchange.getRequestURI().getQuery());
+      long afterSeq = -1;
+      int limit = 100;
+
+      if (queryParams.containsKey("after")) {
+        try {
+          afterSeq = Long.parseLong(queryParams.get("after"));
+        } catch (NumberFormatException e) {
+          var error = ErrorPayload.validationError("Invalid 'after' parameter");
+          SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+          return;
+        }
+      }
+
+      if (queryParams.containsKey("limit")) {
+        try {
+          limit = Math.min(1000, Integer.parseInt(queryParams.get("limit")));
+        } catch (NumberFormatException e) {
+          var error = ErrorPayload.validationError("Invalid 'limit' parameter");
+          SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+          return;
+        }
+      }
+
+      var events = jobStore.readEvents(jobId, afterSeq, limit);
+      long nextAfter = events.isEmpty() ? afterSeq : events.getLast().seq();
+
+      var response = Map.of(
+          "events", events,
+          "nextAfter", nextAfter);
+
+      SimpleHttpServer.sendJsonResponse(exchange, response);
+    } catch (Exception e) {
+      logger.error("Error handling GET /v1/jobs/{jobId}/events", e);
+      var error = ErrorPayload.internalError("Failed to retrieve events", e);
+      SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+    }
+  }
+
+  /**
+   * POST /v1/jobs/{jobId}/cancel - Cancel job execution.
+   */
+  private void handleCancelJob(HttpExchange exchange) throws IOException {
+    if (!exchange.getRequestMethod().equals("POST")) {
+      SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+      return;
+    }
+
+    try {
+      var jobId = extractJobIdFromPath(exchange.getRequestURI().getPath());
+      if (jobId == null) {
+        var error = ErrorPayload.validationError("Invalid job ID in path");
+        SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        return;
+      }
+
+      // Interrupt LLM action and return 202 Accepted (regardless of current state)
+      contextManager.interruptLlmAction();
+      logger.info("Cancelled job: {}", jobId);
+
+      exchange.sendResponseHeaders(202, 0);
+      exchange.close();
+    } catch (Exception e) {
+      logger.error("Error handling POST /v1/jobs/{jobId}/cancel", e);
+      var error = ErrorPayload.internalError("Failed to cancel job", e);
+      SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+    }
+  }
+
+  /**
+   * GET /v1/jobs/{jobId}/diff - Get git diff for job.
+   */
+  private void handleGetJobDiff(HttpExchange exchange) throws IOException {
+    try {
+      var jobId = extractJobIdFromPath(exchange.getRequestURI().getPath());
+      if (jobId == null) {
+        var error = ErrorPayload.validationError("Invalid job ID in path");
+        SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        return;
+      }
+
+      var status = jobStore.loadStatus(jobId);
+      if (status == null) {
+        var error = ErrorPayload.jobNotFound(jobId);
+        SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+        return;
+      }
+
+      try {
+        var repo = contextManager.getProject().getRepo();
+        var diff = repo.diff();
+
+        exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=UTF-8");
+        exchange.sendResponseHeaders(200, diff.getBytes().length);
+        try (var os = exchange.getResponseBody()) {
+          os.write(diff.getBytes());
+        }
+        exchange.close();
+      } catch (UnsupportedOperationException e) {
+        logger.info("Git not available for job {}", jobId);
+        var error = ErrorPayload.of("NO_GIT", "Git is not available in this workspace");
+        SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+      }
+    } catch (Exception e) {
+      logger.error("Error handling GET /v1/jobs/{jobId}/diff", e);
+      var error = ErrorPayload.internalError("Failed to compute diff", e);
+      SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+    }
   }
 
   public static void main(String[] args) {
