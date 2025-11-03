@@ -126,7 +126,8 @@ public final class HeadlessExecutorMain {
 
     // Register endpoints
     this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
-    this.server.registerAuthenticatedContext("/v1/executor", this::handleExecutor);
+    this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
+    this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
     this.server.registerAuthenticatedContext("/v1/session", this::handlePostSession);
     this.server.registerAuthenticatedContext("/v1/jobs", this::handlePostJobs);
     this.server.registerAuthenticatedContext("/v1/jobs/{jobId}", this::handleGetJob);
@@ -147,6 +148,26 @@ public final class HeadlessExecutorMain {
         "execId", this.execId.toString(),
         "version", BuildInfo.version,
         "protocolVersion", 1);
+
+    SimpleHttpServer.sendJsonResponse(exchange, response);
+  }
+
+  private void handleHealthReady(HttpExchange exchange) throws IOException {
+    if (!exchange.getRequestMethod().equals("GET")) {
+      SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+      return;
+    }
+
+    var sessionId = currentSessionId.get();
+    if (sessionId == null) {
+      var error = Map.of("status", "not_ready", "reason", "No session loaded");
+      SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+      return;
+    }
+
+    var response = Map.of(
+        "status", "ready",
+        "sessionId", sessionId.toString());
 
     SimpleHttpServer.sendJsonResponse(exchange, response);
   }
