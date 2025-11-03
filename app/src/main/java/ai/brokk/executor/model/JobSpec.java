@@ -15,10 +15,7 @@ import org.jetbrains.annotations.Nullable;
  * @param tasks The task specification (either task indices or task text).
  * @param options Execution options like auto-compression and timeout.
  */
-public record JobSpec(
-        TaskType type,
-        TaskSpecification tasks,
-        @Nullable JobOptions options) {
+public record JobSpec(TaskType type, TaskSpecification tasks, @Nullable JobOptions options) {
 
     /**
      * Task type enum: ARCHITECT, ASK, or CODE.
@@ -32,16 +29,12 @@ public record JobSpec(
     /**
      * Flexible task specification: either indices or text.
      */
-    @JsonTypeInfo(
-            use = JsonTypeInfo.Id.NAME,
-            include = JsonTypeInfo.As.PROPERTY,
-            property = "kind")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "kind")
     @JsonSubTypes({
-            @JsonSubTypes.Type(value = TaskIndices.class, name = "indices"),
-            @JsonSubTypes.Type(value = TaskText.class, name = "text")
+        @JsonSubTypes.Type(value = TaskIndices.class, name = "indices"),
+        @JsonSubTypes.Type(value = TaskText.class, name = "text")
     })
-    public sealed interface TaskSpecification {
-    }
+    public sealed interface TaskSpecification {}
 
     /**
      * Task specification by indices.
@@ -78,9 +71,7 @@ public record JobSpec(
      * @param autoCompress Whether to auto-compress history after execution.
      * @param timeoutSec Timeout in seconds; null means no timeout.
      */
-    public record JobOptions(
-            boolean autoCompress,
-            @Nullable Integer timeoutSec) {
+    public record JobOptions(boolean autoCompress, @Nullable Integer timeoutSec) {
 
         /**
          * Validate that timeoutSec is positive if specified.

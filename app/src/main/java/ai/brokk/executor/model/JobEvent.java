@@ -1,9 +1,6 @@
 package ai.brokk.executor.model;
 
-import com.fasterxml.jackson.annotation.JsonAnyGetter;
-import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -15,11 +12,7 @@ import java.util.Objects;
  * @param eventType The type of event (e.g., "LLM_TOKEN", "ERROR", "NOTIFICATION").
  * @param payload The event payload; can be any JSON-serializable object or map.
  */
-public record JobEvent(
-        long seq,
-        long ts,
-        @JsonProperty("type") String eventType,
-        Map<String, Object> payload) {
+public record JobEvent(long seq, long ts, @JsonProperty("type") String eventType, Map<String, Object> payload) {
 
     /**
      * Validate that seq >= 0, ts >= 0, and eventType is non-blank.

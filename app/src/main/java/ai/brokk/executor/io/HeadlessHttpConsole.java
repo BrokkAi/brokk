@@ -6,7 +6,6 @@ import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -93,9 +92,7 @@ public class HeadlessHttpConsole implements IConsoleIO {
      */
     @Override
     public void showNotification(NotificationRole role, String message) {
-        var data = Map.of(
-                "level", role.name(),
-                "message", message);
+        var data = Map.of("level", role.name(), "message", message);
         enqueueEvent("NOTIFICATION", data);
     }
 
@@ -139,9 +136,7 @@ public class HeadlessHttpConsole implements IConsoleIO {
      */
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
-        var data = Map.of(
-                "count", history.size() + 1,
-                "snippet", formatHistorySnippet(history));
+        var data = Map.of("count", history.size() + 1, "snippet", formatHistorySnippet(history));
         enqueueEvent("CONTEXT_BASELINE", data);
     }
 
@@ -150,9 +145,7 @@ public class HeadlessHttpConsole implements IConsoleIO {
      */
     @Override
     public void backgroundOutput(String taskDescription) {
-        var data = Map.of(
-                "name", "backgroundTask",
-                "value", taskDescription);
+        var data = Map.of("name", "backgroundTask", "value", taskDescription);
         enqueueEvent("STATE_HINT", data);
     }
 
@@ -173,9 +166,7 @@ public class HeadlessHttpConsole implements IConsoleIO {
      */
     @Override
     public void setTaskInProgress(boolean progress) {
-        var data = Map.of(
-                "name", "taskInProgress",
-                "value", progress);
+        var data = Map.of("name", "taskInProgress", "value", progress);
         enqueueEvent("STATE_HINT", data);
     }
 
@@ -184,17 +175,13 @@ public class HeadlessHttpConsole implements IConsoleIO {
      */
     @Override
     public void disableActionButtons() {
-        var data = Map.of(
-                "name", "actionButtonsEnabled",
-                "value", false);
+        var data = Map.of("name", "actionButtonsEnabled", "value", false);
         enqueueEvent("STATE_HINT", data);
     }
 
     @Override
     public void enableActionButtons() {
-        var data = Map.of(
-                "name", "actionButtonsEnabled",
-                "value", true);
+        var data = Map.of("name", "actionButtonsEnabled", "value", true);
         enqueueEvent("STATE_HINT", data);
     }
 

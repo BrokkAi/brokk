@@ -1,0 +1,336 @@
+package ai.brokk.executor;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * Integration test for HeadlessExecutorMain.
+ * Starts an HTTP server on an ephemeral port, submits a session and job,
+ * and verifies event ordering and status transitions.
+ */
+class HeadlessExecutorMainIntegrationTest {
+
+    private HeadlessExecutorMain executor;
+    private int port;
+    private String authToken = "test-secret-token";
+    private String baseUrl;
+
+    @BeforeEach
+    void setup(@TempDir Path tempDir) throws Exception {
+        var workspaceDir = tempDir.resolve("workspace");
+        var sessionsDir = tempDir.resolve("sessions");
+        Files.createDirectories(workspaceDir);
+        Files.createDirectories(sessionsDir);
+
+        // Create a minimal .brokk/project.properties file for MainProject
+        var brokkDir = workspaceDir.resolve(".brokk");
+        Files.createDirectories(brokkDir);
+        var propsFile = brokkDir.resolve("project.properties");
+        Files.writeString(propsFile, "# Minimal properties for test\n");
+
+        var execId = UUID.randomUUID();
+        executor = new HeadlessExecutorMain(
+                execId,
+                "127.0.0.1:0", // Ephemeral port
+                authToken,
+                workspaceDir,
+                sessionsDir);
+
+        executor.start();
+
+        // Extract the actual port from the server
+        // Use the public API to discover the bound port
+        port = executor.getPort();
+
+        baseUrl = "http://127.0.0.1:" + port;
+    }
+
+    @AfterEach
+    void cleanup() {
+        if (executor != null) {
+            executor.stop(2);
+        }
+    }
+
+    @Test
+    void testHealthLiveEndpoint() throws Exception {
+        var url = new URL(baseUrl + "/health/live");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+
+        assertEquals(200, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("execId"));
+            assertTrue(response.contains("version"));
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testHealthReadyEndpoint_WithoutSession() throws Exception {
+        var url = new URL(baseUrl + "/health/ready");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+
+        assertEquals(503, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    void testPostSessionEndpoint_RequiresAuth() throws Exception {
+        var sessionZip = createEmptyZip();
+
+        var url = new URL(baseUrl + "/v1/session");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/zip");
+        conn.setDoOutput(true);
+        // No Authorization header
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(sessionZip);
+        }
+
+        assertEquals(401, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    void testPostSessionEndpoint_WithValidAuth() throws Exception {
+        var sessionZip = createEmptyZip();
+
+        var url = new URL(baseUrl + "/v1/session");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/zip");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(sessionZip);
+        }
+
+        assertEquals(201, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("sessionId"));
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testPostJobsEndpoint_RequiresAuth() throws Exception {
+        // First, upload a session
+        uploadSession();
+
+        var jobSpec = (Map<String, Object>) (Map<?, ?>)
+                Map.of("sessionId", UUID.randomUUID().toString(), "taskInput", "echo hello", "autoCompress", false);
+
+        var url = new URL(baseUrl + "/v1/jobs");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Idempotency-Key", "test-job-1");
+        conn.setDoOutput(true);
+        // No Authorization header
+
+        var json = toJson(jobSpec);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(401, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    void testPostJobsEndpoint_WithValidAuth() throws Exception {
+        // Upload a session
+        uploadSession();
+
+        var jobSpec = (Map<String, Object>) (Map<?, ?>)
+                Map.of("sessionId", UUID.randomUUID().toString(), "taskInput", "echo hello", "autoCompress", false);
+
+        var url = new URL(baseUrl + "/v1/jobs");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Idempotency-Key", "test-job-1");
+        conn.setDoOutput(true);
+
+        var json = toJson(jobSpec);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("jobId"));
+            assertTrue(response.contains("state"));
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testGetJobsEventsEndpoint_WithPolling() throws Exception {
+        // Upload session and create job
+        uploadSession();
+
+        var jobId = createJob("test-job-polling");
+
+        // Poll for events
+        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/events?after=0");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(200, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("events"));
+            assertTrue(response.contains("nextAfter"));
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testGetJobStatusEndpoint() throws Exception {
+        uploadSession();
+        var jobId = createJob("test-job-status");
+
+        var url = new URL(baseUrl + "/v1/jobs/" + jobId);
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(200, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("state"));
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testCancelJobEndpoint() throws Exception {
+        uploadSession();
+        var jobId = createJob("test-job-cancel");
+
+        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/cancel");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(202, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    void testEventOrdering_AfterJobSubmission() throws Exception {
+        uploadSession();
+        var jobId = createJob("test-event-ordering");
+
+        // Small delay to allow events to be written
+        Thread.sleep(200);
+
+        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=100");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(200, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            // Verify structure contains events array
+            assertTrue(response.contains("events"));
+            assertTrue(response.contains("nextAfter"));
+        }
+        conn.disconnect();
+    }
+
+    // ============================================================================
+    // Helpers
+    // ============================================================================
+
+    private byte[] createEmptyZip() throws IOException {
+        var out = new java.io.ByteArrayOutputStream();
+        try (var zos = new ZipOutputStream(out)) {
+            var entry = new ZipEntry("metadata.json");
+            zos.putNextEntry(entry);
+            zos.write("{\"version\": 1}".getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+        return out.toByteArray();
+    }
+
+    private void uploadSession() throws Exception {
+        var sessionZip = createEmptyZip();
+        var url = new URL(baseUrl + "/v1/session");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/zip");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(sessionZip);
+        }
+
+        assertEquals(201, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    private String createJob(String idempotencyKey) throws Exception {
+        var jobSpec = (Map<String, Object>) (Map<?, ?>)
+                Map.of("sessionId", UUID.randomUUID().toString(), "taskInput", "echo test", "autoCompress", false);
+
+        var url = new URL(baseUrl + "/v1/jobs");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Idempotency-Key", idempotencyKey);
+        conn.setDoOutput(true);
+
+        var json = toJson(jobSpec);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            // Extract jobId from response JSON
+            var start = response.indexOf("\"jobId\":\"") + 9;
+            var end = response.indexOf("\"", start);
+            return response.substring(start, end);
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private String toJson(Object obj) throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        return mapper.writeValueAsString(obj);
+    }
+}

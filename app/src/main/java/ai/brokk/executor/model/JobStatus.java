@@ -1,6 +1,5 @@
 package ai.brokk.executor.model;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,12 +14,7 @@ import org.jetbrains.annotations.Nullable;
  * @param lastSeq The last event sequence number appended to the job's event log.
  */
 public record JobStatus(
-        State state,
-        long createdAt,
-        @Nullable Long startedAt,
-        @Nullable Long completedAt,
-        int attempts,
-        long lastSeq) {
+        State state, long createdAt, @Nullable Long startedAt, @Nullable Long completedAt, int attempts, long lastSeq) {
 
     /**
      * Job execution state.
@@ -65,13 +59,7 @@ public record JobStatus(
      * @return A new JobStatus with state PENDING, createdAt now, and other fields set to defaults.
      */
     public static JobStatus pending() {
-        return new JobStatus(
-                State.PENDING,
-                System.currentTimeMillis(),
-                null,
-                null,
-                1,
-                -1);
+        return new JobStatus(State.PENDING, System.currentTimeMillis(), null, null, 1, -1);
     }
 
     /**
@@ -83,13 +71,7 @@ public record JobStatus(
             throw new IllegalStateException(
                     "Cannot transition from " + state + " to RUNNING; only PENDING jobs can start");
         }
-        return new JobStatus(
-                State.RUNNING,
-                createdAt,
-                System.currentTimeMillis(),
-                null,
-                attempts,
-                lastSeq);
+        return new JobStatus(State.RUNNING, createdAt, System.currentTimeMillis(), null, attempts, lastSeq);
     }
 
     /**
@@ -101,13 +83,7 @@ public record JobStatus(
             throw new IllegalStateException(
                     "Cannot transition from " + state + " to SUCCEEDED; only RUNNING jobs can succeed");
         }
-        return new JobStatus(
-                State.SUCCEEDED,
-                createdAt,
-                startedAt,
-                System.currentTimeMillis(),
-                attempts,
-                lastSeq);
+        return new JobStatus(State.SUCCEEDED, createdAt, startedAt, System.currentTimeMillis(), attempts, lastSeq);
     }
 
     /**
@@ -116,16 +92,9 @@ public record JobStatus(
      */
     public JobStatus toFailed() {
         if (state.equals(State.SUCCEEDED) || state.equals(State.CANCELLED)) {
-            throw new IllegalStateException(
-                    "Cannot transition from " + state + " to FAILED; terminal state");
+            throw new IllegalStateException("Cannot transition from " + state + " to FAILED; terminal state");
         }
-        return new JobStatus(
-                State.FAILED,
-                createdAt,
-                startedAt,
-                System.currentTimeMillis(),
-                attempts,
-                lastSeq);
+        return new JobStatus(State.FAILED, createdAt, startedAt, System.currentTimeMillis(), attempts, lastSeq);
     }
 
     /**
@@ -134,16 +103,9 @@ public record JobStatus(
      */
     public JobStatus toCancelled() {
         if (state.equals(State.SUCCEEDED) || state.equals(State.FAILED)) {
-            throw new IllegalStateException(
-                    "Cannot transition from " + state + " to CANCELLED; already terminal");
+            throw new IllegalStateException("Cannot transition from " + state + " to CANCELLED; already terminal");
         }
-        return new JobStatus(
-                State.CANCELLED,
-                createdAt,
-                startedAt,
-                System.currentTimeMillis(),
-                attempts,
-                lastSeq);
+        return new JobStatus(State.CANCELLED, createdAt, startedAt, System.currentTimeMillis(), attempts, lastSeq);
     }
 
     /**
@@ -151,13 +113,7 @@ public record JobStatus(
      * @return A new JobStatus with state PENDING, incremented attempts, and cleared timestamps.
      */
     public JobStatus retryReset() {
-        return new JobStatus(
-                State.PENDING,
-                createdAt,
-                null,
-                null,
-                attempts + 1,
-                lastSeq);
+        return new JobStatus(State.PENDING, createdAt, null, null, attempts + 1, lastSeq);
     }
 
     /**
@@ -169,13 +125,7 @@ public record JobStatus(
         if (newLastSeq < -1) {
             throw new IllegalArgumentException("lastSeq must be >= -1, got: " + newLastSeq);
         }
-        return new JobStatus(
-                state,
-                createdAt,
-                startedAt,
-                completedAt,
-                attempts,
-                newLastSeq);
+        return new JobStatus(state, createdAt, startedAt, completedAt, attempts, newLastSeq);
     }
 
     /**
@@ -183,8 +133,6 @@ public record JobStatus(
      * @return true if the job is SUCCEEDED, FAILED, or CANCELLED.
      */
     public boolean isTerminal() {
-        return state.equals(State.SUCCEEDED)
-                || state.equals(State.FAILED)
-                || state.equals(State.CANCELLED);
+        return state.equals(State.SUCCEEDED) || state.equals(State.FAILED) || state.equals(State.CANCELLED);
     }
 }

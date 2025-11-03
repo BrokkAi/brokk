@@ -10,10 +10,7 @@ import org.jetbrains.annotations.Nullable;
  * @param message A human-readable error message.
  * @param details Additional details; null if no extra information is available.
  */
-public record ErrorPayload(
-        String code,
-        String message,
-        @Nullable String details) {
+public record ErrorPayload(String code, String message, @Nullable String details) {
 
     /**
      * Validate that code and message are non-blank.
@@ -81,8 +78,6 @@ public record ErrorPayload(
      */
     public static ErrorPayload internalError(String message, Throwable throwable) {
         return new ErrorPayload(
-                Code.INTERNAL_ERROR,
-                message,
-                throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+                Code.INTERNAL_ERROR, message, throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
     }
 }
