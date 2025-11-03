@@ -697,8 +697,11 @@ public final class DependenciesPanel extends JPanel {
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependenciesAsync();
-                    // Persist changes after successful deletion and reload.
-                    saveChangesAsync();
+                    // Persist changes after successful deletion and reload, then refresh badge on EDT when save completes.
+                    var future = saveChangesAsync();
+                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() ->
+                            chrome.getProjectFilesPanel().updateDependenciesBadge(
+                                    chrome.getProject().getLiveDependencies().size())));
                 } catch (IOException ex) {
                     JOptionPane.showMessageDialog(
                             this,
