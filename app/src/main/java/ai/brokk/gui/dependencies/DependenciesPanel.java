@@ -147,6 +147,9 @@ public final class DependenciesPanel extends JPanel {
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
+        // Stable name for UI tests (AssertJ Swing)
+        setName("dependenciesPanel");
+
         this.host = requireNonNull(host);
 
         var contentPanel = new JPanel(new BorderLayout());
@@ -185,6 +188,9 @@ public final class DependenciesPanel extends JPanel {
                 return Objects.toString(v, null);
             }
         };
+        // Stable name for UI tests (AssertJ Swing)
+        table.setName("dependenciesTable");
+
         var sorter = new TableRowSorter<>(tableModel) {
             @Override
             public void toggleSortOrder(int column) {
@@ -242,8 +248,12 @@ public final class DependenciesPanel extends JPanel {
         addRemovePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
         addButton = new MaterialButton();
         addButton.setIcon(Icons.ADD);
+        // Stable name for UI tests (AssertJ Swing)
+        addButton.setName("dependenciesAddButton");
         removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
+        // Stable name for UI tests (AssertJ Swing)
+        removeButton.setName("dependenciesRemoveButton");
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
 
