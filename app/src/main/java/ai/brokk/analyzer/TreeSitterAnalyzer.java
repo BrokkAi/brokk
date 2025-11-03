@@ -1064,7 +1064,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param src The source code string
      * @return The signature string (e.g., "(int, String)"), or null if not applicable
      */
-    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
         return null;
     }
 
@@ -1366,14 +1366,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
     private void addChildCodeUnit(
-    CodeUnit cu,
-    CodeUnit parentCu,
-    List<CodeUnit> kids,
-    Map<CodeUnit, List<CodeUnit>> localChildren,
-    Map<CodeUnit, List<String>> localSignatures,
-    Map<CodeUnit, List<Range>> localSourceRanges,
-    Map<CodeUnit, Boolean> localHasBody,
-    ProjectFile file) {
+            CodeUnit cu,
+            CodeUnit parentCu,
+            List<CodeUnit> kids,
+            Map<CodeUnit, List<CodeUnit>> localChildren,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody) {
 
         // Look for an existing child with the same FQN (overloads may exist with different signatures)
         CodeUnit existingDuplicate = kids.stream()
@@ -1756,14 +1755,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
 
             // Extract signature separately for function-like entities (C++ overload disambiguation)
-            String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
+            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
 
             // Reconstruct CodeUnit if FQN changed or signature exists
             if (!enhancedFqName.equals(cu.fqName()) || codeUnitSignature != null) {
                 // Strip package prefix from enhanced FQN to get the short name
                 String enhancedShortName = enhancedFqName;
                 if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
-                    enhancedShortName = enhancedFqName.substring(cu.packageName().length() + 1);
+                    enhancedShortName =
+                            enhancedFqName.substring(cu.packageName().length() + 1);
                 }
                 // Reconstruct CodeUnit with enhanced short name and signature
                 cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
@@ -1789,7 +1789,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 // Unwrap decorator-wrapping nodes if applicable (e.g., Python)
                 if (hasWrappingDecoratorNode()) {
                     // Pass an empty list for decorator text since we only need the inner definition node here
-                    nodeForBody = extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), finalFileBytes, profile);
+                    nodeForBody =
+                            extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), finalFileBytes, profile);
                 }
 
                 // hasBody is derived from the AST (presence of a non-empty body node after any necessary unwrapping)
@@ -1903,14 +1904,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
                         addChildCodeUnit(
-                                cu,
-                                parentFnCu,
-                                kids,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                file);
+                                cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -1938,14 +1932,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
                         addChildCodeUnit(
-                                cu,
-                                parentCu,
-                                kids,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                file);
+                                cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",

@@ -28,7 +28,7 @@ public class NamespaceProcessor {
     }
 
     public NamespaceProcessor(TSParser templateParser, Supplier<String> bodyPlaceholderSupplier) {
-        this.bodyPlaceholderSupplier = Objects.requireNonNull(bodyPlaceholderSupplier, "bodyPlaceholderSupplier");
+        this.bodyPlaceholderSupplier = bodyPlaceholderSupplier;
     }
 
     public record NamespaceBlock(String name, TSNode node, int startByte, int endByte) {}
