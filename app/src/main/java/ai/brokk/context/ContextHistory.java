@@ -523,32 +523,74 @@ public class ContextHistory {
             logger.warn("Attempted to apply null context to workspace");
             return;
         }
+
+        // Phase 0: best-effort pre-warm; runs off-EDT in undo/redo flows
+        snapshot.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+
+        // Phase 1: materialize all desired contents from the snapshot with bounded waits
+        var desiredContents = new LinkedHashMap<ProjectFile, String>();
+        var materializationWarnings = new ArrayList<String>();
+
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
                     assert fragment.files().size() == 1 : fragment.files();
-
                     var pf = fragment.files().iterator().next();
+
                     try {
+                        String newContent;
                         if (fragment instanceof ContextFragment.ComputedFragment df) {
-                            df.computedText().onComplete((newContent, ex) -> {
-                                if (ex != null) {
-                                    io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
+                            var tryNow = df.computedText().tryGet();
+                            if (tryNow.isPresent()) {
+                                newContent = tryNow.get();
+                            } else {
+                                var awaited = df.computedText().await(SNAPSHOT_AWAIT_TIMEOUT);
+                                if (awaited.isPresent()) {
+                                    newContent = awaited.get();
                                 } else {
-                                    try {
-                                        applyFragmentSnapshotToWorkspace(newContent, pf, io);
-                                    } catch (IOException e) {
-                                        io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
-                                    }
+                                    // Do not fall back to reading current disk state; we want the snapshot value
+                                    materializationWarnings.add(pf.toString());
+                                    return;
                                 }
-                            });
+                            }
                         } else {
-                            applyFragmentSnapshotToWorkspace(fragment.text(), pf, io);
+                            newContent = fragment.text();
                         }
-                    } catch (IOException e) {
-                        io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
+                        desiredContents.put(pf, newContent);
+                    } catch (Exception e) {
+                        logger.warn("Failed to materialize snapshot content for {}: {}", pf, e.getMessage());
+                        materializationWarnings.add(pf.toString());
                     }
                 });
+
+        // Phase 2: write all differing files and notify once
+        var restoredFiles = new ArrayList<String>();
+        for (var entry : desiredContents.entrySet()) {
+            var pf = entry.getKey();
+            var newContent = entry.getValue();
+            try {
+                var currentContent = pf.exists() ? pf.read().orElse("") : "";
+                if (!Objects.equals(newContent, currentContent)) {
+                    pf.write(newContent);
+                    restoredFiles.add(pf.toString());
+                }
+            } catch (IOException e) {
+                logger.error("Failed to restore file {} from snapshot", pf, e);
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
+            }
+        }
+
+        if (!restoredFiles.isEmpty()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
+            io.updateWorkspace();
+        }
+
+        if (!materializationWarnings.isEmpty()) {
+            io.toolError(
+                    "Some files could not be restored within timeout: " + String.join(", ", materializationWarnings),
+                    "Undo/Redo Warning");
+        }
     }
 
     private void applyFragmentSnapshotToWorkspace(String newContent, ProjectFile pf, IConsoleIO io) throws IOException {
