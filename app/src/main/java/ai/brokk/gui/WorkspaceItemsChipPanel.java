@@ -578,49 +578,37 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
      * Conservative predicate deciding whether a fragment has visible/renderable content.
      *
      * Rules:
+     * - Immediately return true for ComputedFragment or any dynamic fragment (isDynamic()).
      * - Always keep output fragments (history / outputs).
-     * - For text fragments: prefer non-blocking computed values; if dynamic and not ready, err on rendering.
-     * - For non-text fragments: require at least an image, at least one file, or a non-empty description.
+     * - For static non-computed text fragments: require non-blank text.
+     * - For static non-text fragments: require at least an image, at least one file, or a non-empty description.
      *
      * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
      */
     private boolean hasRenderableContent(ContextFragment f) {
         try {
+            // Immediately render any computed or dynamic fragment to avoid hiding chips while content is computing.
+            if (f instanceof ContextFragment.ComputedFragment) {
+                return true;
+            }
+            if (f.isDynamic()) {
+                return true;
+            }
+
+            // Always keep output fragments visible
             if (f.getType().isOutput()) {
                 return true;
             }
 
+            // Static, non-computed fragments: check current content
             if (f.isText()) {
-                String txt;
-                if (f instanceof ContextFragment.ComputedFragment cf) {
-                    txt = cf.computedText().renderNowOr("");
-                } else {
-                    txt = f.text();
-                }
-                boolean hasText = !txt.trim().isEmpty();
-                // Be conservative for dynamic fragments that haven't computed yet
-                return hasText || f.isDynamic();
+                String txt = f.text();
+                return !txt.trim().isEmpty();
             } else {
                 boolean hasImage = f instanceof ContextFragment.ImageFragment;
-
-                Set<ProjectFile> files;
-                if (f instanceof ContextFragment.ComputedFragment cff) {
-                    files = cff.computedFiles().renderNowOr(Set.of());
-                } else {
-                    files = f.files();
-                }
-
-                String desc;
-                if (f instanceof ContextFragment.ComputedFragment cf) {
-                    desc = cf.computedDescription().renderNowOr("");
-                } else {
-                    desc = f.description();
-                }
-                boolean hasDesc = !desc.trim().isEmpty();
-
-                boolean any = hasImage || !files.isEmpty() || hasDesc;
-                // Be conservative for dynamic fragments that haven't computed yet
-                return any || f.isDynamic();
+                Set<ProjectFile> files = f.files();
+                String desc = f.description();
+                return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
             }
         } catch (Exception ex) {
             // Be conservative: if we cannot decide, render the fragment to avoid hiding useful info.
