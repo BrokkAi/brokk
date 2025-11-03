@@ -360,8 +360,12 @@ public class SearchAgent {
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single tool call when possible.
-                  5) Make multiple tool calls at once when searching for different types of code.
+                   4) Group related lookups into a single tool call when possible, but still parallelize:
+                      - Prefer 3–5 short, targeted calls over 1 long call.
+                      - Use at least two different tools when building initial context.
+
+                   5) Make multiple tool calls AT ONCE when searching different code aspects
+                      (names, symbols, contents, history). This is mandatory on discovery turns.
                   6) Your responsibility ends at providing context.
                      Do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
@@ -375,6 +379,10 @@ public class SearchAgent {
                   - Start each turn by pruning and summarizing before any new exploration.
                   - Think before calling tools.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                Parallelization mandate:
+                  - On the FIRST exploration turn, and on any turn where new discovery is needed, you MUST issue >= 2 RESEARCH tool calls in the SAME turn (parallel).
+                  - Aim for parallelizing multiple tool calls per turn.
 
                 %s
                 </instructions>
@@ -505,6 +513,25 @@ public class SearchAgent {
                         If you include a final together with other tools, the final will be ignored for this turn.
                         It is NOT your objective to write code.
 
+                        Tool invocation format
+                        - Emit each tool call as a separate entry: { name: "<toolName>", arguments: {...} }.
+                        - Do NOT combine multiple tool names into one call; that is an error.
+
+                        Example (discovery turn with parallel calls):
+
+                        # Tool Call Plan
+                        Parallel calls (4):
+                        - searchSymbols("getDiff") - find methods named 'getDiff'
+                        - searchFilenames("**/Context.java") - locate candidate context files
+                        - searchSubstrings("DiffAwareRenderer") - find renderer usage sites
+                        - getFileSummaries(["app/src/main/java/**/context/**"]) - map candidate directories
+
+                        # Tool calls
+                        searchSymbols({"query":"getDiff"})
+                        searchFilenames({"pattern":"**/Context.java"})
+                        searchSubstrings({"query":"DiffAwareRenderer"})
+                        getFileSummaries({"relativePaths":["app/src/main/java/ai/brokk/context","app/src/main/java/ai/brokk/ui"]})
+
                         %s
                         """
                         .formatted(
@@ -522,7 +549,7 @@ public class SearchAgent {
                     + """
                     <beast-mode>
                     The Workspace is full or execution was interrupted.
-                    Finalize now using the best available information.
+                    Beast mode waives the parallelization mandate: finalize now using the best available information.
                     Prefer answer(String) for informational requests; for code-change requests, provide a concise createTaskList(List<String>) if feasible; otherwise use abortSearch with reasons.
                     </beast-mode>
                     """;
