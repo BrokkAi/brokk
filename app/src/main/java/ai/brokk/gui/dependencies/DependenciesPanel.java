@@ -416,27 +416,30 @@ public final class DependenciesPanel extends JPanel {
         // Ensure spacer size is set after initial layout
         SwingUtilities.invokeLater(this::updateBottomSpacer);
 
-        // Update spacer when the Workspace layout changes
+        // Update spacer when the Workspace layout changes, but be tolerant of tests that
+        // supply a null context panel (test hosts may not provide a full WorkspacePanel).
         var workspacePanel = host.getContextPanel();
-        workspacePanel.addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                updateBottomSpacer();
-            }
+        if (workspacePanel != null) {
+            workspacePanel.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    updateBottomSpacer();
+                }
 
-            @Override
-            public void componentShown(ComponentEvent e) {
-                updateBottomSpacer();
-            }
-        });
+                @Override
+                public void componentShown(ComponentEvent e) {
+                    updateBottomSpacer();
+                }
+            });
 
-        // Listen for explicit bottom-controls height changes from WorkspacePanel
-        workspacePanel.addBottomControlsListener(new WorkspacePanel.BottomControlsListener() {
-            @Override
-            public void bottomControlsHeightChanged(int newHeight) {
-                updateBottomSpacer();
-            }
-        });
+            // Listen for explicit bottom-controls height changes from WorkspacePanel
+            workspacePanel.addBottomControlsListener(new WorkspacePanel.BottomControlsListener() {
+                @Override
+                public void bottomControlsHeightChanged(int newHeight) {
+                    updateBottomSpacer();
+                }
+            });
+        }
     }
 
     public void setImportLauncherForTest(ImportDependencyLauncher launcher) {
@@ -620,6 +623,10 @@ public final class DependenciesPanel extends JPanel {
     private void updateBottomSpacer() {
         try {
             var wp = host.getContextPanel();
+            if (wp == null) {
+                // Nothing to align to in this test environment
+                return;
+            }
             int target = wp.getBottomControlsPreferredHeight();
             int controls = addRemovePanel.getPreferredSize().height;
             int filler = Math.max(0, target - controls);
