@@ -35,12 +35,13 @@ jobs:
     - name: Check commit
       run: git rev-parse HEAD
 
-    - name: Run tests with full static analysis
-      run: ./gradlew check
+    - name: Run tests with full static analysis (Windows)
+      if: matrix.os == 'windows-latest'
+      run: ./gradlew check -PexcludeGitRepoTest
 
-    - name: Build assembly
-      run: ./gradlew shadowJar
-
+    - name: Run tests with full static analysis (Unix)
+      if: matrix.os != 'windows-latest'
+      run: ./gradlew check shadowJar
 
   formatting:
     runs-on: ubuntu-latest

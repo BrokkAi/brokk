@@ -18,6 +18,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpRequest.BodyPublisher;
 import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
@@ -46,7 +47,7 @@ public class JdkHttpClient implements HttpClient {
         try {
             java.net.http.HttpRequest jdkRequest = toJdkRequest(request);
 
-            java.net.http.HttpResponse<String> jdkResponse = delegate.send(jdkRequest, BodyHandlers.ofString());
+            HttpResponse<String> jdkResponse = delegate.send(jdkRequest, BodyHandlers.ofString());
 
             if (!isSuccessful(jdkResponse)) {
                 throw new HttpException(jdkResponse.statusCode(), jdkResponse.body());
@@ -117,7 +118,7 @@ public class JdkHttpClient implements HttpClient {
         return builder.build();
     }
 
-    private static SuccessfulHttpResponse fromJdkResponse(java.net.http.HttpResponse<?> response, String body) {
+    private static SuccessfulHttpResponse fromJdkResponse(HttpResponse<?> response, String body) {
         return SuccessfulHttpResponse.builder()
                 .statusCode(response.statusCode())
                 .headers(response.headers().map())
@@ -125,12 +126,12 @@ public class JdkHttpClient implements HttpClient {
                 .build();
     }
 
-    private static boolean isSuccessful(java.net.http.HttpResponse<?> response) {
+    private static boolean isSuccessful(HttpResponse<?> response) {
         int statusCode = response.statusCode();
         return statusCode >= 200 && statusCode < 300;
     }
 
-    private static String readBody(java.net.http.HttpResponse<InputStream> response) {
+    private static String readBody(HttpResponse<InputStream> response) {
         try (InputStream inputStream = response.body();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
             return reader.lines().collect(joining(System.lineSeparator()));

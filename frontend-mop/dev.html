@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html class="theme-light">
+<html class="theme-dark">
 <head>
     <meta charset="utf-8">
     <title>Brokk MOP - Dev Mode</title>
@@ -24,9 +24,8 @@
     <button onclick="streamEdit()">Stream "Edit"</button>
     <button onclick="showAskMd()">Show "ask" MD</button>
     <button onclick="showEditMd()">Show "edit" MD</button>
-    <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle
-        Theme
-    </button>
+    <button onclick="cycleTheme()">Cycle Theme</button>
+    <span id="current-theme-display" style="margin-left:6px; color:#666;">(dark)</span>
     <button onclick="window.brokk.clear()">Clear Log</button>
     <button onclick="window.brokk.showSpinner('Testing spinner...'); window.brokk.hideSpinner">
         Test Spinner
@@ -34,9 +33,6 @@
     <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
     <button id="toggle-wrap-btn" onclick="toggleCodeWrap()">Toggle Code Wrap</button>
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
-    <br>
-    <button onclick="window.brokk.setTheme(false, false, true)">Test Java SetTheme (Light + Wrap)</button>
-    <button onclick="window.brokk.setTheme(true, false, false)">Test Java SetTheme (Dark + Scroll)</button>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
@@ -1091,6 +1087,45 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
         getSearchStateAndDisplay();
         updateSymbolCount();
     })();
+
+// ----- Theme helpers ---------------------------------------------------------
+
+function getCurrentTheme() {
+    const html = document.documentElement;
+    if (html.classList.contains('theme-light')) return 'light';
+    if (html.classList.contains('theme-high-contrast')) return 'high-contrast';
+    return 'dark'; // default
+}
+
+function setTheme(themeName) {
+    const html = document.documentElement;
+    html.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast');
+    html.classList.add('theme-' + themeName);
+
+    // Update display
+    const display = document.getElementById('current-theme-display');
+    if (display) {
+        display.textContent = '(' + themeName + ')';
+    }
+
+    console.log('[Dev] Theme set to:', themeName);
+}
+
+function cycleTheme() {
+    const themes = ['light', 'dark', 'high-contrast'];
+    const current = getCurrentTheme();
+    const currentIndex = themes.indexOf(current);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    setTheme(themes[nextIndex]);
+}
+
+// Initialize theme display on load
+(function() {
+    const display = document.getElementById('current-theme-display');
+    if (display) {
+        display.textContent = '(' + getCurrentTheme() + ')';
+    }
+})();
 
 // ----- Code wrap helpers and demo ---------------------------------------------------------
 

@@ -56,13 +56,7 @@ export interface WorkerLogMsg {
     message: string;
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | WorkerLogMsg | LogMsg;
-
-export interface LogMsg {
-    type: 'log';
-    level: 'log' | 'warn' | 'error' | 'debug' | 'info';
-    message: string;
-}
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | WorkerLogMsg;
 
 // shared by both
 

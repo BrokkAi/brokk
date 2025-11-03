@@ -6,6 +6,9 @@
   ] @package.name
 ) @package.declaration
 
+; Import declarations
+(import_declaration) @import.declaration
+
 ; Annotation declarations
 (annotation_type_declaration
   name: (identifier) @annotation.name) @annotation.definition
