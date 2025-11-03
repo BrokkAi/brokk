@@ -1472,7 +1472,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns the current session's domain-model task list. Always non-null. */
     public TaskList.TaskListData getTaskList() {
-        return taskList;
+        // Prefer reading from the fragment-backed model
+        return topContext().getTaskListDataOrEmpty();
     }
 
     /**
@@ -1490,15 +1491,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        var combined = new ArrayList<TaskList.TaskItem>();
-        combined.addAll(taskList.tasks());
+        var current = getTaskList();
+        var combined = new ArrayList<TaskList.TaskItem>(current.tasks());
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
-        this.taskList = newData;
+        setTaskList(newData);
 
-        // Persist via existing SessionManager API (UI DTO)
-        project.getSessionManager().writeTaskList(currentSessionId, newData);
         if (io instanceof Chrome chrome) {
             chrome.refreshTaskListUI();
         }
@@ -1513,7 +1512,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should call after modifying the task list.
      */
     public void setTaskList(TaskList.TaskListData data) {
+        // Update in-memory cache (compatibility), prefer reading from fragment elsewhere
         this.taskList = data;
+
+        // Track the change in history by pushing a new context with the Task List fragment
+        pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+
+        // Persist legacy JSON for parity with existing storage
         project.getSessionManager().writeTaskList(currentSessionId, data).exceptionally(ex -> {
             logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
             return null;
@@ -1523,7 +1528,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Load and cache the task list for a specific session ID; on error, set to empty
     private void loadTaskListForSession(UUID sessionId) {
         try {
-            this.taskList = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+            // Prefer fragment-backed Task List if present
+            var maybeFragment = topContext().getTaskListFragment();
+            if (maybeFragment.isPresent()) {
+                var fromFragment = topContext().getTaskListDataOrEmpty();
+                this.taskList = fromFragment; // cache for compatibility
+                return;
+            }
+
+            // Migrate from legacy storage if fragment is absent
+            var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+            if (legacy != null && !legacy.tasks().isEmpty()) {
+                // Push a new context with the Task List fragment and a migration action
+                pushContext(currentLiveCtx -> currentLiveCtx
+                        .withTaskList(legacy)
+                        .withAction(CompletableFuture.completedFuture("Task list initialized from legacy storage")));
+
+                // Update cache and persist JSON for parity
+                this.taskList = legacy;
+                project.getSessionManager().writeTaskList(sessionId, legacy);
+            } else {
+                this.taskList = new TaskList.TaskListData(List.of());
+            }
         } catch (Exception e) {
             logger.error("Unable to load task list for session {}", sessionId, e);
             this.taskList = new TaskList.TaskListData(List.of());
@@ -1582,7 +1608,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
     private void markTaskDoneAndPersist(TaskList.TaskItem task) {
-        var existing = new ArrayList<>(taskList.tasks());
+        var existing = new ArrayList<>(getTaskList().tasks());
         int idx = existing.indexOf(task);
         if (idx < 0) {
             // Fallback: find first matching by text (not done) if equals() does not match
@@ -1596,16 +1622,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         if (idx >= 0) {
             existing.set(idx, new TaskList.TaskItem(task.text(), true));
-            this.taskList = new TaskList.TaskListData(List.copyOf(existing));
-            project.getSessionManager()
-                    .writeTaskList(currentSessionId, this.taskList)
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Failed to persist updated task list for session {}: {}",
-                                currentSessionId,
-                                ex.getMessage());
-                        return null;
-                    });
+            var newData = new TaskList.TaskListData(List.copyOf(existing));
+            setTaskList(newData);
         }
     }
 
