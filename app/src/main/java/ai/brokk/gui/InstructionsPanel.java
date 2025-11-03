@@ -1521,7 +1521,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     context,
                     query,
                     modelToUse,
-                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
+                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.CODE, SearchAgent.Terminal.TASK_LIST),
                     scope);
             try {
                 agent.scanInitialContext();
