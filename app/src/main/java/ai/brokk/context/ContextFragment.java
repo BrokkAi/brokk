@@ -125,15 +125,27 @@ public interface ContextFragment {
     }
 
     final class FragmentExecutorHolder {
+        // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
+        // We once saw macOS CI with 2 vCPUs blow up during static init with
+        // IllegalArgumentException("corePoolSize > maximumPoolSize"). To make this robust,
+        // we pick a safe parallelism and set core == max. With an unbounded queue, core==max
+        // is the correct configuration to avoid IllegalArgumentException and unexpected scaling.
         static final LoggingExecutorService INSTANCE = new LoggingExecutorService(
                 new ThreadPoolExecutor(
-                        4,
-                        Runtime.getRuntime().availableProcessors(),
+                        computeNThreads(), // core
+                        computeNThreads(), // max
                         60L,
                         TimeUnit.SECONDS,
                         new LinkedBlockingQueue<>(),
                         Executors.defaultThreadFactory()),
                 th -> logger.error("Uncaught exception in ContextFragment executor", th));
+
+        private static int computeNThreads() {
+            int cpus = Runtime.getRuntime().availableProcessors();
+            // Use at least 2 threads to avoid starvation on tiny runners; no cap required since
+            // tasks are short-lived and the queue is unbounded.
+            return Math.max(2, cpus);
+        }
     }
 
     /**
