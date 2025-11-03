@@ -3,30 +3,21 @@ package ai.brokk.executor;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.MainProject;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import ai.brokk.executor.http.SimpleHttpServer;
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public final class HeadlessExecutorMain {
   private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
-  private static final ObjectMapper objectMapper = new ObjectMapper();
-  private static final AtomicInteger workerThreadCounter = new AtomicInteger(0);
 
   private final UUID execId;
-  private final String authToken;
-  private final HttpServer server;
+  private final SimpleHttpServer server;
   private final ContextManager contextManager;
   private final Path workspaceDir;
   private final Path sessionsDir;
@@ -82,7 +73,6 @@ public final class HeadlessExecutorMain {
   public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, Path workspaceDir, Path sessionsDir)
       throws IOException {
     this.execId = execId;
-    this.authToken = authToken;
     this.workspaceDir = workspaceDir;
     this.sessionsDir = sessionsDir;
 
@@ -106,28 +96,19 @@ public final class HeadlessExecutorMain {
     this.contextManager = new ContextManager(project);
     this.contextManager.createHeadless();
 
-    // Create HTTP server
-    this.server = HttpServer.create(new InetSocketAddress(host, port), 0);
-    this.server.setExecutor(
-        Executors.newFixedThreadPool(
-            4,
-            r -> {
-              var t = new Thread(r, "HeadlessExecutor-Worker-" + workerThreadCounter.incrementAndGet());
-              t.setDaemon(true);
-              return t;
-            }));
+    // Create HTTP server with authentication
+    this.server = new SimpleHttpServer(host, port, authToken, 4);
 
     // Register endpoints
-    this.server.createContext("/health/live", this::handleHealthLive);
-    this.server.createContext("/v1/executor", this::handleExecutor);
+    this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
+    this.server.registerAuthenticatedContext("/v1/executor", this::handleExecutor);
 
     logger.info("HeadlessExecutorMain initialized successfully");
   }
 
   private void handleHealthLive(HttpExchange exchange) throws IOException {
     if (!exchange.getRequestMethod().equals("GET")) {
-      exchange.sendResponseHeaders(405, 0);
-      exchange.close();
+      SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
       return;
     }
 
@@ -136,22 +117,12 @@ public final class HeadlessExecutorMain {
         "version", BuildInfo.version,
         "protocolVersion", 1);
 
-    sendJsonResponse(exchange, 200, response);
+    SimpleHttpServer.sendJsonResponse(exchange, response);
   }
 
   private void handleExecutor(HttpExchange exchange) throws IOException {
-    // Check Authorization header
-    var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
-    if (authHeader == null || !authHeader.equals("Bearer " + this.authToken)) {
-      logger.warn("Unauthorized request to /v1/executor");
-      exchange.sendResponseHeaders(401, 0);
-      exchange.close();
-      return;
-    }
-
     if (!exchange.getRequestMethod().equals("GET")) {
-      exchange.sendResponseHeaders(405, 0);
-      exchange.close();
+      SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
       return;
     }
 
@@ -160,20 +131,7 @@ public final class HeadlessExecutorMain {
         "version", BuildInfo.version,
         "protocolVersion", 1);
 
-    sendJsonResponse(exchange, 200, response);
-  }
-
-  private void sendJsonResponse(HttpExchange exchange, int statusCode, Object responseObject) throws IOException {
-    var headers = exchange.getResponseHeaders();
-    headers.add("Content-Type", "application/json; charset=UTF-8");
-
-    var jsonBytes = objectMapper.writeValueAsBytes(responseObject);
-    exchange.sendResponseHeaders(statusCode, jsonBytes.length);
-
-    try (OutputStream os = exchange.getResponseBody()) {
-      os.write(jsonBytes);
-    }
-    exchange.close();
+    SimpleHttpServer.sendJsonResponse(exchange, response);
   }
 
   public void start() {
@@ -182,12 +140,12 @@ public final class HeadlessExecutorMain {
   }
 
   public void stop(int delaySeconds) {
-    this.server.stop(delaySeconds);
     try {
       this.contextManager.close();
     } catch (Exception e) {
       logger.warn("Error closing ContextManager", e);
     }
+    this.server.stop(delaySeconds);
     logger.info("HeadlessExecutorMain stopped");
   }
 
