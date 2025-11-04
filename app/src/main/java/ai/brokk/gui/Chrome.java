@@ -159,6 +159,22 @@ public class Chrome
                 bottomSplitPane.setDividerLocation(target);
                 sidebarCollapsed = false;
             }
+
+            // Refresh Project Files tab badge if that tab was selected
+            if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
+                var comp = leftTabbedPanel.getComponentAt(tabIndex);
+                if (comp == projectFilesPanel) {
+                    Runnable update = () -> {
+                        int liveCount = getProject().getLiveDependencies().size();
+                        updateProjectFilesTabBadge(liveCount);
+                    };
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        update.run();
+                    } else {
+                        SwingUtil.runOnEdt(update);
+                    }
+                }
+            }
         }
     }
 
