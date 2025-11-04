@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -212,9 +213,6 @@ public interface ContextFragment {
 
     /**
      * Code sources found in this fragment.
-     *
-     * <p>ACHTUNG! This is not supported by FrozenFragment, since computing it requires an Analyzer and one of our goals
-     * for freeze() is to not require Analyzer.
      */
     Set<CodeUnit> sources();
 
@@ -305,14 +303,6 @@ public interface ContextFragment {
          */
         default ComputedValue<Set<ProjectFile>> computedFiles() {
             return ComputedValue.completed("cf-files-" + id(), files());
-        }
-
-        /**
-         * Non-blocking accessor mirroring sources().
-         * Default returns a completed value based on current sources().
-         */
-        default ComputedValue<Set<CodeUnit>> computedSources() {
-            return ComputedValue.completed("cf-sources-" + id(), sources());
         }
 
         /**
@@ -1725,6 +1715,9 @@ public interface ContextFragment {
         @Override
         @Blocking
         public Set<CodeUnit> sources() {
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.warn("Calling blocking UsageFragments.sources on EDT thread!");
+            }
             var analyzer = getAnalyzer();
             if (analyzer.isEmpty()) {
                 return Collections.emptySet();
