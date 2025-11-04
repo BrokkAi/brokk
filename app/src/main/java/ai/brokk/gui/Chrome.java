@@ -47,7 +47,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.BadgedIcon;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
@@ -364,6 +363,9 @@ public class Chrome
         workspacePanel = new WorkspacePanel(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
+
+        // Register for dependency state changes to update badge and border title
+        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);

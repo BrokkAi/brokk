@@ -93,12 +93,11 @@ public class ProjectFilesPanel extends JPanel {
         contentSplitPane.setResizeWeight(0.7); // 70% to project tree, 30% to dependencies
         contentSplitPane.setDividerSize(5); // Show divider
         contentSplitPane.setDividerLocation(0.7); // Set initial position
-        dependenciesPanel.addNotify(); // Trigger initialization
+        dependenciesPanel.ensureInitialized();
 
         add(contentSplitPane, BorderLayout.CENTER);
-        updateBorderTitle(); // Set initial title with branch name
 
-        // Initialize badge with current dependency count
+        // Initialize badge with current dependency count (also updates border title)
         int liveCount = chrome.getProject().getLiveDependencies().size();
         chrome.updateProjectFilesTabBadge(liveCount);
     }
@@ -109,7 +108,7 @@ public class ProjectFilesPanel extends JPanel {
             contentSplitPane.setDividerSize(
                     contentSplitPane.getDividerSize() > 0 ? contentSplitPane.getDividerSize() : 5);
             contentSplitPane.setDividerLocation(0.7);
-            dependenciesPanel.addNotify(); // Trigger initialization
+            dependenciesPanel.ensureInitialized();
         } else {
             contentSplitPane.setDividerSize(0);
         }

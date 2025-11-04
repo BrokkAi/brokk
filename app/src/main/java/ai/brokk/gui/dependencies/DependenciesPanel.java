@@ -56,13 +56,28 @@ public final class DependenciesPanel extends JPanel {
         void dependencyImportFinished(String name);
     }
 
+    /**
+     * Listener for dependency state changes (count changes due to add/remove/toggle). Fired after persistence
+     * completes.
+     */
+    public interface DependencyStateChangeListener {
+        /**
+         * Called when the dependency state has changed and been persisted.
+         *
+         * @param newCount the new count of live (enabled) dependencies
+         */
+        void dependencyStateChanged(int newCount);
+    }
+
     private static final Logger logger = LogManager.getLogger(DependenciesPanel.class);
 
     private final Chrome chrome;
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
+    private final List<DependencyStateChangeListener> stateChangeListeners = new ArrayList<>();
     private boolean isProgrammaticChange = false;
+    private boolean isInitialized = false;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
 
@@ -277,9 +292,6 @@ public final class DependenciesPanel extends JPanel {
                             logger.debug("Error resuming watcher after dependency import", e2);
                         }
                     });
-                    // Update dependencies badge after save completes on EDT
-                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(
-                            chrome.getProject().getLiveDependencies().size())));
                     setControlsLocked(false);
                 }
             };
@@ -362,17 +374,38 @@ public final class DependenciesPanel extends JPanel {
                                     inFlightToggleSave = null;
                                     // Unlock UI after save completes (success or failure).
                                     setControlsLocked(false);
-
-                                    // Update dependencies badge with the latest enabled count
-                                    int count = chrome.getProject()
-                                            .getLiveDependencies()
-                                            .size();
-                                    chrome.updateProjectFilesTabBadge(count);
                                 }));
                     }
                 }
             }
         });
+    }
+
+    /**
+     * Registers a listener to be notified when dependency state changes (after persistence completes).
+     */
+    public void addDependencyStateChangeListener(DependencyStateChangeListener listener) {
+        stateChangeListeners.add(listener);
+    }
+
+    /**
+     * Removes a previously registered dependency state change listener.
+     */
+    public void removeDependencyStateChangeListener(DependencyStateChangeListener listener) {
+        stateChangeListeners.remove(listener);
+    }
+
+    /**
+     * Notifies all registered listeners that the dependency state has changed.
+     */
+    private void notifyDependencyStateChanged(int newCount) {
+        for (var listener : stateChangeListeners) {
+            try {
+                listener.dependencyStateChanged(newCount);
+            } catch (Exception ex) {
+                logger.warn("Dependency state change listener threw exception", ex);
+            }
+        }
     }
 
     private void setControlsLocked(boolean locked) {
@@ -396,9 +429,16 @@ public final class DependenciesPanel extends JPanel {
         return false;
     }
 
-    @Override
-    public void addNotify() {
-        super.addNotify();
+    /**
+     * Ensures the panel is fully initialized. Safe to call multiple times (idempotent). This method should be called
+     * instead of manually invoking addNotify(), which is a Swing lifecycle method.
+     */
+    public void ensureInitialized() {
+        if (isInitialized) {
+            return;
+        }
+        isInitialized = true;
+
         loadDependenciesAsync();
 
         // Ensure spacer size is set after initial layout
@@ -425,6 +465,12 @@ public final class DependenciesPanel extends JPanel {
                 updateBottomSpacer();
             }
         });
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        ensureInitialized();
     }
 
     private void addPendingDependencyRow(String name) {
@@ -478,9 +524,9 @@ public final class DependenciesPanel extends JPanel {
                 isProgrammaticChange = false;
             }
 
-            // Update dependencies badge with current live dependency count
+            // Notify listeners of current dependency count (after load from disk)
             int count = chrome.getProject().getLiveDependencies().size();
-            SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(count));
+            SwingUtilities.invokeLater(() -> notifyDependencyStateChanged(count));
 
             // count files in background
             new FileCountingWorker().execute();
@@ -512,63 +558,74 @@ public final class DependenciesPanel extends JPanel {
 
         var cm = chrome.getContextManager();
         return cm.submitBackgroundTask("Save dependency configuration", () -> {
-            var project = chrome.getProject();
-            var analyzer = cm.getAnalyzerWrapper();
-            analyzer.pause();
-            try {
-
-                // Snapshot union of files from currently live dependencies before saving
-                var prevLiveDeps = project.getLiveDependencies();
-                var prevFiles = new HashSet<ProjectFile>();
-                for (var d : prevLiveDeps) {
-                    prevFiles.addAll(d.files());
-                }
-
-                long t0 = System.currentTimeMillis();
-                project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
-                long t1 = System.currentTimeMillis();
-
-                // Compute union of files from live dependencies after saving
-                var nextLiveDeps = project.getLiveDependencies();
-                var nextFiles = new HashSet<ProjectFile>();
-                for (var d : nextLiveDeps) {
-                    nextFiles.addAll(d.files());
-                }
-
-                // Symmetric difference between before/after dependency files
-                var changedFiles = new HashSet<>(nextFiles);
-                changedFiles.removeAll(prevFiles);
-                var removedFiles = new HashSet<>(prevFiles);
-                removedFiles.removeAll(nextFiles);
-                changedFiles.addAll(removedFiles);
-
-                long t2 = System.currentTimeMillis();
-
-                logger.info(
-                        "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
-                        (t1 - t0),
-                        (t2 - t1),
-                        changedFiles.size());
-
-                if (!changedFiles.isEmpty()) {
-                    long t3 = System.currentTimeMillis();
+                    var project = chrome.getProject();
+                    var analyzer = cm.getAnalyzerWrapper();
+                    analyzer.pause();
                     try {
-                        cm.getAnalyzerWrapper().updateFiles(changedFiles).get();
-                    } catch (InterruptedException e) {
-                        throw new AssertionError(e);
-                    } catch (ExecutionException e) {
-                        throw new RuntimeException(e);
+
+                        // Snapshot union of files from currently live dependencies before saving
+                        var prevLiveDeps = project.getLiveDependencies();
+                        var prevFiles = new HashSet<ProjectFile>();
+                        for (var d : prevLiveDeps) {
+                            prevFiles.addAll(d.files());
+                        }
+
+                        long t0 = System.currentTimeMillis();
+                        project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
+                        long t1 = System.currentTimeMillis();
+
+                        // Compute union of files from live dependencies after saving
+                        var nextLiveDeps = project.getLiveDependencies();
+                        var nextFiles = new HashSet<ProjectFile>();
+                        for (var d : nextLiveDeps) {
+                            nextFiles.addAll(d.files());
+                        }
+
+                        // Symmetric difference between before/after dependency files
+                        var changedFiles = new HashSet<>(nextFiles);
+                        changedFiles.removeAll(prevFiles);
+                        var removedFiles = new HashSet<>(prevFiles);
+                        removedFiles.removeAll(nextFiles);
+                        changedFiles.addAll(removedFiles);
+
+                        long t2 = System.currentTimeMillis();
+
+                        logger.info(
+                                "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
+                                (t1 - t0),
+                                (t2 - t1),
+                                changedFiles.size());
+
+                        if (!changedFiles.isEmpty()) {
+                            long t3 = System.currentTimeMillis();
+                            try {
+                                cm.getAnalyzerWrapper()
+                                        .updateFiles(changedFiles)
+                                        .get();
+                            } catch (InterruptedException e) {
+                                throw new AssertionError(e);
+                            } catch (ExecutionException e) {
+                                throw new RuntimeException(e);
+                            }
+                            long t4 = System.currentTimeMillis();
+                            logger.info(
+                                    "Dependencies save timing: updateFiles={} ms for {} files",
+                                    (t4 - t3),
+                                    changedFiles.size());
+                        } else {
+                            logger.info("Dependencies save timing: no changed files detected");
+                        }
+                    } finally {
+                        analyzer.resume();
                     }
-                    long t4 = System.currentTimeMillis();
-                    logger.info(
-                            "Dependencies save timing: updateFiles={} ms for {} files", (t4 - t3), changedFiles.size());
-                } else {
-                    logger.info("Dependencies save timing: no changed files detected");
-                }
-            } finally {
-                analyzer.resume();
-            }
-        });
+                })
+                .whenComplete((result, ex) -> {
+                    // Notify listeners on EDT after save completes (success or failure)
+                    SwingUtilities.invokeLater(() -> {
+                        int newCount = chrome.getProject().getLiveDependencies().size();
+                        notifyDependencyStateChanged(newCount);
+                    });
+                });
     }
 
     private class FileCountingWorker extends SwingWorker<Void, Object[]> {
@@ -698,11 +755,8 @@ public final class DependenciesPanel extends JPanel {
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependenciesAsync();
-                    // Persist changes after successful deletion and reload, then refresh badge on EDT when save
-                    // completes.
-                    var future = saveChangesAsync();
-                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(
-                            chrome.getProject().getLiveDependencies().size())));
+                    // Persist changes after successful deletion and reload.
+                    saveChangesAsync();
                 } catch (IOException ex) {
                     JOptionPane.showMessageDialog(
                             this,
