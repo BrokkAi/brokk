@@ -136,6 +136,7 @@ public class CoChangeGraphBuilder {
 
         int max = commits.size();
         int idx = 0;
+        long totalPairs = 0;
 
         for (var commit : commits) {
             if (isCancelled.get()) {
@@ -158,14 +159,18 @@ public class CoChangeGraphBuilder {
                 nodes.computeIfAbsent(pf, f -> new Node(f, 0.0, 0.0, 0.0, 0.0, 0.0));
             }
 
-            // pairwise increments for co-changes
+            // pairwise increments for co-changes (only cross-directory pairs)
             int sz = uniqueChanged.size();
             for (int i = 0; i < sz; i++) {
                 for (int j = i + 1; j < sz; j++) {
                     var a = uniqueChanged.get(i);
                     var b = uniqueChanged.get(j);
-                    var key = new Graph.Pair(a, b);
-                    weightMap.merge(key, 1, Integer::sum);
+                    // Only add edge if files are in different directories
+                    if (!a.getParent().equals(b.getParent())) {
+                        var key = new Graph.Pair(a, b);
+                        weightMap.merge(key, 1, Integer::sum);
+                        totalPairs++;
+                    }
                 }
             }
 
@@ -241,7 +246,7 @@ public class CoChangeGraphBuilder {
             }
             logger.debug(
                     "Co-change graph summary: nodes={}, edges={}, isolatedNodes={}, maxEdgeWeight={}, initBBox=[{}..{}]x[{}..{}], atOrigin={},"
-                            + " samples={}",
+                            + " samples={}, totalPairs={}, weightMapSize={}",
                     nodes.size(),
                     edges.size(),
                     isolated,
@@ -251,7 +256,9 @@ public class CoChangeGraphBuilder {
                     (minY == Double.POSITIVE_INFINITY ? 0.0 : minY),
                     (maxY == Double.NEGATIVE_INFINITY ? 0.0 : maxY),
                     atOrigin,
-                    sample);
+                    sample,
+                    totalPairs,
+                    weightMap.size());
         }
 
         return new Graph(nodes, edges);
