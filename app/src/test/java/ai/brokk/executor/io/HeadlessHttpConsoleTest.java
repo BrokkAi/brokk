@@ -1,6 +1,7 @@
 package ai.brokk.executor.io;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
@@ -136,6 +137,30 @@ class HeadlessHttpConsoleTest {
         var data = (Map<String, Object>) event.data();
         assertEquals(2, data.get("count"));
         assertTrue(data.get("snippet").toString().contains("tasks=2"));
+
+        cleanup();
+    }
+
+    @Test
+    void testSetLlmAndHistoryOutput_MapsToContextBaselineEvent() throws Exception {
+        var history = List.of(new TaskEntry(1, null, "task1"), new TaskEntry(2, null, "task2"));
+        var taskEntry = new TaskEntry(3, null, "task3");
+
+        console.setLlmAndHistoryOutput(history, taskEntry);
+
+        Thread.sleep(100);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("CONTEXT_BASELINE", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals(history.size() + 1, data.get("count"));
+        var snippet = data.get("snippet").toString();
+        assertFalse(snippet.isEmpty());
 
         cleanup();
     }
