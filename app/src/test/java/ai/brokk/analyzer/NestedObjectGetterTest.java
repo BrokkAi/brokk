@@ -32,7 +32,9 @@ public class NestedObjectGetterTest {
     @Test
     void testFieldAndNestedObjectGetter(@TempDir Path tempDir) throws IOException {
         var testFile = tempDir.resolve("test.ts");
-        Files.writeString(testFile, """
+        Files.writeString(
+                testFile,
+                """
             export class ExtHostTerminal {
                 shellIntegration: string | undefined;
 
@@ -65,26 +67,27 @@ public class NestedObjectGetterTest {
         }
 
         // We expect to find shellIntegration references
-        assertFalse(shellIntegrationUnits.isEmpty(),
-                "Should find shellIntegration CodeUnits");
+        assertFalse(shellIntegrationUnits.isEmpty(), "Should find shellIntegration CodeUnits");
 
         // After the fix, we should only find the field, not the getter in the object literal
         // The getter is skipped to avoid duplicate FQNames
-        assertEquals(1, shellIntegrationUnits.size(),
+        assertEquals(
+                1,
+                shellIntegrationUnits.size(),
                 "Should find exactly 1 shellIntegration CodeUnit (field only, getter in object literal is skipped)");
 
         var cu = shellIntegrationUnits.getFirst();
-        assertEquals(CodeUnitType.FIELD, cu.kind(),
-                "The shellIntegration CodeUnit should be a FIELD, not a FUNCTION");
-        assertEquals("ExtHostTerminal.shellIntegration", cu.fqName(),
-                "FQName should match the field");
+        assertEquals(CodeUnitType.FIELD, cu.kind(), "The shellIntegration CodeUnit should be a FIELD, not a FUNCTION");
+        assertEquals("ExtHostTerminal.shellIntegration", cu.fqName(), "FQName should match the field");
     }
 
     @Test
     void testVSCodeExtHostTerminalPattern(@TempDir Path tempDir) throws IOException {
         // More realistic pattern from VSCode
         var testFile = tempDir.resolve("extHostTerminal.ts");
-        Files.writeString(testFile, """
+        Files.writeString(
+                testFile,
+                """
             export class ExtHostTerminal {
                 shellIntegration: TerminalShellIntegration | undefined;
 
@@ -122,9 +125,7 @@ public class NestedObjectGetterTest {
         }
 
         // Check for duplicate FQNames
-        var fqNames = shellIntegrationUnits.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.toList());
+        var fqNames = shellIntegrationUnits.stream().map(CodeUnit::fqName).collect(Collectors.toList());
 
         var uniqueFqNames = fqNames.stream().distinct().collect(Collectors.toList());
 
@@ -132,14 +133,11 @@ public class NestedObjectGetterTest {
         logger.info("Unique FQNames: {}", uniqueFqNames);
 
         // After the fix, we should only find the field, not the getter in the object literal
-        assertEquals(1, fqNames.size(),
-                "Should find exactly 1 shellIntegration CodeUnit (field only)");
-        assertEquals(1, uniqueFqNames.size(),
-                "Should have no duplicate FQNames");
+        assertEquals(1, fqNames.size(), "Should find exactly 1 shellIntegration CodeUnit (field only)");
+        assertEquals(1, uniqueFqNames.size(), "Should have no duplicate FQNames");
 
         // Verify it's the field, not a function
         var cu = shellIntegrationUnits.getFirst();
-        assertEquals(CodeUnitType.FIELD, cu.kind(),
-                "Should be a FIELD");
+        assertEquals(CodeUnitType.FIELD, cu.kind(), "Should be a FIELD");
     }
 }

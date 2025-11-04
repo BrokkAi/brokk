@@ -731,7 +731,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // Look for textual qualifiers in the trailing portion after the parameter list.
         // IMPORTANT: In C++, member-function qualifiers (const/volatile/ref/noexcept) may appear AFTER the parameters
-        // but OUTSIDE the function_declarator node. So we must scan from params end up to the start of the body (if any),
+        // but OUTSIDE the function_declarator node. So we must scan from params end up to the start of the body (if
+        // any),
         // or to the end of the outer node when there is no body.
         TSNode paramsNode = decl.getChildByFieldName("parameters");
         int tailStart = (paramsNode != null && !paramsNode.isNull()) ? paramsNode.getEndByte() : decl.getStartByte();

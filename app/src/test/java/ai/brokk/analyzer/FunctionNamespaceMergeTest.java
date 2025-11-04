@@ -31,7 +31,9 @@ public class FunctionNamespaceMergeTest {
     @Test
     void testFunctionAndNamespaceMerge(@TempDir Path tempDir) throws IOException {
         var testFile = tempDir.resolve("test.ts");
-        Files.writeString(testFile, """
+        Files.writeString(
+                testFile,
+                """
             export function myFunction(x: number): number {
                 return x * 2;
             }
@@ -53,15 +55,13 @@ public class FunctionNamespaceMergeTest {
         var topLevel = analyzer.getTopLevelDeclarations(projectFile);
         logger.info("Top-level CodeUnits from getTopLevelDeclarations ({} total):", topLevel.size());
         for (var cu : topLevel) {
-            logger.info("  - {} (kind={}, shortName={})",
-                    cu.fqName(), cu.kind(), cu.shortName());
+            logger.info("  - {} (kind={}, shortName={})", cu.fqName(), cu.kind(), cu.shortName());
         }
 
         var allDeclarations = analyzer.getDeclarations(projectFile);
         logger.info("All declarations from getDeclarations ({} total):", allDeclarations.size());
         for (var cu : allDeclarations) {
-            logger.info("  - {} (kind={}, shortName={})",
-                    cu.fqName(), cu.kind(), cu.shortName());
+            logger.info("  - {} (kind={}, shortName={})", cu.fqName(), cu.kind(), cu.shortName());
         }
 
         var myFunctionUnits = allDeclarations.stream()
@@ -84,7 +84,9 @@ public class FunctionNamespaceMergeTest {
                 .collect(Collectors.toList());
 
         assertEquals(1, myFunctionCUs.size(), "Should have exactly one myFunction CodeUnit");
-        assertEquals(CodeUnitType.FUNCTION, myFunctionCUs.getFirst().kind(),
+        assertEquals(
+                CodeUnitType.FUNCTION,
+                myFunctionCUs.getFirst().kind(),
                 "myFunction should be kept as FUNCTION (first declaration wins)");
 
         // NOTE: The nested declarations from the namespace (version, helper) are not captured
@@ -97,7 +99,9 @@ public class FunctionNamespaceMergeTest {
     void testVSCodeObservableFromEventPattern(@TempDir Path tempDir) throws IOException {
         // Pattern from VSCode observableFromEvent
         var testFile = tempDir.resolve("observableFromEvent.ts");
-        Files.writeString(testFile, """
+        Files.writeString(
+                testFile,
+                """
             export function observableFromEvent<T>(
                 event: Event<T>,
                 getValue: (args: T) => T
@@ -132,12 +136,15 @@ public class FunctionNamespaceMergeTest {
                 .filter(cu -> cu.fqName().equals("observableFromEvent"))
                 .collect(Collectors.toList());
 
-        logger.info("Top-level 'observableFromEvent' CodeUnits: {}",
+        logger.info(
+                "Top-level 'observableFromEvent' CodeUnits: {}",
                 topLevelObservable.stream().map(cu -> cu.kind().toString()).collect(Collectors.toList()));
 
         // Should have exactly one observableFromEvent CodeUnit (the function)
         assertEquals(1, topLevelObservable.size(), "Should have exactly one observableFromEvent CodeUnit");
-        assertEquals(CodeUnitType.FUNCTION, topLevelObservable.getFirst().kind(),
+        assertEquals(
+                CodeUnitType.FUNCTION,
+                topLevelObservable.getFirst().kind(),
                 "observableFromEvent should be kept as FUNCTION (first declaration wins)");
 
         // NOTE: The nested declarations from the namespace (Observer, batchEventsGlobally) are not captured

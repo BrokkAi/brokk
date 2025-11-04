@@ -23,7 +23,9 @@ public class VSCodeAccessorTest {
     void testVSCodeWebviewViewPaneAccessors(@TempDir Path tempDir) throws IOException {
         // Recreate the VSCode pattern that was triggering the warning
         var testFile = tempDir.resolve("webviewViewPane.ts");
-        Files.writeString(testFile, """
+        Files.writeString(
+                testFile,
+                """
             export class WebviewViewPane {
                 private badge: IViewBadge | undefined;
 
@@ -42,28 +44,21 @@ public class VSCodeAccessorTest {
                 .filter(cu -> cu.fqName().endsWith("$get") || cu.fqName().endsWith("$set"))
                 .toList();
 
-        logger.info("Badge accessors found: {}", badgeAccessors.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Badge accessors found: {}",
+                badgeAccessors.stream().map(CodeUnit::fqName).toList());
 
         // Verify both getter and setter are present with distinct FQNames
-        assertEquals(2, badgeAccessors.size(),
-                "Should have 2 badge accessors");
+        assertEquals(2, badgeAccessors.size(), "Should have 2 badge accessors");
 
-        var fqNames = badgeAccessors.stream()
-                .map(CodeUnit::fqName)
-                .sorted()
-                .toList();
+        var fqNames = badgeAccessors.stream().map(CodeUnit::fqName).sorted().toList();
 
-        assertTrue(fqNames.getFirst().endsWith("$get"),
-                "First should be getter: " + fqNames.getFirst());
-        assertTrue(fqNames.getLast().endsWith("$set"),
-                "Second should be setter: " + fqNames.getLast());
+        assertTrue(fqNames.getFirst().endsWith("$get"), "First should be getter: " + fqNames.getFirst());
+        assertTrue(fqNames.getLast().endsWith("$set"), "Second should be setter: " + fqNames.getLast());
 
         // Both should have the same base name
         var getterBase = fqNames.getFirst().replace("$get", "");
         var setterBase = fqNames.getLast().replace("$set", "");
-        assertEquals(getterBase, setterBase,
-                "Getter and setter should have the same base FQName");
+        assertEquals(getterBase, setterBase, "Getter and setter should have the same base FQName");
     }
 }

@@ -1,5 +1,7 @@
 package ai.brokk.tools;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
@@ -21,7 +23,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Simplified baseline measurement utility for TreeSitter performance analysis. Compatible with master branch - uses
@@ -271,7 +272,8 @@ public class TreeSitterRepoRunner {
                 System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
                 System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
                 System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
-                System.out.printf("Total time: %.2f seconds%n",
+                System.out.printf(
+                        "Total time: %.2f seconds%n",
                         (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
                 System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
                 System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
@@ -288,8 +290,8 @@ public class TreeSitterRepoRunner {
                 results.recordOOM(project, language, maxFiles);
                 // Write incremental results for OOM failure
                 try {
-                    var failedResult =
-                            new BaselineResult(maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
+                    var failedResult = new BaselineResult(
+                            maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                     System.out.println("📊 Incremental failure result saved");
                 } catch (Exception ex) {
@@ -300,7 +302,8 @@ public class TreeSitterRepoRunner {
                 results.recordError(project, language, e.getMessage());
                 // Write incremental results for general failure
                 try {
-                    var failedResult = new BaselineResult(0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
+                    var failedResult = new BaselineResult(
+                            0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
                     results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                     System.out.println("📊 Incremental failure result saved");
                 } catch (Exception ex) {
@@ -429,12 +432,32 @@ public class TreeSitterRepoRunner {
 
         } catch (OutOfMemoryError e) {
             return new BaselineResult(
-                    files.size(), 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0,
-                    discovery.discoveryTime(), discovery.totalMatched(), stageTiming);
+                    files.size(),
+                    0,
+                    Duration.ZERO,
+                    0,
+                    0,
+                    true,
+                    "OutOfMemoryError",
+                    0,
+                    0,
+                    discovery.discoveryTime(),
+                    discovery.totalMatched(),
+                    stageTiming);
         } catch (Exception e) {
             return new BaselineResult(
-                    files.size(), 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0,
-                    discovery.discoveryTime(), discovery.totalMatched(), stageTiming);
+                    files.size(),
+                    0,
+                    Duration.ZERO,
+                    0,
+                    0,
+                    true,
+                    e.getMessage(),
+                    0,
+                    0,
+                    discovery.discoveryTime(),
+                    discovery.totalMatched(),
+                    stageTiming);
         }
     }
 
@@ -463,7 +486,8 @@ public class TreeSitterRepoRunner {
         var projectKey = testProject != null ? testProject : "custom";
         var discovery = getProjectFiles(projectKey, testLanguage, maxFiles);
         System.out.println("Files discovered (matching patterns): " + discovery.totalMatched());
-        System.out.println("Files added for analysis (max " + maxFiles + "): " + discovery.files().size());
+        System.out.println("Files added for analysis (max " + maxFiles + "): "
+                + discovery.files().size());
         discovery.files().stream()
                 .limit(5)
                 .forEach(file -> System.out.println("  " + file.absPath().toString() + " (exists: "
@@ -481,7 +505,8 @@ public class TreeSitterRepoRunner {
             System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
             System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
             System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
-            System.out.printf("Total time: %.2f seconds%n",
+            System.out.printf(
+                    "Total time: %.2f seconds%n",
                     (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
             System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
             System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
@@ -842,9 +867,15 @@ public class TreeSitterRepoRunner {
         }
     }
 
-    private void drawStageLine(StringBuilder sb, String label, long stageStart, long stageEnd,
-                               long cumulativeNanos, long totalWallStart, long totalWallNanos,
-                               int diagramWidth) {
+    private void drawStageLine(
+            StringBuilder sb,
+            String label,
+            long stageStart,
+            long stageEnd,
+            long cumulativeNanos,
+            long totalWallStart,
+            long totalWallNanos,
+            int diagramWidth) {
         if (totalWallNanos <= 0) {
             return;
         }
@@ -900,7 +931,8 @@ public class TreeSitterRepoRunner {
         // Calculate total wall-clock time
         long totalWallStart = Math.min(Math.min(readStart, parseStart), Math.min(processStart, mergeStart));
         long totalWallEnd = Math.max(Math.max(readEnd, parseEnd), Math.max(processEnd, mergeEnd));
-        long totalWallNanos = (totalWallStart == Long.MAX_VALUE || totalWallEnd == 0L) ? 0L : totalWallEnd - totalWallStart;
+        long totalWallNanos =
+                (totalWallStart == Long.MAX_VALUE || totalWallEnd == 0L) ? 0L : totalWallEnd - totalWallStart;
 
         if (totalWallNanos == 0) {
             return "";
@@ -920,10 +952,28 @@ public class TreeSitterRepoRunner {
         long mergeWallNanos = mergeEnd - mergeStart;
 
         // Helper to draw stage bar
-        drawStageLine(sb, "Read Files", readStart, readEnd, readWallNanos, totalWallStart, totalWallNanos, diagramWidth);
-        drawStageLine(sb, "Parse Files", parseStart, parseEnd, parseWallNanos, totalWallStart, totalWallNanos, diagramWidth);
-        drawStageLine(sb, "Process Files", processStart, processEnd, processWallNanos, totalWallStart, totalWallNanos, diagramWidth);
-        drawStageLine(sb, "Merge Results", mergeStart, mergeEnd, mergeWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+        drawStageLine(
+                sb, "Read Files", readStart, readEnd, readWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+        drawStageLine(
+                sb, "Parse Files", parseStart, parseEnd, parseWallNanos, totalWallStart, totalWallNanos, diagramWidth);
+        drawStageLine(
+                sb,
+                "Process Files",
+                processStart,
+                processEnd,
+                processWallNanos,
+                totalWallStart,
+                totalWallNanos,
+                diagramWidth);
+        drawStageLine(
+                sb,
+                "Merge Results",
+                mergeStart,
+                mergeEnd,
+                mergeWallNanos,
+                totalWallStart,
+                totalWallNanos,
+                diagramWidth);
 
         // Total wall-clock line (no bar, just timing)
         sb.append("│ ").append(String.format("%-15s", "Total Wall-Clock"));

@@ -177,16 +177,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Stores information about a definition found by a query match, including associated modifier keywords and
      * decorators.
      */
-    /**
-     * Holds information about a captured definition node.
-     * The cachedParent field is an optimization to avoid repeated getParent() calls during processing.
-     */
     protected record DefinitionInfoRecord(
-            String primaryCaptureName,
-            String simpleName,
-            List<String> modifierKeywords,
-            List<TSNode> decoratorNodes,
-            TSNode cachedParent) {}
+            String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {}
 
     protected record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
@@ -1106,7 +1098,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param profile the language syntax profile
      * @return the refined skeleton type
      */
-    protected SkeletonType refineSkeletonType(String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+    protected SkeletonType refineSkeletonType(
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         return getSkeletonTypeForCapture(captureName);
     }
 
@@ -1763,11 +1756,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         declarationNodes.putIfAbsent(
                                 definitionNode,
                                 new DefinitionInfoRecord(
-                                        captureName,
-                                        simpleName,
-                                        sortedModifierStrings,
-                                        decoratorNodesForMatch,
-                                        definitionNode.getParent())); // Cache parent to avoid repeated lookups
+                                        captureName, simpleName, sortedModifierStrings, decoratorNodesForMatch));
                     } else {
                         if (simpleName == null) {
                             if (!isNullNameAllowed(
@@ -1833,8 +1822,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
-            // Use cached parent from defInfo to avoid repeated getParent() calls
-            TSNode tempParent = defInfo.cachedParent();
+            TSNode tempParent = node.getParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
                 if (isClassLike(tempParent)) {
                     final var parent = tempParent;
@@ -1873,7 +1861,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
+            CodeUnit cu =
+                    createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
@@ -1923,8 +1912,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 // Unwrap decorator-wrapping nodes if applicable (e.g., Python)
                 if (hasWrappingDecoratorNode()) {
                     // Pass an empty list for decorator text since we only need the inner definition node here
-                    nodeForBody =
-                            extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), finalFileBytes, langProfile);
+                    nodeForBody = extractContentFromDecoratedNode(
+                            nodeForBody, new ArrayList<>(), finalFileBytes, langProfile);
                 }
 
                 // hasBody is derived from the AST (presence of a non-empty body node after any necessary unwrapping)
@@ -1945,8 +1934,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         .add(cu);
             }
 
-            String signature =
-                    buildSignatureString(node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType);
+            String signature = buildSignatureString(
+                    node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2368,12 +2357,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 String innerType = decl.getType();
                 switch (refined) {
                     case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
-                    case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType)
-                            || ("lexical_declaration".equals(innerType) || "variable_declaration".equals(innerType));
-                    case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType)
-                            || "variable_declarator".equals(innerType)
-                            || "lexical_declaration".equals(innerType)
-                            || "variable_declaration".equals(innerType);
+                    case FUNCTION_LIKE ->
+                        typeMatch = profile.functionLikeNodeTypes().contains(innerType)
+                                || ("lexical_declaration".equals(innerType)
+                                        || "variable_declaration".equals(innerType));
+                    case FIELD_LIKE ->
+                        typeMatch = profile.fieldLikeNodeTypes().contains(innerType)
+                                || "variable_declarator".equals(innerType)
+                                || "lexical_declaration".equals(innerType)
+                                || "variable_declaration".equals(innerType);
                     case ALIAS_LIKE -> typeMatch = "type_alias_declaration".equals(innerType);
                     default -> {}
                 }
@@ -2382,7 +2374,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 } else {
                     log.trace(
                             "Export wrapper contains unexpected inner node type for refined={}, innerType={}, outerType={}",
-                            refined, innerType, definitionNode.getType());
+                            refined,
+                            innerType,
+                            definitionNode.getType());
                 }
             }
         }
@@ -2390,7 +2384,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Variable declarator unwrapping: for const/let/var declarations, find the specific declarator by name.
         if (needsVariableDeclaratorUnwrapping(nodeForContent, refined)
                 && ("lexical_declaration".equals(nodeForContent.getType())
-                    || "variable_declaration".equals(nodeForContent.getType()))) {
+                        || "variable_declaration".equals(nodeForContent.getType()))) {
             boolean found = false;
             for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
                 TSNode child = nodeForContent.getNamedChild(i);
@@ -2427,7 +2421,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } else {
             String fallback = getVisibilityPrefix(nodeForSignature, src).strip();
             if (!fallback.isEmpty()) {
-                for (String tok : Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {
+                for (String tok :
+                        Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {
                     modifierTokens.add(tok);
                 }
             }
@@ -2442,35 +2437,43 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     // If unwrapped from export, slice from original node to include any prefix text up to body.
                     if (nodeForSignature != nodeForContent) {
                         classSignatureText = textSlice(
-                                nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes).stripTrailing();
+                                        nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes)
+                                .stripTrailing();
                     } else {
-                        classSignatureText = textSlice(
-                                nodeForContent.getStartByte(), bodyNode.getStartByte(), srcBytes).stripTrailing();
+                        classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), srcBytes)
+                                .stripTrailing();
                     }
                 } else {
                     // No explicit body node - slice entire node
                     if (nodeForSignature != nodeForContent) {
                         classSignatureText = textSlice(
-                                nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
+                                        nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
                                 .stripTrailing();
                     } else {
                         classSignatureText = textSlice(
-                                nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes).stripTrailing();
+                                        nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes)
+                                .stripTrailing();
                     }
                     // Remove trailing "{" or ";" if present for cleaner header
                     if (classSignatureText.endsWith("{")) {
-                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                        classSignatureText = classSignatureText
+                                .substring(0, classSignatureText.length() - 1)
+                                .stripTrailing();
                     } else if (classSignatureText.endsWith(";")) {
-                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                        classSignatureText = classSignatureText
+                                .substring(0, classSignatureText.length() - 1)
+                                .stripTrailing();
                     }
                 }
 
                 // Avoid duplicating any exportPrefix already present at the start of classSignatureText
                 var stripped = exportPrefix.strip();
                 if (!stripped.isEmpty() && classSignatureText.startsWith(stripped)) {
-                    classSignatureText = classSignatureText.substring(stripped.length()).stripLeading();
+                    classSignatureText =
+                            classSignatureText.substring(stripped.length()).stripLeading();
                 } else if (!exportPrefix.isEmpty() && classSignatureText.startsWith(exportPrefix)) {
-                    classSignatureText = classSignatureText.substring(exportPrefix.length()).stripLeading();
+                    classSignatureText =
+                            classSignatureText.substring(exportPrefix.length()).stripLeading();
                 }
 
                 String headerLine = assembleClassSignature(nodeForContent, src, exportPrefix, classSignatureText, "");
@@ -2498,13 +2501,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         fieldText = fieldText.substring(stripped.length()).stripLeading();
                     } else {
                         // Handle partial duplication: e.g., "export const" prefix and "const ..." in fieldText
-                        var exportTokens = Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().splitToList(stripped);
-                        var fieldTokens = Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().limit(2).splitToList(fieldText);
+                        var exportTokens = Splitter.on(Pattern.compile("\\s+"))
+                                .omitEmptyStrings()
+                                .splitToList(stripped);
+                        var fieldTokens = Splitter.on(Pattern.compile("\\s+"))
+                                .omitEmptyStrings()
+                                .limit(2)
+                                .splitToList(fieldText);
                         if (!exportTokens.isEmpty() && !fieldTokens.isEmpty()) {
                             String lastExport = exportTokens.get(exportTokens.size() - 1);
                             String firstField = fieldTokens.get(0);
                             if (lastExport.equals(firstField)) {
-                                fieldText = fieldText.substring(firstField.length()).stripLeading();
+                                fieldText =
+                                        fieldText.substring(firstField.length()).stripLeading();
                             }
                         }
                     }
@@ -2519,12 +2528,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 String typeParamsText = "";
                 if (!profile.typeParametersFieldName().isEmpty()) {
                     TSNode tp = nodeForContent.getChildByFieldName(profile.typeParametersFieldName());
-                    if (tp != null && !tp.isNull()) typeParamsText = textSlice(tp, srcBytes).strip();
+                    if (tp != null && !tp.isNull())
+                        typeParamsText = textSlice(tp, srcBytes).strip();
                 }
                 TSNode valueNode = nodeForContent.getChildByFieldName("value");
-                String valueText = (valueNode != null && !valueNode.isNull()) ? textSlice(valueNode, srcBytes).strip() : "";
+                String valueText = (valueNode != null && !valueNode.isNull())
+                        ? textSlice(valueNode, srcBytes).strip()
+                        : "";
                 if (valueText.isEmpty()) valueText = "any";
-                String aliasSig = (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = " + valueText).strip();
+                String aliasSig = (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = "
+                                + valueText)
+                        .strip();
                 if (!aliasSig.endsWith(";") && requiresSemicolons()) aliasSig += ";";
                 signatureLines.add(aliasSig);
                 break;

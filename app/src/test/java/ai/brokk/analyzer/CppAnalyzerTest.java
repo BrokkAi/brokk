@@ -791,7 +791,8 @@ public class CppAnalyzerTest {
 
         assertTrue(
                 volatileSig.isPresent(),
-                "Should have signature containing 'volatile' for volatile member function. Available: " + signaturesSet);
+                "Should have signature containing 'volatile' for volatile member function. Available: "
+                        + signaturesSet);
         assertTrue(
                 constVolatileSig.isPresent(),
                 "Should have signature containing 'const volatile' for const volatile member function. Available: "

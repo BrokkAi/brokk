@@ -148,7 +148,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected SkeletonType refineSkeletonType(String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+    protected SkeletonType refineSkeletonType(
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         if (definitionNode == null || definitionNode.isNull()) {
             return super.refineSkeletonType(captureName, definitionNode, profile);
         }
@@ -231,7 +232,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        return createCodeUnit(file, captureName, simpleName, packageName, classChain, null, getSkeletonTypeForCapture(captureName));
+        return createCodeUnit(
+                file, captureName, simpleName, packageName, classChain, null, getSkeletonTypeForCapture(captureName));
     }
 
     @Override
@@ -455,8 +457,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         StringBuilder modifiers = new StringBuilder();
 
         TSNode nodeToCheck = node;
-        // Cache parent to avoid multiple getParent() calls (optimization)
-        TSNode cachedParent = node.getParent();
 
         // Check if the node itself is an export statement
         if ("export_statement".equals(node.getType())) {
@@ -477,12 +477,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
         } else {
             // Check if the parent is an export statement (for nodes like variable_declarator)
-            // Use cached parent instead of calling getParent() again
-            if (cachedParent != null && !cachedParent.isNull() && "export_statement".equals(cachedParent.getType())) {
+            TSNode parent = node.getParent();
+            if (parent != null && !parent.isNull() && "export_statement".equals(parent.getType())) {
                 modifiers.append("export ");
                 // Check for default export
-                if (cachedParent.getChildCount() > 1) {
-                    TSNode secondChild = cachedParent.getChild(1);
+                if (parent.getChildCount() > 1) {
+                    TSNode secondChild = parent.getChild(1);
                     if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
                         modifiers.append("default ");
                     }
@@ -497,30 +497,29 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Get the declaration inside the ambient declaration for further modifier checks
             for (int i = 0; i < nodeToCheck.getChildCount(); i++) {
                 TSNode child = nodeToCheck.getChild(i);
-                if (child != null
-                        && !child.isNull()
-                        && !"declare".equals(cachedTextSliceStripped(child, src))) {
+                if (child != null && !child.isNull() && !"declare".equals(cachedTextSliceStripped(child, src))) {
                     nodeToCheck = child;
                     break;
                 }
             }
         } else {
-            // Check if the immediate parent or grandparent is an ambient declaration (for nodes like variable_declarator)
+            // Check if the immediate parent or grandparent is an ambient declaration (for nodes like
+            // variable_declarator)
             // But stop if we hit a body (which means we're nested and shouldn't inherit ambient from outer scope)
-            // Use cachedParent instead of calling getParent() again (optimization)
-            if (cachedParent != null && !cachedParent.isNull()) {
+            TSNode parentAmbient = node.getParent();
+            if (parentAmbient != null && !parentAmbient.isNull()) {
                 // First check the immediate parent
-                if ("ambient_declaration".equals(cachedParent.getType())) {
+                if ("ambient_declaration".equals(parentAmbient.getType())) {
                     modifiers.append("declare ");
-                } else if (!("class_body".equals(cachedParent.getType())
-                        || "interface_body".equals(cachedParent.getType())
-                        || "enum_body".equals(cachedParent.getType())
-                        || "namespace_body".equals(cachedParent.getType()))) {
+                } else if (!("class_body".equals(parentAmbient.getType())
+                        || "interface_body".equals(parentAmbient.getType())
+                        || "enum_body".equals(parentAmbient.getType())
+                        || "namespace_body".equals(parentAmbient.getType()))) {
                     // If parent is not a body and not ambient, check grandparent
-                    TSNode cachedGrandparent = cachedParent.getParent();
-                    if (cachedGrandparent != null
-                            && !cachedGrandparent.isNull()
-                            && "ambient_declaration".equals(cachedGrandparent.getType())) {
+                    TSNode grandparent = parentAmbient.getParent();
+                    if (grandparent != null
+                            && !grandparent.isNull()
+                            && "ambient_declaration".equals(grandparent.getType())) {
                         modifiers.append("declare ");
                     }
                 }
@@ -663,7 +662,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // - function_declaration: fallback extractSimpleName works correctly
         // - construct_signature: intentionally has no name, uses default "new"
         return "function.definition".equals(captureName)
-            && ("function_declaration".equals(nodeType) || "construct_signature".equals(nodeType));
+                && ("function_declaration".equals(nodeType) || "construct_signature".equals(nodeType));
     }
 
     @Override
@@ -732,9 +731,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // For function+namespace declaration merging, keep the first one (typically the function)
         if (isBenignDuplicate(existing, candidate)) {
             log.trace(
-                "TypeScript declaration merging detected for {} (function + namespace). Keeping {} kind.",
-                existing.fqName(),
-                existing.isFunction() ? "function" : "namespace");
+                    "TypeScript declaration merging detected for {} (function + namespace). Keeping {} kind.",
+                    existing.fqName(),
+                    existing.isFunction() ? "function" : "namespace");
             return true; // Ignore the duplicate (keep first one)
         }
 

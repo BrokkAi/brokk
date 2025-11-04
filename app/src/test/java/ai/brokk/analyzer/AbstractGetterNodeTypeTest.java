@@ -10,7 +10,8 @@ public class AbstractGetterNodeTypeTest {
 
     @Test
     void testAbstractGetterNodeType() {
-        var source = """
+        var source =
+                """
             abstract class Test {
                 abstract get name(): string;
 
@@ -40,8 +41,8 @@ public class AbstractGetterNodeTypeTest {
         // Get node text if it's a leaf or small node
         String text = "";
         if (node.getChildCount() == 0 || node.getEndByte() - node.getStartByte() < 20) {
-            text = new String(source, node.getStartByte(),
-                    node.getEndByte() - node.getStartByte(), StandardCharsets.UTF_8);
+            text = new String(
+                    source, node.getStartByte(), node.getEndByte() - node.getStartByte(), StandardCharsets.UTF_8);
             text = " [" + text.replace("\n", "\\n") + "]";
         }
 

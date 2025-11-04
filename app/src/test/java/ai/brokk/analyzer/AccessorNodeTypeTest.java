@@ -12,16 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
-import org.treesitter.TSQuery;
-import org.treesitter.TSQueryCursor;
-import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterTypescript;
 
 public class AccessorNodeTypeTest {
 
     @Test
     void testGetterSetterNodeTypes() {
-        var source = """
+        var source =
+                """
             class WebviewViewPane {
                 private _badge: number = 0;
 
@@ -51,8 +49,7 @@ public class AccessorNodeTypeTest {
         var resultSummary = String.join("\n", results);
         System.out.println("Method definitions found:\n" + resultSummary);
 
-        assertEquals(3, results.size(),
-                "Should find exactly 3 method definitions. Found:\n" + resultSummary);
+        assertEquals(3, results.size(), "Should find exactly 3 method definitions. Found:\n" + resultSummary);
 
         // Check that we can distinguish getter from setter from normal method
         var hasGetter = results.stream().anyMatch(s -> s.contains("badge") && s.contains("getter"));
@@ -68,7 +65,9 @@ public class AccessorNodeTypeTest {
     void testGetterSetterDistinctFQNames(@TempDir Path tempDir) throws IOException {
         // Create a test TypeScript file with getter and setter
         var testFile = tempDir.resolve("test.ts");
-        Files.writeString(testFile, """
+        Files.writeString(
+                testFile,
+                """
             class WebviewViewPane {
                 private _badge: number = 0;
 
@@ -103,25 +102,23 @@ public class AccessorNodeTypeTest {
         }
 
         // Verify we have exactly 2 badge accessor code units (getter and setter)
-        assertEquals(2, badgeCodeUnits.size(),
-                "Should have 2 distinct accessor CodeUnits for badge property. Found: " +
-                badgeCodeUnits.stream().map(CodeUnit::fqName).toList());
+        assertEquals(
+                2,
+                badgeCodeUnits.size(),
+                "Should have 2 distinct accessor CodeUnits for badge property. Found: "
+                        + badgeCodeUnits.stream().map(CodeUnit::fqName).toList());
 
         // Verify they have different FQNames
-        var fqNames = badgeCodeUnits.stream()
-                .map(CodeUnit::fqName)
-                .sorted()
-                .toList();
+        var fqNames = badgeCodeUnits.stream().map(CodeUnit::fqName).sorted().toList();
 
-        assertTrue(fqNames.getFirst().endsWith("$get"),
-                "First FQName should end with $get. Found: " + fqNames.getFirst());
-        assertTrue(fqNames.getLast().endsWith("$set"),
-                "Second FQName should end with $set. Found: " + fqNames.getLast());
+        assertTrue(
+                fqNames.getFirst().endsWith("$get"), "First FQName should end with $get. Found: " + fqNames.getFirst());
+        assertTrue(
+                fqNames.getLast().endsWith("$set"), "Second FQName should end with $set. Found: " + fqNames.getLast());
 
         // Verify both start with the same base name
         var baseName = fqNames.getFirst().replace("$get", "");
-        assertTrue(fqNames.getLast().startsWith(baseName),
-                "Both FQNames should share the same base name");
+        assertTrue(fqNames.getLast().startsWith(baseName), "Both FQNames should share the same base name");
     }
 
     private void collectMethodNodes(TSNode node, byte[] source, List<String> results) {
@@ -146,8 +143,11 @@ public class AccessorNodeTypeTest {
                 } else if ("set".equals(childType)) {
                     isSetter = true;
                 } else if ("property_identifier".equals(childType)) {
-                    methodName = new String(source, child.getStartByte(),
-                            child.getEndByte() - child.getStartByte(), StandardCharsets.UTF_8);
+                    methodName = new String(
+                            source,
+                            child.getStartByte(),
+                            child.getEndByte() - child.getStartByte(),
+                            StandardCharsets.UTF_8);
                 }
             }
 

@@ -14,7 +14,8 @@ public class DeclarationMergingAnalysisTest {
 
     @Test
     void analyzeFunctionNamespaceMerge() {
-        var source = """
+        var source =
+                """
             export function observableFromEvent<T>(x: T): T {
                 return x;
             }
@@ -63,8 +64,8 @@ public class DeclarationMergingAnalysisTest {
 
         String text = "";
         if (node.getChildCount() == 0 || node.getEndByte() - node.getStartByte() < 30) {
-            text = new String(source, node.getStartByte(),
-                    node.getEndByte() - node.getStartByte(), StandardCharsets.UTF_8);
+            text = new String(
+                    source, node.getStartByte(), node.getEndByte() - node.getStartByte(), StandardCharsets.UTF_8);
             text = " [" + text.replace("\n", "\\n") + "]";
         }
 

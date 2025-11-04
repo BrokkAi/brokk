@@ -196,38 +196,38 @@ public class TypescriptAnalyzerTest {
         // Test arrow function classification from Vars.ts
         ProjectFile varsTsFile = new ProjectFile(project.getRoot(), "Vars.ts");
         Map<CodeUnit, String> skeletons = analyzer.getSkeletons(varsTsFile);
-        
+
         // 1. Arrow function should be classified as FUNCTION (not field)
         CodeUnit anArrowFunc = CodeUnit.fn(varsTsFile, "", "anArrowFunc");
         assertTrue(skeletons.containsKey(anArrowFunc), "anArrowFunc should be classified as a function CU");
         assertTrue(anArrowFunc.isFunction(), "anArrowFunc CodeUnit should be a function type");
         assertEquals(
-            normalize.apply("const anArrowFunc = (msg: string): void => { ... }"),
-            normalize.apply(skeletons.get(anArrowFunc)),
-            "Arrow function skeleton should show function signature with body placeholder");
-        
+                normalize.apply("const anArrowFunc = (msg: string): void => { ... }"),
+                normalize.apply(skeletons.get(anArrowFunc)),
+                "Arrow function skeleton should show function signature with body placeholder");
+
         // 2. Non-arrow const should remain a field
         CodeUnit maxUsers = CodeUnit.field(varsTsFile, "", "_module_.MAX_USERS");
         assertTrue(skeletons.containsKey(maxUsers), "MAX_USERS should be a field CU");
         assertTrue(maxUsers.isField(), "MAX_USERS CodeUnit should be a field type");
         assertEquals(
-            normalize.apply("export const MAX_USERS = 100"),
-            normalize.apply(skeletons.get(maxUsers)),
-            "Non-arrow const should preserve 'export const' modifiers");
-        
+                normalize.apply("export const MAX_USERS = 100"),
+                normalize.apply(skeletons.get(maxUsers)),
+                "Non-arrow const should preserve 'export const' modifiers");
+
         // 3. Test 'let' modifier is preserved
         CodeUnit currentUser = CodeUnit.field(varsTsFile, "", "_module_.currentUser");
         assertTrue(skeletons.containsKey(currentUser), "currentUser should be a field CU");
         String currentUserSkel = skeletons.get(currentUser);
         assertTrue(currentUserSkel.contains("let"), "'let' keyword should appear in skeleton via fallback");
-        
+
         // 4. Test 'var' modifier is preserved for legacy variables
         CodeUnit legacyVar = CodeUnit.field(varsTsFile, "", "_module_.legacyVar");
         assertTrue(skeletons.containsKey(legacyVar), "legacyVar should be a field CU");
         String legacyVarSkel = skeletons.get(legacyVar);
         assertTrue(legacyVarSkel.contains("var"), "'var' keyword should appear in skeleton via fallback");
         assertTrue(legacyVarSkel.contains("export"), "'export' keyword should appear in skeleton via fallback");
-        
+
         // 5. Test 'declare' modifier from ambient declarations (Advanced.ts)
         ProjectFile advancedTsFile = new ProjectFile(project.getRoot(), "Advanced.ts");
         Map<CodeUnit, String> advancedSkeletons = analyzer.getSkeletons(advancedTsFile);
@@ -236,14 +236,17 @@ public class TypescriptAnalyzerTest {
         String dollarSkel = advancedSkeletons.get(dollarVar);
         assertTrue(dollarSkel.contains("declare"), "'declare' keyword should appear via fallback");
         assertTrue(dollarSkel.contains("var"), "'var' keyword should appear in ambient declaration");
-        
+
         // 6. Verify no regression in overload merging
         CodeUnit processInput = CodeUnit.fn(advancedTsFile, "", "processInput");
         assertTrue(advancedSkeletons.containsKey(processInput), "Overloaded function processInput should be present");
         String processInputSkel = advancedSkeletons.get(processInput);
-        long exportCount = processInputSkel.lines().filter(l -> l.strip().startsWith("export function processInput")).count();
+        long exportCount = processInputSkel
+                .lines()
+                .filter(l -> l.strip().startsWith("export function processInput"))
+                .count();
         assertTrue(exportCount >= 3, "Should have multiple export function signatures for overloads");
-        
+
         // 7. Verify export preference: exported version preferred over non-exported
         // (This is implicit in the above tests - all export keywords are preserved)
     }
