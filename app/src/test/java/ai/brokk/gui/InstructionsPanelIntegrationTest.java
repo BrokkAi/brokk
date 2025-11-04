@@ -1,6 +1,6 @@
 package ai.brokk.gui;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.Service;
 import ai.brokk.gui.components.ModelBenchmarkData;
@@ -156,5 +156,28 @@ class InstructionsPanelIntegrationTest {
                 TokenUsageBar.WarningLevel.RED,
                 warningLevel,
                 "Token count 200,000 (beyond tested range) should produce RED warning");
+    }
+    @Test
+    void testCerebrasAbove131kWithinModelLimit_notRedAndTooltipTested() {
+        int approxTokens = 200_000; // above 131,071 but within many large-context models
+
+        // Simulate within-limit case for Cerebras (models typically support large contexts)
+        boolean isTested = true;
+        int successRate = -1; // unknown for this model/token combo
+
+        var warningLevel = computeWarningLevel(approxTokens, successRate, isTested);
+        // Within model limit should not force RED
+        assertNotEquals(TokenUsageBar.WarningLevel.RED, warningLevel, "Within model limit should not force RED");
+
+        // Build a config for a Cerebras model and compute tooltip
+        var config = new Service.ModelConfig("cerebras/qwen3-coder", Service.ReasoningLevel.DEFAULT);
+        String tooltip = TokenUsageBar.computeWarningTooltip(
+                isTested, config, warningLevel, successRate, approxTokens, "<html>context</html>");
+
+        assertNotNull(tooltip, "Tooltip should not be null");
+        // When tested, tooltip should not include 'Untested' messaging
+        assertFalse(tooltip.toLowerCase().contains("untested"), "Tooltip should reflect tested status (no 'Untested').");
+        // Tooltip should include some reasonable content (the base passed content)
+        assertTrue(tooltip.toLowerCase().contains("context"), "Tooltip should include base context content.");
     }
 }
