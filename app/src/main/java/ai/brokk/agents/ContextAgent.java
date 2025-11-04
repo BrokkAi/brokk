@@ -241,13 +241,13 @@ public class ContextAgent {
                 io.llmOutput(
                         "\nProcessing " + (analyzedFiles.isEmpty() ? "**unanalyzed**" : "**analyzed**") + " files…\n\n",
                         ChatMessageType.AI,
-                        true,
+                        false,
                         true);
             case 2 ->
                 io.llmOutput(
                         "\nProcessing **analyzed** and **unanalyzed** files in parallel\nAnalyzed files reasoning:\n\n",
                         ChatMessageType.AI,
-                        true,
+                        false,
                         true);
         }
 
@@ -564,12 +564,18 @@ public class ContextAgent {
                 You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
                 A second pass will be made using your recommended files, so the top priority is to make sure you
                 identify ALL potentially relevant files without leaving any out, even at the cost of some false positives.
+                You MUST ONLY select files from the provided <filenames> list. Do NOT invent or include any file that is not exactly present in <filenames>.
                 """;
         var filenamePrompt =
                 """
                 <instructions>
                 Given the above goal and Workspace contents (if any), evaluate the following list of filenames
                 while thinking carefully about how they may be relevant to the goal.
+
+                Constraints:
+                 - You MUST select zero or more files EXCLUSIVELY from the provided <filenames> list.
+                 - Do NOT include any filename that is not exactly present in <filenames>.
+                 - If no files apply, return an empty selection (i.e., no lines).
 
                 Reason step-by-step:
                  - Identify all files corresponding to class names explicitly mentioned in the <goal>.
@@ -581,7 +587,10 @@ public class ContextAgent {
                  - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                    do not recommend files that are listed in the <discarded_context> section.
 
-                Then, list the full path of each relevant filename, one per line.
+                Output format (strict):
+                 - Return ONLY the selected filenames, EXACTLY as they appear in <filenames>, one per line.
+                 - No quotes, no bullets, no markdown, and no extra commentary outside of the filenames list.
+
                 </instructions>
                 <filenames>
                 %s
@@ -683,13 +692,13 @@ public class ContextAgent {
                     .llmOutput(
                             "Processing " + chunks.size() + " batches in parallel (showing batch 1)…",
                             ChatMessageType.AI,
-                            true,
-                            false);
+                            false,
+                            true);
         }
 
-        Llm filesLlmNoEcho = showBatch1Reasoning
+        Llm filesLlmWithEcho = showBatch1Reasoning
                 ? cm.getLlm(new Llm.Options(
-                                cm.getService().quickestModel(), "ContextAgent Files (batch 2+): %s".formatted(goal))
+                                cm.getService().quickestModel(), "ContextAgent Files Unanalyzed %s".formatted(goal))
                         .withForceReasoningEcho())
                 : filesLlm;
 
@@ -698,7 +707,7 @@ public class ContextAgent {
             List<Callable<LlmRecommendation>> tasks = new ArrayList<>(chunks.size());
             for (int i = 0; i < chunks.size(); i++) {
                 int batchIndex = i;
-                Llm llmForBatch = (showBatch1Reasoning && batchIndex == 0) ? filesLlm : filesLlmNoEcho;
+                Llm llmForBatch = (showBatch1Reasoning && batchIndex == 0) ? filesLlm : filesLlmWithEcho;
                 tasks.add(() -> {
                     try {
                         return askLlmDeepPruneFilenames(chunks.get(batchIndex), workspaceRepresentation, llmForBatch);
@@ -734,9 +743,9 @@ public class ContextAgent {
             cm.getIo()
                     .llmOutput(
                             "All batches complete. " + combinedFiles.size() + " files selected.",
-                            ChatMessageType.CUSTOM,
-                            true,
-                            false);
+                            ChatMessageType.AI,
+                            false,
+                            true);
         }
 
         return new LlmRecommendation(
