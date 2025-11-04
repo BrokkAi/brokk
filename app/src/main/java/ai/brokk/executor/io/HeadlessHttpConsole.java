@@ -2,6 +2,7 @@ package ai.brokk.executor.io;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskEntry;
+import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -182,6 +183,33 @@ public class HeadlessHttpConsole implements IConsoleIO {
     @Override
     public void enableActionButtons() {
         var data = Map.of("name", "actionButtonsEnabled", "value", true);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void updateWorkspace() {
+        var data = Map.of("name", "workspaceUpdated", "value", true);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void updateGitRepo() {
+        var data = Map.of("name", "gitRepoUpdated", "value", true);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void updateContextHistoryTable() {
+        var data = Map.of("name", "contextHistoryUpdated", "value", true);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void updateContextHistoryTable(Context context) {
+        var data = Map.of(
+                "name", "contextHistoryUpdated",
+                "value", true,
+                "count", context != null ? 1 : 0);
         enqueueEvent("STATE_HINT", data);
     }
 
