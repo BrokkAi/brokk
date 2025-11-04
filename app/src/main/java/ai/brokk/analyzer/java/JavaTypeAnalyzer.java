@@ -69,7 +69,9 @@ public class JavaTypeAnalyzer {
                 typeNameStack.removeLast();
             }
 
-            assert currentTypeName != null;
+            if (currentTypeName == null) {
+                continue;
+            }
 
             // Build FQN: package + ancestor type names + current type name
             var typeParts = new ArrayList<>(typeNameStack);
