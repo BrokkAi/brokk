@@ -35,7 +35,6 @@ jobs:
     - name: Check commit
       run: git rev-parse HEAD
 
-
     - name: Run tests with full static analysis (Windows)
       if: matrix.os == 'windows-latest'
       run: ./gradlew check -PexcludeGitRepoTest
