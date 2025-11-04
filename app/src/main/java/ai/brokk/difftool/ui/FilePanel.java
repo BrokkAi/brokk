@@ -17,10 +17,7 @@ import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import java.awt.*;
 import java.awt.Font;
-import java.awt.event.ActionEvent;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
-import java.awt.event.FocusListener;
+import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -128,6 +125,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     // Viewport cache for thread-safe access
     private final AtomicReference<ViewportCache> viewportCache = new AtomicReference<>();
 
+    // Для отображения позиции курсора
+    private JPanel cursorPositionPanel;
+    private JLabel cursorPositionLabel;
+    private Timer mouseStopTimer;
+
     public FilePanel(BufferDiffPanel diffPanel, String name) {
         this.diffPanel = diffPanel;
         this.name = name;
@@ -136,6 +138,17 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     private void init() {
         visualComponentContainer = new JPanel(new BorderLayout());
+        
+        // Инициализация панели отображения позиции курсора
+        cursorPositionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
+        cursorPositionLabel = new JLabel();
+        cursorPositionLabel.setFont(cursorPositionLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        cursorPositionPanel.add(cursorPositionLabel);
+        cursorPositionPanel.setOpaque(false);
+        cursorPositionPanel.setVisible(false);
+        
+        // Добавляем панель внизу контейнера
+        visualComponentContainer.add(cursorPositionPanel, BorderLayout.SOUTH);
 
         // Initialize status panel for file notifications
         statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
@@ -215,6 +228,39 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Editor is ThemeAware but we can apply theme directly since no font size is set yet during init
         String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(editor));
+        
+        // Инициализация таймера для определения остановки мыши
+        initMouseStopDetection();
+    }
+
+    private void initMouseStopDetection() {
+        // Create a timer with a delay of 500ms before considering mouse stopped
+        mouseStopTimer = new Timer(500, e -> {
+            // This action will be performed when mouse stops moving
+            // You can add your custom logic here
+            System.out.println("Mouse stopped moving over the editor");
+        });
+        
+        // Make sure the timer only fires once when mouse stops
+        mouseStopTimer.setRepeats(false);
+        
+        // Add mouse motion listener to detect mouse movement
+        editor.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                // Restart the timer on mouse movement
+                mouseStopTimer.restart();
+            }
+            
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                // Also handle mouse drag events
+                mouseStopTimer.restart();
+            }
+        });
+        
+        // Start the timer
+        mouseStopTimer.start();
     }
 
     public JComponent getVisualComponent() {

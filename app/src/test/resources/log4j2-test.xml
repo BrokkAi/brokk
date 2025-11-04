@@ -1,45 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
-  <Properties>
-    <!-- short, timestamped pattern for console -->
-    <Property name="pattern">%d{HH:mm:ss.SSS} [%t] %-5level %c{1} - %msg%n</Property>
-  </Properties>
+	<Properties>
+		<!-- short, timestamped pattern for console -->
+		<Property name="pattern">%d{HH:mm:ss.SSS} [%t] %-5level %c{1} - %msg%n</Property>
+	</Properties>
 
-  <Appenders>
-    <Console name="Console" target="SYSTEM_OUT">
-      <PatternLayout pattern="${pattern}"/>
-    </Console>
-  </Appenders>
+	<Appenders>
+		<Console name="Console" target="SYSTEM_OUT">
+			<PatternLayout pattern="${pattern}" />
+		</Console>
+	</Appenders>
 
-  <Loggers>
-    <!-- your dependencies at WARN/ERROR so they don’t overwhelm test output -->
-    <Logger name="io.joern"            level="error" additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
-    <Logger name="io.shiftleft"       level="error" additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
-    <Logger name="flatgraph"          level="error" additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
-    <Logger name="org.eclipse"        level="error" additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
-    <Logger name="dev.langchain4j"    level="warn"  additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
-    <Logger name="com.github.tjake.jlama" level="warn" additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
+	<Loggers>
+		<!-- your dependencies at WARN/ERROR so they don’t overwhelm test output -->
+		<Logger name="io.joern" level="error" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
+		<Logger name="io.shiftleft" level="error" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
+		<Logger name="flatgraph" level="error" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
+		<Logger name="org.eclipse" level="error" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
+		<Logger name="dev.langchain4j" level="warn" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
+		<Logger name="com.github.tjake.jlama" level="warn" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
 
-    <!-- Disable debug logging specifically for skeleton printer to reduce verbose output -->
-    <Logger name="ai.brokk.tools.SkeletonPrinter" level="warn" additivity="false">
-      <AppenderRef ref="Console"/>
-    </Logger>
+		<!-- Disable debug logging specifically for skeleton printer to reduce
+		verbose output -->
+		<Logger name="ai.brokk.tools.SkeletonPrinter" level="warn"
+			additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
 
-    <!-- everything else at DEBUG -->
-    <Root level="debug">
-      <AppenderRef ref="Console"/>
-    </Root>
-  </Loggers>
+		<!-- everything else at DEBUG -->
+		<Root level="debug">
+			<AppenderRef ref="Console" />
+		</Root>
+	</Loggers>
 </Configuration>

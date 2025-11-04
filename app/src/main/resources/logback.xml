@@ -1,16 +1,16 @@
 <configuration>
-    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
-    
-    <root level="ERROR">
-        <appender-ref ref="CONSOLE" />
-    </root>
+	<statusListener class="ch.qos.logback.core.status.NopStatusListener" />
 
-    <logger name="*" level="ERROR"/>
-    <logger name="io" level="ERROR"/>
+	<root level="ERROR">
+		<appender-ref ref="CONSOLE" />
+	</root>
 
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%msg%n</pattern>
-        </encoder>
-    </appender>
+	<logger name="*" level="ERROR" />
+	<logger name="io" level="ERROR" />
+
+	<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%msg%n</pattern>
+		</encoder>
+	</appender>
 </configuration>

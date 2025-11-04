@@ -192,7 +192,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
 
         // --- Get necessary info for both panels ---
         FilePanel fromPanel = getFromPanel();
-        FilePanel toPanel = getToPanel();
+         toPanel = getToPanel();
 
         // If either panel is null (should not happen if constructor assertions hold), abort painting.
         if (fromPanel == null || toPanel == null) {
