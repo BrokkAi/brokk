@@ -254,8 +254,7 @@ public final class V3_HistoryIo {
                 Map.entry("PasteTextFragment", "PasteTextFragmentDto"),
                 Map.entry("AnonymousImageFragment", "PasteImageFragmentDto"),
                 Map.entry("FrozenFragment", "FrozenFragmentDto"),
-                Map.entry("BuildFragment", "BuildFragmentDto")
-        );
+                Map.entry("BuildFragment", "BuildFragmentDto"));
 
         LegacyTypeMappingHandler(Map<String, String> prefixMapping) {
             this.prefixMapping = prefixMapping;
@@ -287,11 +286,18 @@ public final class V3_HistoryIo {
                         try {
                             Class<?> target = Class.forName(mappedId);
                             if (logger.isDebugEnabled()) {
-                                logger.debug("Applying fallback mapping for legacy runtime type-id '{}' to DTO '{}'; baseType={}", subTypeId, mappedId, baseType);
+                                logger.debug(
+                                        "Applying fallback mapping for legacy runtime type-id '{}' to DTO '{}'; baseType={}",
+                                        subTypeId,
+                                        mappedId,
+                                        baseType);
                             }
                             return ctxt.getTypeFactory().constructSpecializedType(baseType, target);
                         } catch (ClassNotFoundException e) {
-                            logger.warn("Failed to load mapped V3 DTO class '{}' for legacy type-id '{}'", mappedId, subTypeId);
+                            logger.warn(
+                                    "Failed to load mapped V3 DTO class '{}' for legacy type-id '{}'",
+                                    mappedId,
+                                    subTypeId);
                             // fall through to return null below
                         }
                     }
