@@ -1,6 +1,11 @@
 package ai.brokk.gui.dependencies;
 
 import ai.brokk.MainProject;
+import java.awt.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import javax.swing.*;
 import org.assertj.core.api.Assertions;
 import org.assertj.swing.core.BasicRobot;
 import org.assertj.swing.core.Robot;
@@ -10,12 +15,6 @@ import org.assertj.swing.fixture.FrameFixture;
 import org.assertj.swing.fixture.JTableFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
-import javax.swing.*;
-import java.awt.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
 
 /**
  * UI integration test for DependenciesPanel.
@@ -93,7 +92,10 @@ public class DependenciesPanelUiIT {
             return null;
         });
         robot.waitForIdle();
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException ignored) {
+        }
 
         // Find table by scanning component hierarchy (prefer name 'dependenciesTable')
         javax.swing.JTable rawTable = GuiActionRunner.execute(() -> findDependenciesTable(frame.getContentPane()));
@@ -107,11 +109,16 @@ public class DependenciesPanelUiIT {
                 frame.repaint();
                 return null;
             });
-            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ignored) {
+            }
             rawTable = GuiActionRunner.execute(() -> findDependenciesTable(frame.getContentPane()));
         }
 
-        Assertions.assertThat(rawTable).as("dependencies table should exist in component hierarchy").isNotNull();
+        Assertions.assertThat(rawTable)
+                .as("dependencies table should exist in component hierarchy")
+                .isNotNull();
 
         JTableFixture table = new JTableFixture(robot, rawTable);
 
@@ -134,10 +141,15 @@ public class DependenciesPanelUiIT {
             } catch (Exception ignored) {
             }
             if (found) break;
-            try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ignored) {
+            }
         }
 
-        Assertions.assertThat(found).as("table should contain existing-comp row").isTrue();
+        Assertions.assertThat(found)
+                .as("table should contain existing-comp row")
+                .isTrue();
     }
 
     // Recursively collect all components under the given container

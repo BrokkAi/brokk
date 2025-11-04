@@ -5,10 +5,9 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.WorkspacePanel;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Lightweight host abstraction that exposes the handful of operations DependenciesPanel needs from Chrome.
@@ -59,7 +58,8 @@ public interface DependenciesHost {
         }
 
         @Override
-        public int showConfirmDialog(@Nullable Component parent, String message, String title, int optionType, int messageType) {
+        public int showConfirmDialog(
+                @Nullable Component parent, String message, String title, int optionType, int messageType) {
             // Delegate to standard JOptionPane using Chrome's frame as owner when parent is null
             Component owner = parent != null ? parent : chrome.getFrame();
             return JOptionPane.showConfirmDialog(owner, message, title, optionType, messageType);

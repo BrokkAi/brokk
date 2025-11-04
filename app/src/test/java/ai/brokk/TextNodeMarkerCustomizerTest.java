@@ -1,5 +1,10 @@
 package ai.brokk;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import javax.swing.JCheckBox;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
 import org.assertj.swing.core.BasicRobot;
 import org.assertj.swing.core.Robot;
 import org.assertj.swing.edt.FailOnThreadViolationRepaintManager;
@@ -7,12 +12,6 @@ import org.assertj.swing.edt.GuiActionRunner;
 import org.assertj.swing.fixture.FrameFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
-import javax.swing.JFrame;
-import javax.swing.JCheckBox;
-import javax.swing.JPanel;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Lightweight AssertJ-Swing based tests that:

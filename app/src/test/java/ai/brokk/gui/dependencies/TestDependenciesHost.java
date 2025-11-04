@@ -1,13 +1,12 @@
 package ai.brokk.gui.dependencies;
 
-import ai.brokk.MainProject;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
+import ai.brokk.MainProject;
 import ai.brokk.gui.WorkspacePanel;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Minimal test-only DependenciesHost implementation used by UI tests.
@@ -57,7 +56,8 @@ public final class TestDependenciesHost implements DependenciesHost {
     }
 
     @Override
-    public int showConfirmDialog(@Nullable Component parent, String message, String title, int optionType, int messageType) {
+    public int showConfirmDialog(
+            @Nullable Component parent, String message, String title, int optionType, int messageType) {
         // Deterministic: always say YES in tests that call confirm dialogs.
         return JOptionPane.YES_OPTION;
     }

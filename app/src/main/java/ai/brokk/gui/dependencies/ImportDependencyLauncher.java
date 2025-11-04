@@ -21,8 +21,8 @@ public interface ImportDependencyLauncher {
                 // The ImportDependencyDialog API requires a Chrome instance; in non-production tests the
                 // launcher implementation should be overridden.
                 throw new UnsupportedOperationException(
-                        "DefaultImportDependencyLauncher requires a DependenciesHost.DefaultDependenciesHost (production). " +
-                        "Tests should inject an ImportDependencyLauncher that can operate with the provided host.");
+                        "DefaultImportDependencyLauncher requires a DependenciesHost.DefaultDependenciesHost (production). "
+                                + "Tests should inject an ImportDependencyLauncher that can operate with the provided host.");
             }
         }
     }
