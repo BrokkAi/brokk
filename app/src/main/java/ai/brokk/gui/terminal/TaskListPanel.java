@@ -127,6 +127,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
 
+    // EZ-mode gating: track whether the auto-play prompt has been shown for the current session
+    private boolean autoPlayPromptShownThisSession = false;
+
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -846,6 +849,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Clear immediately when switching sessions to avoid showing stale tasks
         if (!Objects.equals(previous, sid)) {
             model.clear();
+            // Reset EZ-mode gating on session change
+            autoPlayPromptShownThisSession = false;
             clearExpansionOnStructureChange();
             updateButtonStates();
         }
@@ -2104,7 +2109,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
         if (!Objects.equals(current, loaded)) {
-            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            SwingUtilities.invokeLater(() -> {
+                // Reset EZ-mode gating when the session changes
+                autoPlayPromptShownThisSession = false;
+                this.loadTasksForCurrentSession();
+            });
         }
     }
 
