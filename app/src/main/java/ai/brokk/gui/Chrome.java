@@ -3013,16 +3013,7 @@ public class Chrome
 
             // EZ-mode: auto-play tasks when idle after the list finishes refreshing
             if (!GlobalUiSettings.isAdvancedMode()) {
-                // Optional extra guard: avoid scheduling during an active LLM run
-                boolean busy = false;
-                try {
-                    busy = contextManager.isLlmTaskInProgress();
-                } catch (Exception ignored) {
-                    // If state cannot be determined, let autoPlayAllIfIdle() guard internally
-                }
-                if (!busy) {
-                    SwingUtilities.invokeLater(taskListPanel::autoPlayAllIfIdle);
-                }
+                SwingUtilities.invokeLater(taskListPanel::autoPlayAllIfIdle);
             }
         });
     }

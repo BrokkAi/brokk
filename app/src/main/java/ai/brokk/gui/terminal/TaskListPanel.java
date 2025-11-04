@@ -2301,6 +2301,24 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
         if (model.getSize() == 0) {
+            // Register a one-shot listener to auto-play once tasks arrive.
+            model.addListDataListener(new ListDataListener() {
+                @Override
+                public void intervalAdded(ListDataEvent e) {
+                    model.removeListDataListener(this);
+                    SwingUtilities.invokeLater(TaskListPanel.this::autoPlayAllIfIdle);
+                }
+
+                @Override
+                public void intervalRemoved(ListDataEvent e) {
+                    // no-op
+                }
+
+                @Override
+                public void contentsChanged(ListDataEvent e) {
+                    // no-op
+                }
+            });
             return;
         }
 
