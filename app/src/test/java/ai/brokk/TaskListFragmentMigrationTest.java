@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -12,8 +14,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Simulates a legacy tasklist.json in a session zip (with no Task List fragment),
@@ -33,10 +33,8 @@ public class TaskListFragmentMigrationTest {
             SessionInfo info = sm.newSession("Legacy Session");
             UUID sessionId = info.id();
 
-            var legacyData = new TaskList.TaskListData(List.of(
-                    new TaskList.TaskItem("Legacy One", false),
-                    new TaskList.TaskItem("Legacy Two", false)
-            ));
+            var legacyData = new TaskList.TaskListData(
+                    List.of(new TaskList.TaskItem("Legacy One", false), new TaskList.TaskItem("Legacy Two", false)));
 
             // Write legacy tasklist.json
             sm.writeTaskList(sessionId, legacyData).get(10, TimeUnit.SECONDS);

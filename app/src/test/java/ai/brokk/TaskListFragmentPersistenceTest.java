@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.tasks.TaskList;
@@ -7,8 +9,6 @@ import ai.brokk.util.Json;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies that calling Context.withTaskList(...) adds a Task List StringFragment,
@@ -25,10 +25,8 @@ public class TaskListFragmentPersistenceTest {
         var cm = new IContextManager() {};
         var initial = new Context(cm, (String) null);
 
-        var data = new TaskList.TaskListData(List.of(
-                new TaskList.TaskItem("Do A", false),
-                new TaskList.TaskItem("Do B", true)
-        ));
+        var data = new TaskList.TaskListData(
+                List.of(new TaskList.TaskItem("Do A", false), new TaskList.TaskItem("Do B", true)));
 
         // When: we apply the Task List via Context API and push into history
         var after = initial.withTaskList(data);

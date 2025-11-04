@@ -302,8 +302,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // make it official
         updateActiveSession(currentSessionId);
 
-        // Load task list for the current session
-        loadTaskListForSession(currentSessionId);
+        // Load task list for the current session on a background executor
+        // This ensures blocking I/O doesn't freeze the UI and waits for analyzer readiness
+        submitBackgroundTask("Load task list for current session", () -> loadTaskListForSession(currentSessionId));
 
         // Notify listeners and UI on EDT
         SwingUtilities.invokeLater(() -> {
@@ -1538,7 +1539,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // Migrate from legacy storage if fragment is absent
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
-            if (legacy != null && !legacy.tasks().isEmpty()) {
+            if (!legacy.tasks().isEmpty()) {
+                // Before pushing a migration context, ensure the analyzer is ready
+                // to avoid deadlocks if fragments need to be frozen during the push
+                try {
+                    analyzerWrapper.get(); // Blocks until analyzer is ready
+                } catch (InterruptedException e) {
+                    logger.warn("Interrupted waiting for analyzer before pushing task list migration");
+                    this.taskList = legacy; // Cache at least, without the context push
+                    return;
+                }
+
                 // Push a new context with the Task List fragment and a migration action
                 pushContext(currentLiveCtx -> currentLiveCtx
                         .withTaskList(legacy)

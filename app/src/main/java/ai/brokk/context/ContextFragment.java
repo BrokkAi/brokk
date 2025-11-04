@@ -761,8 +761,7 @@ public interface ContextFragment {
     StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
     StringFragmentType DISCARDED_CONTEXT =
             new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
-    StringFragmentType TASK_LIST =
-            new StringFragmentType("Task List", SyntaxConstants.SYNTAX_STYLE_JSON);
+    StringFragmentType TASK_LIST = new StringFragmentType("Task List", SyntaxConstants.SYNTAX_STYLE_JSON);
 
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
