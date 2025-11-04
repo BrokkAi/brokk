@@ -126,12 +126,6 @@ tasks.register("tidy") {
     )
 }
 
-// Convenient alias to run Error Prone rule tests only
-tasks.register("testErrorProneRules") {
-description = "Runs unit tests for custom Error Prone rules in :errorprone-checks"
-group = "verification"
-dependsOn(":errorprone-checks:test")
-}
 
 subprojects {
     apply(plugin = "java-library")

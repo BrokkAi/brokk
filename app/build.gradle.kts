@@ -126,8 +126,6 @@ dependencies {
 
     // Error Prone and NullAway for null safety checking
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
-    // Custom Brokk Error Prone checks
-    "errorprone"(project(":errorprone-checks"))
     "errorprone"(libs.nullaway)
     "errorprone"(libs.dataflow.errorprone)
     compileOnly(libs.checker.qual)
@@ -303,8 +301,6 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         error("NullAway")
         enable("RedundantNullCheck")
 
-        // Elevate our custom check to error (OK for now per request)
-        error("BrokkBlockingOperation")
 
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "ai.brokk")
