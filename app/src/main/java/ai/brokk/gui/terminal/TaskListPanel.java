@@ -2265,4 +2265,46 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Recompute full state when an LLM action completes (accounts for selection, queue, etc.)
         SwingUtilities.invokeLater(this::updateButtonStates);
     }
+
+    /**
+     * EZ-mode hook: auto-plays all tasks when the panel is idle.
+     * <p>
+     * Safe to call from any thread. If not on the EDT, the call is re-dispatched.
+     * No-op if:
+     * - an LLM task is already in progress,
+     * - a queue is already active, or
+     * - there are no tasks in the model.
+     * <p>
+     * When guards pass, this leverages the existing run-all behavior (commit gate, queueing, etc.)
+     * by delegating to {@link #onGoStopButtonPressed()}.
+     */
+    public void autoPlayAllIfIdle() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
+            return;
+        }
+
+        // Do not auto-start if the LLM is already busy.
+        try {
+            var cm = chrome.getContextManager();
+            if (cm.isLlmTaskInProgress()) {
+                return;
+            }
+        } catch (Exception ex) {
+            logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
+            // Be conservative: do not auto-start if we cannot determine state
+            return;
+        }
+
+        // Do not auto-start if a queue is already active or there are no tasks.
+        if (queueActive) {
+            return;
+        }
+        if (model.getSize() == 0) {
+            return;
+        }
+
+        // Leverage existing "Play All" behavior (handles commit gate, queueing, etc.)
+        onGoStopButtonPressed();
+    }
 }
