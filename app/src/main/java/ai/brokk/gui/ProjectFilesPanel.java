@@ -120,11 +120,6 @@ public class ProjectFilesPanel extends JPanel {
         toggleDependenciesPanel();
     }
 
-    public void updateDependenciesBadge(int count) {
-        assert SwingUtilities.isEventDispatchThread();
-        chrome.updateProjectFilesTabBadge(count);
-    }
-
     private void updateBorderTitle() {
         var branchName = GitUiUtil.getCurrentBranchName(project);
         GitUiUtil.updatePanelBorderWithBranch(this, "Project Files", branchName);
