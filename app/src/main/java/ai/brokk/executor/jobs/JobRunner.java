@@ -321,6 +321,8 @@ public final class JobRunner {
                 } catch (Throwable ignore) {
                     // Non-critical: shutdown failed
                 }
+                // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
+                // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is restored.
                 cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);
