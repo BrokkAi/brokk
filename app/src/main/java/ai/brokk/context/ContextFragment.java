@@ -9,9 +9,6 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
-import ai.brokk.annotations.BlockingOperation;
-import ai.brokk.annotations.CheapOperation;
-import ai.brokk.annotations.NonBlockingOperation;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.util.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -30,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -219,14 +217,14 @@ public interface ContextFragment {
      * <p>ACHTUNG! This is not supported by FrozenFragment, since computing it requires an Analyzer and one of our goals
      * for freeze() is to not require Analyzer.
      */
-    @BlockingOperation(nonBlocking = "computedSources")
+    @Blocking
     Set<CodeUnit> sources();
 
     /**
      * Returns all repo files referenced by this fragment. This is used when we *just* want to manipulate or show actual
      * files, rather than the code units themselves.
      */
-    @BlockingOperation(nonBlocking = "computedFiles")
+    @Blocking
     Set<ProjectFile> files();
 
     String syntaxStyle();
@@ -279,20 +277,16 @@ public interface ContextFragment {
      * call sites keep working without changes.
      */
     interface ComputedFragment extends ContextFragment {
-        @NonBlockingOperation
         ComputedValue<String> computedText();
 
-        @NonBlockingOperation
         ComputedValue<String> computedDescription();
 
-        @NonBlockingOperation
         ComputedValue<String> computedSyntaxStyle();
 
         /**
          * Non-blocking accessor mirroring files().
          * Default returns a completed value based on current files().
          */
-        @NonBlockingOperation
         default ComputedValue<Set<ProjectFile>> computedFiles() {
             return ComputedValue.completed("cf-files-" + id(), files());
         }
@@ -301,7 +295,6 @@ public interface ContextFragment {
          * Non-blocking accessor mirroring sources().
          * Default returns a completed value based on current sources().
          */
-        @NonBlockingOperation
         default ComputedValue<Set<CodeUnit>> computedSources() {
             return ComputedValue.completed("cf-sources-" + id(), sources());
         }
@@ -352,7 +345,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedText() {
             if (textCv == null) {
                 textCv = new ComputedValue<>("cvf-text-" + id(), this::text, getFragmentExecutor());
@@ -361,7 +353,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedDescription() {
             if (descCv == null) {
                 descCv = new ComputedValue<>("cvf-desc-" + id(), this::description, getFragmentExecutor());
@@ -370,7 +361,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedSyntaxStyle() {
             if (syntaxCv == null) {
                 syntaxCv = new ComputedValue<>("cvf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
@@ -399,7 +389,6 @@ public interface ContextFragment {
         BrokkFile file();
 
         @Override
-        @CheapOperation
         default Set<ProjectFile> files() {
             BrokkFile bf = file();
             if (bf instanceof ProjectFile pf) {
@@ -409,6 +398,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         default String text() throws UncheckedIOException {
             return file().read().orElse("");
         }
@@ -503,7 +493,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<ProjectFile> files() {
             return Set.of(file);
         }
@@ -522,7 +511,7 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedSources")
+        @Blocking
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
             return analyzer.getDeclarations(file);
@@ -544,7 +533,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedText() {
             if (textCv == null) {
                 textCv = new ComputedValue<>("ppf-text-" + id(), this::text, getFragmentExecutor());
@@ -553,7 +541,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedDescription() {
             if (descCv == null) {
                 descCv = new ComputedValue<>("ppf-desc-" + id(), this::description, getFragmentExecutor());
@@ -562,7 +549,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedSyntaxStyle() {
             if (syntaxCv == null) {
                 syntaxCv = new ComputedValue<>("ppf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
@@ -628,7 +614,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             // Treat historical content as potentially different from current; don't claim sources
             return Set.of();
@@ -734,7 +719,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             return Set.of();
         }
@@ -745,7 +729,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedText() {
             if (textCv == null) {
                 textCv = new ComputedValue<>("epf-text-" + id(), this::text, getFragmentExecutor());
@@ -754,7 +737,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedDescription() {
             if (descCv == null) {
                 descCv = new ComputedValue<>("epf-desc-" + id(), this::description, getFragmentExecutor());
@@ -763,7 +745,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedSyntaxStyle() {
             if (syntaxCv == null) {
                 syntaxCv = new ComputedValue<>("epf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
@@ -860,6 +841,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Image image() throws UncheckedIOException {
             try {
                 var imageFile = file.absPath().toFile();
@@ -890,13 +872,11 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             return Set.of();
         }
 
         @Override
-        @CheapOperation
         public Set<ProjectFile> files() {
             return (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of();
         }
@@ -923,7 +903,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedText() {
             if (textCv == null) {
                 textCv = new ComputedValue<>("iff-text-" + id(), this::text, getFragmentExecutor());
@@ -932,7 +911,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedDescription() {
             if (descCv == null) {
                 descCv = new ComputedValue<>("iff-desc-" + id(), this::description, getFragmentExecutor());
@@ -941,7 +919,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedSyntaxStyle() {
             if (syntaxCv == null) {
                 syntaxCv = new ComputedValue<>("iff-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
@@ -1051,13 +1028,12 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedFiles")
+        @Blocking
         public Set<ProjectFile> files() {
             return parseProjectFiles(text(), contextManager.getProject());
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             return Set.of();
         }
@@ -1216,13 +1192,11 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             return sources; // Return pre-computed sources
         }
 
         @Override
-        @CheapOperation
         public Set<ProjectFile> files() {
             // SearchFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
@@ -1268,13 +1242,11 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedDescription() {
             return descriptionCv;
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedSyntaxStyle() {
             if (syntaxCv == null) {
                 syntaxCv = new ComputedValue<>("paste-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
@@ -1364,7 +1336,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedSyntaxStyle() {
             if (syntaxCv == null) {
                 syntaxCv = new ComputedValue<>("ptf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
@@ -1373,7 +1344,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedText() {
             return ComputedValue.completed("ptf-text-" + id(), text);
         }
@@ -1458,7 +1428,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @NonBlockingOperation
         public ComputedValue<String> computedText() {
             if (textCv == null) {
                 textCv = ComputedValue.completed("aif-text-" + id(), text());
@@ -1582,13 +1551,11 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             return sources; // Return pre-computed sources
         }
 
         @Override
-        @CheapOperation
         public Set<ProjectFile> files() {
             // StacktraceFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
@@ -1657,6 +1624,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             var analyzer = getAnalyzer();
             if (analyzer.isEmpty()) {
@@ -1693,7 +1661,7 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedSources")
+        @Blocking
         public Set<CodeUnit> sources() {
             var analyzer = getAnalyzer();
             if (analyzer.isEmpty()) {
@@ -1711,7 +1679,7 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedFiles")
+        @Blocking
         public Set<ProjectFile> files() {
             final var allSources = sources().stream().map(CodeUnit::source);
             if (!includeTestFiles) {
@@ -1796,6 +1764,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             var analyzer = getAnalyzer();
 
@@ -1826,13 +1795,11 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<CodeUnit> sources() {
             return unit.classUnit().map(Set::of).orElseThrow();
         }
 
         @Override
-        @CheapOperation
         public Set<ProjectFile> files() {
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
@@ -1898,6 +1865,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             var analyzer = getAnalyzer();
             var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
@@ -1932,7 +1900,7 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedSources")
+        @Blocking
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
             return analyzer.getDefinition(methodName)
@@ -1942,7 +1910,7 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedFiles")
+        @Blocking
         public Set<ProjectFile> files() {
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
@@ -2019,6 +1987,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             return SummaryFragment.combinedText(summaries);
         }
@@ -2029,13 +1998,13 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedSources")
+        @Blocking
         public Set<CodeUnit> sources() {
             return summaries.stream().flatMap(s -> s.sources().stream()).collect(Collectors.toSet());
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedFiles")
+        @Blocking
         public Set<ProjectFile> files() {
             return summaries.stream().flatMap(s -> s.files().stream()).collect(Collectors.toSet());
         }
@@ -2155,6 +2124,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             Map<CodeUnit, String> skeletons = fetchSkeletons();
             if (skeletons.isEmpty()) {
@@ -2169,13 +2139,13 @@ public interface ContextFragment {
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedSources")
+        @Blocking
         public Set<CodeUnit> sources() {
             return fetchSkeletons().keySet();
         }
 
         @Override
-        @BlockingOperation(nonBlocking = "computedFiles")
+        @Blocking
         public Set<ProjectFile> files() {
             return switch (summaryType) {
                 case CODEUNIT_SKELETON ->
@@ -2331,7 +2301,6 @@ public interface ContextFragment {
         }
 
         @Override
-        @CheapOperation
         public Set<ProjectFile> files() {
             return Set.of();
         }
