@@ -132,6 +132,7 @@ public class ProjectFilesPanel extends JPanel {
     public void updateDependenciesBadge(int count) {
         assert SwingUtilities.isEventDispatchThread();
         dependenciesButton.setToolTipText(count > 0 ? "Dependencies (" + count + " enabled)" : "Dependencies");
+        chrome.updateProjectFilesTabBadge(count);
     }
 
     private void updateBorderTitle() {
