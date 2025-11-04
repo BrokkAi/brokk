@@ -149,6 +149,41 @@ public final class JobRunner {
                                         : defaultCodeModel())
                                 : null;
 
+                var service = cm.getService();
+                String plannerModelNameForLog = switch (mode) {
+                    case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                    case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
+                    case CODE -> {
+                        var plannerName = spec.plannerModel();
+                        yield plannerName == null || plannerName.isBlank() ? "(unused)" : plannerName.trim();
+                    }
+                };
+                String codeModelNameForLog = switch (mode) {
+                    case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                    case ASK -> service.nameOf(Objects.requireNonNull(askCodeModel));
+                    case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
+                };
+                boolean usesDefaultCodeModel = switch (mode) {
+                    case ARCHITECT -> !hasCodeModelOverride;
+                    case ASK -> true;
+                    case CODE -> !hasCodeModelOverride;
+                };
+                if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
+                    plannerModelNameForLog = mode == Mode.CODE ? "(unused)" : "(unknown)";
+                }
+                if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
+                    codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
+                } else if (usesDefaultCodeModel) {
+                    codeModelNameForLog = codeModelNameForLog + " (default)";
+                }
+
+                logger.info(
+                        "Job {} mode={} plannerModel={} codeModel={}",
+                        jobId,
+                        mode,
+                        plannerModelNameForLog,
+                        codeModelNameForLog);
+
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.submitLlmAction(() -> {
                             for (TaskList.TaskItem task : tasks) {
