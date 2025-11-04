@@ -224,10 +224,6 @@ public interface ContextFragment {
 
     String syntaxStyle();
 
-    default ContextFragment unfreeze(IContextManager cm) throws IOException {
-        return this;
-    }
-
     default List<TaskEntry> entries() {
         return List.of();
     }

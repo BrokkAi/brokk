@@ -15,7 +15,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
-
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -31,7 +30,6 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -58,8 +56,7 @@ public final class HistoryIo {
 
     private static final int CURRENT_FORMAT_VERSION = 4;
 
-    private HistoryIo() {
-    }
+    private HistoryIo() {}
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
@@ -116,8 +113,7 @@ public final class HistoryIo {
                 } else {
                     switch (entryName) {
                         case CONTENT_FILENAME -> {
-                            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {
-                            };
+                            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
                             contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
                         }
                         case CONTEXTS_FILENAME -> {
@@ -127,21 +123,18 @@ public final class HistoryIo {
                                     .forEach(compactContextDtoLines::add);
                         }
                         case RESET_EDGES_FILENAME -> {
-                            record EdgeDto(String sourceId, String targetId) {
-                            }
+                            record EdgeDto(String sourceId, String targetId) {}
                             var list = List.of(objectMapper.readValue(zis.readAllBytes(), EdgeDto[].class));
                             list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
                                     UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
                         }
                         case GIT_STATES_FILENAME -> {
-                            var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {
-                            };
+                            var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {};
                             rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
                         }
                         case ENTRY_INFOS_FILENAME -> {
                             byte[] bytes = zis.readAllBytes();
-                            var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {
-                            };
+                            var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
                             Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
                             entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap, mgr);
                         }
@@ -374,8 +367,7 @@ public final class HistoryIo {
 
         byte[] resetEdgesBytes = null;
         if (!ch.getResetEdges().isEmpty()) {
-            record EdgeDto(String sourceId, String targetId) {
-            }
+            record EdgeDto(String sourceId, String targetId) {}
             var dtos = ch.getResetEdges().stream()
                     .map(e -> new EdgeDto(e.sourceId().toString(), e.targetId().toString()))
                     .toList();
@@ -392,8 +384,7 @@ public final class HistoryIo {
                 zos.closeEntry();
 
                 zos.putNextEntry(new ZipEntry(CONTENT_FILENAME));
-                var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {
-                };
+                var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
                 byte[] contentMetadataBytes =
                         objectMapper.writerFor(typeRef).writeValueAsBytes(writer.getContentMetadata());
                 zos.write(contentMetadataBytes);
@@ -432,7 +423,8 @@ public final class HistoryIo {
                     if (ff instanceof ContextFragment.ComputedFragment cf) {
                         var futureBytes = cf.computedImageBytes();
                         if (futureBytes != null) {
-                            imageBytes = futureBytes.await(Duration.ofSeconds(10)).orElse(null);
+                            imageBytes =
+                                    futureBytes.await(Duration.ofSeconds(10)).orElse(null);
                         }
                     } else {
                         imageBytes = ImageUtil.imageToBytes(ff.image());

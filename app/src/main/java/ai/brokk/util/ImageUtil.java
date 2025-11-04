@@ -3,6 +3,7 @@ package ai.brokk.util;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -184,6 +185,19 @@ public class ImageUtil {
         try (var baos = new ByteArrayOutputStream()) {
             ImageIO.write(bufferedImage, "PNG", baos);
             return baos.toByteArray();
+        }
+    }
+
+    /**
+     * Converts a byte array to an Image.
+     *
+     * @param bytes The byte array to convert
+     * @return The converted image, or null if bytes is null
+     * @throws IOException If conversion fails
+     */
+    public static Image bytesToImage(byte[] bytes) throws IOException {
+        try (var bais = new ByteArrayInputStream(bytes)) {
+            return ImageIO.read(bais);
         }
     }
 }
