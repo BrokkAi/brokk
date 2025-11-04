@@ -122,7 +122,27 @@ public class ProjectFilesPanel extends JPanel {
 
     private void updateBorderTitle() {
         var branchName = GitUiUtil.getCurrentBranchName(project);
-        GitUiUtil.updatePanelBorderWithBranch(this, "Project Files", branchName);
+        int dependencyCount = chrome.getProject().getLiveDependencies().size();
+        updateBorderTitle(branchName, dependencyCount);
+    }
+
+    /**
+     * Updates the panel border title with branch name and dependency count. EDT-safe.
+     */
+    public void updateBorderTitle(String branchName, int dependencyCount) {
+        SwingUtilities.invokeLater(() -> {
+            var border = getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                String baseTitle = "Project Files";
+                if (dependencyCount > 0) {
+                    baseTitle += " (" + dependencyCount + " dependenc" + (dependencyCount == 1 ? "y" : "ies") + ")";
+                }
+                String newTitle = !branchName.isBlank() ? baseTitle + " [" + branchName + "]" : baseTitle;
+                titledBorder.setTitle(newTitle);
+                revalidate();
+                repaint();
+            }
+        });
     }
 
     private void setupProjectTree() {

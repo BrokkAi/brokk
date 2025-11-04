@@ -47,6 +47,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.BadgedIcon;
+import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
@@ -3518,6 +3519,10 @@ public class Chrome
             if (projectFilesTabLabel != null) {
                 projectFilesTabLabel.repaint();
             }
+
+            // Update the panel border title with the dependency count
+            var branchName = GitUiUtil.getCurrentBranchName(getProject());
+            projectFilesPanel.updateBorderTitle(branchName, dependencyCount);
         });
     }
 
