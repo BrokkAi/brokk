@@ -165,15 +165,8 @@ public class Chrome
             if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
                 var comp = leftTabbedPanel.getComponentAt(tabIndex);
                 if (comp == projectFilesPanel) {
-                    Runnable update = () -> {
-                        int liveCount = getProject().getLiveDependencies().size();
-                        updateProjectFilesTabBadge(liveCount);
-                    };
-                    if (SwingUtilities.isEventDispatchThread()) {
-                        update.run();
-                    } else {
-                        SwingUtil.runOnEdt(update);
-                    }
+                    int liveCount = getProject().getLiveDependencies().size();
+                    updateProjectFilesTabBadge(liveCount);
                 }
             }
         }
@@ -395,13 +388,11 @@ public class Chrome
         });
 
         // Initialize the Project Files tab badge with the current dependency count
-        SwingUtilities.invokeLater(() -> {
-            try {
-                updateProjectFilesTabBadge(getProject().getLiveDependencies().size());
-            } catch (Exception ex) {
-                logger.debug("Failed to initialize Project Files tab badge", ex);
-            }
-        });
+        try {
+            updateProjectFilesTabBadge(getProject().getLiveDependencies().size());
+        } catch (Exception ex) {
+            logger.debug("Failed to initialize Project Files tab badge", ex);
+        }
 
         // --- New top-level Tests tab moved up (second position) ---
         {
