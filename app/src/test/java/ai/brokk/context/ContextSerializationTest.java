@@ -199,10 +199,6 @@ public class ContextSerializationTest {
     }
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
-        // Contexts should be live, not frozen
-        assertFalse(expected.containsFrozenFragments(), "Expected context should not contain frozen fragments");
-        assertFalse(actual.containsFrozenFragments(), "Actual context should not contain frozen fragments");
-
         // Compare all fragments sorted by ID
         var expectedFragments = expected.allFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))

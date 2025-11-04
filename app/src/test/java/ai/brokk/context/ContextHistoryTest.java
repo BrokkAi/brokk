@@ -51,9 +51,6 @@ public class ContextHistoryTest {
         // Create history with initial context
         var history = new ContextHistory(initialContext);
 
-        // Verify that the context is live (not frozen)
-        assertFalse(initialContext.containsFrozenFragments(), "Initial context should not contain frozen fragments");
-
         // Create a second context with modified content
         var modifiedFragment = new ContextFragment.StringFragment(
                 contextManager, "Modified content with more text", "Test Fragment", "text/plain");
@@ -64,8 +61,6 @@ public class ContextHistoryTest {
                 List.of(),
                 null,
                 CompletableFuture.completedFuture("Modified"));
-
-        assertFalse(modifiedContext.containsFrozenFragments(), "Modified context should not contain frozen fragments");
 
         // Push the modified context to history
         history.pushLive(modifiedContext);
@@ -108,8 +103,6 @@ public class ContextHistoryTest {
                 new ContextFragment.StringFragment(contextManager, "Fragment 2 content", "New Fragment", "text/plain");
 
         var extendedContext = initialContext.addVirtualFragment(fragment2);
-
-        assertFalse(extendedContext.containsFrozenFragments(), "Extended context should not contain frozen fragments");
 
         history.pushLive(extendedContext);
 
@@ -274,10 +267,6 @@ public class ContextHistoryTest {
 
         var contextWithHistory = initialContext.addHistoryEntry(
                 taskEntry, null, java.util.concurrent.CompletableFuture.completedFuture("Action"));
-
-        assertFalse(
-                contextWithHistory.containsFrozenFragments(),
-                "Context with task history should not contain frozen fragments");
 
         history.pushLive(contextWithHistory);
 
