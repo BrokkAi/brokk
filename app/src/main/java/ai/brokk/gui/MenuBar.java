@@ -20,6 +20,7 @@ import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
+import ai.brokk.gui.visualize.CoChangeGraphDialog;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
@@ -47,7 +48,6 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
-import ai.brokk.gui.visualize.CoChangeGraphDialog;
 import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {

@@ -8,10 +8,10 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Frame;
-import java.util.function.Consumer;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -172,11 +172,9 @@ public class CoChangeGraphDialog extends JDialog {
         // Phase 1: build graph from commits
         var builder = new CoChangeGraphBuilder(chrome);
 
-        Consumer<CoChangeGraphBuilder.Progress> buildConsumer = p ->
-                SwingUtil.runOnEdt(() -> updateBuildProgress(p));
+        Consumer<CoChangeGraphBuilder.Progress> buildConsumer = p -> SwingUtil.runOnEdt(() -> updateBuildProgress(p));
 
-        pipelineFuture = builder
-                .buildAsync(buildConsumer, cancelled::get, null, null)
+        pipelineFuture = builder.buildAsync(buildConsumer, cancelled::get, null, null)
                 .thenCompose(graph -> {
                     if (cancelled.get()) {
                         throw new CancellationException("Cancelled after build phase");
@@ -184,8 +182,8 @@ public class CoChangeGraphDialog extends JDialog {
                     // Phase 2: physics layout
                     var layout = new CoChangePhysicsLayout();
                     SwingUtil.runOnEdt(() -> layoutBar.setIndeterminate(false));
-                    Consumer<CoChangePhysicsLayout.Progress> layoutConsumer = p ->
-                            SwingUtil.runOnEdt(() -> updateLayoutProgress(p));
+                    Consumer<CoChangePhysicsLayout.Progress> layoutConsumer =
+                            p -> SwingUtil.runOnEdt(() -> updateLayoutProgress(p));
                     int h = graphPanel.getHeight();
                     if (h <= 0) {
                         h = graphPanel.getPreferredSize().height;

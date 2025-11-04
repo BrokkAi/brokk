@@ -58,24 +58,21 @@ public final class CoChangePhysicsLayout {
      */
     public CompletableFuture<Graph> runAsync(Graph graph, Consumer<Progress> progressConsumer, double viewHeight) {
         var maxConcurrency = Math.max(1, Runtime.getRuntime().availableProcessors());
-        ExecutorService executor =
-                ExecutorServiceUtil.newVirtualThreadExecutor("cochange-layout-vt-", maxConcurrency);
+        ExecutorService executor = ExecutorServiceUtil.newVirtualThreadExecutor("cochange-layout-vt-", maxConcurrency);
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                run(graph, progressConsumer, executor, Math.max(1.0, viewHeight));
-                return graph;
-            } finally {
-                executor.shutdown();
-            }
-        }, executor);
+        return CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        run(graph, progressConsumer, executor, Math.max(1.0, viewHeight));
+                        return graph;
+                    } finally {
+                        executor.shutdown();
+                    }
+                },
+                executor);
     }
 
-    private void run(
-            Graph graph,
-            Consumer<Progress> progressConsumer,
-            ExecutorService executor,
-            double viewHeight) {
+    private void run(Graph graph, Consumer<Progress> progressConsumer, ExecutorService executor, double viewHeight) {
         if (graph.nodes.isEmpty()) {
             progressConsumer.accept(new Progress("No nodes to layout", NUM_STEPS, NUM_STEPS));
             return;
@@ -300,15 +297,11 @@ public final class CoChangePhysicsLayout {
 
     private record Adj(int j, int weight) {}
 
-    private record DebugStats(double minX, double maxX, double minY, double maxY, double meanSpeed, double meanEdgeLen) {}
+    private record DebugStats(
+            double minX, double maxX, double minY, double maxY, double meanSpeed, double meanEdgeLen) {}
 
     private static DebugStats computeStats(
-            double[] x,
-            double[] y,
-            double[] vx,
-            double[] vy,
-            Graph graph,
-            Map<ProjectFile, Integer> indexByFile) {
+            double[] x, double[] y, double[] vx, double[] vy, Graph graph, Map<ProjectFile, Integer> indexByFile) {
         double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
         double sumSpeed = 0.0;

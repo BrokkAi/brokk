@@ -15,7 +15,8 @@ class CoChangeGraphBuilderTest {
 
     @Test
     void accumulatesEdgeWeightsAndIgnoresNonTracked() {
-        Path root = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        Path root =
+                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
 
         var A = new ProjectFile(root, "src/A.java");
         var B = new ProjectFile(root, "src/B.java");
@@ -32,27 +33,40 @@ class CoChangeGraphBuilderTest {
         // 5) A,A (duplicate within commit - should not create self-edge)
         List<ICommitInfo> commits = List.of(
                 new ICommitInfo.CommitInfoStub("c1") {
-                    @Override public List<ProjectFile> changedFiles() { return List.of(A, B); }
+                    @Override
+                    public List<ProjectFile> changedFiles() {
+                        return List.of(A, B);
+                    }
                 },
                 new ICommitInfo.CommitInfoStub("c2") {
-                    @Override public List<ProjectFile> changedFiles() { return List.of(A, B, C); }
+                    @Override
+                    public List<ProjectFile> changedFiles() {
+                        return List.of(A, B, C);
+                    }
                 },
                 new ICommitInfo.CommitInfoStub("c3") {
-                    @Override public List<ProjectFile> changedFiles() { return List.of(B, C); }
+                    @Override
+                    public List<ProjectFile> changedFiles() {
+                        return List.of(B, C);
+                    }
                 },
                 new ICommitInfo.CommitInfoStub("c4") {
-                    @Override public List<ProjectFile> changedFiles() { return List.of(D); }
+                    @Override
+                    public List<ProjectFile> changedFiles() {
+                        return List.of(D);
+                    }
                 },
                 new ICommitInfo.CommitInfoStub("c5") {
-                    @Override public List<ProjectFile> changedFiles() { return List.of(A, A); }
-                }
-        );
+                    @Override
+                    public List<ProjectFile> changedFiles() {
+                        return List.of(A, A);
+                    }
+                });
 
         var noopProgress = new java.util.concurrent.atomic.AtomicReference<CoChangeGraphBuilder.Progress>();
         Supplier<Boolean> notCancelled = () -> false;
 
-        Graph graph = CoChangeGraphBuilder.buildGraphFromCommits(
-                commits, tracked, noopProgress::set, notCancelled);
+        Graph graph = CoChangeGraphBuilder.buildGraphFromCommits(commits, tracked, noopProgress::set, notCancelled);
 
         // Nodes: only A, B, C
         assertEquals(3, graph.nodes.size(), "Expected nodes for tracked changed files only");

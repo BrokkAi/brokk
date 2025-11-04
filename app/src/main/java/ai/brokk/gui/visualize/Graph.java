@@ -1,7 +1,6 @@
 package ai.brokk.gui.visualize;
 
 import ai.brokk.analyzer.ProjectFile;
-
 import java.util.Map;
 
 public class Graph {

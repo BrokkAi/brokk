@@ -15,7 +15,6 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
-import javax.swing.ToolTipManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -26,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.ToolTipManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -52,21 +52,21 @@ public class CoChangeGraphPanel extends JPanel {
 
     // Preset zoom levels: each 1.5x the previous, starting at 0.4
     public static final double TARGET_SCALE_10 = 0.4;
-    public static final double TARGET_SCALE_20 = 0.6;       // 1.5x
-    public static final double TARGET_SCALE_30 = 0.9;       // 1.5x
-    public static final double TARGET_SCALE_50 = 1.35;      // 1.5x
-    public static final double TARGET_SCALE_ALL = 2.025;    // 1.5x
+    public static final double TARGET_SCALE_20 = 0.6; // 1.5x
+    public static final double TARGET_SCALE_30 = 0.9; // 1.5x
+    public static final double TARGET_SCALE_50 = 1.35; // 1.5x
+    public static final double TARGET_SCALE_ALL = 2.025; // 1.5x
 
     // Boundaries between levels (midpoints)
-    private static final double BOUND_10_20 = (TARGET_SCALE_10 + TARGET_SCALE_20) / 2.0;   // 0.5
-    private static final double BOUND_20_30 = (TARGET_SCALE_20 + TARGET_SCALE_30) / 2.0;   // 0.75
-    private static final double BOUND_30_50 = (TARGET_SCALE_30 + TARGET_SCALE_50) / 2.0;   // 1.125
+    private static final double BOUND_10_20 = (TARGET_SCALE_10 + TARGET_SCALE_20) / 2.0; // 0.5
+    private static final double BOUND_20_30 = (TARGET_SCALE_20 + TARGET_SCALE_30) / 2.0; // 0.75
+    private static final double BOUND_30_50 = (TARGET_SCALE_30 + TARGET_SCALE_50) / 2.0; // 1.125
     private static final double BOUND_50_ALL = (TARGET_SCALE_50 + TARGET_SCALE_ALL) / 2.0; // 1.6875
 
     // File-size → radius mapping:
     // Target: 100 KiB -> diameter ~ 50 px -> radius ~ 25 px, with area proportional to bytes.
     private static final double REFERENCE_BYTES = 102400.0; // 100 KiB
-    private static final double REFERENCE_RADIUS = 25.0;    // px
+    private static final double REFERENCE_RADIUS = 25.0; // px
     private static final double RADIUS_SCALE = REFERENCE_RADIUS / Math.sqrt(REFERENCE_BYTES);
     private static final double MIN_RADIUS = 4.0;
     private static final double MAX_RADIUS = 60.0;
@@ -103,12 +103,11 @@ public class CoChangeGraphPanel extends JPanel {
 
     // Stroke caches to avoid per-edge BasicStroke allocations
     private static final BasicStroke[] STROKES_FINE = new BasicStroke[] {
-            makeStroke(1.0f), makeStroke(2.0f), makeStroke(3.0f),
-            makeStroke(4.0f), makeStroke(5.0f), makeStroke(6.0f)
+        makeStroke(1.0f), makeStroke(2.0f), makeStroke(3.0f),
+        makeStroke(4.0f), makeStroke(5.0f), makeStroke(6.0f)
     };
-    private static final BasicStroke[] STROKES_COARSE = new BasicStroke[] {
-            makeStroke(1.0f), makeStroke(3.0f), makeStroke(6.0f)
-    };
+    private static final BasicStroke[] STROKES_COARSE =
+            new BasicStroke[] {makeStroke(1.0f), makeStroke(3.0f), makeStroke(6.0f)};
 
     public CoChangeGraphPanel() {
         setOpaque(true);
@@ -209,7 +208,8 @@ public class CoChangeGraphPanel extends JPanel {
         g2.setColor(EDGE_COLOR);
         for (var e : localGraph.edges.values()) {
             if (topPct < 1.0) {
-                // Node-importance filter: only show edges touching the top N% most "important" nodes by total incident weight
+                // Node-importance filter: only show edges touching the top N% most "important" nodes by total incident
+                // weight
                 if (!isNodeInTopPct(e.a(), topPct) && !isNodeInTopPct(e.b(), topPct)) {
                     continue;
                 }
@@ -315,7 +315,7 @@ public class CoChangeGraphPanel extends JPanel {
         if (n == 0) {
             return null;
         }
-        return new double[] { sumX / n, sumY / n };
+        return new double[] {sumX / n, sumY / n};
     }
 
     @Override
@@ -521,9 +521,7 @@ public class CoChangeGraphPanel extends JPanel {
             totals.merge(e.b(), e.weight(), Integer::sum);
         }
         var ranked = new ArrayList<ProjectFile>(g.nodes.keySet());
-        ranked.sort((p1, p2) -> Integer.compare(
-                totals.getOrDefault(p2, 0),
-                totals.getOrDefault(p1, 0)));
+        ranked.sort((p1, p2) -> Integer.compare(totals.getOrDefault(p2, 0), totals.getOrDefault(p1, 0)));
         var rankIdx = new HashMap<ProjectFile, Integer>(ranked.size());
         for (int i = 0; i < ranked.size(); i++) {
             rankIdx.put(ranked.get(i), i);
