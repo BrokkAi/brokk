@@ -383,7 +383,8 @@ public class Chrome
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectShortcut =
                 KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        projectFilesTabLabel = createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
+        projectFilesTabLabel =
+                createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
         leftTabbedPanel.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
         projectFilesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -3506,9 +3507,7 @@ public class Chrome
                 if (dependencyCount > 0) {
                     tooltip = String.format(
                             "Project Files (%d dependenc%s) (%s)",
-                            dependencyCount,
-                            dependencyCount == 1 ? "y" : "ies",
-                            shortcut);
+                            dependencyCount, dependencyCount == 1 ? "y" : "ies", shortcut);
                 } else {
                     tooltip = "Project Files (" + shortcut + ")";
                 }

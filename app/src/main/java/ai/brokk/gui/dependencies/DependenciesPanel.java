@@ -278,9 +278,8 @@ public final class DependenciesPanel extends JPanel {
                         }
                     });
                     // Update dependencies badge after save completes on EDT
-                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() ->
-                            chrome.updateProjectFilesTabBadge(
-                                    chrome.getProject().getLiveDependencies().size())));
+                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(
+                            chrome.getProject().getLiveDependencies().size())));
                     setControlsLocked(false);
                 }
             };
@@ -365,7 +364,9 @@ public final class DependenciesPanel extends JPanel {
                                     setControlsLocked(false);
 
                                     // Update dependencies badge with the latest enabled count
-                                    int count = chrome.getProject().getLiveDependencies().size();
+                                    int count = chrome.getProject()
+                                            .getLiveDependencies()
+                                            .size();
                                     chrome.updateProjectFilesTabBadge(count);
                                 }));
                     }
@@ -469,20 +470,20 @@ public final class DependenciesPanel extends JPanel {
                 dependencyProjectFileMap.clear();
                 dependencyProjectFileMap.putAll(result.map());
                 for (var row : result.rows()) {
-                tableModel.addRow(row);
+                    tableModel.addRow(row);
                 }
-                } catch (ExecutionException | InterruptedException e) {
+            } catch (ExecutionException | InterruptedException e) {
                 throw new RuntimeException(e);
-                } finally {
+            } finally {
                 isProgrammaticChange = false;
-                }
-                
-                // Update dependencies badge with current live dependency count
-                int count = chrome.getProject().getLiveDependencies().size();
-                SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(count));
-                
-                // count files in background
-                new FileCountingWorker().execute();
+            }
+
+            // Update dependencies badge with current live dependency count
+            int count = chrome.getProject().getLiveDependencies().size();
+            SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(count));
+
+            // count files in background
+            new FileCountingWorker().execute();
         }
     }
 
@@ -697,11 +698,11 @@ public final class DependenciesPanel extends JPanel {
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependenciesAsync();
-                    // Persist changes after successful deletion and reload, then refresh badge on EDT when save completes.
+                    // Persist changes after successful deletion and reload, then refresh badge on EDT when save
+                    // completes.
                     var future = saveChangesAsync();
-                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() ->
-                            chrome.updateProjectFilesTabBadge(
-                                    chrome.getProject().getLiveDependencies().size())));
+                    future.whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> chrome.updateProjectFilesTabBadge(
+                            chrome.getProject().getLiveDependencies().size())));
                 } catch (IOException ex) {
                     JOptionPane.showMessageDialog(
                             this,
