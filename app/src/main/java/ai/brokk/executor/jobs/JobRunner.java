@@ -94,6 +94,9 @@ public final class JobRunner {
         activeJobId = jobId;
         cancelled.set(false);
         console = new HeadlessHttpConsole(store, jobId);
+        final var previousIo = cm.getIo();
+        cm.setIo(console);
+        logger.info("Job {} attaching streaming console", jobId);
 
         // Transition status to RUNNING
         try {
@@ -318,6 +321,7 @@ public final class JobRunner {
                 } catch (Throwable ignore) {
                     // Non-critical: shutdown failed
                 }
+                cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);
             }
