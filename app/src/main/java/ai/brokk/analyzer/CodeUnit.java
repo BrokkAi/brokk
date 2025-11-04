@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /** Represents a named code element (class, function, field, or module). */
 public class CodeUnit implements Comparable<CodeUnit> {
@@ -20,6 +21,10 @@ public class CodeUnit implements Comparable<CodeUnit> {
     @JsonProperty("packageName")
     private final String packageName;
 
+    @JsonProperty("signature")
+    @Nullable
+    private final String signature;
+
     private final transient String fqName;
 
     @JsonCreator
@@ -27,7 +32,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("source") ProjectFile source,
             @JsonProperty("kind") CodeUnitType kind,
             @JsonProperty("packageName") String packageName,
-            @JsonProperty("shortName") String shortName) {
+            @JsonProperty("shortName") String shortName,
+            @JsonProperty("signature") @Nullable String signature) {
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }
@@ -35,7 +41,16 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this.kind = kind;
         this.packageName = packageName;
         this.shortName = shortName;
+        this.signature = signature;
         this.fqName = packageName.isEmpty() ? shortName : packageName + "." + shortName;
+    }
+
+    public CodeUnit(
+            @JsonProperty("source") ProjectFile source,
+            @JsonProperty("kind") CodeUnitType kind,
+            @JsonProperty("packageName") String packageName,
+            @JsonProperty("shortName") String shortName) {
+        this(source, kind, packageName, shortName, null);
     }
 
     /** Return the FQCN corresponding to the given FQMN */
@@ -66,7 +81,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public String identifier() {
         return switch (kind) {
             case CLASS -> shortName; // Simple class name, potentially including nesting (C, C$D)
-            case CodeUnitType.MODULE -> shortName; // The module's own short name, e.g., "_module_"
+            case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
                 int lastDot = shortName.lastIndexOf('.');
@@ -81,7 +96,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * <ul>
      *   <li>For {@link CodeUnitType#CLASS}, this is the simple class name (e.g., "MyClass", "Outer$Inner").
      *   <li>For {@link CodeUnitType#FUNCTION} or {@link CodeUnitType#FIELD}, this is "className.memberName" (e.g.,
-     *       "MyClass.myMethod") or just "functionName".
+     *       "MyClass.myMethod", "Outer$Inner.myMethod") or just "functionName".
      *   <li>For {@link CodeUnitType#MODULE}, this is typically a placeholder like "_module_" or a file-derived name.
      * </ul>
      *
@@ -135,6 +150,45 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
+     * Returns the (optional) signature associated with this CodeUnit.
+     *
+     * <p>
+     * This field contains an optional, analyzer-populated canonical "signature" for callable code units
+     * (functions / methods). The signature is a language-specific representation of the callable's
+     * parameter list and signature-relevant qualifiers used for overload disambiguation. It may be
+     * {@code null} for legacy items or when an analyzer cannot produce a canonical signature.
+     * </p>
+     *
+     * <p><strong>Design notes:</strong></p>
+     * <ul>
+     *   <li><strong>Identity:</strong> {@code signature} is part of CodeUnit identity for overload disambiguation.
+     *       Two functions with the same {@code fqName} but different signatures (e.g., {@code foo(int)} vs {@code foo(double)})
+     *       are considered distinct CodeUnits.</li>
+     *   <li><strong>FQN derivation:</strong> {@link #fqName()} is derived from {@code packageName} + {@code shortName}
+     *       and does NOT include the signature. Signature is stored separately for clean separation.</li>
+     *   <li><strong>Equality:</strong> {@code equals()} and {@code hashCode()} include {@code signature} to distinguish overloads.
+     *       A CodeUnit with {@code signature=null} is NOT equal to one with {@code signature="(int)"}.</li>
+     *   <li><strong>Legacy data:</strong> CodeUnits deserialized from older JSON may have {@code signature=null}.
+     *       These are treated as distinct from newer CodeUnits with populated signatures.</li>
+     * </ul>
+     *
+     * @return the signature string, or {@code null} if absent.
+     */
+    @Nullable
+    public String signature() {
+        return signature;
+    }
+
+    /**
+     * Convenience to test presence of a signature.
+     *
+     * @return true if a signature string was recorded for this CodeUnit.
+     */
+    public boolean hasSignature() {
+        return signature != null;
+    }
+
+    /**
      * Returns the CodeUnit representing the containing class, if this is a member (function/field). Returns empty for
      * CLASS or MODULE.
      *
@@ -143,7 +197,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public Optional<CodeUnit> classUnit() {
         return switch (kind) {
             case CLASS -> Optional.of(this);
-            case CodeUnitType.MODULE -> Optional.empty();
+            case MODULE -> Optional.empty();
             default -> { // FUNCTION or FIELD
                 // shortName is "ClassName.memberName" for members, or just "funcName" for top-level functions
                 int lastDot = shortName.lastIndexOf('.');
@@ -168,17 +222,18 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof CodeUnit other)) return false;
-        // Equality based on the derived fully qualified name, kind, AND source file
-        // This ensures that classes/interfaces with the same name in different files are distinct
+        // Equality based on the derived fully qualified name, kind, source file, AND signature
+        // Signature inclusion ensures overloaded functions are distinct (e.g., foo(int) vs foo(double))
         return kind == other.kind
                 && Objects.equals(this.fqName(), other.fqName())
-                && Objects.equals(this.source, other.source);
+                && Objects.equals(this.source, other.source)
+                && Objects.equals(this.signature, other.signature);
     }
 
     @Override
     public int hashCode() {
-        // Hash code based on the derived fully qualified name, kind, AND source file
-        return Objects.hash(kind, fqName(), source);
+        // Hash code based on the derived fully qualified name, kind, source file, AND signature
+        return Objects.hash(kind, fqName(), source, signature);
     }
 
     @Override
@@ -188,7 +243,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
             case CLASS -> "CLASS[" + fqName() + "]";
             case FUNCTION -> "FUNCTION[" + fqName() + "]";
             case FIELD -> "FIELD[" + fqName() + "]";
-            case CodeUnitType.MODULE -> "MODULE[" + fqName() + "]";
+            case MODULE -> "MODULE[" + fqName() + "]";
         };
     }
 

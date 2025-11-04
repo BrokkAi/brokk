@@ -770,7 +770,8 @@ public class SearchAgent {
         }
 
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-        int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
+        // use `this.model` (search model) not `model` (scan model) here
+        int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
             context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(

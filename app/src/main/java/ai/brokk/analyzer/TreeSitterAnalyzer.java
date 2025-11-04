@@ -121,6 +121,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
+     *
+     * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
+     * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
+     * definition anywhere marks the CodeUnit as having a body.
+     */
+    public record CodeUnitProperties(
+            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
+
+        public static CodeUnitProperties empty() {
+            return new CodeUnitProperties(
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
+        }
+    }
+
+    /**
      * Read-only index of symbol keys with efficient prefix scan.
      */
     record SymbolKeyIndex(NavigableSet<String> keys) {
@@ -528,9 +544,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     public Optional<CodeUnit> getDefinition(String fqName) {
         final String normalizedFqName = normalizeFullName(fqName);
 
+        // First try exact match on fqName
         List<CodeUnit> matches = uniqueCodeUnitList().stream()
                 .filter(cu -> cu.fqName().equals(normalizedFqName))
                 .toList();
+
+        // If no exact match and search string contains "(", try signature-aware matching for backward compatibility
+        // This handles cases like searching for "foo()" when fqName="foo" and signature="()"
+        if (matches.isEmpty() && normalizedFqName.contains("(")) {
+            int parenIndex = normalizedFqName.indexOf('(');
+            String baseName = normalizedFqName.substring(0, parenIndex);
+            String searchSignature = normalizedFqName.substring(parenIndex);
+
+            // Try exact signature match first
+            matches = uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().equals(baseName))
+                    .filter(cu -> {
+                        String cuSig = cu.signature();
+                        return cuSig != null && cuSig.equals(searchSignature);
+                    })
+                    .toList();
+
+            // If no exact signature match, return any CodeUnit with matching baseName
+            if (matches.isEmpty()) {
+                matches = uniqueCodeUnitList().stream()
+                        .filter(cu -> cu.fqName().equals(baseName))
+                        .toList();
+            }
+        }
 
         if (matches.isEmpty()) {
             return Optional.empty();
@@ -994,6 +1035,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
 
     /**
+     * Hook for subclasses to enhance the FQN before CodeUnit creation.
+     * Called during analysis with access to the definition node and source code.
+     * Default implementation returns the input FQName unchanged.
+     *
+     * @param fqName the computed FQName
+     * @param captureName the capture name from the query
+     * @param definitionNode the AST node for this definition
+     * @param src the source code
+     * @return enhanced FQName, or input FQName if no enhancement needed
+     */
+    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+        return fqName;
+    }
+
+    /**
+     * Extracts the signature string for a callable entity (function/method).
+     * Subclasses can override this to provide language-specific signature extraction.
+     *
+     * @param captureName The capture name from the query
+     * @param definitionNode The AST node for the definition
+     * @param src The source code string
+     * @return The signature string (e.g., "(int, String)"), or null if not applicable
+     */
+    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+        return null;
+    }
+
+    /**
      * Determines the package or namespace name for a given definition.
      *
      * @param file           The project file being analyzed.
@@ -1134,8 +1203,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines whether a duplicate CodeUnit should be ignored.
+     * Called when a CodeUnit with matching fqName already exists.
+     * Subclasses can override to implement language-specific duplicate handling.
+     *
+     * @param existing The CodeUnit already in the list
+     * @param candidate The new CodeUnit being considered for addition
+     * @param file The file being analyzed
+     * @return true if the candidate should be ignored (existing kept), false if candidate should be added
+     */
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // Default: ignore duplicates (keep first)
+        // Subclasses can override for language-specific logic
+        return true;
+    }
+
+    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
-     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
+     * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
+     *
+     * Definition vs Declaration (hasBody-based tie-breaker):
+     * - For function-like CodeUnits, we compute an AST-derived boolean hasBody during analysis and store it in
+     *   CodeUnitProperties.
+     * - When two CodeUnits share the same fqName, a candidate with hasBody == true (a definition) is preferred over
+     *   one with hasBody == false (a forward declaration). This preference applies both to top-level items and to
+     *   children (see addChildCodeUnit for analogous child handling).
+     * - This decision is based solely on the hasBody boolean and does NOT inspect signature strings or any
+     *   presentation placeholders.
+     * - If both candidates have the same hasBody value (both true or both false), existing duplicate/overload logic
+     *   still applies (signature comparison, language-specific policies, etc.).
+     * - When a replacement occurs, we remove the old CodeUnit and all its descendants from the local maps to avoid
+     *   orphaned children.
+     *
+     * Presentation-only placeholders:
+     * - bodyPlaceholder() may still be appended by language analyzers when rendering skeleton text purely for UI
+     *   clarity. It MUST NOT be used for semantic decisions like duplicate handling.
+     *
+     * Incremental updates:
+     * - The hasBody flag is merged across snapshots using logical OR semantics so that a definition discovered in
+     *   any pass/file marks the CodeUnit as having a body.
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1143,35 +1249,79 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
             ProjectFile file) {
 
-        boolean alreadyExists =
-                localTopLevelCUs.stream().anyMatch(existing -> existing.fqName().equals(cu.fqName()));
+        // Find existing CodeUnit with same fqName
+        CodeUnit existingDuplicate = localTopLevelCUs.stream()
+                .filter(existing -> existing.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
 
-        if (!alreadyExists) {
+        if (existingDuplicate == null) {
+            // No duplicate, add normally
             localTopLevelCUs.add(cu);
-        } else if (shouldReplaceOnDuplicate(cu)) {
-            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
-            CodeUnit oldCu = localTopLevelCUs.stream()
-                    .filter(existing -> existing.fqName().equals(cu.fqName()))
-                    .findFirst()
-                    .orElse(null);
+            return;
+        }
 
+        // SPECIAL CASE: For functions, prefer the definition (with body) over a forward declaration.
+        // Use AST-derived hasBody flag captured during analysis instead of string marker inspection.
+        if (cu.isFunction() && existingDuplicate.isFunction()) {
+            boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
+            boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
+
+            if (existingHasBody && !candidateHasBody) {
+                // Keep existing (definition) and ignore new declaration
+                log.trace(
+                        "Ignoring duplicate declaration for {} in {} because definition already present",
+                        cu.fqName(),
+                        file.getFileName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                // Replace existing (declaration) with candidate (definition)
+                localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
+                localTopLevelCUs.add(cu);
+                removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+                return;
+            } else {
+                // If both have body or both lack body, check if signatures are identical; if so, treat as true
+                // duplicate.
+                String sigExisting = existingDuplicate.signature();
+                String sigCandidate = cu.signature();
+                if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
+                    log.trace(
+                            "Ignoring duplicate function with identical signature for {} in {}",
+                            cu.fqName(),
+                            file.getFileName());
+                    return;
+                }
+            }
+            // Otherwise fall through to general duplicate handling below (e.g., distinct overloads)
+        }
+
+        if (shouldReplaceOnDuplicate(cu)) {
+            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
 
             // Recursively remove the old definition and all its descendants from all maps
             // This prevents orphaned children from appearing in the final result
-            if (oldCu != null) {
-                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
-            }
+            removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
+        } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
+            // Language-specific duplicate handling says ignore
+            log.trace("Ignoring duplicate {} in {} per language policy", cu.fqName(), file.getFileName());
         } else {
-            // Unexpected duplicate for languages that don't allow replacement
-            log.error(
-                    "Unexpected duplicate top-level CodeUnit in file {}: {} (kind={})",
-                    file.getFileName(),
-                    cu.fqName(),
-                    cu.kind());
+            // shouldIgnoreDuplicate returned false - verify it's truly different
+            // This handles cases where TreeSitter captures the same function twice
+            // (e.g., forward declaration + definition with identical signature)
+            if (existingDuplicate.equals(cu)) {
+                // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
+                log.trace("Ignoring true duplicate {} in {} (same signature)", cu.fqName(), file.getFileName());
+            } else {
+                // Different CodeUnits (e.g., overloads with different signatures) - add it
+                localTopLevelCUs.add(cu);
+                log.trace("Adding non-duplicate {} in {} (e.g., overload)", cu.fqName(), file.getFileName());
+            }
         }
     }
 
@@ -1216,22 +1366,76 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, Boolean> localHasBody,
             ProjectFile file) {
 
-        if (!kids.contains(cu)) {
-            kids.add(cu);
-        } else if (shouldReplaceOnDuplicate(cu)) {
-            // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
-            CodeUnit oldCu = kids.stream().filter(k -> k.equals(cu)).findFirst().orElse(null);
+        // Look for an existing child with the same FQN (overloads may exist with different signatures)
+        CodeUnit existingDuplicate = kids.stream()
+                .filter(k -> k.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
 
-            if (oldCu != null) {
-                kids.remove(oldCu);
-                removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges);
+        if (existingDuplicate == null) {
+            kids.add(cu);
+            return;
+        }
+
+        // If both are functions and language allows replacement, prefer the one with a body
+        if (cu.isFunction() && existingDuplicate.isFunction() && shouldReplaceOnDuplicate(cu)) {
+            boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
+            boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
+
+            if (existingHasBody && !candidateHasBody) {
+                // Keep existing definition
+                log.trace(
+                        "Skipping duplicate function child '{}' in parent '{}' - existing has body, candidate does not",
+                        cu.fqName(),
+                        parentCu.fqName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                // Replace any existing children with same FQN by this definition
+                kids.removeIf(k -> k.fqName().equals(cu.fqName()));
+                removeCodeUnitAndDescendants(existingDuplicate, localChildren, localSignatures, localSourceRanges);
                 kids.add(cu);
+                return;
             }
+            // If both have body or both lack body, fall through to general handling below
+        }
+
+        if (shouldReplaceOnDuplicate(cu)) {
+            // Replace all same-FQN children (e.g., Python's "last wins")
+            List<CodeUnit> toRemove =
+                    kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();
+            if (!toRemove.isEmpty()) {
+                toRemove.forEach(oldCu ->
+                        removeCodeUnitAndDescendants(oldCu, localChildren, localSignatures, localSourceRanges));
+                kids.removeAll(toRemove);
+            }
+            kids.add(cu);
         } else {
-            // For languages that don't allow replacement, just skip the duplicate
-            log.trace("Skipping duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
+            // For languages that don't allow replacement, treat non-equal CodeUnits (e.g., overloads) as distinct,
+            // but collapse exact duplicates where both FQN and signature match.
+            if (existingDuplicate.equals(cu)) {
+                // Same CodeUnit (same fqName, kind, source) - true duplicate, ignore it
+                log.trace("Skipping true duplicate child: {} in parent {}", cu.fqName(), parentCu.fqName());
+            } else {
+                // If both are functions and signatures are identical, treat as duplicate and skip
+                if (cu.isFunction() && existingDuplicate.isFunction()) {
+                    String sigExisting = existingDuplicate.signature();
+                    String sigCandidate = cu.signature();
+                    if (sigExisting != null && sigCandidate != null && sigExisting.equals(sigCandidate)) {
+                        log.trace(
+                                "Skipping duplicate function child with identical signature: {} in parent {}",
+                                cu.fqName(),
+                                parentCu.fqName());
+                        return;
+                    }
+                }
+                // Different CodeUnits (e.g., overloads with different signatures) - add it
+                kids.add(cu);
+                log.trace(
+                        "Adding non-duplicate child (e.g., overload): {} in parent {}", cu.fqName(), parentCu.fqName());
+            }
         }
     }
 
@@ -1277,6 +1481,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
+        Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -1390,7 +1595,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         simpleName = extractSimpleName(definitionNode, src).orElse(null);
                     } else if (nameNode != null && !nameNode.isNull()) {
                         simpleName = textSlice(nameNode, fileBytes);
-                        if (simpleName.isBlank()) {
+                        if (simpleName.isBlank()
+                                && !isBlankNameAllowed(
+                                        captureName, simpleName, definitionNode.getType(), file.getFileName())) {
                             log.debug(
                                     "Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
                                     expectedNameCapture,
@@ -1417,13 +1624,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         captureName, simpleName, sortedModifierStrings, decoratorNodesForMatch));
                     } else {
                         if (simpleName == null) {
-                            log.debug(
-                                    "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
+                            if (!isNullNameAllowed(
                                     captureName,
                                     definitionNode.getType(),
                                     definitionNode.getStartPoint().getRow() + 1,
-                                    file);
-                        } else {
+                                    file.getFileName())) {
+                                log.debug(
+                                        "Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
+                                        captureName,
+                                        definitionNode.getType(),
+                                        definitionNode.getStartPoint().getRow() + 1,
+                                        file);
+                            }
+                        } else if (!isBlankNameAllowed(
+                                captureName, simpleName, definitionNode.getType(), file.getFileName())) {
                             log.debug(
                                     "Determined simple name for definition capture {} (Node Type [{}], Line {}) in file {} is BLANK. Definition will be skipped.",
                                     captureName,
@@ -1520,6 +1734,57 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         file.getFileName());
                 continue;
             }
+
+            // Allow subclasses to enhance the FQN (e.g., C++ destructor normalization)
+            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
+
+            // Extract signature separately for function-like entities (C++ overload disambiguation)
+            String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
+
+            // Reconstruct CodeUnit if FQN changed or signature exists
+            if (!enhancedFqName.equals(cu.fqName()) || codeUnitSignature != null) {
+                // Strip package prefix from enhanced FQN to get the short name
+                String enhancedShortName = enhancedFqName;
+                if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
+                    enhancedShortName =
+                            enhancedFqName.substring(cu.packageName().length() + 1);
+                }
+                // Reconstruct CodeUnit with enhanced short name and signature
+                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
+            }
+
+            // Compute hasBody from AST for function-like code units (use the same unwrapping rules as signature
+            // building).
+            // This flag is used for duplicate tie-breaking (definition vs declaration) and is persisted in
+            // CodeUnitProperties.
+            boolean hasBody = false;
+            if (getSkeletonTypeForCapture(primaryCaptureName) == SkeletonType.FUNCTION_LIKE) {
+                var profile = getLanguageSyntaxProfile();
+                TSNode nodeForBody = node;
+
+                // Unwrap export statements if applicable
+                if (shouldUnwrapExportStatements() && "export_statement".equals(nodeForBody.getType())) {
+                    TSNode declarationInExport = nodeForBody.getChildByFieldName("declaration");
+                    if (declarationInExport != null && !declarationInExport.isNull()) {
+                        nodeForBody = declarationInExport;
+                    }
+                }
+
+                // Unwrap decorator-wrapping nodes if applicable (e.g., Python)
+                if (hasWrappingDecoratorNode()) {
+                    // Pass an empty list for decorator text since we only need the inner definition node here
+                    nodeForBody =
+                            extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), finalFileBytes, profile);
+                }
+
+                // hasBody is derived from the AST (presence of a non-empty body node after any necessary unwrapping)
+                // and is used for duplicate/definition preference.
+                TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(profile.bodyFieldName());
+                hasBody = bodyNodeCandidate != null
+                        && !bodyNodeCandidate.isNull()
+                        && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
+            }
+            localHasBody.put(cu, hasBody);
 
             localCodeUnitsBySymbol
                     .computeIfAbsent(cu.identifier(), k -> new ArrayList<>())
@@ -1623,7 +1888,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
-                        addChildCodeUnit(cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, file);
+                        addChildCodeUnit(
+                                cu,
+                                parentFnCu,
+                                kids,
+                                localChildren,
+                                localSignatures,
+                                localSourceRanges,
+                                localHasBody,
+                                file);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -1636,14 +1909,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (!attachedToParent) {
                 if (classChain.isEmpty()) {
                     // Top-level CU - use helper to handle duplicates appropriately
-                    addTopLevelCodeUnit(cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
+                    addTopLevelCodeUnit(
+                            cu,
+                            localTopLevelCUs,
+                            localChildren,
+                            localSignatures,
+                            localSourceRanges,
+                            localHasBody,
+                            file);
                 } else {
                     // Parent's shortName is the classChain string itself.
                     String parentFqName = buildParentFqName(cu, classChain);
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                        addChildCodeUnit(cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, file);
+                        addChildCodeUnit(
+                                cu,
+                                parentCu,
+                                kids,
+                                localChildren,
+                                localSignatures,
+                                localSourceRanges,
+                                localHasBody,
+                                file);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
@@ -1652,7 +1940,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 classChain);
                         // Fallback: add as top-level, but use helper to handle duplicates
                         addTopLevelCodeUnit(
-                                cu, localTopLevelCUs, localChildren, localSignatures, localSourceRanges, file);
+                                cu,
+                                localTopLevelCUs,
+                                localChildren,
+                                localSignatures,
+                                localSourceRanges,
+                                localHasBody,
+                                file);
                     }
                 }
             }
@@ -1696,7 +1990,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
-            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs)));
+            boolean hasBody = localHasBody.getOrDefault(cu, false);
+            localStates.put(
+                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
         }
 
         // Deduplicate top-level CodeUnits to avoid downstream duplicate-key issues
@@ -2328,6 +2624,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return List.of(); // Default: no extra comments
     }
 
+    /**
+     * Returns the language-specific string marker appended to rendered function signatures to visually indicate
+     * the presence of a body in skeleton output.
+     *
+     * Important:
+     * - This value is used for presentation only and MUST NOT be used by any semantic logic such as duplicate
+     *   resolution or definition-preference. Those decisions rely on the AST-derived hasBody flag stored in
+     *   CodeUnitProperties.
+     * - Language analyzers should ensure their renderers append this marker consistently for display clarity only.
+     *
+     * Examples:
+     * - C++/Java: "{...}"
+     * - Scala: "= {...}"
+     * - JavaScript/TypeScript/Python/Go: "..."
+     *
+     * @return The string marker to append in skeleton rendering (e.g., "{...}", "...", "= {...}")
+     */
     protected abstract String bodyPlaceholder();
 
     /**
@@ -2507,8 +2820,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (nameNode != null && !nameNode.isNull()) {
                 nameOpt = Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
                         src, nameNode.getStartByte(), nameNode.getEndByte()));
-            } else {
-                log.warn(
+            } else if (!isNullNameExpectedForExtraction(decl.getType())) {
+                log.debug(
                         "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
                         identifierFieldName,
                         decl.getType(),
@@ -2526,8 +2839,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     e.getMessage());
         }
 
-        if (nameOpt.isEmpty()) {
-            log.warn(
+        if (nameOpt.isEmpty() && !isNullNameExpectedForExtraction(decl.getType())) {
+            log.debug(
                     "extractSimpleName: Failed using getChildByFieldName('{}') for node type {} at line {}",
                     identifierFieldName,
                     decl.getType(),
@@ -2725,7 +3038,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         analysisResult.codeUnitState().forEach((cu, newState) -> {
             targetCodeUnitState.compute(cu, (k, existing) -> {
                 if (existing == null) {
-                    return new CodeUnitProperties(newState.children(), newState.signatures(), newState.ranges());
+                    return new CodeUnitProperties(
+                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -2751,7 +3065,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
                     mergedRanges = List.copyOf(tmp);
                 }
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges);
+                // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
+                // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
+                boolean mergedHasBody = existing.hasBody() || newState.hasBody();
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
             });
         });
 
@@ -2819,7 +3136,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 return filteredKids.equals(state.children())
                                         ? state
                                         : new CodeUnitProperties(
-                                                List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                                List.copyOf(filteredKids),
+                                                state.signatures(),
+                                                state.ranges(),
+                                                state.hasBody());
                             });
                             // Purge from symbol index
                             var symbolsToRemove = new ArrayList<String>();
@@ -3168,5 +3488,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
         return best;
+    }
+
+    protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
+        return false;
+    }
+
+    protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+        return false;
+    }
+
+    /**
+     * Hook for subclasses to suppress logging when extractSimpleName encounters null/missing names
+     * that are expected for the language (e.g., C++ declarations, anonymous structures).
+     *
+     * @param nodeType the AST node type
+     * @return true if null names are expected and logging should be suppressed
+     */
+    protected boolean isNullNameExpectedForExtraction(String nodeType) {
+        return false;
     }
 }

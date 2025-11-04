@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -99,11 +100,7 @@ class ContextManagerFileWatchingTest {
         public void toolError(String msg, String title) {}
 
         @Override
-        public void llmOutput(
-                String token,
-                dev.langchain4j.data.message.ChatMessageType type,
-                boolean isNewMessage,
-                boolean isReasoning) {}
+        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
 
         void reset() {
             gitRepoUpdateCount.set(0);

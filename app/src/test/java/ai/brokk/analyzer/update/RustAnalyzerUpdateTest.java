@@ -10,21 +10,25 @@ import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class RustAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(rootDir, "lib.rs", """
+        new ProjectFile(tempDir, "lib.rs").write("""
                 pub fn foo() -> i32 { 1 }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.RUST);
+        project = new TestProject(tempDir, Languages.RUST);
         analyzer = new RustAnalyzer(project);
     }
 
@@ -38,10 +42,9 @@ class RustAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("foo").isPresent());
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "lib.rs",
-                """
+        new ProjectFile(project.getRoot(), "lib.rs")
+                .write(
+                        """
                 pub fn foo() -> i32 { 1 }
                 pub fn bar() -> i32 { 2 }
                 """);
@@ -54,10 +57,9 @@ class RustAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "lib.rs",
-                """
+        new ProjectFile(project.getRoot(), "lib.rs")
+                .write(
+                        """
                 pub fn foo() -> i32 { 1 }
                 pub fn baz() -> i32 { 3 }
                 """);
