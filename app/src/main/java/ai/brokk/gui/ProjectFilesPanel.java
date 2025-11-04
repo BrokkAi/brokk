@@ -97,6 +97,10 @@ public class ProjectFilesPanel extends JPanel {
 
         add(contentSplitPane, BorderLayout.CENTER);
         updateBorderTitle(); // Set initial title with branch name
+
+        // Initialize badge with current dependency count
+        int liveCount = chrome.getProject().getLiveDependencies().size();
+        chrome.updateProjectFilesTabBadge(liveCount);
     }
 
     private void toggleDependenciesPanel() {
