@@ -362,14 +362,14 @@ public class Chrome
         // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
         leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
-        var projectIcon = Icons.FOLDER_CODE;
-        leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
+        projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, themeManager);
+        leftTabbedPanel.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectShortcut =
                 KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files (" + projectShortcut + ")");
-        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
-        projectTabLabel.addMouseListener(new MouseAdapter() {
+        projectFilesTabLabel = createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
+        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
+        projectFilesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 handleTabToggle(projectTabIdx);
