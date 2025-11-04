@@ -2,11 +2,17 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.Service;
 import ai.brokk.executor.io.HeadlessHttpConsole;
+import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.agents.CodeAgent;
 import ai.brokk.tasks.TaskList;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,6 +37,24 @@ public final class JobRunner {
     private volatile HeadlessHttpConsole console;
     private volatile String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+    private enum Mode {
+        ARCHITECT,
+        CODE,
+        ASK
+    }
+
+    private static Mode parseMode(JobSpec spec) {
+        try {
+            var tags = spec.tags();
+            if (tags == null) return Mode.ARCHITECT;
+            var raw = tags.getOrDefault("mode", "").trim();
+            if (raw.isEmpty()) return Mode.ARCHITECT;
+            return Mode.valueOf(raw.toUpperCase());
+        } catch (Exception ignore) {
+            return Mode.ARCHITECT;
+        }
+    }
 
     /**
      * Create a new JobRunner.
@@ -102,6 +126,9 @@ public final class JobRunner {
 
                 logger.info("Job {} parsed {} task(s)", jobId, total);
 
+                // Determine execution mode (default ARCHITECT)
+                Mode mode = parseMode(spec);
+
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.submitLlmAction(() -> {
                             for (TaskList.TaskItem task : tasks) {
@@ -112,7 +139,25 @@ public final class JobRunner {
 
                                 logger.info("Job {} executing task: {}", jobId, task.text());
                                 try {
-                                    cm.executeTask(task, false, true);
+                                    switch (mode) {
+                                        case ARCHITECT -> {
+                                            // Honor caller flags
+                                            cm.executeTask(task, spec.autoCommit(), spec.autoCompress());
+                                        }
+                                        case CODE -> {
+                                            var codeModel = cm.getCodeModel();
+                                            var agent = new CodeAgent(cm, codeModel);
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var result = agent.runTask(task.text(), Set.of());
+                                                scope.append(result);
+                                            }
+                                        }
+                                        case ASK -> {
+                                            // Read-only execution: never auto-commit; allow compression if requested
+                                            cm.executeTask(new TaskList.TaskItem(task.text(), false), false, spec.autoCompress());
+                                        }
+                                    }
+
                                     completed.incrementAndGet();
 
                                     // Update progress
@@ -136,8 +181,10 @@ public final class JobRunner {
                         })
                         .join();
 
-                // Optional compress after execution if requested
-                if (spec.autoCompress()) {
+                // Optional compress after execution:
+                // - For ARCHITECT: per-task compression already honored via spec.autoCompress().
+                // - For CODE/ASK: run a single compression pass if requested.
+                if (mode != Mode.ARCHITECT && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
                     try {
                         cm.compressHistoryAsync().join();
