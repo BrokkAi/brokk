@@ -2070,6 +2070,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     @Override
     public void removeNotify() {
+        // Clean up auto-play listener early to prevent leaks when panel is removed
+        if (autoPlayListener != null) {
+            try {
+                model.removeListDataListener(autoPlayListener);
+            } catch (Exception e) {
+                logger.debug("Error removing autoPlayListener on removeNotify", e);
+            }
+            autoPlayListener = null;
+        }
+
         try {
             saveTasksForCurrentSession();
         } catch (Exception e) {
