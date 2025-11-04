@@ -120,6 +120,33 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testShowConfirmDialog_MapsToConfirmRequestEvent() throws Exception {
+        int optionType = javax.swing.JOptionPane.YES_NO_OPTION;
+        int messageType = javax.swing.JOptionPane.QUESTION_MESSAGE;
+        int decision = console.showConfirmDialog("Proceed?", "Confirm", optionType, messageType);
+
+        // Decision should be the default YES_OPTION for YES_NO* option types
+        assertEquals(javax.swing.JOptionPane.YES_OPTION, decision);
+
+        Thread.sleep(100);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(1, events.size());
+        var event = events.get(0);
+        assertEquals("CONFIRM_REQUEST", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("Proceed?", data.get("message"));
+        assertEquals("Confirm", data.get("title"));
+        assertEquals(optionType, data.get("optionType"));
+        assertEquals(messageType, data.get("messageType"));
+        assertEquals(javax.swing.JOptionPane.YES_OPTION, data.get("defaultDecision"));
+
+        cleanup();
+    }
+
+    @Test
     void testPrepareOutputForNextStream_MapsToContextBaselineEvent() throws Exception {
         var history = List.of(new TaskEntry(1, null, "task1"), new TaskEntry(2, null, "task2"));
 

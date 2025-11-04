@@ -6,6 +6,7 @@ import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.data.message.ChatMessageType;
+import java.awt.Component;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -107,6 +108,29 @@ public class HeadlessHttpConsole implements IConsoleIO {
                 "message", message,
                 "title", title);
         enqueueEvent("NOTIFICATION", data);
+    }
+
+    /**
+     * Headless consoles cannot block for confirmation prompts. We emit a CONFIRM_REQUEST event
+     * containing {message,title,optionType,messageType,defaultDecision}, return the default
+     * decision immediately, and allow API clients to infer headless choices from the event log.
+     */
+    @Override
+    public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        var decision = defaultDecisionFor(optionType);
+        emitConfirmRequestEvent(
+                message != null ? message : "",
+                title != null ? title : "",
+                optionType,
+                messageType,
+                decision);
+        return decision;
+    }
+
+    @Override
+    public int showConfirmDialog(
+            @Nullable Component parent, String message, String title, int optionType, int messageType) {
+        return showConfirmDialog(message, title, optionType, messageType);
     }
 
     /**
@@ -272,6 +296,47 @@ public class HeadlessHttpConsole implements IConsoleIO {
     // ============================================================================
     // Helpers
     // ============================================================================
+
+    /**
+     * Emits a {@code CONFIRM_REQUEST} event describing a headless confirmation dialog and returns immediately.
+     * The payload contains non-null fields:
+     * <ul>
+     *     <li>{@code message} - dialog body text (empty string if absent)</li>
+     *     <li>{@code title} - dialog title (empty string if absent)</li>
+     *     <li>{@code optionType} - Swing {@link javax.swing.JOptionPane} option constant</li>
+     *     <li>{@code messageType} - Swing {@link javax.swing.JOptionPane} message constant</li>
+     *     <li>{@code defaultDecision} - the automatically selected decision per headless policy</li>
+     * </ul>
+     * Callers receive the {@code defaultDecision} synchronously, while observers can inspect the durable event.
+     */
+    private void emitConfirmRequestEvent(
+            String message, String title, int optionType, int messageType, int defaultDecision) {
+        var data = Map.of(
+                "message", message,
+                "title", title,
+                "optionType", optionType,
+                "messageType", messageType,
+                "defaultDecision", defaultDecision);
+        enqueueEvent("CONFIRM_REQUEST", data);
+    }
+
+    /**
+     * Chooses the default decision returned to callers when running headless.
+     * <ul>
+     *     <li>{@link javax.swing.JOptionPane#YES_NO_OPTION} and {@link javax.swing.JOptionPane#YES_NO_CANCEL_OPTION}
+     *     yield {@link javax.swing.JOptionPane#YES_OPTION}</li>
+     *     <li>{@link javax.swing.JOptionPane#OK_CANCEL_OPTION} yields {@link javax.swing.JOptionPane#OK_OPTION}</li>
+     *     <li>All other option types yield {@link javax.swing.JOptionPane#OK_OPTION}</li>
+     * </ul>
+     */
+    private static int defaultDecisionFor(int optionType) {
+        return switch (optionType) {
+            case javax.swing.JOptionPane.YES_NO_OPTION,
+                    javax.swing.JOptionPane.YES_NO_CANCEL_OPTION -> javax.swing.JOptionPane.YES_OPTION;
+            case javax.swing.JOptionPane.OK_CANCEL_OPTION -> javax.swing.JOptionPane.OK_OPTION;
+            default -> javax.swing.JOptionPane.OK_OPTION;
+        };
+    }
 
     /**
      * Map JOptionPane message types to notification levels.
