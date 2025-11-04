@@ -5,6 +5,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
@@ -96,6 +97,15 @@ public class HeadlessHttpConsole implements IConsoleIO {
     public void showNotification(NotificationRole role, String message) {
         var data = Map.of("level", role.name(), "message", message);
         enqueueEvent("NOTIFICATION", data);
+    }
+
+    /**
+     * Headless consoles do not retain an in-memory transcript; callers should reconstruct
+     * token streams from durable LLM_TOKEN events.
+     */
+    @Override
+    public List<ChatMessage> getLlmRawMessages() {
+        return List.of();
     }
 
     /**
