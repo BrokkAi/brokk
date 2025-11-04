@@ -404,7 +404,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 formatSecondsMillis(totalWall));
 
         // Populate supertypes/basetypes after initial parse+ingest
-        runTypeAnalysis();
+        this.state = runTypeAnalysis(this.state);
 
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
@@ -3255,9 +3255,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 totalMs);
 
         // Recompute supertypes/basetypes after ingesting updates
-        runTypeAnalysis();
+        var typedState = runTypeAnalysis(nextState);
 
-        return newSnapshot(nextState);
+        return newSnapshot(typedState);
     }
 
     /**
@@ -3363,26 +3363,51 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Runs the type-analysis pass to populate supertypes into CodeUnitProperties for all class-like CodeUnits. This is
-     * invoked after initial parsing and after incremental updates.
+     * Runs the type-analysis pass to populate supertypes into CodeUnitProperties for all class-like CodeUnits.
+     * Returns a new immutable AnalyzerState with updated supertypes, leaving the input state unmodified.
+     *
+     * This method temporarily installs the provided baseState into this analyzer so that helper methods
+     * (e.g., treeOf, uniqueCodeUnitList, searchDefinitions) operate against the same snapshot while computing.
      */
-    protected void runTypeAnalysis() {
+    protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
+        AnalyzerState previous = this.state;
         try {
-            for (var entry : state.codeUnitState.entrySet()) {
+            // Ensure helper methods read from the provided snapshot while computing
+            this.state = baseState;
+
+            // Start with a mutable copy of the code unit state
+            Map<CodeUnit, CodeUnitProperties> updated = new HashMap<>(baseState.codeUnitState());
+
+            for (var entry : baseState.codeUnitState().entrySet()) {
                 var cu = entry.getKey();
                 if (!cu.isClass()) continue;
 
                 List<CodeUnit> supers = List.copyOf(computeSupertypes(cu));
                 var props = entry.getValue();
 
-                // Only update if changed to minimize churn
                 if (!Objects.equals(props.supertypes(), supers)) {
-                    entry.setValue(new CodeUnitProperties(
-                            props.children(), props.signatures(), props.ranges(), supers, props.hasBody()));
+                    updated.put(
+                            cu,
+                            new CodeUnitProperties(
+                                    props.children(), props.signatures(), props.ranges(), supers, props.hasBody()));
                 }
             }
+
+            // Rebuild immutable map and AnalyzerState snapshot
+            var nextCodeUnitState = HashTreePMap.from(updated);
+            return new AnalyzerState(
+                    baseState.symbolIndex(),
+                    nextCodeUnitState,
+                    baseState.fileState(),
+                    baseState.symbolKeyIndex(),
+                    baseState.snapshotEpochNanos());
         } catch (Throwable t) {
             log.warn("runTypeAnalysis encountered an error: {}", t.getMessage(), t);
+            // On error, return the original state unchanged
+            return baseState;
+        } finally {
+            // Restore original state
+            this.state = previous;
         }
     }
 

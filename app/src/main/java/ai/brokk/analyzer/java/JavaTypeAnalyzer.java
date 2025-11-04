@@ -5,10 +5,26 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.TSQueryLoader;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
-import org.treesitter.*;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSLanguage;
+import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 
 public class JavaTypeAnalyzer {
 
@@ -38,6 +54,7 @@ public class JavaTypeAnalyzer {
         final Deque<String> typeNameStack = new ArrayDeque<>();
 
         final Set<String> superClassParts = new LinkedHashSet<>();
+        final List<String> importPaths = new ArrayList<>();
 
         while (cursor.nextMatch(match)) {
             TSNode typeDeclNode = null;
@@ -51,6 +68,12 @@ public class JavaTypeAnalyzer {
                         var parts = Splitter.on(".").splitToList(textSlice.apply(cap.getNode(), src));
                         packageParts.clear();
                         packageParts.addAll(parts);
+                    }
+                    case "import.path" -> {
+                        String path = textSlice.apply(cap.getNode(), src).strip();
+                        if (!path.isEmpty()) {
+                            importPaths.add(path);
+                        }
                     }
                     case "type.decl" -> typeDeclNode = cap.getNode();
                     case "type.name" -> currentTypeName = textSlice.apply(cap.getNode(), src);
@@ -98,18 +121,78 @@ public class JavaTypeAnalyzer {
             typeNameStack.addLast(currentTypeName);
         }
 
+        // Build import resolution helpers
+        Map<String, String> explicitImports = new LinkedHashMap<>(); // simpleName -> FQCN
+        List<String> wildcardPackages = new ArrayList<>();
+        for (String raw : importPaths) {
+            String p = raw.strip();
+            if (p.isEmpty()) continue;
+            int lastDot = p.lastIndexOf('.');
+            if (lastDot < 0) {
+                // treat as a package wildcard root (unlikely but harmless)
+                wildcardPackages.add(p);
+                continue;
+            }
+            String last = p.substring(lastDot + 1);
+            // Heuristic: if last segment starts uppercase, treat as explicit type import; otherwise treat as wildcard
+            // package
+            if (!last.isEmpty() && Character.isUpperCase(last.charAt(0))) {
+                explicitImports.putIfAbsent(last, p);
+            } else {
+                wildcardPackages.add(p);
+            }
+        }
+
+        final String currentPackage = cu.packageName();
+
         return superClassParts.stream()
-                .flatMap(identifier ->
-                        // TODO: Incorporate import information
-                        searchDefinitions.apply(".*(?<!\\w)\\.?" + identifier + "$").stream()
+                .flatMap(rawName -> {
+                    String name =
+                            JavaAnalyzer.stripGenericTypeArguments(rawName).trim();
+                    if (name.isEmpty()) return java.util.stream.Stream.<CodeUnit>empty();
+
+                    // Prepare candidates in priority order
+                    List<String> candidates = new ArrayList<>();
+                    String simple = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : name;
+
+                    if (name.contains(".")) candidates.add(name);
+
+                    String explicit = explicitImports.get(simple);
+                    if (explicit != null && !explicit.isBlank()) candidates.add(explicit);
+
+                    for (String wp : wildcardPackages) {
+                        candidates.add(wp + "." + simple);
+                    }
+
+                    if (!currentPackage.isBlank()) {
+                        candidates.add(currentPackage + "." + simple);
+                    }
+
+                    // Implicit java.lang imports
+                    candidates.add("java.lang." + simple);
+
+                    // Fallbacks
+                    candidates.add(simple);
+
+                    for (String cand : candidates) {
+                        String pattern = ".*(?<!\\w)" + Pattern.quote(cand) + "$";
+                        Optional<CodeUnit> found = searchDefinitions.apply(pattern).stream()
                                 .filter(CodeUnit::isClass)
-                                .findFirst()
-                                .stream())
+                                .findFirst();
+                        if (found.isPresent()) {
+                            return Stream.of(found.get());
+                        }
+                    }
+                    return Stream.empty();
+                })
                 .toList();
     }
 
-    private static boolean isAncestor(TSNode ancestor, TSNode node) {
-        for (var p = node.getParent(); p != null; p = p.getParent()) {
+    private static boolean isAncestor(@Nullable TSNode ancestor, TSNode node) {
+        if (ancestor == null || ancestor.isNull()) {
+            return false;
+        }
+        for (var p = node.getParent(); p != null && !p.isNull(); p = p.getParent()) {
             if (p.equals(ancestor)) return true;
         }
         return false;
