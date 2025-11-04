@@ -2447,13 +2447,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 onGoStopButtonPressed();
             } else if (choice[0] == 1) {
                 // Remove existing tasks
-                if (!model.isEmpty()) {
-                    model.clear();
+                int removed = 0;
+                for (int i = model.getSize() - 1; i >= 0; i--) {
+                    model.remove(i);
+                    removed++;
+                }
+                if (removed > 0) {
                     clearExpansionOnStructureChange();
                     saveTasksForCurrentSession();
                     updateButtonStates();
                     SwingUtilities.invokeLater(this::updateTasksTabBadge);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Cleared " + removed + " existing task" + (removed == 1 ? "" : "s") + ".");
                 }
+                // Do not auto-start after clearing
             } else {
                 // Cancel: no further action
             }
