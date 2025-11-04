@@ -29,6 +29,7 @@ import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
@@ -117,33 +118,31 @@ public interface ContextFragment {
     // Dedicated executor for ContextFragment async computations (separate from ContextManager backgroundTasks)
     Logger logger = LogManager.getLogger(ContextFragment.class);
 
-    @org.jetbrains.annotations.VisibleForTesting
+    @VisibleForTesting
     static LoggingExecutorService getFragmentExecutor() {
-        return FragmentExecutorHolder.INSTANCE;
+        return FRAGMENT_EXECUTOR;
     }
 
-    final class FragmentExecutorHolder {
-        // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
-        // We once saw macOS CI with 2 vCPUs blow up during static init with
-        // IllegalArgumentException("corePoolSize > maximumPoolSize"). To make this robust,
-        // we pick a safe parallelism and set core == max. With an unbounded queue, core==max
-        // is the correct configuration to avoid IllegalArgumentException and unexpected scaling.
-        static final LoggingExecutorService INSTANCE = new LoggingExecutorService(
-                new ThreadPoolExecutor(
-                        computeNThreads(), // core
-                        computeNThreads(), // max
-                        60L,
-                        TimeUnit.SECONDS,
-                        new LinkedBlockingQueue<>(),
-                        Executors.defaultThreadFactory()),
-                th -> logger.error("Uncaught exception in ContextFragment executor", th));
+    // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
+    // We once saw macOS CI with 2 vCPUs blow up during static init with
+    // IllegalArgumentException("corePoolSize > maximumPoolSize"). To make this robust,
+    // we pick a safe parallelism and set core == max. With an unbounded queue, core==max
+    // is the correct configuration to avoid IllegalArgumentException and unexpected scaling.
+    LoggingExecutorService FRAGMENT_EXECUTOR = new LoggingExecutorService(
+            new ThreadPoolExecutor(
+                    computeNThreads(), // core
+                    computeNThreads(), // max
+                    60L,
+                    TimeUnit.SECONDS,
+                    new LinkedBlockingQueue<>(),
+                    Executors.defaultThreadFactory()),
+            th -> logger.error("Uncaught exception in ContextFragment executor", th));
 
-        private static int computeNThreads() {
-            int cpus = Runtime.getRuntime().availableProcessors();
-            // Use at least 2 threads to avoid starvation on tiny runners; no cap required since
-            // tasks are short-lived and the queue is unbounded.
-            return Math.max(2, cpus);
-        }
+    private static int computeNThreads() {
+        int cpus = Runtime.getRuntime().availableProcessors();
+        // Use at least 2 threads to avoid starvation on tiny runners; no cap required since
+        // tasks are short-lived and the queue is unbounded.
+        return Math.max(2, cpus);
     }
 
     /**
