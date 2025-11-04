@@ -52,6 +52,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -127,9 +128,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
-
-    // EZ-mode gating: track whether the auto-play prompt has been shown for the current session
-    private boolean autoPlayPromptShownThisSession = false;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
@@ -854,8 +852,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Clear immediately when switching sessions to avoid showing stale tasks
         if (!Objects.equals(previous, sid)) {
             model.clear();
-            // Reset EZ-mode gating on session change
-            autoPlayPromptShownThisSession = false;
             clearExpansionOnStructureChange();
             updateButtonStates();
         }
@@ -2114,11 +2110,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
         if (!Objects.equals(current, loaded)) {
-            SwingUtilities.invokeLater(() -> {
-                // Reset EZ-mode gating when the session changes
-                autoPlayPromptShownThisSession = false;
-                this.loadTasksForCurrentSession();
-            });
+            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
     }
 
@@ -2283,45 +2275,42 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     /**
      * EZ-mode only: auto-plays all tasks when idle.
      * <p>
-     * Guards: EDT-safe, no-op if LLM busy or queue active.
-     * Prompts once per session if tasks exist. Delegates to {@link #onGoStopButtonPressed()}.
+     * Guards: EDT-safe, no-op if queue active.
+     * Prompts if tasks exist. Delegates to {@link #onGoStopButtonPressed()}.
      */
     public void autoPlayAllIfIdle() {
+        autoPlayAllIfIdle(Set.of());
+    }
+
+    public void autoPlayAllIfIdle(Set<String> preExistingIncompleteTasks) {
+        System.out.println("[DEBUG] autoPlayAllIfIdle called, preExisting.size=" + preExistingIncompleteTasks.size());
         if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
+            System.out.println("[DEBUG] Not on EDT, re-dispatching");
+            SwingUtilities.invokeLater(() -> this.autoPlayAllIfIdle(preExistingIncompleteTasks));
             return;
         }
 
         if (GlobalUiSettings.isAdvancedMode()) {
+            System.out.println("[DEBUG] Advanced mode, returning");
             return;
         }
 
-        try {
-            var cm = chrome.getContextManager();
-            if (cm.isLlmTaskInProgress()) {
-                return;
-            }
-        } catch (Exception ex) {
-            logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
-            try {
-                String userMsg = "Could not determine whether the LLM is busy: "
-                        + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
-                chrome.toolError(userMsg, "Auto-play Disabled");
-            } catch (Exception notifyEx) {
-                logger.debug("Failed to show user notification for autoPlayAllIfIdle", notifyEx);
-            }
-            return;
-        }
-
+        System.out.println("[DEBUG] queueActive: " + queueActive);
         if (queueActive) {
+            System.out.println("[DEBUG] Queue active, returning");
             return;
         }
-        if (model.getSize() == 0) {
+
+        int modelSize = model.getSize();
+        System.out.println("[DEBUG] model.getSize(): " + modelSize);
+        if (modelSize == 0) {
+            System.out.println("[DEBUG] Model empty, registering listener");
             model.addListDataListener(new ListDataListener() {
                 @Override
                 public void intervalAdded(ListDataEvent e) {
+                    System.out.println("[DEBUG] Listener: intervalAdded triggered");
                     model.removeListDataListener(this);
-                    SwingUtilities.invokeLater(TaskListPanel.this::autoPlayAllIfIdle);
+                    SwingUtilities.invokeLater(() -> TaskListPanel.this.autoPlayAllIfIdle(preExistingIncompleteTasks));
                 }
 
                 @Override
@@ -2333,50 +2322,58 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        if (!autoPlayPromptShownThisSession) {
-            autoPlayPromptShownThisSession = true;
-            showAutoPlayGateDialogAndAct();
-            return;
-        }
-
-        onGoStopButtonPressed();
+        System.out.println("[DEBUG] All guards passed, calling showAutoPlayGateDialogAndAct");
+        showAutoPlayGateDialogAndAct(preExistingIncompleteTasks);
     }
 
     /**
-     * Shows a one-time EZ-mode dialog prompting the user to execute, remove, or cancel existing tasks.
+     * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
+     * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = show all)
      */
-    private void showAutoPlayGateDialogAndAct() {
+    private void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
+        System.out.println("[DEBUG] showAutoPlayGateDialogAndAct called, preExisting.size=" + preExistingIncompleteTasks.size());
         if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::showAutoPlayGateDialogAndAct);
+            System.out.println("[DEBUG] Not on EDT, re-dispatching");
+            SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
             return;
         }
 
         try {
             if (model.isEmpty()) {
-                autoPlayPromptShownThisSession = true;
+                System.out.println("[DEBUG] Model is empty, returning");
                 return;
             }
+
+            // If preExistingIncompleteTasks is empty, show all incomplete tasks
+            // Otherwise, show only tasks that were pre-existing
+            boolean showAllIncomplete = preExistingIncompleteTasks.isEmpty();
 
             var texts = new ArrayList<String>(model.size());
             for (int i = 0; i < model.size(); i++) {
                 var it = requireNonNull(model.get(i));
+                if (it.done()) {
+                    continue;
+                }
                 var t = it.text().strip();
-                if (!t.isEmpty()) texts.add(t);
+                if (!t.isEmpty() && (showAllIncomplete || preExistingIncompleteTasks.contains(t))) {
+                    texts.add(t);
+                }
             }
+            System.out.println("[DEBUG] Non-empty incomplete task texts to show: " + texts.size());
             if (texts.isEmpty()) {
-                autoPlayPromptShownThisSession = true;
+                System.out.println("[DEBUG] All tasks empty or completed, returning");
                 return;
             }
 
             Window owner = SwingUtilities.getWindowAncestor(this);
             JDialog dialog = (owner != null)
-                    ? new JDialog(owner, "Existing Tasks", Dialog.ModalityType.APPLICATION_MODAL)
-                    : new JDialog((Window) null, "Existing Tasks", Dialog.ModalityType.APPLICATION_MODAL);
+                    ? new JDialog(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL)
+                    : new JDialog((Window) null, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
 
             var root = new JPanel(new BorderLayout(8, 8));
             root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            var intro = new JTextArea("There are existing tasks in this session. What would you like to do?");
+            var intro = new JTextArea("There are incomplete tasks in this session. What would you like to do?");
             intro.setEditable(false);
             intro.setOpaque(false);
             intro.setLineWrap(true);
@@ -2384,13 +2381,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             root.add(intro, BorderLayout.NORTH);
 
             var listPanel = new JPanel(new BorderLayout(6, 6));
-            listPanel.add(new JLabel("Existing tasks:"), BorderLayout.NORTH);
+            listPanel.add(new JLabel("Incomplete tasks:"), BorderLayout.NORTH);
 
-            var taskList = new JList<>(texts.toArray(new String[0]));
-            taskList.setVisibleRowCount(8);
+            var taskTextArea = new JTextArea();
+            taskTextArea.setEditable(false);
+            taskTextArea.setLineWrap(true);
+            taskTextArea.setWrapStyleWord(true);
+            var taskText = String.join("\n\n", texts.stream()
+                    .map(t -> "• " + t)
+                    .toList());
+            taskTextArea.setText(taskText);
+            taskTextArea.setCaretPosition(0);
+
             var scroll = new JScrollPane(
-                    taskList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            scroll.setPreferredSize(new Dimension(520, 220));
+                    taskTextArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            scroll.setPreferredSize(new Dimension(600, 300));
             listPanel.add(scroll, BorderLayout.CENTER);
 
             root.add(listPanel, BorderLayout.CENTER);
@@ -2398,7 +2403,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
             var executeBtn = new MaterialButton("Execute tasks now");
             SwingUtil.applyPrimaryButtonStyle(executeBtn);
-            var removeBtn = new MaterialButton("Remove existing tasks");
+            var removeBtn = new MaterialButton("Remove incomplete tasks");
             var cancelBtn = new MaterialButton("Cancel");
             buttons.add(executeBtn);
             buttons.add(removeBtn);
@@ -2423,27 +2428,41 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             dialog.getRootPane().setDefaultButton(executeBtn);
             dialog.pack();
             dialog.setLocationRelativeTo(owner);
+            System.out.println("[DEBUG] Showing dialog...");
             dialog.setVisible(true);
-
-            autoPlayPromptShownThisSession = true;
+            System.out.println("[DEBUG] Dialog closed, choice: " + choice[0]);
 
             if (choice[0] == 0) {
+                System.out.println("[DEBUG] User chose: Execute");
                 onGoStopButtonPressed();
             } else if (choice[0] == 1) {
+                System.out.println("[DEBUG] User chose: Remove");
+                // Only remove tasks that were shown in the dialog
                 int removed = 0;
+                var textsToRemove = Set.copyOf(texts);
                 for (int i = model.getSize() - 1; i >= 0; i--) {
-                    model.remove(i);
-                    removed++;
+                    var task = model.get(i);
+                    if (task != null && !task.done()) {
+                        var t = task.text().strip();
+                        if (textsToRemove.contains(t)) {
+                            model.remove(i);
+                            removed++;
+                        }
+                    }
                 }
                 if (removed > 0) {
                     clearExpansionOnStructureChange();
                     saveTasksForCurrentSession();
                     updateButtonStates();
                     SwingUtilities.invokeLater(this::updateTasksTabBadge);
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Cleared " + removed + " existing task" + (removed == 1 ? "" : "s") + ".");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
                 }
+            } else {
+                System.out.println("[DEBUG] User chose: Cancel (choice=" + choice[0] + ")");
             }
         } catch (Exception ex) {
+            System.out.println("[DEBUG] Exception in showAutoPlayGateDialogAndAct: " + ex.getMessage());
+            ex.printStackTrace();
             logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
             try {
                 String msg = "Could not open the auto-play dialog: "

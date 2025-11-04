@@ -3005,6 +3005,16 @@ public class Chrome
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
      */
     public void refreshTaskListUI() {
+        refreshTaskListUI(true, Set.of());
+    }
+
+    public void refreshTaskListUI(boolean triggerAutoPlay) {
+        refreshTaskListUI(triggerAutoPlay, Set.of());
+    }
+
+    public void refreshTaskListUI(boolean triggerAutoPlay, Set<String> preExistingIncompleteTasks) {
+        System.out.println("[DEBUG] refreshTaskListUI called, triggerAutoPlay=" + triggerAutoPlay
+                + ", preExistingIncompleteTasks.size=" + preExistingIncompleteTasks.size());
         // Terminal drawer removed — bring the Tasks tab to front instead.
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
@@ -3012,8 +3022,17 @@ public class Chrome
             taskListPanel.refreshFromManager();
 
             // EZ-mode: auto-play tasks when idle after the list finishes refreshing
-            if (!GlobalUiSettings.isAdvancedMode()) {
-                SwingUtilities.invokeLater(taskListPanel::autoPlayAllIfIdle);
+            if (triggerAutoPlay) {
+                boolean isAdvanced = GlobalUiSettings.isAdvancedMode();
+                System.out.println("[DEBUG] isAdvancedMode: " + isAdvanced);
+                if (!isAdvanced) {
+                    System.out.println("[DEBUG] Scheduling autoPlayAllIfIdle");
+                    SwingUtilities.invokeLater(() -> taskListPanel.autoPlayAllIfIdle(preExistingIncompleteTasks));
+                } else {
+                    System.out.println("[DEBUG] Skipping autoPlayAllIfIdle (Advanced mode)");
+                }
+            } else {
+                System.out.println("[DEBUG] Skipping autoPlayAllIfIdle (triggerAutoPlay=false)");
             }
         });
     }
