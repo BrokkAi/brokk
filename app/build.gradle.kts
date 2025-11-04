@@ -260,29 +260,15 @@ tasks.named<JavaCompile>("compileJava") {
         "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
     ))
 
-    // Enable ErrorProne for regular builds (without NullAway for speed)
+    // ErrorProne is disabled for regular builds via line 353
+    // This configuration block is still needed for the plugin but has no effect when disabled
     options.errorprone {
-        // Disable NullAway for regular builds (only run on analyze/check tasks)
-        disable("NullAway")
-
-        // Disable same Error Prone checks as the full analysis task
-        disable("FutureReturnValueIgnored")
-        disable("MissingSummary")
-        disable("EmptyBlockTag")
-        disable("NonCanonicalType")
-
-        // Enable RedundantNullCheck
-        enable("RedundantNullCheck")
-
         // Exclude dev/ and eu/ directories
         excludedPaths = ".*/src/main/java/(dev/|eu/).*"
-
-        // RedundantNullCheck configuration
-        option("RedundantNullCheck:CheckRequireNonNull", "true")
     }
 }
 
-// Separate task for Error Prone analysis (runs only during check)
+// Separate task for Error Prone analysis (runs during analyze and check tasks)
 tasks.register<JavaCompile>("compileJavaErrorProne") {
     group = "verification"
     description = "Compile with Error Prone and NullAway enabled"
@@ -347,10 +333,11 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
 // The Error Prone Gradle plugin doesn't auto-configure lazily-registered custom tasks,
 // so we need to explicitly enable it and configure the processor path.
 tasks.withType<JavaCompile>().configureEach {
-    // Configure both compileJava (regular builds) and compileJavaErrorProne (full analysis)
+    // Configure annotation processor path for both compilation tasks
+    // Both need ErrorProne JARs on the processor path, but only compileJavaErrorProne enables the plugin
     if (name == "compileJava" || name == "compileJavaErrorProne") {
-        // Only enable ErrorProne for compileJavaErrorProne (used by analyze/check tasks)
-        // Regular compileJava runs without ErrorProne overhead for faster development builds
+        // Only enable ErrorProne plugin for compileJavaErrorProne (used by analyze/check tasks)
+        // Regular compileJava disables the plugin but still needs the processor path configured
         options.errorprone.isEnabled = (name == "compileJavaErrorProne")
 
         // Add Error Prone JARs to annotation processor path so the compiler can find the plugin
