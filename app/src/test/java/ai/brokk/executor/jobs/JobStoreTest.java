@@ -16,6 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class JobStoreTest {
 
+    private static final String DEFAULT_PLANNER_MODEL = "gpt-5";
+
     private JobStore store;
 
     @BeforeEach
@@ -31,7 +33,7 @@ class JobStoreTest {
     @Test
     void testCreateOrGetJob_NewJob(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
 
         assertTrue(result.isNewJob());
@@ -45,7 +47,7 @@ class JobStoreTest {
     @Test
     void testCreateOrGetJob_Idempotency(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result1 = store.createOrGetJob("idem-key-1", spec);
 
         // Same idempotency key should return same job
@@ -59,7 +61,7 @@ class JobStoreTest {
     @Test
     void testAppendEvent_MonotonicSequence(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 
@@ -75,7 +77,7 @@ class JobStoreTest {
     @Test
     void testReadEvents_FilterBySeq(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 
@@ -101,7 +103,7 @@ class JobStoreTest {
     @Test
     void testUpdateStatus(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 
@@ -120,7 +122,7 @@ class JobStoreTest {
     @Test
     void testWriteReadArtifact(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 
@@ -135,7 +137,7 @@ class JobStoreTest {
     @Test
     void testJobDir(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 
@@ -149,8 +151,8 @@ class JobStoreTest {
     @Test
     void testIdempotencyKeyHashing(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec1 = JobSpec.of("session-123", "task 1");
-        var spec2 = JobSpec.of("session-456", "task 2");
+        var spec1 = JobSpec.of("session-123", "task 1", DEFAULT_PLANNER_MODEL);
+        var spec2 = JobSpec.of("session-456", "task 2", DEFAULT_PLANNER_MODEL);
 
         // Different idempotency keys should create different jobs
         var result1 = store.createOrGetJob("unique-key-1", spec1);
@@ -169,7 +171,7 @@ class JobStoreTest {
     @Test
     void testSequenceCounterPersistence(@TempDir Path tempDir) throws Exception {
         var store = new JobStore(tempDir);
-        var spec = JobSpec.of("session-123", "test task");
+        var spec = JobSpec.of("session-123", "test task", DEFAULT_PLANNER_MODEL);
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 

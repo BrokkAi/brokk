@@ -1,8 +1,11 @@
 package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,6 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
  * and verifies event ordering and status transitions.
  */
 class HeadlessExecutorMainIntegrationTest {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private HeadlessExecutorMain executor;
     private int port;
@@ -142,7 +147,11 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
 
         var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of("sessionId", UUID.randomUUID().toString(), "taskInput", "echo hello", "autoCompress", false);
+                Map.of(
+                        "sessionId", UUID.randomUUID().toString(),
+                        "taskInput", "echo hello",
+                        "autoCompress", false,
+                        "plannerModel", "gpt-5");
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -162,12 +171,111 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     @Test
+    void testPostJobsEndpoint_RequiresPlannerModel() throws Exception {
+        uploadSession();
+
+        var jobSpec = (Map<String, Object>) (Map<?, ?>)
+                Map.of(
+                        "sessionId", UUID.randomUUID().toString(),
+                        "taskInput", "echo missing planner",
+                        "autoCompress", false);
+
+        var url = new URL(baseUrl + "/v1/jobs");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Idempotency-Key", "test-job-missing-planner");
+        conn.setDoOutput(true);
+
+        var json = toJson(jobSpec);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(400, conn.getResponseCode());
+        InputStream stream = conn.getErrorStream();
+        if (stream == null) {
+            stream = conn.getInputStream();
+        }
+        assertNotNull(stream, "Expected error response body");
+        try (InputStream is = stream) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(
+                    response.contains("plannerModel is required"),
+                    "Expected validation error mentioning plannerModel, but got: " + response);
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testPostJobsEndpoint_InvalidPlannerModelFailsJob() throws Exception {
+        uploadSession();
+
+        var invalidPlanner = "does-not-exist-model";
+        var jobSpec = (Map<String, Object>) (Map<?, ?>)
+                Map.of(
+                        "sessionId", UUID.randomUUID().toString(),
+                        "taskInput", "echo invalid planner",
+                        "autoCompress", false,
+                        "plannerModel", invalidPlanner);
+
+        var url = new URL(baseUrl + "/v1/jobs");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Idempotency-Key", "test-job-invalid-planner");
+        conn.setDoOutput(true);
+
+        var json = toJson(jobSpec);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+        String jobId;
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            var marker = "\"jobId\":\"";
+            var start = response.indexOf(marker);
+            assertTrue(start >= 0, "Job response missing jobId: " + response);
+            start += marker.length();
+            var end = response.indexOf("\"", start);
+            assertTrue(end > start, "Job response malformed: " + response);
+            jobId = response.substring(start, end);
+        }
+        conn.disconnect();
+
+        var deadline = System.currentTimeMillis() + 5_000L;
+        String error = null;
+        while (System.currentTimeMillis() < deadline) {
+            var status = fetchJobStatus(jobId);
+            var state = (String) status.get("state");
+            if ("FAILED".equals(state)) {
+                error = (String) status.get("error");
+                break;
+            }
+            Thread.sleep(100);
+        }
+
+        assertNotNull(error, "Job did not fail with MODEL_UNAVAILABLE within timeout");
+        assertTrue(
+                error.contains("MODEL_UNAVAILABLE"),
+                "Expected MODEL_UNAVAILABLE error, but got: " + error);
+    }
+
+    @Test
     void testPostJobsEndpoint_WithValidAuth() throws Exception {
         // Upload a session
         uploadSession();
 
         var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of("sessionId", UUID.randomUUID().toString(), "taskInput", "echo hello", "autoCompress", false);
+                Map.of(
+                        "sessionId", UUID.randomUUID().toString(),
+                        "taskInput", "echo hello",
+                        "autoCompress", false,
+                        "plannerModel", "gpt-5");
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -302,7 +410,11 @@ class HeadlessExecutorMainIntegrationTest {
 
     private String createJob(String idempotencyKey) throws Exception {
         var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of("sessionId", UUID.randomUUID().toString(), "taskInput", "echo test", "autoCompress", false);
+                Map.of(
+                        "sessionId", UUID.randomUUID().toString(),
+                        "taskInput", "echo test",
+                        "autoCompress", false,
+                        "plannerModel", "gpt-5");
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -329,8 +441,23 @@ class HeadlessExecutorMainIntegrationTest {
         }
     }
 
+    private Map<String, Object> fetchJobStatus(String jobId) throws Exception {
+        var url = new URL(baseUrl + "/v1/jobs/" + jobId);
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        try {
+            assertEquals(200, conn.getResponseCode());
+            try (InputStream is = conn.getInputStream()) {
+                return OBJECT_MAPPER.readValue(is, new TypeReference<Map<String, Object>>() {});
+            }
+        } finally {
+            conn.disconnect();
+        }
+    }
+
     private String toJson(Object obj) throws Exception {
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        return mapper.writeValueAsString(obj);
+        return OBJECT_MAPPER.writeValueAsString(obj);
     }
 }
