@@ -2349,6 +2349,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
+     * Gather deduplicated, pre-existing incomplete task texts from the current model.
+     * Iterates model entries, includes only items that are not done, strips text,
+     * and includes only if present in preExisting. Uses LinkedHashSet to preserve display order.
+     *
+     * @param preExisting Set of pre-existing task texts to filter by
+     * @return LinkedHashSet of task texts that are incomplete and in preExisting
+     */
+    private Set<String> collectTaskTexts(Set<String> preExisting) {
+        var texts = new LinkedHashSet<String>();
+        for (int i = 0; i < model.size(); i++) {
+            var it = requireNonNull(model.get(i));
+            if (it.done()) {
+                continue;
+            }
+            var t = it.text().strip();
+            if (!t.isEmpty() && preExisting.contains(t)) {
+                texts.add(t);
+            }
+        }
+        return texts;
+    }
+
+    /**
      * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
      * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
      */
@@ -2376,17 +2399,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             // Show dialog with only pre-existing incomplete tasks (deduplicated)
-            var texts = new LinkedHashSet<String>();
-            for (int i = 0; i < model.size(); i++) {
-                var it = requireNonNull(model.get(i));
-                if (it.done()) {
-                    continue;
-                }
-                var t = it.text().strip();
-                if (!t.isEmpty() && preExistingIncompleteTasks.contains(t)) {
-                    texts.add(t);
-                }
-            }
+            var texts = collectTaskTexts(preExistingIncompleteTasks);
             if (texts.isEmpty()) {
                 return;
             }
