@@ -2515,11 +2515,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         try {
+            // Early return if model is empty
             if (model.isEmpty()) {
                 return;
             }
 
-            // If no pre-existing incomplete tasks, just auto-execute without prompting
+            // If no pre-existing incomplete tasks, auto-execute without prompting
             if (preExistingIncompleteTasks.isEmpty()) {
                 int totalTasks = 0;
                 for (int i = 0; i < model.getSize(); i++) {
@@ -2531,12 +2532,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 return;
             }
 
-            // Show dialog with only pre-existing incomplete tasks (deduplicated)
+            // Collect deduplicated pre-existing incomplete task texts
             var texts = collectTaskTexts(preExistingIncompleteTasks);
             if (texts.isEmpty()) {
                 return;
             }
 
+            // Log the sizes before showing dialog
             int totalIncompleteTasks = 0;
             for (int i = 0; i < model.getSize(); i++) {
                 var it = model.get(i);
@@ -2547,6 +2549,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     texts.size(),
                     totalIncompleteTasks);
 
+            // Show dialog and handle user choice
             int choice = showAutoPlayDialog(texts);
             handleAutoPlayChoice(choice, texts);
         } catch (Exception ex) {
