@@ -3,14 +3,12 @@ package ai.brokk.executor.jobs;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
-import ai.brokk.executor.io.HeadlessHttpConsole;
-import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -294,6 +292,18 @@ public final class JobRunner {
         } catch (Exception e) {
             logger.warn("Failed to mark job {} as CANCELLED", jobId, e);
         }
+    }
+
+    private StreamingChatModel resolveModelOrThrow(String name) {
+        var model = cm.getService().getModel(new Service.ModelConfig(name));
+        if (model == null) {
+            throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
+        }
+        return model;
+    }
+
+    private StreamingChatModel defaultCodeModel() {
+        return cm.getCodeModel();
     }
 
     /**
