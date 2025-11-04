@@ -919,7 +919,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100, true),
                                 128000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
@@ -971,7 +971,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     String tooltipHtml =
-                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
+                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate, isTested);
                     return new TokenUsageBarComputation(
                             tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
                 })
@@ -1045,7 +1045,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int maxTokens,
             String costPerRequest,
             TokenUsageBar.WarningLevel warningLevel,
-            int successRate) {
+            int successRate,
+            boolean isTested) {
         StringBuilder body = new StringBuilder();
 
         if (warningLevel != TokenUsageBar.WarningLevel.NONE) {
@@ -1072,14 +1073,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
         body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
                 .append("Brokk Power Ranking</a></b></div>");
+
+        // Always show success rate line (or Unknown)
         if (successRate == -1) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
-            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
-                    .append("Untested model reasoning combination.</div>");
         } else {
             body.append("<div style='margin-top: 4px;'>Success rate at this token count: <b>")
                     .append(successRate)
                     .append("%</b></div>");
+        }
+
+        // Then separately show either the untested notice or the benchmark context note
+        if (!isTested) {
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Untested: context exceeds the model's input token limit.</div>");
+        } else if (successRate != -1) {
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
                     .append("Based on benchmark data for model performance across token ranges.</div>");
         }
