@@ -135,7 +135,6 @@ public class ContextHistory {
 
     /** Push {@code ctx}, select it, and clear redo stack. */
     public synchronized void pushLive(Context ctx) {
-        ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -148,7 +147,6 @@ public class ContextHistory {
      */
     public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
-        newLive.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
@@ -460,7 +458,7 @@ public class ContextHistory {
         return Map.copyOf(entryInfos);
     }
 
-    /** Applies the state from a frozen context to the workspace by restoring files. */
+    /** Applies the state from a context to the workspace by restoring files. */
     private void applySnapshotToWorkspace(@Nullable Context snapshot, IConsoleIO io) {
         if (snapshot == null) {
             logger.warn("Attempted to apply null context to workspace");
