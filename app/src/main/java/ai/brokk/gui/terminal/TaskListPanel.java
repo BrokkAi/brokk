@@ -842,6 +842,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void loadTasksForCurrentSession() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            return;
+        }
         var sid = getCurrentSessionId();
         var previous = this.sessionIdAtLoad;
         this.sessionIdAtLoad = sid;
