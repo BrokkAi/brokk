@@ -81,18 +81,6 @@ public class ProjectFilesPanel extends JPanel {
         refreshButton.addActionListener(e -> refreshProjectFiles());
         buttonPanel.add(refreshButton);
 
-        dependenciesButton = new MaterialButton();
-        dependenciesButton.setIcon(Icons.MANAGE_DEPENDENCIES);
-        dependenciesButton.setText(""); // icon-only
-        dependenciesButton.setMargin(new Insets(2, 2, 2, 2)); // match other toolbar material buttons
-        dependenciesButton.setToolTipText("Dependencies");
-        dependenciesButton.addActionListener(e -> toggleDependencies());
-        buttonPanel.add(dependenciesButton);
-
-        // Initialize badge with current live dependencies count
-        int liveCount = chrome.getProject().getLiveDependencies().size();
-        updateDependenciesBadge(liveCount);
-
         searchBarPanel.add(buttonPanel, BorderLayout.EAST);
 
         add(searchBarPanel, BorderLayout.NORTH);
@@ -130,7 +118,6 @@ public class ProjectFilesPanel extends JPanel {
 
     public void updateDependenciesBadge(int count) {
         assert SwingUtilities.isEventDispatchThread();
-        dependenciesButton.setToolTipText(count > 0 ? "Dependencies (" + count + " enabled)" : "Dependencies");
         chrome.updateProjectFilesTabBadge(count);
     }
 
