@@ -2585,7 +2585,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return sw.toString();
     }
 
-    @Override
+    /**
+     * Override the active {@link IConsoleIO}. Intended for headless execution: callers should install
+     * their console implementation before starting a job and restore the previous console around the job run.
+     *
+     * <p>The provided console must be non-null; it will be wired into {@link UserActionManager} so that
+     * user-action callbacks and background tasks emit events through the replacement console.
+     */
+    public void setIo(IConsoleIO io) {
+        this.io = requireNonNull(io);
+        this.userActions.setIo(this.io);
+    }
+
     public IConsoleIO getIo() {
         return io;
     }
