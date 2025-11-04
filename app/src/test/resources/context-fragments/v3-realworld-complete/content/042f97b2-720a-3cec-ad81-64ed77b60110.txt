@@ -1,0 +1,6 @@
+Reasoning:
+
+
+**Evaluating workspace relevance**
+
+I need to assess the workspace and check for any irrelevant fragments. There are two readonly fragments — one is a text report about an imprecise Spin Tool, and the other is an image fragment. Since both are essential for documenting the bug, it looks like I don’t need to remove anything. As instructed by the developer, if all fragments are relevant, I can skip the tool call and proceed with the initial review, preparing the necessary JSON.

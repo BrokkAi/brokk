@@ -40,8 +40,10 @@ public final class HistoryIo {
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             // map legacy io.github.jbellis.* fqcn polymorphic type ids to ai.brokk.*
-            .addHandler(new LegacyTypeMappingHandler(
-                    Map.of("io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos")));
+            // include both specific FragmentDtos and broad namespace mapping
+            .addHandler(new LegacyTypeMappingHandler(Map.of(
+                    "io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos",
+                    "io.github.jbellis.brokk.", "ai.brokk.")));
 
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String V4_FRAGMENTS_FILENAME = "fragments-v4.json";
