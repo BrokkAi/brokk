@@ -2276,68 +2276,34 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * EZ-mode only: auto-plays all tasks when idle.
      * <p>
      * Guards: EDT-safe, no-op if queue active or LLM is busy.
-     * Prompts if tasks exist. Delegates to {@link #onGoStopButtonPressed()}.
+     * Prompts if tasks exist.
      */
     public void autoPlayAllIfIdle() {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
             return;
         }
-        try {
-            var cm = chrome.getContextManager();
-            if (cm.isLlmTaskInProgress()) {
-                // Never trigger execution while the LLM is busy
-                return;
-            }
-        } catch (Exception ex) {
-            // Be conservative: if we cannot determine the state, do nothing
-            logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
-            return;
-        }
         autoPlayAllIfIdle(Set.of());
     }
 
     public void autoPlayAllIfIdle(Set<String> preExistingIncompleteTasks) {
-        System.out.println("[DEBUG] autoPlayAllIfIdle called, preExisting.size=" + preExistingIncompleteTasks.size());
         if (!SwingUtilities.isEventDispatchThread()) {
-            System.out.println("[DEBUG] Not on EDT, re-dispatching");
             SwingUtilities.invokeLater(() -> this.autoPlayAllIfIdle(preExistingIncompleteTasks));
             return;
         }
 
-        // Guard: do not auto-start if the LLM is already busy
-        try {
-            var cm = chrome.getContextManager();
-            if (cm.isLlmTaskInProgress()) {
-                System.out.println("[DEBUG] LLM task in progress, returning");
-                return;
-            }
-        } catch (Exception ex) {
-            logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
-            // Be conservative: do not auto-start if we cannot determine state
-            System.out.println("[DEBUG] Exception querying LLM state, returning");
-            return;
-        }
-
         if (GlobalUiSettings.isAdvancedMode()) {
-            System.out.println("[DEBUG] Advanced mode, returning");
             return;
         }
 
-        System.out.println("[DEBUG] queueActive: " + queueActive);
         if (queueActive) {
-            System.out.println("[DEBUG] Queue active, returning");
             return;
         }
 
-        int modelSize = model.getSize();
-        System.out.println("[DEBUG] model.getSize(): " + modelSize);
-        if (modelSize == 0) {
-            System.out.println("[DEBUG] Model empty, registering listener");
+        if (model.getSize() == 0) {
             model.addListDataListener(new ListDataListener() {
                 @Override
                 public void intervalAdded(ListDataEvent e) {
-                    System.out.println("[DEBUG] Listener: intervalAdded triggered");
                     model.removeListDataListener(this);
                     SwingUtilities.invokeLater(() -> TaskListPanel.this.autoPlayAllIfIdle(preExistingIncompleteTasks));
                 }
@@ -2351,7 +2317,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        System.out.println("[DEBUG] All guards passed, calling showAutoPlayGateDialogAndAct");
         showAutoPlayGateDialogAndAct(preExistingIncompleteTasks);
     }
 
@@ -2360,22 +2325,24 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
      */
     private void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
-        System.out.println("[DEBUG] showAutoPlayGateDialogAndAct called, preExisting.size=" + preExistingIncompleteTasks.size());
         if (!SwingUtilities.isEventDispatchThread()) {
-            System.out.println("[DEBUG] Not on EDT, re-dispatching");
             SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
             return;
         }
 
         try {
             if (model.isEmpty()) {
-                System.out.println("[DEBUG] Model is empty, returning");
                 return;
             }
 
             // If no pre-existing incomplete tasks, just auto-execute without prompting
             if (preExistingIncompleteTasks.isEmpty()) {
-                System.out.println("[DEBUG] No pre-existing incomplete tasks, auto-executing");
+                int totalTasks = 0;
+                for (int i = 0; i < model.getSize(); i++) {
+                    var it = model.get(i);
+                    if (it != null && !it.done()) totalTasks++;
+                }
+                logger.debug("EZ-mode auto-executing {} tasks (no pre-existing incomplete tasks)", totalTasks);
                 runArchitectOnAll();
                 return;
             }
@@ -2392,9 +2359,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     texts.add(t);
                 }
             }
-            System.out.println("[DEBUG] Non-empty incomplete task texts to show: " + texts.size());
             if (texts.isEmpty()) {
-                System.out.println("[DEBUG] All pre-existing tasks empty or completed, returning");
                 return;
             }
 
@@ -2420,9 +2385,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             taskTextArea.setEditable(false);
             taskTextArea.setLineWrap(true);
             taskTextArea.setWrapStyleWord(true);
-            var taskText = String.join("\n\n", texts.stream()
-                    .map(t -> "• " + t)
-                    .toList());
+            var taskText = String.join("\n\n", texts.stream().map(t -> "• " + t).toList());
             taskTextArea.setText(taskText);
             taskTextArea.setCaretPosition(0);
 
@@ -2461,15 +2424,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             dialog.getRootPane().setDefaultButton(executeBtn);
             dialog.pack();
             dialog.setLocationRelativeTo(owner);
-            System.out.println("[DEBUG] Showing dialog...");
+
+            int totalIncompleteTasks = 0;
+            for (int i = 0; i < model.getSize(); i++) {
+                var it = model.get(i);
+                if (it != null && !it.done()) totalIncompleteTasks++;
+            }
+            logger.debug(
+                    "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
+                    texts.size(),
+                    totalIncompleteTasks);
             dialog.setVisible(true);
-            System.out.println("[DEBUG] Dialog closed, choice: " + choice[0]);
 
             if (choice[0] == 0) {
-                System.out.println("[DEBUG] User chose: Execute");
+                logger.debug("EZ-mode executing all {} incomplete tasks", totalIncompleteTasks);
                 runArchitectOnAll();
             } else if (choice[0] == 1) {
-                System.out.println("[DEBUG] User chose: Clean existing and run");
                 // Remove pre-existing tasks shown in the dialog, then execute remaining tasks
                 int removed = 0;
                 var textsToRemove = Set.copyOf(texts);
@@ -2488,17 +2458,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     saveTasksForCurrentSession();
                     updateButtonStates();
                     SwingUtilities.invokeLater(this::updateTasksTabBadge);
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
                 }
-                // Execute remaining tasks
-                System.out.println("[DEBUG] Executing remaining tasks...");
+                int remaining = totalIncompleteTasks - removed;
+                logger.debug("EZ-mode removed {} pre-existing tasks, executing {} remaining tasks", removed, remaining);
                 runArchitectOnAll();
             } else {
-                System.out.println("[DEBUG] User chose: Cancel (choice=" + choice[0] + ")");
+                logger.debug("EZ-mode dialog cancelled");
             }
         } catch (Exception ex) {
-            System.out.println("[DEBUG] Exception in showAutoPlayGateDialogAndAct: " + ex.getMessage());
-            ex.printStackTrace();
             logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
             try {
                 String msg = "Could not open the auto-play dialog: "

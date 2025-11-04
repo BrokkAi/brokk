@@ -1493,7 +1493,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Load current state from storage to avoid using stale in-memory copy
         TaskList.TaskListData currentData;
         try {
-            currentData = project.getSessionManager().readTaskList(currentSessionId).get();
+            currentData =
+                    project.getSessionManager().readTaskList(currentSessionId).get();
         } catch (Exception ex) {
             logger.debug("Unable to read current task list, using in-memory copy", ex);
             currentData = taskList;
