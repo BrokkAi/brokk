@@ -3471,7 +3471,7 @@ public class Chrome
 
     /**
      * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
-     * the dependency count changes or on startup to initialize the badge.
+     * the dependency count changes or on startup to initialize the badge. EDT-safe.
      */
     public void updateProjectFilesTabBadge(int dependencyCount) {
         SwingUtil.runOnEdt(() -> {
@@ -3481,7 +3481,7 @@ public class Chrome
 
             projectFilesTabBadgedIcon.setCount(dependencyCount, leftTabbedPanel);
 
-            // Update tooltip to show the count
+            // Update tooltip to show the count and keyboard shortcut
             if (projectFilesTabLabel != null) {
                 var configuredShortcut = GlobalUiSettings.getKeybinding(
                         "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
