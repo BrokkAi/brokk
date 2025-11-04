@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -284,10 +286,12 @@ public final class JobRunner {
             } catch (Throwable t) {
                 logger.error("Job {} execution failed", jobId, t);
 
+                var failure = unwrapFailure(t);
+                var errorMessage = formatThrowableMessage(failure);
+
                 // Emit error event
                 try {
-                    String errorMsg = t.getMessage() != null ? t.getMessage() : t.toString();
-                    console.toolError(errorMsg, "Job error");
+                    console.toolError(errorMessage, "Job error");
                 } catch (Throwable ignore) {
                     // Non-critical: event writing failed
                 }
@@ -298,9 +302,7 @@ public final class JobRunner {
                     if (s == null) {
                         s = JobStatus.queued(jobId);
                     }
-                    String errorDesc =
-                            t.getClass().getSimpleName() + ": " + (t.getMessage() != null ? t.getMessage() : "");
-                    s = s.failed(errorDesc);
+                    s = s.failed(errorMessage);
                     long lastSeq = console.getLastSeq();
                     s = s.withMetadata("lastSeq", Long.toString(lastSeq));
                     store.updateStatus(jobId, s);
@@ -308,7 +310,7 @@ public final class JobRunner {
                     logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
                 }
 
-                future.completeExceptionally(t);
+                future.completeExceptionally(failure);
             } finally {
                 // Clean up
                 try {
@@ -378,6 +380,26 @@ public final class JobRunner {
 
     private StreamingChatModel defaultCodeModel() {
         return cm.getCodeModel();
+    }
+
+    private static Throwable unwrapFailure(Throwable throwable) {
+        var current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)) {
+            var cause = current.getCause();
+            if (cause == null) {
+                break;
+            }
+            current = cause;
+        }
+        return current;
+    }
+
+    private static String formatThrowableMessage(Throwable throwable) {
+        var message = throwable.getMessage();
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+        return throwable.getClass().getSimpleName() + ": " + message;
     }
 
     /**
