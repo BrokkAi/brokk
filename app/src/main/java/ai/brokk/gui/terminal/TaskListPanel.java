@@ -2292,6 +2292,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         } catch (Exception ex) {
             logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
+            // Notify the user via Chrome UI about the issue (guarded to avoid cascading failures)
+            try {
+                String userMsg = "Could not determine whether the LLM is busy: "
+                        + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                chrome.toolError(userMsg, "Auto-play Disabled");
+            } catch (Exception notifyEx) {
+                logger.debug("Failed to show user notification for autoPlayAllIfIdle", notifyEx);
+            }
             // Be conservative: do not auto-start if we cannot determine state
             return;
         }
