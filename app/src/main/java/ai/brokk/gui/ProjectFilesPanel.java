@@ -120,7 +120,12 @@ public class ProjectFilesPanel extends JPanel {
         toggleDependenciesPanel();
     }
 
-    private void updateBorderTitle() {
+    /**
+     * Updates the panel border title with current branch name and dependency count. Fetches both values from their
+     * sources of truth. EDT-safe. This is the canonical method for updating the border title - all callers should
+     * use this to ensure consistency.
+     */
+    public void updateBorderTitle() {
         var branchName = GitUiUtil.getCurrentBranchName(project);
         int dependencyCount = chrome.getProject().getLiveDependencies().size();
         updateBorderTitle(branchName, dependencyCount);

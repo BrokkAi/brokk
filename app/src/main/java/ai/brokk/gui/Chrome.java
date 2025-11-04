@@ -3511,9 +3511,8 @@ public class Chrome
                 projectFilesTabLabel.repaint();
             }
 
-            // Update the panel border title with the dependency count
-            var branchName = GitUiUtil.getCurrentBranchName(getProject());
-            projectFilesPanel.updateBorderTitle(branchName, dependencyCount);
+            // Update the panel border title with current branch and dependency count
+            projectFilesPanel.updateBorderTitle();
         });
     }
 
@@ -3533,34 +3532,11 @@ public class Chrome
                     logger.debug("branchSelectorButton.refreshBranch failed", ex);
                 }
             }
-            // Keep the project files drawer title in sync if needed
+            // Keep the project files drawer title in sync with current branch and dependency count
             try {
-                updateProjectFilesDrawerTitle(branchName);
+                projectFilesPanel.updateBorderTitle();
             } catch (Exception ex) {
-                logger.debug("updateProjectFilesDrawerTitle failed", ex);
-            }
-        });
-    }
-
-    /**
-     * Update the Project Files drawer title (or border) to reflect the current branch.
-     * This is intentionally conservative: it will try to update the ProjectFilesPanel border/title
-     * and otherwise act as a safe no-op so callers don't need null checks.
-     *
-     * @param branchName branch name to append to the title (may be null/blank)
-     */
-    private void updateProjectFilesDrawerTitle(@Nullable String branchName) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                String base = "Project Files";
-                String safe = (branchName == null) ? "" : branchName;
-                String suffix = safe.isBlank() ? "" : " — " + safe;
-                projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
-                projectFilesPanel.revalidate();
-                projectFilesPanel.repaint();
-            } catch (Exception ex) {
-                // Defensive: don't let UI-sync failures propagate
-                logger.debug("updateProjectFilesDrawerTitle inner failed", ex);
+                logger.debug("projectFilesPanel.updateBorderTitle failed", ex);
             }
         });
     }
