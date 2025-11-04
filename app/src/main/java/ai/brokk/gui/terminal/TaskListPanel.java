@@ -2073,7 +2073,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Clean up auto-play listener early to prevent leaks when panel is removed
         if (autoPlayListener != null) {
             try {
+                logger.debug("removeNotify: removing autoPlayListener");
                 model.removeListDataListener(autoPlayListener);
+                logger.debug("removeNotify: autoPlayListener cleared");
             } catch (Exception e) {
                 logger.debug("Error removing autoPlayListener on removeNotify", e);
             }
@@ -2120,6 +2122,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void contextChanged(Context newCtx) {
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
+        logger.debug("contextChanged: session changed? {} (current={}, loaded={}); scheduling reload if changed", !Objects.equals(current, loaded), current, loaded);
         if (!Objects.equals(current, loaded)) {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
@@ -2303,6 +2306,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        logger.debug("autoPlayAllIfIdle: advancedMode={}, queueActive={}, modelSize={}, preExistingIncomplete={}",
+                GlobalUiSettings.isAdvancedMode(), queueActive, model.getSize(), preExistingIncompleteTasks.size());
+
         if (GlobalUiSettings.isAdvancedMode()) {
             return;
         }
@@ -2314,6 +2320,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (model.getSize() == 0) {
             // Remove any existing listener before creating a new one
             if (autoPlayListener != null) {
+                logger.debug("EZ-mode: existing autoPlayListener detected; removing before creating a new one");
                 model.removeListDataListener(autoPlayListener);
                 autoPlayListener = null;
             }
@@ -2321,6 +2328,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             autoPlayListener = new ListDataListener() {
                 @Override
                 public void intervalAdded(ListDataEvent e) {
+                    logger.debug("autoPlayListener.intervalAdded: will remove self and re-invoke autoPlayAllIfIdle");
                     model.removeListDataListener(this);
                     autoPlayListener = null;
                     SwingUtilities.invokeLater(() -> TaskListPanel.this.autoPlayAllIfIdle(preExistingIncompleteTasks));
@@ -2333,6 +2341,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 public void contentsChanged(ListDataEvent e) {}
             };
             model.addListDataListener(autoPlayListener);
+            logger.debug("EZ-mode: autoPlayListener registered and waiting for first task");
             return;
         }
 
