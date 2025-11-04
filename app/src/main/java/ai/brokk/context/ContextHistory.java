@@ -483,7 +483,6 @@ public class ContextHistory {
     }
 
     public synchronized void addResetEdge(Context source, Context target) {
-        assert !source.containsDynamicFragments() && !target.containsDynamicFragments();
         resetEdges.add(new ResetEdge(source.id(), target.id()));
     }
 

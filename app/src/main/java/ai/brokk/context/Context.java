@@ -642,10 +642,6 @@ public class Context {
         return true;
     }
 
-    public boolean containsDynamicFragments() {
-        return allFragments().anyMatch(ContextFragment::isDynamic);
-    }
-
     /**
      * Merges this context with another context, combining their fragments while avoiding duplicates.
      * Fragments from {@code other} that are not present in this context are added.
