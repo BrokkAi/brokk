@@ -202,6 +202,48 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<String> importStatements,
             TSTree parsedTree) {}
 
+    /**
+     * Stable cache key for TSNode objects used in Phase 3 modifier caching optimization.
+     * TSNode Java objects may not have stable identity across multiple accesses,
+     * so we use structural properties (position and type) as the cache key.
+     * This avoids repeated getParent() JNI calls during modifier extraction.
+     */
+    protected record NodeCacheKey(int startByte, int endByte, String type) {
+        static NodeCacheKey of(TSNode node) {
+            return new NodeCacheKey(node.getStartByte(), node.getEndByte(), node.getType());
+        }
+    }
+
+    /**
+     * Phase 1 Optimization: Lightweight candidate collected during query processing.
+     * Defers expensive signature building until after deduplication, avoiding wasted work
+     * for candidates that will be discarded (e.g., non-exported versions of exported symbols).
+     */
+    protected record AnalysisCandidate(
+            CodeUnit codeUnit,
+            TSNode node,
+            String simpleName,
+            String primaryCaptureName,
+            List<String> modifierKeywords,
+            ProjectFile file,
+            SkeletonType skeletonType,
+            boolean isExported) {
+
+        /**
+         * Builds the full signature string for this candidate (deferred until after deduplication).
+         * This is the expensive operation we want to avoid for candidates that won't survive.
+         */
+        String buildSignature(
+                TreeSitterAnalyzer analyzer,
+                String src,
+                byte[] srcBytes,
+                Map<NodeCacheKey, String> modifierCache) {
+            return analyzer.buildSignatureString(
+                    node, simpleName, src, srcBytes, primaryCaptureName, modifierKeywords, file, skeletonType,
+                    modifierCache);
+        }
+    }
+
     // Public record for stage timing information exposed to external tools
     public record StageTiming(
             long readNanos,
@@ -1352,6 +1394,63 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Phase 1 Optimization: Determines if a capture has export modifier.
+     * Uses modifierKeywords (cheap) instead of building full signature (expensive).
+     */
+    private boolean isExportedCapture(List<String> modifierKeywords) {
+        return modifierKeywords.contains("export");
+    }
+
+    /**
+     * Phase 1 Optimization: Selects the winning candidate when duplicates share the same fqName.
+     * Implements export preference and benign duplicate detection without requiring full signatures.
+     *
+     * @return the winning candidate, or null if the new candidate should be discarded
+     */
+    private AnalysisCandidate selectWinningCandidate(
+            AnalysisCandidate existingCandidate, AnalysisCandidate newCandidate) {
+
+        CodeUnit existingCU = existingCandidate.codeUnit();
+        CodeUnit newCU = newCandidate.codeUnit();
+
+        // If CodeUnits are equals(), both are kept (overloads) - return new to signal "keep both"
+        if (existingCU.equals(newCU)) {
+            return newCandidate;
+        }
+
+        // Only apply merge logic if language supports signature merging for same fqName
+        if (!shouldMergeSignaturesForSameFqn()) {
+            return newCandidate; // Keep both
+        }
+
+        // Export preference: exported version wins
+        if (newCandidate.isExported() && !existingCandidate.isExported()) {
+            log.warn(
+                    "Replacing non-exported candidate for {} with new EXPORTED candidate.",
+                    newCU.fqName());
+            return newCandidate; // New wins
+        } else if (!newCandidate.isExported() && existingCandidate.isExported()) {
+            log.trace(
+                    "Keeping existing EXPORTED candidate for {}. Discarding new non-exported candidate.",
+                    newCU.fqName());
+            return null; // Keep existing, discard new
+        } else {
+            // Both exported or both non-exported
+            if (isBenignDuplicate(existingCU, newCU)) {
+                log.trace(
+                        "Duplicate CU FQName {} (distinct instances, benign pattern). Keeping both.",
+                        newCU.fqName());
+                return newCandidate; // Keep both
+            } else {
+                log.warn(
+                        "Duplicate CU FQName {} (distinct instances). Keeping both. Review if this is expected.",
+                        newCU.fqName());
+                return newCandidate; // Keep both
+            }
+        }
+    }
+
+    /**
      * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
      * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
      *
@@ -1615,6 +1714,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
+        // Phase 3 Optimization: Per-file modifier cache to avoid repeated getVisibilityPrefix() calls
+        Map<NodeCacheKey, String> modifierCache = new HashMap<>();
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -1935,7 +2036,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             String signature = buildSignatureString(
-                    node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType);
+                    node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType, modifierCache);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2311,6 +2412,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Phase 3 Optimization: Cached version of getVisibilityPrefix to avoid repeated AST traversals.
+     * Base implementation delegates to getVisibilityPrefix() with no caching (safe default for all languages).
+     * Subclasses can override to implement actual caching using NodeCacheKey.
+     */
+    protected String getVisibilityPrefixCached(TSNode node, String src, Map<NodeCacheKey, String> modifierCache) {
+        return getVisibilityPrefix(node, src);
+    }
+
+    /**
      * Builds a signature string for a given definition node. This includes any decorators and the main
      * declaration line (e.g., class header, function signature, field declaration).
      *
@@ -2336,7 +2446,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
             ProjectFile file,
-            SkeletonType skeletonType) {
+            SkeletonType skeletonType,
+            Map<NodeCacheKey, String> modifierCache) {
 
         var signatureLines = new ArrayList<String>();
         var profile = getLanguageSyntaxProfile();
@@ -2419,7 +2530,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (!capturedModifierKeywords.isEmpty()) {
             modifierTokens.addAll(capturedModifierKeywords);
         } else {
-            String fallback = getVisibilityPrefix(nodeForSignature, src).strip();
+            String fallback = getVisibilityPrefixCached(nodeForSignature, src, modifierCache).strip();
             if (!fallback.isEmpty()) {
                 for (String tok :
                         Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {

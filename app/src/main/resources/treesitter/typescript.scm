@@ -74,6 +74,25 @@
       name: (identifier) @value.name)) @value.definition)
 
 ; ============================================================================
+; ARROW FUNCTION ASSIGNMENTS (Explicit Detection - Phase 2 Optimization)
+; ============================================================================
+
+; Exported arrow function assignments
+; Matches: export const myFunc = () => {}, export const asyncFunc = async () => {}
+; Phase 2: Direct query-time detection avoids runtime AST traversal
+(export_statement
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @arrow_function.name
+      value: (arrow_function))) @arrow_function.definition)
+
+(export_statement
+  (variable_declaration
+    (variable_declarator
+      name: (identifier) @arrow_function.name
+      value: (arrow_function))) @arrow_function.definition)
+
+; ============================================================================
 ; TOP-LEVEL DECLARATIONS (NON-EXPORTED)
 ; ============================================================================
 
@@ -123,6 +142,21 @@
   (variable_declaration
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
+
+; Top-level arrow function assignments (non-exported)
+; Matches: const myFunc = () => {}, const asyncFunc = async () => {}
+; Phase 2: Direct query-time detection avoids runtime AST traversal
+(program
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @arrow_function.name
+      value: (arrow_function))) @arrow_function.definition)
+
+(program
+  (variable_declaration
+    (variable_declarator
+      name: (identifier) @arrow_function.name
+      value: (arrow_function))) @arrow_function.definition)
 
 ; ============================================================================
 ; AMBIENT DECLARATIONS
