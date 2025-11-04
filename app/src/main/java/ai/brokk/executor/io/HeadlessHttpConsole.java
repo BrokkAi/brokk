@@ -2,6 +2,7 @@ package ai.brokk.executor.io;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskEntry;
+import ai.brokk.agents.BlitzForge;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
@@ -106,6 +107,12 @@ public class HeadlessHttpConsole implements IConsoleIO {
     @Override
     public List<ChatMessage> getLlmRawMessages() {
         return List.of();
+    }
+
+    @Override
+    public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+        Objects.requireNonNull(cancelCallback, "cancelCallback");
+        return unused -> HeadlessHttpConsole.this;
     }
 
     /**
