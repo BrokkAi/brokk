@@ -19,13 +19,15 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Thread-safe undo/redo stack for *frozen* {@link Context} snapshots.
+ * Thread-safe undo/redo stack for {@link Context} snapshots with a live-context, non-blocking async design.
  *
  * <p>The newest entry is always at the tail of {@link #history}. All public methods are {@code synchronized}, so
  * callers need no extra locking.
  *
- * <p><strong>Contract:</strong> every {@code Context} handed to this class <em>must already be frozen</em> (see
- * {@link Context#freezeAndCleanup()}). This class never calls {@code freeze()} on its own.
+ * <p><strong>Contract:</strong> Contexts stored in this history are <em>live</em> (contain dynamic fragments with
+ * {@link ai.brokk.util.ComputedValue} futures). This class does NOT freeze contexts before storing them. For
+ * serialization, use {@link #applySnapshotToWorkspace(Context, IConsoleIO)} (Context, java.time.Duration)} to
+ * materialize computed values as needed without blocking the UI.
  */
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
@@ -49,12 +51,28 @@ public class ContextHistory {
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
 
-    /** Centralized diff caching/memoization for this history. */
+    /**
+     * Centralized diff service for computing and caching diffs between consecutive history entries.
+     * Works with live contexts and uses asynchronous {@link ai.brokk.util.ComputedValue} evaluation
+     * where needed to avoid blocking the UI.
+     */
     private final DiffService diffService;
 
     public ContextHistory(Context liveContext) {
         pushLive(liveContext);
         this.diffService = new DiffService(this);
+    }
+
+    public ContextHistory(List<Context> contexts) {
+        this(contexts, List.of(), Map.of(), Map.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
+        this(contexts, resetEdges, Map.of(), Map.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
+        this(contexts, resetEdges, gitStates, Map.of());
     }
 
     public ContextHistory(
@@ -217,7 +235,15 @@ public class ContextHistory {
     }
 
     /**
-     * Centralized diff cache + dispatcher. Keys by current context id assuming a single stable predecessor per context.
+     * Computes and caches diffs between consecutive history entries using a live-context, non-blocking async model.
+     *
+     * <p>Keys by current context id assuming a single stable predecessor per context. Works directly with live
+     * contexts (containing {@link ai.brokk.util.ComputedValue} futures) and uses bounded awaits during diff
+     * computation to avoid blocking the UI indefinitely. For fragments that timeout during diff computation,
+     * falls back to empty content rather than blocking.
+     *
+     * <p>This service does NOT call {@code freeze()} on contexts; instead, it materializes computed values
+     * asynchronously as needed via {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
      */
     public static final class DiffService {
         private final ContextHistory history;
@@ -228,7 +254,14 @@ public class ContextHistory {
             this.history = history;
         }
 
-        /** Non-blocking: returns cached result if ready. */
+        /**
+         * Non-blocking peek: returns cached result if ready, otherwise empty Optional.
+         *
+         * <p>Safe to call from the EDT; does not block or trigger computation.
+         *
+         * @param curr the current (new) context to peek diffs for
+         * @return Optional containing the diff list if already computed, or empty if not ready
+         */
         public Optional<List<Context.DiffEntry>> peek(Context curr) {
             var cf = cache.get(curr.id());
             if (cf != null && cf.isDone()) {
@@ -237,7 +270,15 @@ public class ContextHistory {
             return java.util.Optional.empty();
         }
 
-        /** Load or compute the diff (shared across callers). */
+        /**
+         * Computes or retrieves cached diff between this context and its predecessor.
+         *
+         * <p>Uses live contexts with asynchronous {@link ai.brokk.util.ComputedValue} evaluation. Shared across
+         * callers via a {@link CompletableFuture} to avoid redundant computation.
+         *
+         * @param curr the current (new) context to compute diffs for
+         * @return CompletableFuture that will contain the list of diff entries
+         */
         public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
             return cache.computeIfAbsent(
                     curr.id(),
@@ -248,7 +289,13 @@ public class ContextHistory {
                     }));
         }
 
-        /** Best-effort prefetch of all contexts that have a predecessor. */
+        /**
+         * Best-effort prefetch: triggers diff computation for all contexts with a predecessor.
+         *
+         * <p>Useful for warming up the cache with multiple contexts in parallel. Does not block the caller.
+         *
+         * @param contexts the list of contexts to prefetch diffs for
+         */
         public void warmUp(List<Context> contexts) {
             for (var c : contexts) {
                 if (history.previousOf(c) != null) {
@@ -257,12 +304,22 @@ public class ContextHistory {
             }
         }
 
-        /** Clear all cached entries. */
+        /**
+         * Clears all cached diff entries.
+         *
+         * <p>Useful for freeing memory or forcing recomputation of diffs.
+         */
         public void clear() {
             cache.clear();
         }
 
-        /** Retain only diffs for the provided set of current Context ids. */
+        /**
+         * Retains only diffs for the provided set of context ids, discarding all others.
+         *
+         * <p>Used during history truncation to keep the cache bounded.
+         *
+         * @param currentIds the set of context ids whose diffs should be retained
+         */
         public void retainOnly(java.util.Set<UUID> currentIds) {
             cache.keySet().retainAll(currentIds);
         }
@@ -463,32 +520,74 @@ public class ContextHistory {
             logger.warn("Attempted to apply null context to workspace");
             return;
         }
+
+        // Phase 0: best-effort pre-warm; runs off-EDT in undo/redo flows
+        snapshot.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+
+        // Phase 1: materialize all desired contents from the snapshot with bounded waits
+        var desiredContents = new LinkedHashMap<ProjectFile, String>();
+        var materializationWarnings = new ArrayList<String>();
+
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
                     assert fragment.files().size() == 1 : fragment.files();
-
                     var pf = fragment.files().iterator().next();
+
                     try {
+                        String newContent;
                         if (fragment instanceof ContextFragment.ComputedFragment df) {
-                            df.computedText().onComplete((newContent, ex) -> {
-                                if (ex != null) {
-                                    io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
+                            var tryNow = df.computedText().tryGet();
+                            if (tryNow.isPresent()) {
+                                newContent = tryNow.get();
+                            } else {
+                                var awaited = df.computedText().await(SNAPSHOT_AWAIT_TIMEOUT);
+                                if (awaited.isPresent()) {
+                                    newContent = awaited.get();
                                 } else {
-                                    try {
-                                        applyFragmentSnapshotToWorkspace(newContent, pf, io);
-                                    } catch (IOException e) {
-                                        io.toolError("Failed to restore file " + pf + ": " + ex.getMessage(), "Error");
-                                    }
+                                    // Do not fall back to reading current disk state; we want the snapshot value
+                                    materializationWarnings.add(pf.toString());
+                                    return;
                                 }
-                            });
+                            }
                         } else {
-                            applyFragmentSnapshotToWorkspace(fragment.text(), pf, io);
+                            newContent = fragment.text();
                         }
-                    } catch (IOException e) {
-                        io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
+                        desiredContents.put(pf, newContent);
+                    } catch (Exception e) {
+                        logger.warn("Failed to materialize snapshot content for {}: {}", pf, e.getMessage());
+                        materializationWarnings.add(pf.toString());
                     }
                 });
+
+        // Phase 2: write all differing files and notify once
+        var restoredFiles = new ArrayList<String>();
+        for (var entry : desiredContents.entrySet()) {
+            var pf = entry.getKey();
+            var newContent = entry.getValue();
+            try {
+                var currentContent = pf.exists() ? pf.read().orElse("") : "";
+                if (!Objects.equals(newContent, currentContent)) {
+                    pf.write(newContent);
+                    restoredFiles.add(pf.toString());
+                }
+            } catch (IOException e) {
+                logger.error("Failed to restore file {} from snapshot", pf, e);
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
+            }
+        }
+
+        if (!restoredFiles.isEmpty()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
+            io.updateWorkspace();
+        }
+
+        if (!materializationWarnings.isEmpty()) {
+            io.toolError(
+                    "Some files could not be restored within timeout: " + String.join(", ", materializationWarnings),
+                    "Undo/Redo Warning");
+        }
     }
 
     private void applyFragmentSnapshotToWorkspace(String newContent, ProjectFile pf, IConsoleIO io) throws IOException {

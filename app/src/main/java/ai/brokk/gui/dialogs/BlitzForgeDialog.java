@@ -1549,7 +1549,7 @@ public class BlitzForgeDialog extends JDialog {
                 dialogIo.toolError(errorMessage, "Agent Processing Error");
             }
 
-            boolean edited = !tr.context().freeze().getDiff(initialContext).isEmpty();
+            boolean edited = !tr.context().getChangedFiles(initialContext).isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

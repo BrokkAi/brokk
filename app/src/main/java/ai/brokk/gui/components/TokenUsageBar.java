@@ -10,6 +10,7 @@ import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -70,6 +71,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile Set<ContextFragment> hoveredFragments = Set.of();
     private volatile boolean readOnly = false;
 
+    // Subscriptions to ComputedValue completions so we can repaint when values become available
+    private final List<ComputedValue.Subscription> cvSubscriptions = Collections.synchronizedList(new ArrayList<>());
+
     // Tooltip for unfilled part (model/max/cost)
     @Nullable
     private volatile String unfilledTooltipHtml = null;
@@ -99,7 +103,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                         if (seg.isSummaryGroup) {
                             // Open combined preview for all summaries (mirrors synthetic chip behavior)
                             int totalFiles = (int) seg.fragments.stream()
-                                    .flatMap(f -> f.files().stream())
+                                    .flatMap(f -> {
+                                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                                            var files = cf.computedFiles().renderNowOr(Set.of());
+                                            return files.stream();
+                                        }
+                                        if (!f.isDynamic()) {
+                                            return f.files().stream();
+                                        }
+                                        return Set.<ProjectFile>of().stream();
+                                    })
                                     .map(ProjectFile::toString)
                                     .distinct()
                                     .count();
@@ -108,7 +121,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             StringBuilder combinedText = new StringBuilder();
                             for (var f : seg.fragments) {
                                 try {
-                                    combinedText.append(f.text()).append("\n\n");
+                                    if (f instanceof ContextFragment.ComputedFragment cf) {
+                                        combinedText
+                                                .append(cf.computedText().renderNowOr("(Loading summary...)"))
+                                                .append("\n\n");
+                                    } else {
+                                        if (!f.isDynamic()) {
+                                            combinedText.append(f.text()).append("\n\n");
+                                        } else {
+                                            combinedText
+                                                    .append("(Loading summary...)")
+                                                    .append("\n\n");
+                                        }
+                                    }
                                 } catch (Exception ex) {
                                     logger.debug("Failed reading summary text for preview", ex);
                                 }
@@ -255,10 +280,50 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
      * Provide the current fragments so the bar can paint per-fragment segments and compute tooltips.
      */
     public void setFragments(List<ContextFragment> fragments) {
+        // Dispose prior subscriptions
+        clearCvSubscriptions();
+
         this.fragments = List.copyOf(fragments);
         // Invalidate token cache entries for removed ids to keep memory bounded
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
+
+        // Pre-register non-blocking listeners to repaint as fragments finish computing
+        for (var f : this.fragments) {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                try {
+                    // Ensure background computation starts
+                    cf.computedText().start();
+                    cf.computedDescription().start();
+                    cf.computedFiles().start();
+
+                    // When text completes, invalidate token cache for this fragment and repaint
+                    var s1 = cf.computedText().onComplete((val, ex) -> {
+                        try {
+                            tokenCache.remove(f.id());
+                        } catch (Exception ignore) {
+                            // safe
+                        }
+                        SwingUtilities.invokeLater(this::repaint);
+                    });
+                    cvSubscriptions.add(s1);
+
+                    // When description or files complete, repaint to refresh tooltips
+                    var s2 = cf.computedDescription().onComplete((val, ex) -> {
+                        SwingUtilities.invokeLater(this::repaint);
+                    });
+                    cvSubscriptions.add(s2);
+
+                    var s3 = cf.computedFiles().onComplete((val, ex) -> {
+                        SwingUtilities.invokeLater(this::repaint);
+                    });
+                    cvSubscriptions.add(s3);
+                } catch (Exception ignore) {
+                    // best-effort; failures will fallback to lazy non-blocking rendering
+                }
+            }
+        }
+
         repaint();
     }
 
@@ -271,7 +336,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     public void setFragmentsForContext(Context context) {
         List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
 
-        // Update UI on EDT
+        // Update UI on EDT (and attach listeners)
         SwingUtilities.invokeLater(() -> setFragments(frags));
 
         // Precompute token counts off-EDT to avoid jank during paint and tooltips
@@ -280,8 +345,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             protected Void doInBackground() {
                 for (var f : frags) {
                     try {
+                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                            // Kick off computations eagerly
+                            cf.computedText().start();
+                            cf.computedDescription().start();
+                            cf.computedFiles().start();
+                        }
                         if (f.isText() || f.getType().isOutput()) {
-                            // This will compute and cache the token count for the fragment
+                            // This will compute and cache the token count for the fragment (non-blocking text path)
                             tokensForFragment(f);
                         }
                     } catch (Exception ignore) {
@@ -872,7 +943,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return tokenCache.computeIfAbsent(f.id(), id -> {
                 if (f.isText() || f.getType().isOutput()) {
                     try {
-                        return Messages.getApproximateTokens(f.text());
+                        String text = "";
+                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                            text = cf.computedText().renderNowOr("");
+                        } else if (!f.isDynamic()) {
+                            text = f.text();
+                        }
+                        return Messages.getApproximateTokens(text);
                     } catch (Exception e) {
                         logger.trace("Failed to compute token count for fragment", e);
                         return 0;
@@ -930,7 +1007,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private static String buildMetricsHtml(ContextFragment fragment) {
         try {
             if (fragment.isText() || fragment.getType().isOutput()) {
-                String text = fragment.text();
+                String text = "";
+                if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else if (!fragment.isDynamic()) {
+                    text = fragment.text();
+                }
+                if (text.isEmpty()) {
+                    return "";
+                }
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
                 return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
@@ -942,11 +1027,17 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(ProjectFile::toString)
-                .distinct()
-                .sorted()
-                .toList();
+        Set<ProjectFile> fileSet;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            fileSet = cf.computedFiles().renderNowOr(Set.of());
+        } else if (!fragment.isDynamic()) {
+            fileSet = fragment.files();
+        } else {
+            fileSet = Set.of();
+        }
+
+        var files =
+                fileSet.stream().map(ProjectFile::toString).distinct().sorted().toList();
 
         StringBuilder body = new StringBuilder();
 
@@ -959,7 +1050,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
 
         if (files.isEmpty()) {
-            String d = fragment.description();
+            String d;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                d = cf.computedDescription().renderNowOr("(Loading)");
+            } else {
+                d = fragment.description();
+            }
             body.append(StringEscapeUtils.escapeHtml4(d));
         } else {
             body.append("<ul style='margin:0;padding-left:16px'>");
@@ -974,7 +1070,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d = fragment.description();
+        String d;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            d = cf.computedDescription().renderNowOr("(Loading)");
+        } else {
+            d = fragment.description();
+        }
         String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
                 .replace("\r\n", "\n")
                 .replace("\r", "\n")
@@ -1006,9 +1107,18 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         for (var f : smallFragments) {
             if (f.isText() || f.getType().isOutput()) {
                 try {
-                    String text = f.text();
-                    totalLoc += text.split("\\r?\\n", -1).length;
-                    totalTokens += Messages.getApproximateTokens(text);
+                    String text;
+                    if (f instanceof ContextFragment.ComputedFragment cf) {
+                        // Non-blocking: do not call text() on EDT
+                        text = cf.computedText().renderNowOr("");
+                    } else {
+                        // Avoid blocking calls for non-computed fragments in tooltip path
+                        text = "";
+                    }
+                    if (!text.isEmpty()) {
+                        totalLoc += text.split("\\r?\\n", -1).length;
+                        totalTokens += Messages.getApproximateTokens(text);
+                    }
                 } catch (Exception e) {
                     logger.trace("Failed to compute metrics for tooltip", e);
                 }
@@ -1043,7 +1153,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
         var allFiles = summaries.stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cf) {
+                        return cf.computedFiles().renderNowOr(Set.of()).stream();
+                    }
+                    if (!f.isDynamic()) {
+                        return f.files().stream();
+                    }
+                    return Set.<ProjectFile>of().stream();
+                })
                 .map(ProjectFile::toString)
                 .distinct()
                 .sorted()
@@ -1056,9 +1174,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         int totalTokens = 0;
         try {
             for (var summary : summaries) {
-                String text = summary.text();
-                totalLoc += text.split("\\r?\\n", -1).length;
-                totalTokens += Messages.getApproximateTokens(text);
+                String text = "";
+                if (summary instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else if (!summary.isDynamic()) {
+                    text = summary.text();
+                }
+                if (!text.isEmpty()) {
+                    totalLoc += text.split("\\r?\\n", -1).length;
+                    totalTokens += Messages.getApproximateTokens(text);
+                }
             }
             body.append("<div>")
                     .append(formatCount(totalLoc))
@@ -1120,6 +1245,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private Color getOkColor(boolean dark) {
         return dark ? new Color(0x2EA043) : new Color(0x1F883D);
+    }
+
+    private void clearCvSubscriptions() {
+        synchronized (cvSubscriptions) {
+            for (var s : cvSubscriptions) {
+                try {
+                    s.dispose();
+                } catch (Exception ignore) {
+                    // safe
+                }
+            }
+            cvSubscriptions.clear();
+        }
     }
 
     @Override

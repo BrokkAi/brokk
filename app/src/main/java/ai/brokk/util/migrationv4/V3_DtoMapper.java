@@ -147,8 +147,8 @@ public class V3_DtoMapper {
                 ContextFragment.GitFileFragment.withId(
                         mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case V3_FragmentDtos.FrozenFragmentDto ffd -> {
-                // We may find a frozen fragment in the history. We need to unfreeze these so that we can migrate
-                // the live fragment
+                // Unfreeze all FrozenFragmentDto objects during V3 migration.
+                // No fallback to frozen objects; fail fast if metadata is insufficient.
                 var frozen = FrozenFragment.fromDto(
                         ffd.id(),
                         mgr,
@@ -168,9 +168,20 @@ public class V3_DtoMapper {
                 try {
                     yield frozen.unfreeze(mgr);
                 } catch (IOException e) {
-                    logger.warn(
-                            "Failed to unfreeze FrozenFragment {}, keeping it frozen: {}", frozen.id(), e.getMessage());
-                    yield frozen;
+                    logger.error(
+                            "MIGRATION FAILURE: Unable to unfreeze FrozenFragment {} (originalType={}, originalClass={}). "
+                                    + "The fragment metadata may be incomplete or corrupted. "
+                                    + "Error: {}",
+                            ffd.id(),
+                            ffd.originalType(),
+                            ffd.originalClassName(),
+                            e.getMessage(),
+                            e);
+                    throw new RuntimeException(
+                            "V3 migration: Failed to unfreeze FrozenFragment " + ffd.id()
+                                    + "; aborting to prevent FrozenFragment objects in V4 context. "
+                                    + "Cause: " + e.getMessage(),
+                            e);
                 }
             }
         };
@@ -201,6 +212,8 @@ public class V3_DtoMapper {
                     logger.info("Skipping deprecated BuildFragment during deserialization: {}", ffd.id());
                     yield null;
                 }
+                // FrozenFragmentDto is treated as a ReferencedFragmentDto and unfrozen during deserialization.
+                // No fallback to frozen objects; _buildReferencedFragment() will fail fast if unfreezing fails.
                 yield (ContextFragment.VirtualFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
             }
             case V3_FragmentDtos.SearchFragmentDto searchDto -> {

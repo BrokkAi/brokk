@@ -13,6 +13,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -54,9 +55,253 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
+    private @Nullable JComponent syntheticSummaryChip = null;
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
     private boolean readOnly = false;
+
+    // Key for storing ComputedValue subscription list on a chip
+    private static final String CV_SUBSCRIPTIONS_KEY = "brokk.cv.subs";
+
+    // Register a ComputedValue subscription on a chip for later disposal
+    @SuppressWarnings("unchecked")
+    private void registerCvSubscription(JComponent chip, ComputedValue.Subscription sub) {
+        var existing = (List<ai.brokk.util.ComputedValue.Subscription>) chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
+        if (existing == null) {
+            existing = new ArrayList<>();
+            chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, existing);
+        }
+        existing.add(sub);
+    }
+
+    // Dispose all subscriptions associated with a chip (best-effort)
+    private void disposeChipSubscriptions(JComponent chip) {
+        var existing = chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
+        if (existing instanceof List<?> subs) {
+            for (var sObj : subs) {
+                try {
+                    if (sObj instanceof ComputedValue.Subscription subscription) {
+                        subscription.dispose();
+                    }
+                } catch (Exception ignored) {
+                    // safe cleanup
+                }
+            }
+            chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, null);
+        }
+    }
+
+    // Ensure the chip still represents this fragment and is still attached
+    private boolean isChipCurrent(ContextFragment fragment, JComponent chip) {
+        var current = chipById.get(fragment.id());
+        if (current != chip) return false;
+        // Also ensure the chip hasn't been removed from this panel
+        for (var c : getComponents()) {
+            if (c == chip) return true;
+        }
+        return false;
+    }
+
+    // Recompute label/tooltip for a chip based on current computed values and restyle
+    private void refreshChipLabelAndTooltip(JComponent chip, JLabel label, ContextFragment fragment) {
+        if (!isChipCurrent(fragment, chip)) return;
+
+        var kind = classify(fragment);
+        String newLabelText;
+        if (kind == ChipKind.SUMMARY) {
+            newLabelText = buildSummaryLabel(fragment);
+        } else if (kind == ChipKind.OTHER) {
+            // Guard shortDescription()
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                sd = "";
+            }
+            newLabelText = capitalizeFirst(sd);
+        } else {
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                sd = "";
+            }
+            newLabelText = sd.isBlank() ? label.getText() : sd;
+        }
+        label.setText(newLabelText);
+
+        try {
+            if (kind == ChipKind.SUMMARY) {
+                label.setToolTipText(buildSummaryTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            } else {
+                label.setToolTipText(buildDefaultTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            }
+        } catch (Exception ex) {
+            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+        }
+
+        // Restyle to account for label size/separator height
+        styleChip((JPanel) chip, label, fragment);
+        chip.revalidate();
+        chip.repaint();
+    }
+
+    // Subscribe to computed values to update the chip asynchronously; also set initial placeholder
+    private void subscribeToComputedUpdates(ContextFragment fragment, JComponent chip, JLabel label) {
+        if (!(fragment instanceof ContextFragment.ComputedFragment cf)) {
+            return;
+        }
+        logger.debug("subscribeToComputedUpdates: attaching listeners for fragment {}", fragment);
+
+        // Kick off background computations
+        try {
+            cf.computedText().start();
+        } catch (Exception ignored) {
+        }
+        try {
+            cf.computedDescription().start();
+        } catch (Exception ignored) {
+        }
+        try {
+            cf.computedFiles().start();
+        } catch (Exception ignored) {
+        }
+
+        // Initial placeholder for summaries if files are not yet known
+        if (classify(fragment) == ChipKind.SUMMARY) {
+            var filesOpt = cf.computedFiles().tryGet();
+            if (filesOpt.isEmpty()) {
+                label.setText("Summary (Loading...)");
+            }
+        }
+
+        // Files completion => update label and tooltip (affects Summary count)
+        var s1 = cf.computedFiles().onComplete((v, ex) -> {
+            logger.debug(
+                    "subscribeToComputedUpdates: computedFiles completed for fragment {} (success={})",
+                    fragment,
+                    ex == null);
+            SwingUtilities.invokeLater(() -> {
+                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                    logger.debug(
+                            "subscribeToComputedUpdates: skipping stale chip after files completion for fragment {}",
+                            fragment);
+                    return;
+                }
+                refreshChipLabelAndTooltip(chip, label, fragment);
+            });
+        });
+        registerCvSubscription((JComponent) chip, s1);
+
+        // Description completion => update tooltip
+        var s2 = cf.computedDescription().onComplete((v, ex) -> {
+            logger.debug(
+                    "subscribeToComputedUpdates: computedDescription completed for fragment {} (success={})",
+                    fragment,
+                    ex == null);
+            SwingUtilities.invokeLater(() -> {
+                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                    logger.debug(
+                            "subscribeToComputedUpdates: skipping stale chip after description completion for fragment {}",
+                            fragment);
+                    return;
+                }
+                refreshChipLabelAndTooltip(chip, label, fragment);
+            });
+        });
+        registerCvSubscription((JComponent) chip, s2);
+
+        // Text completion => metrics/tooltips update
+        var s3 = cf.computedText().onComplete((v, ex) -> {
+            logger.debug(
+                    "subscribeToComputedUpdates: computedText completed for fragment {} (success={})",
+                    fragment,
+                    ex == null);
+            SwingUtilities.invokeLater(() -> {
+                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                    logger.debug(
+                            "subscribeToComputedUpdates: skipping stale chip after text completion for fragment {}",
+                            fragment);
+                    return;
+                }
+                refreshChipLabelAndTooltip(chip, label, fragment);
+            });
+        });
+        registerCvSubscription((JComponent) chip, s3);
+    }
+
+    // Update synthetic summary chip label/tooltip from current computed values
+    private void refreshSyntheticSummaryChip(JComponent chip, JLabel label, List<ContextFragment> summaries) {
+        // Chip presence check
+        boolean present = false;
+        for (var c : getComponents()) {
+            if (c == chip) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) return;
+
+        int totalFiles = (int) summaries.stream()
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
+                .map(ProjectFile::toString)
+                .distinct()
+                .count();
+        String text = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+        label.setText(text);
+        try {
+            label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+        } catch (Exception ex) {
+            logger.debug("Failed to refresh synthetic summary tooltip", ex);
+        }
+        styleChip((JPanel) chip, label, null);
+        chip.revalidate();
+        chip.repaint();
+    }
+
+    // Subscribe to each summary's computed values to keep the synthetic chip updated
+    private void subscribeSummaryGroupUpdates(List<ContextFragment> summaries, JComponent chip, JLabel label) {
+        for (var f : summaries) {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                try {
+                    cf.computedFiles().start();
+                } catch (Exception ignored) {
+                }
+                var s = cf.computedFiles().onComplete((v, ex) -> {
+                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
+                });
+                registerCvSubscription(chip, s);
+
+                // Also update on description/text changes to improve tooltips
+                try {
+                    cf.computedDescription().start();
+                } catch (Exception ignored) {
+                }
+                var sDesc = cf.computedDescription().onComplete((v, ex) -> {
+                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
+                });
+                registerCvSubscription(chip, sDesc);
+
+                try {
+                    cf.computedText().start();
+                } catch (Exception ignored) {
+                }
+                var sText = cf.computedText().onComplete((v, ex) -> {
+                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
+                });
+                registerCvSubscription(chip, sText);
+            }
+        }
+    }
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -196,11 +441,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        removeAll();
-        chipById.clear();
+        // Entry debug
+        try {
+            logger.debug(
+                    "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
+                    fragments.size(),
+                    MainProject.getForceToolEmulation(),
+                    readOnly);
+        } catch (Exception ignored) {
+        }
 
         // Filter out visually-empty fragments unless dev-mode override is enabled.
-        // The helper hasRenderableContent() encodes the conservative visibility rules.
         var visibleFragments = fragments.stream()
                 .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
                 .toList();
@@ -213,38 +464,128 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 .filter(f -> classify(f) != ChipKind.SUMMARY)
                 .toList();
 
-        // Add individual chips for non-summaries (createChip may return null if fragment lacks renderable content)
-        for (var fragment : others) {
-            // Final cheap guard before invoking potentially heavier createChip(...). This avoids creating
-            // UI for fragments that became visually-empty between the earlier filter and creation.
-            if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-                logger.debug(
-                        "Skipping creation of chip for fragment (filtered by final hasRenderableContent): {}",
-                        fragment);
-                continue;
-            }
+        try {
+            logger.debug(
+                    "updateChips: {} visible ({} summaries, {} others) out of {}",
+                    visibleFragments.size(),
+                    summaries.size(),
+                    others.size(),
+                    fragments.size());
+        } catch (Exception ignored) {
+        }
 
-            Component c = createChip(fragment);
-            if (c != null) {
-                add(c);
+        // Build a new map for others (non-summaries) by id, preserving order
+        Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
+        for (var f : others) {
+            newOthersById.put(f.id(), f);
+        }
+
+        // 1) Remove chips that are no longer present
+        var toRemove = chipById.keySet().stream()
+                .filter(oldId -> !newOthersById.containsKey(oldId))
+                .toList();
+        for (var id : toRemove) {
+            var chip = chipById.remove(id);
+            if (chip != null) {
+                disposeChipSubscriptions(chip);
+                remove(chip);
             }
         }
 
-        // Add synthetic summary chip if we have summaries that are renderable (or dev override)
+        // 2) Add chips that are new
+        for (var entry : newOthersById.entrySet()) {
+            var id = entry.getKey();
+            var frag = entry.getValue();
+            if (!chipById.containsKey(id)) {
+                // Final guard before creating UI
+                if (!MainProject.getForceToolEmulation() && !hasRenderableContent(frag)) {
+                    logger.debug("Skipping creation for newly-added fragment filtered by renderability: {}", frag);
+                    continue;
+                }
+                var comp = createChip(frag);
+                if (comp != null) {
+                    add(comp);
+                    chipById.put(id, (RoundedChipPanel) comp);
+                }
+            }
+        }
+
+        // 3) Reorder chips to match 'others' order
+        int z = 0;
+        for (var f : others) {
+            var chip = chipById.get(f.id());
+            if (chip != null) {
+                try {
+                    setComponentZOrder(chip, z++);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        // 4) Synthetic "Summaries" chip incremental management
         boolean anyRenderableSummary =
                 summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
-        if (anyRenderableSummary) {
-            Component synthetic = createSyntheticSummaryChip(summaries);
-            if (synthetic != null) {
-                add(synthetic);
+
+        if (!anyRenderableSummary) {
+            // Remove synthetic chip if present
+            if (syntheticSummaryChip != null) {
+                disposeChipSubscriptions(syntheticSummaryChip);
+                remove(syntheticSummaryChip);
+                syntheticSummaryChip = null;
+            }
+        } else {
+            if (syntheticSummaryChip == null) {
+                var synthetic = createSyntheticSummaryChip(summaries);
+                if (synthetic != null) {
+                    syntheticSummaryChip = (JComponent) synthetic;
+                    add(syntheticSummaryChip);
+                }
+            } else {
+                // Update label/tooltip and subscribe to any newly observed summaries
+                try {
+                    var labelObj = syntheticSummaryChip.getClientProperty("brokk.chip.label");
+                    if (labelObj instanceof JLabel lbl) {
+                        refreshSyntheticSummaryChip(syntheticSummaryChip, lbl, summaries);
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Failed to refresh existing synthetic summary chip", ex);
+                }
+
+                // Subscribe to new summary ids if needed
+                try {
+                    @SuppressWarnings("unchecked")
+                    Set<String> prevIds = (Set<String>) syntheticSummaryChip.getClientProperty("brokk.summary.ids");
+                    if (prevIds == null) prevIds = Set.of();
+                    Set<String> nowIds =
+                            summaries.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
+
+                    // Subscribe for newly added summary ids
+                    for (var f : summaries) {
+                        if (!prevIds.contains(f.id()) && f instanceof ContextFragment.ComputedFragment) {
+                            subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, (JLabel)
+                                    syntheticSummaryChip.getClientProperty("brokk.chip.label"));
+                        }
+                    }
+                    syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
+                } catch (Exception ex) {
+                    logger.debug("Failed to update synthetic summary subscriptions", ex);
+                }
+            }
+
+            // Keep synthetic at end
+            if (syntheticSummaryChip != null) {
+                try {
+                    setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
+                } catch (Exception ignored) {
+                }
             }
         }
 
-        // Re-layout this panel
+        // Re-layout this panel minimally
         revalidate();
         repaint();
 
-        // Also nudge ancestors so containers like BoxLayout recompute heights
+        // Also nudge ancestors so containers like BoxLayout recompute heights (rarely needed but safe)
         Container p = getParent();
         while (p != null) {
             if (p instanceof JComponent jc) {
@@ -361,26 +702,37 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
      * Conservative predicate deciding whether a fragment has visible/renderable content.
      *
      * Rules:
+     * - Immediately return true for ComputedFragment or any dynamic fragment (isDynamic()).
      * - Always keep output fragments (history / outputs).
-     * - For text fragments: require non-null and non-blank text.
-     * - For non-text fragments: require at least an image, at least one file, or a non-empty description.
+     * - For static non-computed text fragments: require non-blank text.
+     * - For static non-text fragments: require at least an image, at least one file, or a non-empty description.
      *
      * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
      */
     private boolean hasRenderableContent(ContextFragment f) {
         try {
+            // Immediately render any computed or dynamic fragment to avoid hiding chips while content is computing.
+            if (f instanceof ContextFragment.ComputedFragment) {
+                return true;
+            }
+            if (f.isDynamic()) {
+                return true;
+            }
+
+            // Always keep output fragments visible
             if (f.getType().isOutput()) {
                 return true;
             }
+
+            // Static, non-computed fragments: check current content
             if (f.isText()) {
                 String txt = f.text();
-                return txt != null && !txt.trim().isEmpty();
+                return !txt.trim().isEmpty();
             } else {
-                boolean hasImage = f.image() != null;
-                boolean hasFiles = !f.files().isEmpty();
+                boolean hasImage = f instanceof ContextFragment.ImageFragment;
+                Set<ProjectFile> files = f.files();
                 String desc = f.description();
-                boolean hasDesc = desc != null && !desc.trim().isEmpty();
-                return hasImage || hasFiles || hasDesc;
+                return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
             }
         } catch (Exception ex) {
             // Be conservative: if we cannot decide, render the fragment to avoid hiding useful info.
@@ -473,8 +825,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryLabel(ContextFragment fragment) {
-        int n = (int)
-                fragment.files().stream().map(ProjectFile::toString).distinct().count();
+        Set<ProjectFile> files;
+        if (fragment instanceof ContextFragment.ComputedFragment cff) {
+            files = cff.computedFiles().renderNowOr(Set.of());
+        } else {
+            files = fragment.files();
+        }
+        int n = (int) files.stream().map(ProjectFile::toString).distinct().count();
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
@@ -493,7 +850,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         try {
             // Only compute for text-like fragments; non-text (e.g., images) do not have meaningful text metrics
             if (fragment.isText() || fragment.getType().isOutput()) {
-                String text = fragment.text();
+                String text;
+                if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = fragment.text();
+                }
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
                 return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
@@ -506,7 +868,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
         var allFiles = summaries.stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
                 .map(ProjectFile::toString)
                 .distinct()
                 .sorted()
@@ -519,7 +887,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         int totalTokens = 0;
         try {
             for (var summary : summaries) {
-                String text = summary.text();
+                String text;
+                if (summary instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = summary.text();
+                }
                 totalLoc += text.split("\\r?\\n", -1).length;
                 totalTokens += Messages.getApproximateTokens(text);
             }
@@ -551,11 +924,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(ProjectFile::toString)
-                .distinct()
-                .sorted()
-                .toList();
+        var files = ((fragment instanceof ContextFragment.ComputedFragment cff)
+                        ? cff.computedFiles().renderNowOr(Set.of())
+                        : fragment.files())
+                .stream().map(ProjectFile::toString).distinct().sorted().toList();
 
         StringBuilder body = new StringBuilder();
 
@@ -571,7 +943,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         if (files.isEmpty()) {
             // Fallback: if no files are available, show any description as a last resort
-            String d = fragment.description();
+            String d;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                d = cf.computedDescription().renderNowOr("");
+            } else {
+                d = fragment.description();
+            }
             body.append(StringEscapeUtils.escapeHtml4(d));
         } else {
             body.append("<ul style='margin:0;padding-left:16px'>");
@@ -586,7 +963,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d = fragment.description();
+        String d;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            d = cf.computedDescription().renderNowOr("");
+        } else {
+            d = fragment.description();
+        }
 
         // Preserve existing newlines as line breaks for readability
         String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
@@ -862,13 +1244,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private String buildIndividualDropLabel(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(pf -> {
-                    String path = pf.toString();
-                    int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                    return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-                })
-                .toList();
+        var files = ((fragment instanceof ContextFragment.ComputedFragment cff)
+                        ? cff.computedFiles().renderNowOr(Set.of())
+                        : fragment.files())
+                .stream()
+                        .map(pf -> {
+                            String path = pf.toString();
+                            int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                            return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                        })
+                        .toList();
 
         if (files.isEmpty()) {
             return "Drop: no files";
@@ -978,10 +1363,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private Component createChip(ContextFragment fragment) {
-        // Defensive pre-checks: guard against nulls and visually-empty fragments.
-        if (fragment == null) return null;
-        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-            logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
+        // Defensive pre-check: guard against null fragments.
+        if (fragment == null) {
+            logger.debug("createChip: fragment is null, returning null");
             return null;
         }
 
@@ -1006,31 +1390,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             safeDescription = "";
         }
 
-        String safeText = "";
-        try {
-            if (fragment.isText()) {
-                var t = fragment.text();
-                safeText = t == null ? "" : t;
-            }
-        } catch (Exception e) {
-            logger.debug("text() threw for fragment {}", fragment, e);
-            safeText = "";
-        }
-
-        // Last-line safety: re-check that the fragment still has renderable content before building UI.
-        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-            logger.debug("Avoiding chip creation after re-check for fragment {}", fragment);
-            return null;
-        }
-
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
+        // Use a default "Loading..." label for any ComputedFragment; otherwise derive from fragment kind
         ChipKind kindForLabel = classify(fragment);
         String labelText;
-        if (kindForLabel == ChipKind.SUMMARY) {
+        if (fragment instanceof ContextFragment.ComputedFragment) {
+            labelText = "Loading...";
+        } else if (kindForLabel == ChipKind.SUMMARY) {
             labelText = buildSummaryLabel(fragment);
         } else if (kindForLabel == ChipKind.OTHER) {
             labelText = capitalizeFirst(safeShortDescription);
@@ -1094,6 +1463,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
 
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        // Subscribe to computed updates to refresh label/tooltip asynchronously (non-blocking)
+        subscribeToComputedUpdates(fragment, chip, label);
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label. Icon will be set by styleChip() after background color is determined.
@@ -1291,12 +1663,29 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Label: aggregate count across only renderable summaries
         int totalFiles = (int) renderableSummaries.stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
                 .map(ProjectFile::toString)
                 .distinct()
                 .count();
         String labelText = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         var label = new JLabel(labelText);
+
+        // If any summary hasn't computed its files yet, show a friendly loading placeholder
+        boolean anyLoading = renderableSummaries.stream().anyMatch(f -> {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                return cf.computedFiles().tryGet().isEmpty();
+            }
+            return false;
+        });
+        if (anyLoading) {
+            label.setText("Summaries (Loading...)");
+        }
 
         // Aggregated tooltip
         try {
@@ -1342,7 +1731,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     int totalFiles = (int) renderableSummaries.stream()
-                            .flatMap(f -> f.files().stream())
+                            .flatMap(f -> {
+                                if (f instanceof ContextFragment.ComputedFragment cff) {
+                                    return cff.computedFiles().renderNowOr(Set.of()).stream();
+                                } else {
+                                    return f.files().stream();
+                                }
+                            })
                             .map(ProjectFile::toString)
                             .distinct()
                             .count();
@@ -1352,7 +1747,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     StringBuilder combinedText = new StringBuilder();
                     for (var summary : renderableSummaries) {
                         try {
-                            combinedText.append(summary.text()).append("\n\n");
+                            String txt = (summary instanceof ContextFragment.ComputedFragment cf)
+                                    ? cf.computedText().renderNowOr("")
+                                    : summary.text();
+                            combinedText.append(txt).append("\n\n");
                         } catch (Exception ex) {
                             logger.debug("Error reading summary text for preview", ex);
                         }
@@ -1372,6 +1770,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
 
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        // Subscribe to summaries' computed updates
+        subscribeSummaryGroupUpdates(renderableSummaries, chip, label);
 
         var close = new MaterialButton("");
         close.setFocusable(false);
@@ -1546,7 +1947,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 } else {
                     if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                         int totalFiles = (int) renderableSummaries.stream()
-                                .flatMap(f -> f.files().stream())
+                                .flatMap(f -> {
+                                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                                    } else {
+                                        return f.files().stream();
+                                    }
+                                })
                                 .map(ProjectFile::toString)
                                 .distinct()
                                 .count();
@@ -1556,7 +1963,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         StringBuilder combinedText = new StringBuilder();
                         for (var summary : renderableSummaries) {
                             try {
-                                combinedText.append(summary.text()).append("\n\n");
+                                String txt = (summary instanceof ContextFragment.ComputedFragment cf)
+                                        ? cf.computedText().renderNowOr("")
+                                        : summary.text();
+                                combinedText.append(txt).append("\n\n");
                             } catch (Exception ex) {
                                 logger.debug("Error reading summary text for preview", ex);
                             }

@@ -222,6 +222,11 @@ public class ContextSerializationTest {
 
     private void assertContextFragmentsEqual(ContextFragment expected, ContextFragment actual)
             throws IOException, InterruptedException {
+        // Fragments should be live, not frozen
+        assertFalse(
+                expected instanceof FrozenFragment, "Expected fragment should not be FrozenFragment: " + expected.id());
+        assertFalse(actual instanceof FrozenFragment, "Actual fragment should not be FrozenFragment: " + actual.id());
+
         assertEquals(expected.id(), actual.id(), "Fragment ID mismatch");
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
         assertEquals(
@@ -237,14 +242,8 @@ public class ContextSerializationTest {
         if (expected.isText()) {
             assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
         } else {
-            // For image fragments, compare byte content if both are FrozenFragment or can provide bytes
-            if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-                assertArrayEquals(
-                        expectedFf.imageBytesContent(),
-                        actualFf.imageBytesContent(),
-                        "FrozenFragment imageBytesContent mismatch for ID " + expected.id());
-            } else if (expected.image() != null
-                    && actual.image() != null) { // Fallback for live fragments, if any after deserialization
+            // For image fragments, compare byte content via live image fragments
+            if (expected.image() != null && actual.image() != null) {
                 assertArrayEquals(
                         imageToBytes(expected.image()),
                         imageToBytes(actual.image()),
@@ -255,19 +254,11 @@ public class ContextSerializationTest {
         // Compare additional serialized top-level methods
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
-        // Compare files (sources are not snapshotted into FrozenFragment directly)
+        // Compare files
         assertEquals(
                 expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
-
-        if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-            assertEquals(
-                    expectedFf.originalClassName(),
-                    actualFf.originalClassName(),
-                    "FrozenFragment originalClassName mismatch for ID " + expected.id());
-            assertEquals(expectedFf.meta(), actualFf.meta(), "FrozenFragment meta mismatch for ID " + expected.id());
-        }
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {

@@ -14,14 +14,13 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.ContentDiffUtils;
-import ai.brokk.util.HtmlToMarkdown;
-import ai.brokk.util.Json;
+import ai.brokk.util.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
@@ -64,6 +63,7 @@ public class Context {
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
+    private static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     private final transient IContextManager contextManager;
 
@@ -156,61 +156,12 @@ public class Context {
      * Per-fragment diff entry between two contexts.
      */
     public record DiffEntry(
-            FrozenFragment fragment,
+            ContextFragment fragment,
             String diff,
             int linesAdded,
             int linesDeleted,
             String oldContent,
             String newContent) {}
-
-    /**
-     * Produces a live context whose fragments are un-frozen versions of those in {@code frozen}.
-     */
-    public static Context unfreeze(Context frozen) {
-        var cm = frozen.getContextManager();
-
-        var newFragments = new ArrayList<ContextFragment>();
-
-        frozen.allFragments().forEach(f -> {
-            if (f instanceof FrozenFragment ff) {
-                try {
-                    newFragments.add(ff.unfreeze(cm));
-                } catch (IOException e) {
-                    logger.warn("Unable to unfreeze fragment {}: {}", ff.description(), e.getMessage());
-                    newFragments.add(ff); // fall back to frozen
-                }
-            } else {
-                newFragments.add(f); // Already live or non-dynamic
-            }
-        });
-
-        // Convert legacy SkeletonFragments to individual SummaryFragments
-        var expandedFragments = new ArrayList<ContextFragment>();
-        for (var fragment : newFragments) {
-            if (fragment instanceof ContextFragment.SkeletonFragment skeleton) {
-                logger.debug(
-                        "Converting legacy SkeletonFragment id={} with {} target(s) to individual SummaryFragments",
-                        skeleton.id(),
-                        skeleton.getTargetIdentifiers().size());
-                for (String targetId : skeleton.getTargetIdentifiers()) {
-                    var summary = new ContextFragment.SummaryFragment(cm, targetId, skeleton.getSummaryType());
-                    expandedFragments.add(summary);
-                }
-            } else {
-                expandedFragments.add(fragment);
-            }
-        }
-
-        return new Context(
-                frozen.id(),
-                cm,
-                List.copyOf(expandedFragments),
-                frozen.getTaskHistory(),
-                frozen.getParsedOutput(),
-                frozen.action,
-                frozen.getGroupId(),
-                frozen.getGroupLabel());
-    }
 
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
@@ -225,7 +176,9 @@ public class Context {
     }
 
     public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
-        var toAdd = paths.stream().filter(p -> !fragments.contains(p)).toList();
+        var toAdd = paths.stream()
+                .filter(p -> !fragments.stream().anyMatch(p::hasSameSource))
+                .toList();
         if (toAdd.isEmpty()) {
             return this;
         }
@@ -618,86 +571,18 @@ public class Context {
      * Creates a new (live) Context that copies specific elements from the provided context.
      */
     public static Context createFrom(Context sourceContext, Context currentContext, List<TaskEntry> newHistory) {
-        var unfrozenFragments = sourceContext
-                .allFragments()
-                .map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager))
-                .toList();
+        // Fragments should already be live from migration logic; use them directly
+        var fragments = sourceContext.allFragments().toList();
 
         return new Context(
                 newContextId(),
                 currentContext.contextManager,
-                unfrozenFragments,
+                fragments,
                 newHistory,
                 null,
                 CompletableFuture.completedFuture("Reset context to historical state"),
                 sourceContext.getGroupId(),
                 sourceContext.getGroupLabel());
-    }
-
-    public record FreezeResult(Context liveContext, Context frozenContext) {}
-
-    /**
-     * @return a FreezeResult with the (potentially modified to exclude invalid Fragments) liveContext + frozenContext
-     */
-    public FreezeResult freezeAndCleanup() {
-        var liveFragments = new ArrayList<ContextFragment>();
-        var frozenFragments = new ArrayList<ContextFragment>();
-
-        for (var fragment : this.fragments) {
-            try {
-                var frozen = FrozenFragment.freeze(fragment, contextManager);
-                liveFragments.add(fragment);
-                frozenFragments.add(frozen);
-            } catch (IOException e) {
-                logger.warn("Failed to freeze fragment {}: {}", fragment.description(), e.getMessage());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        Context liveContext;
-        if (!liveFragments.equals(fragments)) {
-            liveContext = new Context(
-                    newContextId(),
-                    this.contextManager,
-                    liveFragments,
-                    this.taskHistory,
-                    this.parsedOutput,
-                    this.action,
-                    this.groupId,
-                    this.groupLabel);
-        } else {
-            liveContext = this;
-        }
-
-        var frozenContext = new Context(
-                this.id,
-                this.contextManager,
-                frozenFragments,
-                this.taskHistory,
-                this.parsedOutput,
-                this.action,
-                this.groupId,
-                this.groupLabel);
-
-        return new FreezeResult(liveContext, frozenContext);
-    }
-
-    public Context freeze() {
-        return freezeAndCleanup().frozenContext;
-    }
-
-    @SuppressWarnings("unchecked")
-    public static <T extends ContextFragment> T unfreezeFragmentIfNeeded(T fragment, IContextManager contextManager) {
-        if (fragment instanceof FrozenFragment frozen) {
-            try {
-                return (T) frozen.unfreeze(contextManager);
-            } catch (IOException e) {
-                logger.warn("Failed to unfreeze fragment {}: {}", frozen.description(), e.getMessage());
-                return fragment;
-            }
-        }
-        return fragment;
     }
 
     @Override
@@ -739,7 +624,22 @@ public class Context {
     }
 
     public boolean workspaceContentEquals(Context other) {
-        return allFragments().toList().equals(other.allFragments().toList());
+        var thisFragments = allFragments().toList();
+        var otherFragments = other.allFragments().toList();
+
+        if (thisFragments.size() != otherFragments.size()) {
+            return false;
+        }
+
+        // Check semantic equivalence using hasSameSource for all fragments
+        for (var thisFragment : thisFragments) {
+            boolean found = otherFragments.stream().anyMatch(thisFragment::hasSameSource);
+            if (!found) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -1045,16 +945,25 @@ public class Context {
                 this.groupLabel);
     }
 
-    private boolean isNewFileInGit(FrozenFragment ff) {
-        if (ff.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+    private boolean isNewFileInGitAndText(ContextFragment fragment) {
+        if (fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+            return false;
+        }
+        if (!fragment.isText()) {
+            return false;
+        }
+        var files = fragment.files();
+        if (files.isEmpty()) {
             return false;
         }
         IGitRepo repo = contextManager.getRepo();
-        return !repo.getTrackedFiles().contains(ff.files().iterator().next());
+        return !repo.getTrackedFiles().contains(files.iterator().next());
     }
 
     /**
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
+     * Accepts both live and frozen contexts. Live contexts should have had ensureFilesSnapshot() pre-called to materialize
+     * computed values for dynamic fragments.
      */
     public List<DiffEntry> getDiff(Context other) {
         var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
@@ -1063,61 +972,220 @@ public class Context {
         }
 
         var diffs = fragments.stream()
-                .flatMap(cf -> cf instanceof FrozenFragment ff ? Stream.of(ff) : Stream.empty())
-                .map(ff -> {
-                    var ff2 = other.fragments.stream()
-                            .filter(ff::hasSameSource)
-                            .findFirst()
-                            .orElse(null);
-                    if (ff2 == null) {
-                        // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff
-                        // against empty
-                        if (isNewFileInGit(ff) && ff.isText()) {
-                            var newContent = ff.text();
-                            var result = ContentDiffUtils.computeDiffResult(
-                                    "", newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
-                            if (result.diff().isEmpty()) {
-                                return null;
-                            }
-                            return new DiffEntry(ff, result.diff(), result.added(), result.deleted(), "", newContent);
-                        }
-                        return null;
-                    }
-
-                    var oldContent = ff2.text();
-                    var newContent = ff.text();
-
-                    int oldLineCount =
-                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount =
-                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-                    logger.trace(
-                            "getDiff: fragment='{}' id={} oldLines={} newLines={}",
-                            ff.shortDescription(),
-                            id,
-                            oldLineCount,
-                            newLineCount);
-
-                    var result = ContentDiffUtils.computeDiffResult(
-                            oldContent, newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
-
-                    logger.trace(
-                            "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            ff.shortDescription(),
-                            result.added(),
-                            result.deleted(),
-                            result.diff().isEmpty());
-
-                    if (result.diff().isEmpty()) {
-                        return null;
-                    }
-                    return new DiffEntry(ff, result.diff(), result.added(), result.deleted(), oldContent, newContent);
-                })
+                .map(cf -> computeDiffForFragment(cf, other))
                 .filter(Objects::nonNull)
                 .toList();
 
         diffCache.put(other.id(), diffs);
         return diffs;
+    }
+
+    /**
+     * Helper method to compute diff for a single fragment against the other context.
+     * Handles ComputedFragment and non-dynamic virtual fragments appropriately.
+     * Live fragments are stored directly in DiffEntry without freezing.
+     */
+    private @Nullable DiffEntry computeDiffForFragment(ContextFragment thisFragment, Context other) {
+        // Find matching fragment in 'other' context using universal matching semantics
+        var otherFragment = other.fragments.stream()
+                .filter(thisFragment::hasSameSource)
+                .findFirst()
+                .orElse(null);
+
+        if (otherFragment == null) {
+            // No matching fragment in 'other'; fragment is either new or was removed
+            // For any new fragment (file or virtual), diff against empty
+            var newContent = extractFragmentContent(thisFragment, true);
+            var result = ContentDiffUtils.computeDiffResult(
+                    "", newContent, "old/" + thisFragment.shortDescription(), "new/" + thisFragment.shortDescription());
+            if (result.diff().isEmpty()) {
+                return null;
+            }
+            return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+        }
+
+        // Extract content from both fragments
+        String oldContent = extractFragmentContent(otherFragment, false);
+        String newContent = extractFragmentContent(thisFragment, true);
+
+        // For image fragments, handle specially
+        if (!thisFragment.isText() || !otherFragment.isText()) {
+            return computeImageDiffEntry(thisFragment, otherFragment, oldContent, newContent);
+        }
+
+        int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+        int newLineCount = newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+        logger.trace(
+                "getDiff: fragment='{}' id={} oldLines={} newLines={}",
+                thisFragment.shortDescription(),
+                id,
+                oldLineCount,
+                newLineCount);
+
+        var result = ContentDiffUtils.computeDiffResult(
+                oldContent,
+                newContent,
+                "old/" + thisFragment.shortDescription(),
+                "new/" + thisFragment.shortDescription());
+
+        logger.trace(
+                "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
+                thisFragment.shortDescription(),
+                result.added(),
+                result.deleted(),
+                result.diff().isEmpty());
+
+        if (result.diff().isEmpty()) {
+            return null;
+        }
+
+        // Store live fragment directly in DiffEntry
+        return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+    }
+
+    /**
+     * Extract text content from a fragment, handling FrozenFragment, ComputedFragment, and non-dynamic fragments.
+     * Uses appropriate timeouts and fallback logic to avoid blocking the UI.
+     */
+    private String extractFragmentContent(ContextFragment fragment, boolean isNew) {
+        try {
+            // FrozenFragment: use in-memory getter
+            if (fragment instanceof FrozenFragment ff) {
+                return ff.text();
+            }
+
+            // ComputedFragment: try non-blocking access first, fall back to bounded await
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                var tryGetResult = cf.computedText().tryGet();
+                if (tryGetResult.isPresent()) {
+                    return tryGetResult.get();
+                }
+
+                // Fall back to bounded await with appropriate timeout based on fragment type
+                Duration timeout = getTimeoutForFragmentType(fragment);
+                var awaitResult = cf.computedText().await(timeout);
+                if (awaitResult.isPresent()) {
+                    return awaitResult.get();
+                } else {
+                    logger.warn(
+                            "Timeout or cancelled waiting for computed text of {} fragment '{}' (timeout={}ms); continuing with empty content. "
+                                    + "Fragment may not have been pre-warmed by ensureFilesSnapshot().",
+                            fragment.getClass().getSimpleName(),
+                            fragment.shortDescription(),
+                            timeout.toMillis());
+                    return "";
+                }
+            }
+
+            // Non-dynamic virtual fragments: use text() directly (non-blocking)
+            return fragment.text();
+        } catch (java.util.concurrent.CancellationException e) {
+            logger.warn(
+                    "Computation cancelled for {} fragment '{}'; continuing with empty content. Cause: {}",
+                    fragment.getClass().getSimpleName(),
+                    fragment.shortDescription(),
+                    e.getMessage());
+            return "";
+        } catch (UncheckedIOException e) {
+            logger.warn(
+                    "IO error reading content for {} fragment '{}' ({}); skipping from diff. Cause: {}",
+                    fragment.getClass().getSimpleName(),
+                    fragment.shortDescription(),
+                    isNew ? "new" : "old",
+                    e.getMessage());
+            return "";
+        } catch (Exception e) {
+            logger.error(
+                    "Unexpected error extracting content for {} fragment '{}': {}",
+                    fragment.getClass().getSimpleName(),
+                    fragment.shortDescription(),
+                    e.getMessage(),
+                    e);
+            return "";
+        }
+    }
+
+    /**
+     * Determine the appropriate timeout for a fragment type.
+     * Most fragments use SNAPSHOT_AWAIT_TIMEOUT; expensive operations like Usage and CallGraph use longer timeout.
+     */
+    private Duration getTimeoutForFragmentType(ContextFragment fragment) {
+        if (fragment instanceof ContextFragment.UsageFragment
+                || fragment instanceof ContextFragment.CallGraphFragment) {
+            return Duration.ofMinutes(1);
+        }
+        return SNAPSHOT_AWAIT_TIMEOUT;
+    }
+
+    /**
+     * Extract image bytes from a fragment, handling FrozenFragment and ComputedFragment.
+     */
+    private byte @Nullable [] extractImageBytes(ContextFragment fragment) {
+        try {
+            // Try to read via image() method if available
+            if (fragment instanceof ContextFragment.ImageFragment imgFrag) {
+                var image = imgFrag.image();
+                return ImageUtil.imageToBytes(image);
+            }
+        } catch (java.util.concurrent.CancellationException e) {
+            logger.warn(
+                    "Computation cancelled for image fragment '{}'; image will show as changed. Cause: {}",
+                    fragment.shortDescription(),
+                    e.getMessage());
+            return null;
+        } catch (UncheckedIOException e) {
+            logger.warn(
+                    "IO error reading image for fragment '{}'; image will show as changed. Cause: {}",
+                    fragment.shortDescription(),
+                    e.getMessage());
+            return null;
+        } catch (Exception e) {
+            logger.error(
+                    "Unexpected error extracting image bytes for fragment '{}': {}",
+                    fragment.shortDescription(),
+                    e.getMessage(),
+                    e);
+            return null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Compute diff entry for image fragments. Shows "[image changed]" as diff if either side unavailable.
+     */
+    private @Nullable DiffEntry computeImageDiffEntry(
+            ContextFragment thisFragment,
+            ContextFragment otherFragment,
+            String oldContentPlaceholder,
+            String newContentPlaceholder) {
+        byte[] oldImageBytes = extractImageBytes(otherFragment);
+        byte[] newImageBytes = extractImageBytes(thisFragment);
+
+        // If both images are unavailable or identical, skip diff
+        if (oldImageBytes == null && newImageBytes == null) {
+            return null;
+        }
+
+        boolean imagesEqual = false;
+        if (oldImageBytes != null && newImageBytes != null) {
+            imagesEqual = java.util.Arrays.equals(oldImageBytes, newImageBytes);
+        }
+
+        if (imagesEqual) {
+            return null;
+        }
+
+        // Generate placeholder diff showing image changed
+        String diff = "[Image changed]";
+
+        return new DiffEntry(
+                thisFragment,
+                diff,
+                1, // 1 line "added" (image changed)
+                1, // 1 line "deleted" (image changed)
+                oldImageBytes != null ? "[image]" : "",
+                newImageBytes != null ? "[image]" : "");
     }
 
     /**

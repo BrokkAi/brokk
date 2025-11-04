@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -212,9 +213,6 @@ public interface ContextFragment {
 
     /**
      * Code sources found in this fragment.
-     *
-     * <p>ACHTUNG! This is not supported by FrozenFragment, since computing it requires an Analyzer and one of our goals
-     * for freeze() is to not require Analyzer.
      */
     Set<CodeUnit> sources();
 
@@ -308,14 +306,6 @@ public interface ContextFragment {
         }
 
         /**
-         * Non-blocking accessor mirroring sources().
-         * Default returns a completed value based on current sources().
-         */
-        default ComputedValue<Set<CodeUnit>> computedSources() {
-            return ComputedValue.completed("cf-sources-" + id(), sources());
-        }
-
-        /**
          * Optionally provide computed image payload; default is null for non-image fragments.
          */
         default @Nullable ComputedValue<byte[]> computedImageBytes() {
@@ -351,6 +341,7 @@ public interface ContextFragment {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         protected ComputedVirtualFragment(IContextManager contextManager) {
             super(contextManager);
@@ -382,6 +373,14 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("cvf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("cvf-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
         }
     }
 
@@ -461,6 +460,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
@@ -573,6 +573,14 @@ public interface ContextFragment {
         }
 
         @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("ppf-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -681,6 +689,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -769,6 +778,14 @@ public interface ContextFragment {
         }
 
         @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("epf-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -787,6 +804,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private transient @Nullable ComputedValue<byte[]> imageBytesCv;
 
         // Primary constructor for new dynamic fragments
@@ -940,6 +958,14 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("iff-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesCv == null) {
+                filesCv = new ComputedValue<>("iff-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesCv;
         }
 
         @Override
@@ -1225,6 +1251,7 @@ public interface ContextFragment {
         protected transient Future<String> descriptionFuture;
         private final ComputedValue<String> descriptionCv;
         private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesFuture;
 
         // PasteFragments are non-dynamic (content-hashed)
         // The hash will be based on the initial text/image data, not the future description.
@@ -1268,6 +1295,14 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>("paste-syntax-" + id(), this::syntaxStyle, getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            if (filesFuture == null) {
+                filesFuture = new ComputedValue<>("paste-files-" + id(), this::files, getFragmentExecutor());
+            }
+            return filesFuture;
         }
 
         @Override
@@ -1680,6 +1715,9 @@ public interface ContextFragment {
         @Override
         @Blocking
         public Set<CodeUnit> sources() {
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.warn("Calling blocking UsageFragments.sources on EDT thread!");
+            }
             var analyzer = getAnalyzer();
             if (analyzer.isEmpty()) {
                 return Collections.emptySet();
