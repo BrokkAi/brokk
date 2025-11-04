@@ -950,13 +950,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                     var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(config, approxTokens);
                     int successRate = rateResult.successRate();
-                    boolean isTested = rateResult.isTested();
+                    // Treat any token count within the model's max input limit as "tested" for UI purposes.
+                    // This removes the prior hardcoded cap (131,071) and avoids incorrectly flagging large-context models.
+                    boolean isWithinModelLimit = approxTokens <= maxTokens;
+                    boolean isTested = isWithinModelLimit;
+
                     TokenUsageBar.WarningLevel warningLevel;
                     if (!isTested) {
-                        // Untested (extrapolated) token count — always warn RED
+                        // Exceeds model's supported input tokens — warn RED
                         warningLevel = TokenUsageBar.WarningLevel.RED;
                     } else if (successRate == -1) {
-                        // Unknown/untested combination: don't warn
+                        // No benchmark data at this token count; do not warn
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     } else if (successRate < 30) {
                         warningLevel = TokenUsageBar.WarningLevel.RED;
