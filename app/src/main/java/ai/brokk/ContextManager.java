@@ -20,7 +20,6 @@ import ai.brokk.context.ContextFragment.PathFragment;
 import ai.brokk.context.ContextFragment.VirtualFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -2323,11 +2322,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         ((AbstractProject) project).setLastActiveSession(sessionId);
     }
 
-    public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {
+    public void createSessionWithoutGui(Context sourceContext, String newSessionName) {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceFrozenContext);
+        var ctx = newContextFrom(sourceContext);
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
         var ch = new ContextHistory(ctx);
@@ -2341,16 +2340,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Creates a new session with the given name, copies the workspace from the sourceFrozenContext, and switches to it
      * asynchronously.
      *
-     * @param sourceFrozenContext The context whose workspace items will be copied.
+     * @param sourceContext The context whose workspace items will be copied.
      * @param newSessionName The name for the new session.
      * @return A CompletableFuture representing the completion of the session creation task.
      */
-    public CompletableFuture<Void> createSessionFromContextAsync(Context sourceFrozenContext, String newSessionName) {
+    public CompletableFuture<Void> createSessionFromContextAsync(Context sourceContext, String newSessionName) {
         return submitExclusiveAction(() -> {
                     logger.debug(
                             "Attempting to create and switch to new session '{}' from workspace of context '{}'",
                             newSessionName,
-                            sourceFrozenContext.getAction());
+                            sourceContext.getAction());
 
                     var sessionManager = project.getSessionManager();
                     // 1. Create new session info
@@ -2360,12 +2359,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
-                    var initialContextForNewSession = newContextFrom(sourceFrozenContext);
+                    var initialContextForNewSession = newContextFrom(sourceContext);
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
                     var newCh = new ContextHistory(initialContextForNewSession);
-                    newCh.addResetEdge(sourceFrozenContext, initialContextForNewSession);
+                    newCh.addResetEdge(sourceContext, initialContextForNewSession);
                     this.contextHistory = newCh;
 
                     // 4. Save the new session's history (which now contains one entry).
@@ -2385,18 +2384,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
     }
 
-    /** returns a frozen Context based on the source one */
-    private Context newContextFrom(Context sourceFrozenContext) {
-        // Source context should already be live from migration logic
-        assert !sourceFrozenContext.containsDynamicFragments()
-                        || !sourceFrozenContext.allFragments().anyMatch(f -> f instanceof FrozenFragment)
-                : "Context should not contain FrozenFragment instances";
-
-        var newActionDescription = "New session (from: " + sourceFrozenContext.getAction() + ")";
+    /** returns a new Context based on the source one */
+    private Context newContextFrom(Context sourceContext) {
+        var newActionDescription = "New session (from: " + sourceContext.getAction() + ")";
         var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
         var newParsedOutputFragment = new ContextFragment.TaskFragment(
                 this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
-        return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
+        return sourceContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
     }
 
     /**
