@@ -287,7 +287,7 @@ public final class V3_HistoryIo {
                         try {
                             Class<?> target = Class.forName(mappedId);
                             if (logger.isDebugEnabled()) {
-                                logger.debug("Mapping legacy runtime type-id '{}' to '{}'", subTypeId, mappedId);
+                                logger.debug("Applying fallback mapping for legacy runtime type-id '{}' to DTO '{}'; baseType={}", subTypeId, mappedId, baseType);
                             }
                             return ctxt.getTypeFactory().constructSpecializedType(baseType, target);
                         } catch (ClassNotFoundException e) {
