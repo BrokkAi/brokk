@@ -235,6 +235,13 @@ public class Chrome
     @Nullable
     private BadgedIcon gitTabBadgedIcon;
 
+    // Project Files tab badge components
+    @Nullable
+    private BadgedIcon projectFilesTabBadgedIcon;
+
+    @Nullable
+    private JLabel projectFilesTabLabel;
+
     // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
     @Nullable
     private String lastDisplayedBranchLabel = null;
