@@ -2401,9 +2401,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             root.add(listPanel, BorderLayout.CENTER);
 
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-            var executeBtn = new MaterialButton("Execute tasks now");
+            var executeBtn = new MaterialButton("Execute all tasks now");
             SwingUtil.applyPrimaryButtonStyle(executeBtn);
-            var removeBtn = new MaterialButton("Remove incomplete tasks");
+            var removeBtn = new MaterialButton("Clean existing and run");
             var cancelBtn = new MaterialButton("Cancel");
             buttons.add(executeBtn);
             buttons.add(removeBtn);
@@ -2436,8 +2436,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 System.out.println("[DEBUG] User chose: Execute");
                 onGoStopButtonPressed();
             } else if (choice[0] == 1) {
-                System.out.println("[DEBUG] User chose: Remove");
-                // Only remove tasks that were shown in the dialog
+                System.out.println("[DEBUG] User chose: Clean existing and run");
+                // Remove pre-existing tasks shown in the dialog, then execute remaining tasks
                 int removed = 0;
                 var textsToRemove = Set.copyOf(texts);
                 for (int i = model.getSize() - 1; i >= 0; i--) {
@@ -2457,6 +2457,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     SwingUtilities.invokeLater(this::updateTasksTabBadge);
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
                 }
+                // Execute remaining tasks
+                System.out.println("[DEBUG] Executing remaining tasks...");
+                onGoStopButtonPressed();
             } else {
                 System.out.println("[DEBUG] User chose: Cancel (choice=" + choice[0] + ")");
             }
