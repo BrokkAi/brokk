@@ -924,8 +924,6 @@ public class Chrome
      * display
      */
     public void setContext(Context ctx) {
-        assert !ctx.containsDynamicFragments();
-
         final boolean updateOutput = (!activeContext.equals(ctx) && !contextManager.isTaskScopeInProgress());
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {

@@ -1704,7 +1704,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.warn("notifyContextListeners called with null context");
             return;
         }
-        assert !ctx.containsDynamicFragments();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
         }

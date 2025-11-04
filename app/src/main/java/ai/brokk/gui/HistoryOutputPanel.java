@@ -888,7 +888,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         logger.debug(
                 "Updating context history table with context {}",
                 contextToSelect != null ? contextToSelect.getAction() : "null");
-        assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);

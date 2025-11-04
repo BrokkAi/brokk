@@ -684,9 +684,6 @@ public class Context {
     }
 
     public Context freeze() {
-        if (!containsDynamicFragments()) {
-            return this;
-        }
         return freezeAndCleanup().frozenContext;
     }
 
@@ -742,14 +739,7 @@ public class Context {
     }
 
     public boolean workspaceContentEquals(Context other) {
-        assert !this.containsDynamicFragments();
-        assert !other.containsDynamicFragments();
-
         return allFragments().toList().equals(other.allFragments().toList());
-    }
-
-    public boolean containsDynamicFragments() {
-        return allFragments().anyMatch(ContextFragment::isDynamic);
     }
 
     /**
@@ -1067,13 +1057,6 @@ public class Context {
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
      */
     public List<DiffEntry> getDiff(Context other) {
-        if (this.containsDynamicFragments()) {
-            throw new IllegalStateException("Cannot compute diff from dynamic fragments; found " + this);
-        }
-        if (other.containsDynamicFragments()) {
-            throw new IllegalStateException("Cannot compute diff against dynamic fragments; found " + other);
-        }
-
         var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
         if (cached != null) {
             return cached;
