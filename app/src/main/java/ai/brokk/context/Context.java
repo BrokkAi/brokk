@@ -1049,11 +1049,6 @@ public class Context {
      */
     private String extractFragmentContent(ContextFragment fragment, boolean isNew) {
         try {
-            // FrozenFragment: use in-memory getter
-            if (fragment instanceof FrozenFragment ff) {
-                return ff.text();
-            }
-
             // ComputedFragment: try non-blocking access first, fall back to bounded await
             if (fragment instanceof ContextFragment.ComputedFragment cf) {
                 var tryGetResult = cf.computedText().tryGet();

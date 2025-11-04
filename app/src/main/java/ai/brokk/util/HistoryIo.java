@@ -10,18 +10,19 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -30,8 +31,10 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public final class HistoryIo {
@@ -55,7 +58,8 @@ public final class HistoryIo {
 
     private static final int CURRENT_FORMAT_VERSION = 4;
 
-    private HistoryIo() {}
+    private HistoryIo() {
+    }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
@@ -112,7 +116,8 @@ public final class HistoryIo {
                 } else {
                     switch (entryName) {
                         case CONTENT_FILENAME -> {
-                            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+                            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {
+                            };
                             contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
                         }
                         case CONTEXTS_FILENAME -> {
@@ -122,18 +127,21 @@ public final class HistoryIo {
                                     .forEach(compactContextDtoLines::add);
                         }
                         case RESET_EDGES_FILENAME -> {
-                            record EdgeDto(String sourceId, String targetId) {}
+                            record EdgeDto(String sourceId, String targetId) {
+                            }
                             var list = List.of(objectMapper.readValue(zis.readAllBytes(), EdgeDto[].class));
                             list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
                                     UUID.fromString(d.sourceId()), UUID.fromString(d.targetId()))));
                         }
                         case GIT_STATES_FILENAME -> {
-                            var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {};
+                            var typeRef = new TypeReference<Map<String, DtoMapper.GitStateDto>>() {
+                            };
                             rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
                         }
                         case ENTRY_INFOS_FILENAME -> {
                             byte[] bytes = zis.readAllBytes();
-                            var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
+                            var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {
+                            };
                             Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
                             entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap, mgr);
                         }
@@ -238,21 +246,19 @@ public final class HistoryIo {
         }
     }
 
+    @Blocking
     public static void writeZip(ContextHistory ch, Path target) throws IOException {
         var writer = new ContentWriter();
         var collectedReferencedDtos = new HashMap<String, ReferencedFragmentDto>();
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
-        var imageDomainFragments = new HashSet<FrozenFragment>();
+        var imageDomainFragments = new HashSet<ContextFragment.ImageFragment>();
         var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
             ctx.fileFragments().forEach(fragment -> {
                 if (!collectedReferencedDtos.containsKey(fragment.id())) {
                     collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
-                    if (fragment instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
-                    }
                 }
             });
             ctx.virtualFragments().forEach(vf -> {
@@ -263,12 +269,19 @@ public final class HistoryIo {
                     }
                 } else if (!collectedVirtualDtos.containsKey(vf.id())) {
                     collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
-                    if (vf instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
+                    if (vf instanceof ContextFragment.ImageFragment ff && !ff.isText()) {
+                        if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
+                            pastedImageFragments.add(aif);
+                        } else {
+                            if (ff instanceof ContextFragment.ComputedFragment cf) {
+                                var futureImageBytes = cf.computedImageBytes();
+                                if (futureImageBytes != null)
+                                    futureImageBytes.start(); // ensure this starts for when we need it later
+                            }
+                            imageDomainFragments.add(ff);
+                        }
                     }
-                    if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
-                        pastedImageFragments.add(aif);
-                    }
+
                     if (vf instanceof ContextFragment.HistoryFragment hf) {
                         hf.entries().stream()
                                 .map(TaskEntry::log)
@@ -361,7 +374,8 @@ public final class HistoryIo {
 
         byte[] resetEdgesBytes = null;
         if (!ch.getResetEdges().isEmpty()) {
-            record EdgeDto(String sourceId, String targetId) {}
+            record EdgeDto(String sourceId, String targetId) {
+            }
             var dtos = ch.getResetEdges().stream()
                     .map(e -> new EdgeDto(e.sourceId().toString(), e.targetId().toString()))
                     .toList();
@@ -378,7 +392,8 @@ public final class HistoryIo {
                 zos.closeEntry();
 
                 zos.putNextEntry(new ZipEntry(CONTENT_FILENAME));
-                var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+                var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {
+                };
                 byte[] contentMetadataBytes =
                         objectMapper.writerFor(typeRef).writeValueAsBytes(writer.getContentMetadata());
                 zos.write(contentMetadataBytes);
@@ -412,8 +427,16 @@ public final class HistoryIo {
                     zos.closeEntry();
                 }
 
-                for (FrozenFragment ff : imageDomainFragments) {
-                    byte[] imageBytes = ff.imageBytesContent();
+                for (ContextFragment.ImageFragment ff : imageDomainFragments) {
+                    byte[] imageBytes = null;
+                    if (ff instanceof ContextFragment.ComputedFragment cf) {
+                        var futureBytes = cf.computedImageBytes();
+                        if (futureBytes != null) {
+                            imageBytes = futureBytes.await(Duration.ofSeconds(10)).orElse(null);
+                        }
+                    } else {
+                        imageBytes = ImageUtil.imageToBytes(ff.image());
+                    }
                     if (imageBytes != null) {
                         ZipEntry entry = new ZipEntry(
                                 IMAGES_DIR_PREFIX + ff.id() + ".png"); // Assumes PNG, consider content type if varied
