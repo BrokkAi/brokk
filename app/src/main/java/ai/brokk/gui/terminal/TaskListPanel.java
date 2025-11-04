@@ -2328,7 +2328,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     /**
      * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
-     * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = show all)
+     * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
      */
     private void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
         System.out.println("[DEBUG] showAutoPlayGateDialogAndAct called, preExisting.size=" + preExistingIncompleteTasks.size());
@@ -2344,24 +2344,28 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 return;
             }
 
-            // If preExistingIncompleteTasks is empty, show all incomplete tasks
-            // Otherwise, show only tasks that were pre-existing
-            boolean showAllIncomplete = preExistingIncompleteTasks.isEmpty();
+            // If no pre-existing incomplete tasks, just auto-execute without prompting
+            if (preExistingIncompleteTasks.isEmpty()) {
+                System.out.println("[DEBUG] No pre-existing incomplete tasks, auto-executing");
+                runArchitectOnAll();
+                return;
+            }
 
-            var texts = new ArrayList<String>(model.size());
+            // Show dialog with only pre-existing incomplete tasks (deduplicated)
+            var texts = new LinkedHashSet<String>();
             for (int i = 0; i < model.size(); i++) {
                 var it = requireNonNull(model.get(i));
                 if (it.done()) {
                     continue;
                 }
                 var t = it.text().strip();
-                if (!t.isEmpty() && (showAllIncomplete || preExistingIncompleteTasks.contains(t))) {
+                if (!t.isEmpty() && preExistingIncompleteTasks.contains(t)) {
                     texts.add(t);
                 }
             }
             System.out.println("[DEBUG] Non-empty incomplete task texts to show: " + texts.size());
             if (texts.isEmpty()) {
-                System.out.println("[DEBUG] All tasks empty or completed, returning");
+                System.out.println("[DEBUG] All pre-existing tasks empty or completed, returning");
                 return;
             }
 
@@ -2434,7 +2438,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             if (choice[0] == 0) {
                 System.out.println("[DEBUG] User chose: Execute");
-                onGoStopButtonPressed();
+                runArchitectOnAll();
             } else if (choice[0] == 1) {
                 System.out.println("[DEBUG] User chose: Clean existing and run");
                 // Remove pre-existing tasks shown in the dialog, then execute remaining tasks
@@ -2459,7 +2463,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
                 // Execute remaining tasks
                 System.out.println("[DEBUG] Executing remaining tasks...");
-                onGoStopButtonPressed();
+                runArchitectOnAll();
             } else {
                 System.out.println("[DEBUG] User chose: Cancel (choice=" + choice[0] + ")");
             }
