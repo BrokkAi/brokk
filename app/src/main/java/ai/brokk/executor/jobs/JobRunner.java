@@ -126,6 +126,28 @@ public final class JobRunner {
 
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
+                var rawCodeModelName = spec.codeModel();
+                var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
+                var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
+
+                final StreamingChatModel architectPlannerModel =
+                        mode == Mode.ARCHITECT ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel architectCodeModel =
+                        mode == Mode.ARCHITECT
+                                ? (hasCodeModelOverride
+                                        ? resolveModelOrThrow(trimmedCodeModelName)
+                                        : defaultCodeModel())
+                                : null;
+                final StreamingChatModel askPlannerModel =
+                        mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel askCodeModel =
+                        mode == Mode.ASK ? defaultCodeModel() : null;
+                final StreamingChatModel codeModeModel =
+                        mode == Mode.CODE
+                                ? (hasCodeModelOverride
+                                        ? resolveModelOrThrow(trimmedCodeModelName)
+                                        : defaultCodeModel())
+                                : null;
 
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.submitLlmAction(() -> {
@@ -139,12 +161,22 @@ public final class JobRunner {
                                 try {
                                     switch (mode) {
                                         case ARCHITECT -> {
-                                            // Honor caller flags
-                                            cm.executeTask(task, spec.autoCommit(), spec.autoCompress());
+                                            cm.executeTask(
+                                                    task,
+                                                    Objects.requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for ARCHITECT jobs"),
+                                                    Objects.requireNonNull(
+                                                            architectCodeModel,
+                                                            "code model unavailable for ARCHITECT jobs"),
+                                                    spec.autoCommit(),
+                                                    spec.autoCompress());
                                         }
                                         case CODE -> {
-                                            var codeModel = cm.getCodeModel();
-                                            var agent = new CodeAgent(cm, codeModel);
+                                            var agent = new CodeAgent(
+                                                    cm,
+                                                    Objects.requireNonNull(
+                                                            codeModeModel, "code model unavailable for CODE jobs"));
                                             try (var scope = cm.beginTask(task.text(), false)) {
                                                 var result = agent.runTask(task.text(), Set.of());
                                                 scope.append(result);
@@ -152,7 +184,14 @@ public final class JobRunner {
                                         }
                                         case ASK -> {
                                             // Read-only execution: never auto-commit; allow compression if requested
-                                            cm.executeTask(new TaskList.TaskItem(task.text(), false), false, spec.autoCompress());
+                                            cm.executeTask(
+                                                    new TaskList.TaskItem(task.text(), false),
+                                                    Objects.requireNonNull(
+                                                            askPlannerModel, "plannerModel required for ASK jobs"),
+                                                    Objects.requireNonNull(
+                                                            askCodeModel, "code model unavailable for ASK jobs"),
+                                                    false,
+                                                    spec.autoCompress());
                                         }
                                     }
 
