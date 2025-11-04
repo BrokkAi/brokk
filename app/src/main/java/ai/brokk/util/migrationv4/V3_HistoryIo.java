@@ -9,6 +9,7 @@ import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.exc.InvalidTypeIdException;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -84,9 +85,20 @@ public final class V3_HistoryIo {
                 switch (entry.getName()) {
                     case V3_FRAGMENTS_FILENAME -> {
                         byte[] fragmentJsonBytes = zis.readAllBytes();
-                        // Type-safe mapping handled by LegacyTypeMappingHandler and enum handled in V3_DtoMapper
-                        allFragmentsDto =
-                                objectMapper.readValue(fragmentJsonBytes, V3_FragmentDtos.AllFragmentsDto.class);
+                        // Try parsing as-is; if type-id points at classes that exist on classpath but are not subtypes
+                        // of our V3 DTOs (e.g., ai.brokk.context.FragmentDtos$*), remap type ids and retry.
+                        try {
+                            allFragmentsDto =
+                                    objectMapper.readValue(fragmentJsonBytes, V3_FragmentDtos.AllFragmentsDto.class);
+                        } catch (InvalidTypeIdException e) {
+                            logger.debug(
+                                    "Falling back to legacy type-id remapping for fragments-v3.json due to: {}",
+                                    e.toString());
+                            String remappedJson =
+                                    remapLegacyTypeIds(new String(fragmentJsonBytes, StandardCharsets.UTF_8));
+                            allFragmentsDto =
+                                    objectMapper.readValue(remappedJson, V3_FragmentDtos.AllFragmentsDto.class);
+                        }
                     }
                     case CONTENT_FILENAME -> {
                         var typeRef = new TypeReference<Map<String, ContentDtos.ContentMetadataDto>>() {};
@@ -231,6 +243,60 @@ public final class V3_HistoryIo {
             contentCache.put(contentId, result);
             return result;
         }
+    }
+
+    /**
+     * Remap legacy type-id prefixes embedded in fragments-v3.json to our migration V3 DTO namespace.
+     * This handles cases where JSON was written with:
+     *  - io.github.jbellis.brokk.context.FragmentDtos$*
+     *  - ai.brokk.context.FragmentDtos$*
+     *  - legacy runtime ContextFragment nested classes like ...ContextFragment$ProjectPathFragment
+     */
+    private static String remapLegacyTypeIds(String json) {
+        String out = json;
+
+        // 1) Direct DTO namespace remaps
+        out = out.replace(
+                "io.github.jbellis.brokk.context.FragmentDtos$", "ai.brokk.util.migrationv4.V3_FragmentDtos$");
+        out = out.replace("ai.brokk.context.FragmentDtos$", "ai.brokk.util.migrationv4.V3_FragmentDtos$");
+
+        // 2) Runtime ContextFragment nested classes -> corresponding DTOs
+        //    Keep this in sync with LegacyTypeMappingHandler.RUNTIME_FRAGMENT_TO_DTO
+        Map<String, String> runtimeToDto = getRuntimeToDto();
+
+        String[] legacyContextFragmentPrefixes =
+                new String[] {"io.github.jbellis.brokk.context.ContextFragment$", "ai.brokk.context.ContextFragment$"};
+
+        for (String prefix : legacyContextFragmentPrefixes) {
+            for (var e : runtimeToDto.entrySet()) {
+                String legacy = prefix + e.getKey();
+                String mapped = "ai.brokk.util.migrationv4.V3_FragmentDtos$" + e.getValue();
+                out = out.replace(legacy, mapped);
+            }
+        }
+
+        return out;
+    }
+
+    private static Map<String, String> getRuntimeToDto() {
+        Map<String, String> runtimeToDto = new HashMap<>(Map.ofEntries(
+                Map.entry("ProjectPathFragment", "ProjectFileDto"),
+                Map.entry("ExternalPathFragment", "ExternalFileDto"),
+                Map.entry("ImageFileFragment", "ImageFileDto"),
+                Map.entry("GitFileFragment", "GitFileFragmentDto"),
+                Map.entry("TaskFragment", "TaskFragmentDto"),
+                Map.entry("StringFragment", "StringFragmentDto"),
+                Map.entry("SearchFragment", "SearchFragmentDto"),
+                Map.entry("StacktraceFragment", "StacktraceFragmentDto"),
+                Map.entry("CallGraphFragment", "CallGraphFragmentDto"),
+                Map.entry("CodeFragment", "CodeFragmentDto"),
+                Map.entry("HistoryFragment", "HistoryFragmentDto"),
+                Map.entry("PasteTextFragment", "PasteTextFragmentDto")));
+        // Include additional mappings found in legacy runtime classes
+        runtimeToDto.put("AnonymousImageFragment", "PasteImageFragmentDto");
+        runtimeToDto.put("FrozenFragment", "FrozenFragmentDto");
+        runtimeToDto.put("BuildFragment", "BuildFragmentDto");
+        return runtimeToDto;
     }
 
     // Type-safe handler to map legacy FQCN-based polymorphic type ids to our V3 DTOs
