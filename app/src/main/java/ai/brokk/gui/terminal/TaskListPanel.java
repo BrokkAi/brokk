@@ -128,6 +128,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
+    private @Nullable ListDataListener autoPlayListener = null;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
