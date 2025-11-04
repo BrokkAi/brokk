@@ -2275,10 +2275,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     /**
      * EZ-mode only: auto-plays all tasks when idle.
      * <p>
-     * Guards: EDT-safe, no-op if queue active.
+     * Guards: EDT-safe, no-op if queue active or LLM is busy.
      * Prompts if tasks exist. Delegates to {@link #onGoStopButtonPressed()}.
      */
     public void autoPlayAllIfIdle() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
+            return;
+        }
+        try {
+            var cm = chrome.getContextManager();
+            if (cm.isLlmTaskInProgress()) {
+                // Never trigger execution while the LLM is busy
+                return;
+            }
+        } catch (Exception ex) {
+            // Be conservative: if we cannot determine the state, do nothing
+            logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
+            return;
+        }
         autoPlayAllIfIdle(Set.of());
     }
 
@@ -2287,6 +2302,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (!SwingUtilities.isEventDispatchThread()) {
             System.out.println("[DEBUG] Not on EDT, re-dispatching");
             SwingUtilities.invokeLater(() -> this.autoPlayAllIfIdle(preExistingIncompleteTasks));
+            return;
+        }
+
+        // Guard: do not auto-start if the LLM is already busy
+        try {
+            var cm = chrome.getContextManager();
+            if (cm.isLlmTaskInProgress()) {
+                System.out.println("[DEBUG] LLM task in progress, returning");
+                return;
+            }
+        } catch (Exception ex) {
+            logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
+            // Be conservative: do not auto-start if we cannot determine state
+            System.out.println("[DEBUG] Exception querying LLM state, returning");
             return;
         }
 
