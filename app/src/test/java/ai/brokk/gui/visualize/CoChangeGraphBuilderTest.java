@@ -66,7 +66,8 @@ class CoChangeGraphBuilderTest {
         var noopProgress = new java.util.concurrent.atomic.AtomicReference<CoChangeGraphBuilder.Progress>();
         Supplier<Boolean> notCancelled = () -> false;
 
-        Graph graph = CoChangeGraphBuilder.buildGraphFromCommits(commits, tracked, noopProgress::set, notCancelled);
+        Graph graph =
+                CoChangeGraphBuilder.buildGraphFromCommits(commits, tracked, noopProgress::set, notCancelled, Set.of());
 
         // Nodes: only A, B, C
         assertEquals(3, graph.nodes.size(), "Expected nodes for tracked changed files only");

@@ -1,5 +1,6 @@
 package ai.brokk.gui.visualize;
 
+import ai.brokk.ContextManager;
 import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
@@ -31,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class CoChangeGraphBuilder {
     private static final Logger logger = LogManager.getLogger(CoChangeGraphBuilder.class);
+    private final ContextManager cm;
 
     /** Simple progress payload for async reporting. */
     public record Progress(String message, int value, int max) {}
@@ -41,6 +43,7 @@ public class CoChangeGraphBuilder {
     public CoChangeGraphBuilder(Chrome chrome) {
         this.project = chrome.getProject();
         this.repo = project.getRepo();
+        this.cm = chrome.getContextManager();
         logger.debug("CoChangeGraphBuilder initialized for project {}", project.getRoot());
     }
 
@@ -110,7 +113,12 @@ public class CoChangeGraphBuilder {
                                 }
 
                                 // Build the graph from the collected commits
-                                return buildGraphFromCommits(recent, tracked, progressConsumer, isCancelled);
+                                return buildGraphFromCommits(
+                                        recent,
+                                        tracked,
+                                        progressConsumer,
+                                        isCancelled,
+                                        new HashSet<>(cm.getTestFiles()));
                             } catch (GitAPIException e) {
                                 logger.error("Failed to build co-change graph: {}", e.getMessage(), e);
                                 throw new CompletionException(e);
@@ -128,10 +136,11 @@ public class CoChangeGraphBuilder {
             List<? extends ICommitInfo> commits,
             Set<ProjectFile> tracked,
             Consumer<Progress> progressConsumer,
-            Supplier<Boolean> isCancelled) {
+            Supplier<Boolean> isCancelled,
+            Set<ProjectFile> ignoreFiles) {
 
         // Accumulate weights for unordered file pairs
-        Map<Graph.Pair, Integer> weightMap = new HashMap<>();
+        Map<Graph.Pair, Double> weightMap = new HashMap<>();
         Map<ProjectFile, Node> nodes = new HashMap<>();
 
         int max = commits.size();
@@ -156,21 +165,25 @@ public class CoChangeGraphBuilder {
 
             // ensure nodes exist for any changed file
             for (var pf : uniqueChanged) {
+                if (ignoreFiles.contains(pf)) {
+                    continue;
+                }
                 nodes.computeIfAbsent(pf, f -> new Node(f, 0.0, 0.0, 0.0, 0.0, 0.0));
             }
 
             // pairwise increments for co-changes (only cross-directory pairs)
             int sz = uniqueChanged.size();
+            double weightIncrement = 1.0 / Math.sqrt(sz); // normalize by sqrt of files in commit
             for (int i = 0; i < sz; i++) {
                 for (int j = i + 1; j < sz; j++) {
                     var a = uniqueChanged.get(i);
                     var b = uniqueChanged.get(j);
-                    // Only add edge if files are in different directories
-                    if (!a.getParent().equals(b.getParent())) {
-                        var key = new Graph.Pair(a, b);
-                        weightMap.merge(key, 1, Integer::sum);
-                        totalPairs++;
+                    if (ignoreFiles.contains(a) || ignoreFiles.contains(b)) {
+                        continue;
                     }
+                    var key = new Graph.Pair(a, b);
+                    weightMap.merge(key, weightIncrement, Double::sum);
+                    totalPairs++;
                 }
             }
 
@@ -182,21 +195,21 @@ public class CoChangeGraphBuilder {
         Map<Graph.Pair, Edge> edges = new HashMap<>();
 
         int rawEdgeCount = weightMap.size();
-        int medianThreshold;
+        double medianThreshold;
         if (rawEdgeCount == 0) {
-            medianThreshold = Integer.MAX_VALUE; // no edges to keep
+            medianThreshold = Double.MAX_VALUE; // no edges to keep
         } else {
-            var weights = new ArrayList<Integer>(weightMap.values());
-            weights.sort(Integer::compareTo); // ascending
+            var weights = new ArrayList<Double>(weightMap.values());
+            weights.sort(Double::compareTo); // ascending
             // Use upper median for even counts so that we keep at most half if distribution is uniform
-            medianThreshold = weights.get((int) (0.99 * weights.size()));
+            medianThreshold = weights.get((int) (0.995 * (weights.size() - 1)));
         }
 
         for (var e : weightMap.entrySet()) {
-            int w = e.getValue();
+            double w = e.getValue();
             if (w >= medianThreshold) {
                 var pair = e.getKey();
-                edges.put(pair, new Edge(pair.a(), pair.b(), w));
+                edges.put(pair, new Edge(pair.a(), pair.b(), (int) Math.round(w)));
             }
         }
 
