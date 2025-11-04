@@ -238,6 +238,25 @@ public final class V3_HistoryIo {
             extends com.fasterxml.jackson.databind.deser.DeserializationProblemHandler {
         private final Map<String, String> prefixMapping;
 
+        // Map legacy runtime ContextFragment nested class names to V3 DTO nested class names
+        private static final Map<String, String> RUNTIME_FRAGMENT_TO_DTO = Map.ofEntries(
+                Map.entry("ProjectPathFragment", "ProjectFileDto"),
+                Map.entry("ExternalPathFragment", "ExternalFileDto"),
+                Map.entry("ImageFileFragment", "ImageFileDto"),
+                Map.entry("GitFileFragment", "GitFileFragmentDto"),
+                Map.entry("TaskFragment", "TaskFragmentDto"),
+                Map.entry("StringFragment", "StringFragmentDto"),
+                Map.entry("SearchFragment", "SearchFragmentDto"),
+                Map.entry("StacktraceFragment", "StacktraceFragmentDto"),
+                Map.entry("CallGraphFragment", "CallGraphFragmentDto"),
+                Map.entry("CodeFragment", "CodeFragmentDto"),
+                Map.entry("HistoryFragment", "HistoryFragmentDto"),
+                Map.entry("PasteTextFragment", "PasteTextFragmentDto"),
+                Map.entry("AnonymousImageFragment", "PasteImageFragmentDto"),
+                Map.entry("FrozenFragment", "FrozenFragmentDto"),
+                Map.entry("BuildFragment", "BuildFragmentDto")
+        );
+
         LegacyTypeMappingHandler(Map<String, String> prefixMapping) {
             this.prefixMapping = prefixMapping;
         }
@@ -249,7 +268,38 @@ public final class V3_HistoryIo {
                 String subTypeId,
                 TypeIdResolver idResolver,
                 String failureMsg) {
-            return HistoryIo.LegacyTypeMappingHandler.getJavaTypeWithFallback(ctxt, baseType, subTypeId, prefixMapping);
+            // 1) Try existing prefix-based remap first
+            var remapped = HistoryIo.LegacyTypeMappingHandler.getJavaTypeWithFallback(
+                    ctxt, baseType, subTypeId, prefixMapping);
+            if (remapped != null) {
+                return remapped;
+            }
+
+            // 2) Handle legacy runtime class names like "...ContextFragment$X"
+            int dollarIdx = subTypeId.lastIndexOf('$');
+            if (dollarIdx > 0) {
+                String outer = subTypeId.substring(0, dollarIdx);
+                if (outer.endsWith(".ContextFragment")) {
+                    String nested = subTypeId.substring(dollarIdx + 1);
+                    String dtoSimple = RUNTIME_FRAGMENT_TO_DTO.get(nested);
+                    if (dtoSimple != null) {
+                        String mappedId = "ai.brokk.util.migrationv4.V3_FragmentDtos$" + dtoSimple;
+                        try {
+                            Class<?> target = Class.forName(mappedId);
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Mapping legacy runtime type-id '{}' to '{}'", subTypeId, mappedId);
+                            }
+                            return ctxt.getTypeFactory().constructSpecializedType(baseType, target);
+                        } catch (ClassNotFoundException e) {
+                            logger.warn("Failed to load mapped V3 DTO class '{}' for legacy type-id '{}'", mappedId, subTypeId);
+                            // fall through to return null below
+                        }
+                    }
+                }
+            }
+
+            // No mapping found; let Jackson handle the failure
+            return null;
         }
     }
 }
