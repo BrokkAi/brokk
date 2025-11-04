@@ -217,14 +217,12 @@ public interface ContextFragment {
      * <p>ACHTUNG! This is not supported by FrozenFragment, since computing it requires an Analyzer and one of our goals
      * for freeze() is to not require Analyzer.
      */
-    @Blocking
     Set<CodeUnit> sources();
 
     /**
      * Returns all repo files referenced by this fragment. This is used when we *just* want to manipulate or show actual
      * files, rather than the code units themselves.
      */
-    @Blocking
     Set<ProjectFile> files();
 
     String syntaxStyle();
@@ -277,11 +275,30 @@ public interface ContextFragment {
      * call sites keep working without changes.
      */
     interface ComputedFragment extends ContextFragment {
-        ComputedValue<String> computedText();
 
-        ComputedValue<String> computedDescription();
+        /**
+         * Non-blocking accessor mirroring text().
+         * Default returns a completed value based on text().
+         */
+        default ComputedValue<String> computedText() {
+            return ComputedValue.completed("cf-text-" + id(), text());
+        }
 
-        ComputedValue<String> computedSyntaxStyle();
+        /**
+         * Non-blocking accessor mirroring description().
+         * Default returns a completed value based on the description().
+         */
+        default ComputedValue<String> computedDescription() {
+            return ComputedValue.completed("cf-description-" + id(), description());
+        }
+
+        /**
+         * Non-blocking accessor mirroring syntaxStyle().
+         * Default returns a completed value based on syntaxStyle().
+         */
+        default ComputedValue<String> computedSyntaxStyle() {
+            return ComputedValue.completed("cf-syntax-style-" + id(), syntaxStyle());
+        }
 
         /**
          * Non-blocking accessor mirroring files().
@@ -1454,6 +1471,7 @@ public interface ContextFragment {
         }
 
         @Nullable
+        @Blocking
         public byte[] imageBytes() {
             return imageToBytes(image);
         }
