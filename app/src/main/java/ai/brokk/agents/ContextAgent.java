@@ -326,7 +326,7 @@ public class ContextAgent {
     }
 
     private int estimateAnalyzedTokens(Collection<ProjectFile> files) {
-        var summariesByFile = getCachedSummaries(files);
+        var summariesByFile = getCachedIdentifiers(files);
         return Messages.getApproximateTokens(summariesByFile.values());
     }
 
@@ -422,11 +422,11 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? getCachedSummaries(current) : Map.of();
-            Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
+            Map<ProjectFile, String> fileText;
+            fileText = type == GroupType.ANALYZED ? getCachedIdentifiers(current) : readFileContents(current);
 
             try {
-                return askLlmDeepRecommendContext(summaries, contents, workspaceRepresentation, llm);
+                return askLlmDeepRecommendContext(fileText, workspaceRepresentation, llm);
             } catch (ContextTooLargeException e) {
                 if (current.size() <= 1) {
                     logger.debug("{} group still too large with a single file; returning empty.", type);
@@ -441,13 +441,18 @@ public class ContextAgent {
         }
     }
 
-    private final ConcurrentMap<ProjectFile, Map<CodeUnit, String>> identifiersByFile = new ConcurrentHashMap<>();
+    private final ConcurrentMap<ProjectFile, String> identifiersByFile = new ConcurrentHashMap<>();
 
-    private Map<CodeUnit, String> getCachedSummaries(Collection<ProjectFile> candidates) {
+    /**
+     * Returns a map of ProjectFile -> identifiers text (summaries of classes in the file).
+     */
+    private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
-                .map(c -> identifiersByFile.computeIfAbsent(c, c_ -> Context.buildRelatedIdentifiers(analyzer, c_)))
-                .flatMap(m -> m.entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+                .distinct()
+                .collect(Collectors.toMap(
+                        f -> f,
+                        f -> identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf)),
+                        (v1, v2) -> v1));
     }
 
     // --- Result assembly ---
@@ -741,10 +746,7 @@ public class ContextAgent {
     // --- Evaluate-for-relevance (single-group context window) ---
 
     private LlmRecommendation askLlmDeepRecommendContext(
-            Map<CodeUnit, String> summaries,
-            Map<ProjectFile, String> contentsMap,
-            Collection<ChatMessage> workspaceRepresentation,
-            Llm llm)
+            Map<ProjectFile, String> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
@@ -755,45 +757,20 @@ public class ContextAgent {
         var deepPromptTemplate =
                 """
                 You are an assistant that identifies relevant code context based on a goal and the existing relevant information.
-                You are given a goal, the current workspace contents (if any), and ONE of the following optional sections:
-                - <available_summaries>: a list of class summaries (analyzed group)
-                - <available_files_content>: a list of files and their contents (un-analyzed group)
+                You are given a goal, the current workspace contents (if any), and a list of files, each with either a summary of its classes or its full content.
 
-                IMPORTANT: The provided section contains only one of those categories; do not assume the other category is present.
                 Analyze the provided information and determine which items are most relevant to achieving the goal.
                 """;
 
         var finalSystemMessage = new SystemMessage(deepPromptTemplate);
         var userMessageText = new StringBuilder();
 
-        if (!summaries.isEmpty()) {
-            var summariesByFile = summaries.entrySet().stream()
-                    .collect(Collectors.groupingBy(e -> e.getKey().source(), Collectors.toList()));
-            var summariesText = summariesByFile.entrySet().stream()
-                    .map(fileEntry -> {
-                        var file = fileEntry.getKey();
-                        var classes = fileEntry.getValue().stream()
-                                .map(entry -> "<class fqcn='%s'>\n%s\n</class>"
-                                        .formatted(entry.getKey().fqName(), entry.getValue()))
-                                .collect(Collectors.joining("\n\n"));
-                        return "<file path='%s'>\n%s\n</file>".formatted(file, classes);
-                    })
-                    .collect(Collectors.joining("\n\n"));
-            userMessageText
-                    .append("<available_summaries>\n")
-                    .append(summariesText)
-                    .append("\n</available_summaries>\n\n");
-        }
-
-        if (!contentsMap.isEmpty()) {
-            var filesText = contentsMap.entrySet().stream()
+        if (!filesMap.isEmpty()) {
+            var filesText = filesMap.entrySet().stream()
                     .map(entry -> "<file path='%s'>\n%s\n</file>"
                             .formatted(entry.getKey().toString(), entry.getValue()))
                     .collect(Collectors.joining("\n\n"));
-            userMessageText
-                    .append("<available_files_content>\n")
-                    .append(filesText)
-                    .append("\n</available_files_content>\n\n");
+            userMessageText.append("<available_files>\n").append(filesText).append("\n</available_files>\n\n");
         }
 
         var discardedNote = getDiscardedContextNote();

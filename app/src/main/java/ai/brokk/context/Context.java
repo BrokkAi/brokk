@@ -121,21 +121,36 @@ public class Context {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
     }
 
-    public Map<CodeUnit, String> buildRelatedIdentifiers(int k) throws InterruptedException {
+    public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
+
         return candidates.parallelStream()
-                .flatMap(c -> buildRelatedIdentifiers(analyzer, c).entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+                .map(pf -> Map.entry(pf, buildRelatedIdentifiers(analyzer, pf)))
+                .filter(e -> !e.getValue().isBlank())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
     }
 
-    public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
-        return analyzer.getTopLevelDeclarations(file).stream()
-                .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getDirectChildren(cu).stream()
-                        .map(CodeUnit::shortName)
-                        .distinct()
-                        .sorted()
-                        .collect(Collectors.joining(", "))));
+    public static String buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
+        return buildRelatedIdentifiers(analyzer, analyzer.getTopLevelDeclarations(file), 0);
+    }
+
+    private static String buildRelatedIdentifiers(IAnalyzer analyzer, List<CodeUnit> units, int indent) {
+        var prefix = "  ".repeat(Math.max(0, indent));
+        var sb = new StringBuilder();
+        for (var cu : units) {
+            // Use FQN for top-level entries, simple identifier for nested entries
+            String name = indent == 0 ? cu.fqName() : cu.identifier();
+            sb.append(prefix).append("- ").append(name);
+
+            var children = analyzer.getDirectChildren(cu);
+            if (!children.isEmpty()) {
+                sb.append("\n");
+                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 2));
+            }
+            sb.append("\n");
+        }
+        return sb.toString().stripTrailing();
     }
 
     /** Per-fragment diff entry between two contexts. */
