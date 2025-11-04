@@ -20,6 +20,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.GlobalUiSettings;
 import com.google.common.base.Splitter;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -2290,6 +2291,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void autoPlayAllIfIdle() {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
+            return;
+        }
+
+        // Defensive: Advanced mode should not auto-play; trust caller but guard here too.
+        if (GlobalUiSettings.isAdvancedMode()) {
             return;
         }
 
