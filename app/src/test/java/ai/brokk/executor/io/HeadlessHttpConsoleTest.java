@@ -147,6 +147,47 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testShowConfirmDialog_EmitsConfirmRequestEventAndReturnsDefault() throws Exception {
+        int optionType1 = javax.swing.JOptionPane.YES_NO_OPTION;
+        int messageType1 = javax.swing.JOptionPane.INFORMATION_MESSAGE;
+        int decision1 = console.showConfirmDialog("Proceed with step 1?", "Confirm Step 1", optionType1, messageType1);
+        assertEquals(javax.swing.JOptionPane.YES_OPTION, decision1);
+
+        int optionType2 = javax.swing.JOptionPane.OK_CANCEL_OPTION;
+        int messageType2 = javax.swing.JOptionPane.WARNING_MESSAGE;
+        int decision2 = console.showConfirmDialog(
+                new java.awt.Panel(), "Proceed with step 2?", "Confirm Step 2", optionType2, messageType2);
+        assertEquals(javax.swing.JOptionPane.OK_OPTION, decision2);
+
+        Thread.sleep(150);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(2, events.size());
+
+        var event1 = events.get(0);
+        assertEquals("CONFIRM_REQUEST", event1.type());
+        @SuppressWarnings("unchecked")
+        var data1 = (Map<String, Object>) event1.data();
+        assertEquals("Proceed with step 1?", data1.get("message"));
+        assertEquals("Confirm Step 1", data1.get("title"));
+        assertEquals(optionType1, data1.get("optionType"));
+        assertEquals(messageType1, data1.get("messageType"));
+        assertEquals(javax.swing.JOptionPane.YES_OPTION, data1.get("defaultDecision"));
+
+        var event2 = events.get(1);
+        assertEquals("CONFIRM_REQUEST", event2.type());
+        @SuppressWarnings("unchecked")
+        var data2 = (Map<String, Object>) event2.data();
+        assertEquals("Proceed with step 2?", data2.get("message"));
+        assertEquals("Confirm Step 2", data2.get("title"));
+        assertEquals(optionType2, data2.get("optionType"));
+        assertEquals(messageType2, data2.get("messageType"));
+        assertEquals(javax.swing.JOptionPane.OK_OPTION, data2.get("defaultDecision"));
+
+        cleanup();
+    }
+
+    @Test
     void testPrepareOutputForNextStream_MapsToContextBaselineEvent() throws Exception {
         var history = List.of(new TaskEntry(1, null, "task1"), new TaskEntry(2, null, "task2"));
 
