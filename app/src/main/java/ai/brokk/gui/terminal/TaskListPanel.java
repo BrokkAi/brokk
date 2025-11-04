@@ -2339,7 +2339,132 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // EZ-mode gating: prompt once per session before auto-running existing tasks
+        if (!autoPlayPromptShownThisSession) {
+            showAutoPlayGateDialogAndAct();
+            return;
+        }
+
         // Leverage existing "Play All" behavior (handles commit gate, queueing, etc.)
         onGoStopButtonPressed();
+    }
+
+    /**
+     * Shows a one-time per-session EZ-mode gate dialog listing existing tasks and offering:
+     * - Execute tasks now (primary)
+     * - Remove existing tasks
+     * - Cancel
+     *
+     * Runs on the EDT. On errors it reports via chrome.toolError and returns without taking action.
+     */
+    private void showAutoPlayGateDialogAndAct() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::showAutoPlayGateDialogAndAct);
+            return;
+        }
+
+        try {
+            // No-op if there is nothing to show
+            if (model.isEmpty()) {
+                autoPlayPromptShownThisSession = true;
+                return;
+            }
+
+            var texts = new ArrayList<String>(model.size());
+            for (int i = 0; i < model.size(); i++) {
+                var it = requireNonNull(model.get(i));
+                var t = it.text().strip();
+                if (!t.isEmpty()) texts.add(t);
+            }
+            if (texts.isEmpty()) {
+                autoPlayPromptShownThisSession = true;
+                return;
+            }
+
+            Window owner = SwingUtilities.getWindowAncestor(this);
+            JDialog dialog = (owner != null)
+                    ? new JDialog(owner, "Existing Tasks", Dialog.ModalityType.APPLICATION_MODAL)
+                    : new JDialog((Window) null, "Existing Tasks", Dialog.ModalityType.APPLICATION_MODAL);
+
+            var root = new JPanel(new BorderLayout(8, 8));
+            root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+            var intro = new JTextArea("There are existing tasks in this session. What would you like to do?");
+            intro.setEditable(false);
+            intro.setOpaque(false);
+            intro.setLineWrap(true);
+            intro.setWrapStyleWord(true);
+            root.add(intro, BorderLayout.NORTH);
+
+            var listPanel = new JPanel(new BorderLayout(6, 6));
+            listPanel.add(new JLabel("Existing tasks:"), BorderLayout.NORTH);
+
+            var taskList = new JList<>(texts.toArray(new String[0]));
+            taskList.setVisibleRowCount(8);
+            var scroll = new JScrollPane(
+                    taskList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            scroll.setPreferredSize(new Dimension(520, 220));
+            listPanel.add(scroll, BorderLayout.CENTER);
+
+            root.add(listPanel, BorderLayout.CENTER);
+
+            var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+            var executeBtn = new MaterialButton("Execute tasks now");
+            SwingUtil.applyPrimaryButtonStyle(executeBtn);
+            var removeBtn = new MaterialButton("Remove existing tasks");
+            var cancelBtn = new MaterialButton("Cancel");
+            buttons.add(executeBtn);
+            buttons.add(removeBtn);
+            buttons.add(cancelBtn);
+            root.add(buttons, BorderLayout.SOUTH);
+
+            final int[] choice = new int[] {-1}; // 0 = execute, 1 = remove, 2 = cancel
+            executeBtn.addActionListener(e -> {
+                choice[0] = 0;
+                dialog.dispose();
+            });
+            removeBtn.addActionListener(e -> {
+                choice[0] = 1;
+                dialog.dispose();
+            });
+            cancelBtn.addActionListener(e -> {
+                choice[0] = 2;
+                dialog.dispose();
+            });
+
+            dialog.setContentPane(root);
+            dialog.getRootPane().setDefaultButton(executeBtn);
+            dialog.pack();
+            dialog.setLocationRelativeTo(owner);
+            dialog.setVisible(true);
+
+            // Show only once per session regardless of user choice
+            autoPlayPromptShownThisSession = true;
+
+            if (choice[0] == 0) {
+                // Execute tasks now
+                onGoStopButtonPressed();
+            } else if (choice[0] == 1) {
+                // Remove existing tasks
+                if (!model.isEmpty()) {
+                    model.clear();
+                    clearExpansionOnStructureChange();
+                    saveTasksForCurrentSession();
+                    updateButtonStates();
+                    SwingUtilities.invokeLater(this::updateTasksTabBadge);
+                }
+            } else {
+                // Cancel: no further action
+            }
+        } catch (Exception ex) {
+            logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
+            try {
+                String msg = "Could not open the auto-play dialog: "
+                        + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                chrome.toolError(msg, "Auto-play");
+            } catch (Exception notifyEx) {
+                logger.debug("Failed to show toolError for auto-play gate dialog failure", notifyEx);
+            }
+        }
     }
 }
