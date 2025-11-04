@@ -2372,6 +2372,81 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
+     * Build and show the EZ-mode auto-play dialog, capturing the user's choice.
+     * Caller must ensure this method runs on the EDT.
+     *
+     * @param texts Set of incomplete task texts to display in the dialog
+     * @return User's choice: 0=Execute, 1=Clean and run, 2=Cancel
+     */
+    private int showAutoPlayDialog(Set<String> texts) {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = (owner != null)
+                ? new JDialog(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL)
+                : new JDialog((Window) null, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
+
+        var root = new JPanel(new BorderLayout(8, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        var intro = new JTextArea("There are incomplete tasks in this session. What would you like to do?");
+        intro.setEditable(false);
+        intro.setOpaque(false);
+        intro.setLineWrap(true);
+        intro.setWrapStyleWord(true);
+        root.add(intro, BorderLayout.NORTH);
+
+        var listPanel = new JPanel(new BorderLayout(6, 6));
+        listPanel.add(new JLabel("Incomplete tasks:"), BorderLayout.NORTH);
+
+        var taskTextArea = new JTextArea();
+        taskTextArea.setEditable(false);
+        taskTextArea.setLineWrap(true);
+        taskTextArea.setWrapStyleWord(true);
+        var taskText = String.join("\n\n", texts.stream().map(t -> "• " + t).toList());
+        taskTextArea.setText(taskText);
+        taskTextArea.setCaretPosition(0);
+
+        var scroll = new JScrollPane(
+                taskTextArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setPreferredSize(new Dimension(600, 300));
+        listPanel.add(scroll, BorderLayout.CENTER);
+
+        root.add(listPanel, BorderLayout.CENTER);
+
+        var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        var executeBtn = new MaterialButton("Execute all tasks now");
+        SwingUtil.applyPrimaryButtonStyle(executeBtn);
+        var removeBtn = new MaterialButton("Clean existing and run");
+        var cancelBtn = new MaterialButton("Cancel");
+        buttons.add(executeBtn);
+        buttons.add(removeBtn);
+        buttons.add(cancelBtn);
+        root.add(buttons, BorderLayout.SOUTH);
+
+        final int[] choice = new int[] {-1};
+        executeBtn.addActionListener(e -> {
+            choice[0] = 0;
+            dialog.dispose();
+        });
+        removeBtn.addActionListener(e -> {
+            choice[0] = 1;
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> {
+            choice[0] = 2;
+            dialog.dispose();
+        });
+
+        dialog.setContentPane(root);
+        dialog.getRootPane().setDefaultButton(executeBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+
+        dialog.setVisible(true);
+
+        return choice[0];
+    }
+
+    /**
      * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
      * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
      */
@@ -2404,68 +2479,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 return;
             }
 
-            Window owner = SwingUtilities.getWindowAncestor(this);
-            JDialog dialog = (owner != null)
-                    ? new JDialog(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL)
-                    : new JDialog((Window) null, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
-
-            var root = new JPanel(new BorderLayout(8, 8));
-            root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-            var intro = new JTextArea("There are incomplete tasks in this session. What would you like to do?");
-            intro.setEditable(false);
-            intro.setOpaque(false);
-            intro.setLineWrap(true);
-            intro.setWrapStyleWord(true);
-            root.add(intro, BorderLayout.NORTH);
-
-            var listPanel = new JPanel(new BorderLayout(6, 6));
-            listPanel.add(new JLabel("Incomplete tasks:"), BorderLayout.NORTH);
-
-            var taskTextArea = new JTextArea();
-            taskTextArea.setEditable(false);
-            taskTextArea.setLineWrap(true);
-            taskTextArea.setWrapStyleWord(true);
-            var taskText = String.join("\n\n", texts.stream().map(t -> "• " + t).toList());
-            taskTextArea.setText(taskText);
-            taskTextArea.setCaretPosition(0);
-
-            var scroll = new JScrollPane(
-                    taskTextArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            scroll.setPreferredSize(new Dimension(600, 300));
-            listPanel.add(scroll, BorderLayout.CENTER);
-
-            root.add(listPanel, BorderLayout.CENTER);
-
-            var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-            var executeBtn = new MaterialButton("Execute all tasks now");
-            SwingUtil.applyPrimaryButtonStyle(executeBtn);
-            var removeBtn = new MaterialButton("Clean existing and run");
-            var cancelBtn = new MaterialButton("Cancel");
-            buttons.add(executeBtn);
-            buttons.add(removeBtn);
-            buttons.add(cancelBtn);
-            root.add(buttons, BorderLayout.SOUTH);
-
-            final int[] choice = new int[] {-1};
-            executeBtn.addActionListener(e -> {
-                choice[0] = 0;
-                dialog.dispose();
-            });
-            removeBtn.addActionListener(e -> {
-                choice[0] = 1;
-                dialog.dispose();
-            });
-            cancelBtn.addActionListener(e -> {
-                choice[0] = 2;
-                dialog.dispose();
-            });
-
-            dialog.setContentPane(root);
-            dialog.getRootPane().setDefaultButton(executeBtn);
-            dialog.pack();
-            dialog.setLocationRelativeTo(owner);
-
             int totalIncompleteTasks = 0;
             for (int i = 0; i < model.getSize(); i++) {
                 var it = model.get(i);
@@ -2475,12 +2488,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
                     texts.size(),
                     totalIncompleteTasks);
-            dialog.setVisible(true);
 
-            if (choice[0] == 0) {
+            int choice = showAutoPlayDialog(texts);
+
+            if (choice == 0) {
                 logger.debug("EZ-mode executing all {} incomplete tasks", totalIncompleteTasks);
                 runArchitectOnAll();
-            } else if (choice[0] == 1) {
+            } else if (choice == 1) {
                 // Remove pre-existing tasks shown in the dialog, then execute remaining tasks
                 int removed = 0;
                 var textsToRemove = Set.copyOf(texts);
