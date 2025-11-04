@@ -1,12 +1,12 @@
-package io.github.jbellis.brokk.analyzer.types;
+package ai.brokk.analyzer.types;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
-import io.github.jbellis.brokk.analyzer.Languages;
-import io.github.jbellis.brokk.testutil.TestProject;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
