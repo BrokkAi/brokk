@@ -9,7 +9,6 @@ import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.gui.util.BadgedIcon;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -44,7 +43,6 @@ public class ProjectFilesPanel extends JPanel {
     private JTextField searchField;
     private MaterialButton refreshButton;
     private MaterialButton dependenciesButton;
-    private BadgedIcon dependenciesBadgedIcon;
     private JPanel buttonPanel;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
@@ -84,9 +82,8 @@ public class ProjectFilesPanel extends JPanel {
         refreshButton.addActionListener(e -> refreshProjectFiles());
         buttonPanel.add(refreshButton);
 
-        dependenciesBadgedIcon = new BadgedIcon(Icons.MANAGE_DEPENDENCIES, chrome.getTheme());
         dependenciesButton = new MaterialButton();
-        dependenciesButton.setIcon(dependenciesBadgedIcon);
+        dependenciesButton.setIcon(Icons.MANAGE_DEPENDENCIES);
         dependenciesButton.setText(""); // icon-only
         dependenciesButton.setMargin(new Insets(2, 2, 2, 2)); // match other toolbar material buttons
         dependenciesButton.setToolTipText("Dependencies");
@@ -134,9 +131,7 @@ public class ProjectFilesPanel extends JPanel {
 
     public void updateDependenciesBadge(int count) {
         assert SwingUtilities.isEventDispatchThread();
-        dependenciesBadgedIcon.setCount(count, buttonPanel);
         dependenciesButton.setToolTipText(count > 0 ? "Dependencies (" + count + " enabled)" : "Dependencies");
-        dependenciesButton.repaint();
     }
 
     private void updateBorderTitle() {
