@@ -293,7 +293,7 @@ public interface IAnalyzer {
     /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
-     * Package-private: external callers should use {@link io.github.jbellis.brokk.AnalyzerUtil#extractClassName}.
+     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractClassName}.
      *
      * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
      * @return Optional containing the extracted class/module name, empty if none found
@@ -325,7 +325,58 @@ public interface IAnalyzer {
         }
     }
 
-    default List<CodeUnit> getAncestors(CodeUnit cu) {
+    /**
+     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate ancestors.
+     */
+    default List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        // should always be supported; UOE here is for convenience in mocking
         throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns the transitive set of supertypes/basetypes for the given CodeUnit.
+     * This is computed via a fixed-point iterative traversal using getDirectAncestors:
+     * - Direct ancestors are listed first, followed by their ancestors in discovery order (BFS).
+     * - Duplicates are removed by fqName.
+     * - Cycles are handled gracefully via a visited set.
+     *
+     * Implementations should override {@link #getDirectAncestors(CodeUnit)} to provide language-specific direct
+     * ancestor resolution. This method composes those results into a transitive closure.
+     */
+    default List<CodeUnit> getAncestors(CodeUnit cu) {
+        // Seed with direct ancestors
+        List<CodeUnit> direct = getDirectAncestors(cu);
+        if (direct.isEmpty()) {
+            return List.of();
+        }
+
+        // Fixed-point traversal: BFS over direct ancestors
+        var result = new ArrayList<CodeUnit>(direct.size());
+        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
+        var queue = new ArrayDeque<CodeUnit>(direct.size());
+
+        for (var d : direct) {
+            if (visited.add(d.fqName())) {
+                result.add(d);
+                queue.add(d);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            List<CodeUnit> parents = getDirectAncestors(current);
+            if (parents.isEmpty()) continue;
+
+            for (var p : parents) {
+                String key = p.fqName();
+                if (visited.add(key)) {
+                    result.add(p);
+                    queue.addLast(p);
+                }
+            }
+        }
+
+        return result;
     }
 }

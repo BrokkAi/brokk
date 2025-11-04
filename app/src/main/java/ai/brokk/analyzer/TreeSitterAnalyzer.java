@@ -2915,7 +2915,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * units, returns an empty list.
      */
     @Override
-    public List<CodeUnit> getAncestors(CodeUnit cu) {
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
         if (!cu.isClass()) {
             return List.of();
         }
