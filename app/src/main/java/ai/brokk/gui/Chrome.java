@@ -376,6 +376,15 @@ public class Chrome
             }
         });
 
+        // Initialize the Project Files tab badge with the current dependency count
+        SwingUtilities.invokeLater(() -> {
+            try {
+                updateProjectFilesTabBadge(getProject().getLiveDependencies().size());
+            } catch (Exception ex) {
+                logger.debug("Failed to initialize Project Files tab badge", ex);
+            }
+        });
+
         // --- New top-level Tests tab moved up (second position) ---
         {
             var testsIcon = Icons.SCIENCE;
@@ -3458,6 +3467,43 @@ public class Chrome
         if (gitTabLabel != null) {
             gitTabLabel.repaint();
         }
+    }
+
+    /**
+     * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
+     * the dependency count changes or on startup to initialize the badge.
+     */
+    public void updateProjectFilesTabBadge(int dependencyCount) {
+        SwingUtil.runOnEdt(() -> {
+            if (projectFilesTabBadgedIcon == null) {
+                return; // No badge support (should not happen in normal operation)
+            }
+
+            projectFilesTabBadgedIcon.setCount(dependencyCount, leftTabbedPanel);
+
+            // Update tooltip to show the count
+            if (projectFilesTabLabel != null) {
+                var configuredShortcut = GlobalUiSettings.getKeybinding(
+                        "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+                var shortcut = KeyboardShortcutUtil.formatKeyStroke(configuredShortcut);
+                String tooltip;
+                if (dependencyCount > 0) {
+                    tooltip = String.format(
+                            "Project Files (%d dependenc%s) (%s)",
+                            dependencyCount,
+                            dependencyCount == 1 ? "y" : "ies",
+                            shortcut);
+                } else {
+                    tooltip = "Project Files (" + shortcut + ")";
+                }
+                projectFilesTabLabel.setToolTipText(tooltip);
+            }
+
+            // Repaint the tab to show the updated badge
+            if (projectFilesTabLabel != null) {
+                projectFilesTabLabel.repaint();
+            }
+        });
     }
 
     /**
