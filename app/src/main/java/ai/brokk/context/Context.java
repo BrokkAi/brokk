@@ -640,8 +640,6 @@ public class Context {
      * @return a FreezeResult with the (potentially modified to exclude invalid Fragments) liveContext + frozenContext
      */
     public FreezeResult freezeAndCleanup() {
-        assert !containsFrozenFragments();
-
         var liveFragments = new ArrayList<ContextFragment>();
         var frozenFragments = new ArrayList<ContextFragment>();
 
@@ -750,10 +748,6 @@ public class Context {
         return allFragments().toList().equals(other.allFragments().toList());
     }
 
-    public boolean containsFrozenFragments() {
-        return allFragments().anyMatch(f -> f instanceof FrozenFragment);
-    }
-
     public boolean containsDynamicFragments() {
         return allFragments().anyMatch(ContextFragment::isDynamic);
     }
@@ -768,10 +762,6 @@ public class Context {
      * @return a new context containing the union of fragments from both contexts
      */
     public Context union(Context other) {
-        // we're going to do some casting that's not valid if FF is involved
-        assert !containsFrozenFragments();
-        assert !other.containsFrozenFragments();
-
         if (this.fragments.isEmpty()) {
             return other;
         }
