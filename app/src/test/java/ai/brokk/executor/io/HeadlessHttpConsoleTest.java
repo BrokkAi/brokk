@@ -550,4 +550,10 @@ class HeadlessHttpConsoleTest {
         var events = jobStore.readEvents(jobId, -1, 100);
         assertEquals(2, events.size());
     }
+
+    @Test
+    void testGetLlmRawMessages_ReturnsEmptyList() {
+        var messages = console.getLlmRawMessages();
+        assertEquals(List.of(), messages);
+    }
 }
