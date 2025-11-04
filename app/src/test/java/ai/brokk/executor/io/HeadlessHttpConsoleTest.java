@@ -340,6 +340,60 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testShowHideOutputSpinner_MapsToStateHintEvents() throws Exception {
+        console.showOutputSpinner("Loading");
+        console.hideOutputSpinner();
+
+        Thread.sleep(150);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(2, events.size());
+
+        var event1 = events.get(0);
+        assertEquals("STATE_HINT", event1.type());
+        @SuppressWarnings("unchecked")
+        var data1 = (Map<String, Object>) event1.data();
+        assertEquals("outputSpinner", data1.get("name"));
+        assertEquals(true, data1.get("value"));
+
+        var event2 = events.get(1);
+        assertEquals("STATE_HINT", event2.type());
+        @SuppressWarnings("unchecked")
+        var data2 = (Map<String, Object>) event2.data();
+        assertEquals("outputSpinner", data2.get("name"));
+        assertEquals(false, data2.get("value"));
+
+        cleanup();
+    }
+
+    @Test
+    void testShowHideSessionSwitchSpinner_MapsToStateHintEvents() throws Exception {
+        console.showSessionSwitchSpinner();
+        console.hideSessionSwitchSpinner();
+
+        Thread.sleep(150);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(2, events.size());
+
+        var event1 = events.get(0);
+        assertEquals("STATE_HINT", event1.type());
+        @SuppressWarnings("unchecked")
+        var data1 = (Map<String, Object>) event1.data();
+        assertEquals("sessionSwitchSpinner", data1.get("name"));
+        assertEquals(true, data1.get("value"));
+
+        var event2 = events.get(1);
+        assertEquals("STATE_HINT", event2.type());
+        @SuppressWarnings("unchecked")
+        var data2 = (Map<String, Object>) event2.data();
+        assertEquals("sessionSwitchSpinner", data2.get("name"));
+        assertEquals(false, data2.get("value"));
+
+        cleanup();
+    }
+
+    @Test
     void testMultipleEvents_MaintainsOrder() throws Exception {
         console.llmOutput("token1", ChatMessageType.AI, true, false);
         console.toolError("error1", "Error");

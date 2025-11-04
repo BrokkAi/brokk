@@ -171,6 +171,30 @@ public class HeadlessHttpConsole implements IConsoleIO {
         enqueueEvent("STATE_HINT", data);
     }
 
+    @Override
+    public void showOutputSpinner(String message) {
+        var data = Map.of("name", "outputSpinner", "value", true);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void hideOutputSpinner() {
+        var data = Map.of("name", "outputSpinner", "value", false);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void showSessionSwitchSpinner() {
+        var data = Map.of("name", "sessionSwitchSpinner", "value", true);
+        enqueueEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public void hideSessionSwitchSpinner() {
+        var data = Map.of("name", "sessionSwitchSpinner", "value", false);
+        enqueueEvent("STATE_HINT", data);
+    }
+
     /**
      * Map action button state to STATE_HINT events.
      */
