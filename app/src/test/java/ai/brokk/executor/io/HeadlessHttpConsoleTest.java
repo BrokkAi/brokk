@@ -1,7 +1,10 @@
 package ai.brokk.executor.io;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
@@ -12,6 +15,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -555,5 +559,19 @@ class HeadlessHttpConsoleTest {
     void testGetLlmRawMessages_ReturnsEmptyList() {
         var messages = console.getLlmRawMessages();
         assertEquals(List.of(), messages);
+    }
+
+    @Test
+    void testGetBlitzForgeListener_ReturnsNoopAndUsesConsole() {
+        var cancelRequested = new AtomicBoolean(false);
+        Runnable cancelCallback = () -> cancelRequested.set(true);
+
+        var listener = console.getBlitzForgeListener(cancelCallback);
+
+        assertNotNull(listener);
+        assertSame(console, listener.getConsoleIO(null));
+
+        assertDoesNotThrow(cancelCallback::run);
+        assertTrue(cancelRequested.get());
     }
 }
