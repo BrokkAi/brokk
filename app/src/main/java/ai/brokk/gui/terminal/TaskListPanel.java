@@ -2341,6 +2341,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // EZ-mode gating: prompt once per session before auto-running existing tasks
         if (!autoPlayPromptShownThisSession) {
+            autoPlayPromptShownThisSession = true;
             showAutoPlayGateDialogAndAct();
             return;
         }
