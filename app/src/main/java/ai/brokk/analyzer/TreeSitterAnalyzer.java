@@ -586,11 +586,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        return childrenOf(cu);
-    }
-
-    @Override
     public List<CodeUnit> searchDefinitionsImpl(
             String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // an explicit search for everything should return everything, not just classes
@@ -2887,7 +2882,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * language.
      */
     @Override
-    public List<CodeUnit> directChildren(CodeUnit cu) {
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return childrenOf(cu);
     }
 

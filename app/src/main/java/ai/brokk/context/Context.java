@@ -131,7 +131,7 @@ public class Context {
 
     public static Map<CodeUnit, String> buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
         return analyzer.getTopLevelDeclarations(file).stream()
-                .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getSubDeclarations(cu).stream()
+                .collect(Collectors.toMap(cu -> cu, cu -> analyzer.getDirectChildren(cu).stream()
                         .map(CodeUnit::shortName)
                         .distinct()
                         .sorted()

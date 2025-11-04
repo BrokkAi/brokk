@@ -117,7 +117,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(maybeMethod.isPresent(), "Should resolve method definition for getSomething");
         final var methodCu = maybeMethod.get();
 
-        final var children = analyzer.directChildren(methodCu);
+        final var children = analyzer.getDirectChildren(methodCu);
         assertTrue(
                 children.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
                         .equals("AnonymousUsage.NestedClass.getSomething$anon$15:37")),

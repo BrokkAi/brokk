@@ -137,8 +137,8 @@ public class MultiAnalyzer
     }
 
     @Override
-    public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        return delegateFor(cu).map(delegate -> delegate.getSubDeclarations(cu)).orElse(List.of());
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return delegateFor(cu).map(delegate -> delegate.getDirectChildren(cu)).orElse(List.of());
     }
 
     @Override
