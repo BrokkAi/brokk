@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.java.JavaTypeAnalyzer;
+import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.Optional;
@@ -373,7 +373,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         if (!cu.isClass()) return List.of();
 
         // Obtain the cached parse tree for this file
-        TSTree tree = getCachedTree(cu.source());
+        TSTree tree = treeOf(cu.source());
         if (tree == null) {
             return List.of();
         }
