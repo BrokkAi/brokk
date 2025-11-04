@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui.visualize;
+package ai.brokk.gui.visualize;
 
 /**
  * Minimal generic Pair utility to use as a map key.

@@ -47,7 +47,7 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
-import io.github.jbellis.brokk.gui.visualize.CoChangeGraphDialog;
+import ai.brokk.gui.visualize.CoChangeGraphDialog;
 import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {

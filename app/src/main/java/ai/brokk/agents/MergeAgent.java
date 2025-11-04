@@ -59,7 +59,7 @@ public class MergeAgent {
         CHERRY_PICK
     }
 
-    // NonTextType is defined at package scope (io.github.jbellis.brokk.agents.NonTextType);
+    // NonTextType is defined at package scope (ai.brokk.agents.NonTextType);
     // use the top-level enum to avoid type conflicts with other classes in the package.
 
     protected final IContextManager cm;

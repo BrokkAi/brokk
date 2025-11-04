@@ -1,8 +1,8 @@
-package io.github.jbellis.brokk.gui.visualize;
+package ai.brokk.gui.visualize;
 
-import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.SwingUtil;
-import io.github.jbellis.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.components.MaterialButton;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;

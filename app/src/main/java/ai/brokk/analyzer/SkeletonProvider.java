@@ -8,7 +8,7 @@ import java.util.Optional;
  * Implemented by analyzers that can readily provide skeletons.
  *
  * <p><b>API Pattern:</b> Methods accept {@link CodeUnit} parameters. For String FQNs,
- * use {@link io.github.jbellis.brokk.AnalyzerUtil} convenience methods.
+ * use {@link ai.brokk.AnalyzerUtil} convenience methods.
  */
 public interface SkeletonProvider extends CapabilityProvider {
 

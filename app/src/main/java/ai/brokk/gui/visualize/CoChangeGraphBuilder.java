@@ -1,12 +1,12 @@
-package io.github.jbellis.brokk.gui.visualize;
+package ai.brokk.gui.visualize;
 
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.git.ICommitInfo;
-import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.util.ExecutorServiceUtil;
+import ai.brokk.IProject;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
+import ai.brokk.git.ICommitInfo;
+import ai.brokk.gui.Chrome;
+import ai.brokk.util.ExecutorServiceUtil;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;

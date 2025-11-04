@@ -1,6 +1,6 @@
-package io.github.jbellis.brokk.gui.visualize;
+package ai.brokk.gui.visualize;
 
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.ProjectFile;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;

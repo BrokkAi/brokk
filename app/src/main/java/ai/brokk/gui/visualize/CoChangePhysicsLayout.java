@@ -1,7 +1,7 @@
-package io.github.jbellis.brokk.gui.visualize;
+package ai.brokk.gui.visualize;
 
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.util.ExecutorServiceUtil;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.ExecutorServiceUtil;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;

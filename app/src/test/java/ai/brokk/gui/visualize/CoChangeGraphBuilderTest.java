@@ -1,10 +1,10 @@
-package io.github.jbellis.brokk.gui.visualize;
+package ai.brokk.gui.visualize;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.ICommitInfo;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.ICommitInfo;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
