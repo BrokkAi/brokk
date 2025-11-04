@@ -553,8 +553,7 @@ public final class MainProject extends AbstractProject {
         }
 
         if (languageSizes.containsKey(Languages.SQL)) {
-            boolean addedByThisRule = detectedLanguages.add(Languages.SQL);
-            if (addedByThisRule) {
+            if (detectedLanguages.add(Languages.SQL)) {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
             }
         }

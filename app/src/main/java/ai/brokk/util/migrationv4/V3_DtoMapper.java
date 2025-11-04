@@ -134,8 +134,7 @@ public class V3_DtoMapper {
         return switch (dto) {
             case V3_FragmentDtos.ProjectFileDto pfd ->
                 // Use current project root for cross-platform compatibility
-                ContextFragment.ProjectPathFragment.withId(
-                        new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath())), pfd.id(), mgr);
+                ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
             case V3_FragmentDtos.ExternalFileDto efd ->
                 ContextFragment.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath()).toAbsolutePath()), efd.id(), mgr);
@@ -146,10 +145,7 @@ public class V3_DtoMapper {
             case V3_FragmentDtos.GitFileFragmentDto gfd ->
                 // Use current project root for cross-platform compatibility
                 ContextFragment.GitFileFragment.withId(
-                        new ProjectFile(mgr.getProject().getRoot(), Path.of(gfd.relPath())),
-                        gfd.revision(),
-                        reader.readContent(gfd.contentId()),
-                        gfd.id());
+                        mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case V3_FragmentDtos.FrozenFragmentDto ffd -> {
                 // TODO: [Migration4] Frozen fragments are to be replaced and mapped to "Fragments"
                 yield FrozenFragment.fromDto(
@@ -310,7 +306,7 @@ public class V3_DtoMapper {
         if (path.startsWith(projectRoot)) {
             try {
                 Path relPath = projectRoot.relativize(path);
-                return new ProjectFile(projectRoot, relPath);
+                return mgr.toFile(relPath.toString());
             } catch (IllegalArgumentException e) {
                 return new ExternalFile(path);
             }
@@ -321,7 +317,7 @@ public class V3_DtoMapper {
     private static ProjectFile fromProjectFileDto(V3_FragmentDtos.ProjectFileDto dto, IContextManager mgr) {
         // Use the current project root instead of the serialized one to handle cross-platform compatibility
         // (e.g., when a V3 ZIP was created on Unix but deserialized on Windows)
-        return new ProjectFile(mgr.getProject().getRoot(), Path.of(dto.relPath()));
+        return mgr.toFile(dto.relPath());
     }
 
     private static ChatMessage fromChatMessageDto(
@@ -366,7 +362,7 @@ public class V3_DtoMapper {
     private static CodeUnit fromCodeUnitDto(V3_FragmentDtos.CodeUnitDto dto, IContextManager mgr) {
         V3_FragmentDtos.ProjectFileDto pfd = dto.sourceFile();
         // Use current project root for cross-platform compatibility
-        ProjectFile source = new ProjectFile(mgr.getProject().getRoot(), Path.of(pfd.relPath()));
+        ProjectFile source = mgr.toFile(pfd.relPath());
         var kind = CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }

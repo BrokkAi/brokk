@@ -10,24 +10,27 @@ import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class TypescriptAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
-                rootDir,
-                "hello.ts",
-                """
+        // Use JUnit TempDir for isolated test directory
+        new ProjectFile(tempDir, "hello.ts")
+                .write("""
                 export function foo(): number { return 1; }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.TYPESCRIPT);
+        project = new TestProject(tempDir, Languages.TYPESCRIPT);
         analyzer = new TypescriptAnalyzer(project);
     }
 
@@ -41,10 +44,9 @@ class TypescriptAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("foo").isPresent());
         assertTrue(analyzer.getDefinition("bar").isEmpty());
 
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "hello.ts",
-                """
+        new ProjectFile(project.getRoot(), "hello.ts")
+                .write(
+                        """
                 export function foo(): number { return 1; }
                 export function bar(): number { return 2; }
                 """);
@@ -57,10 +59,9 @@ class TypescriptAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "hello.ts",
-                """
+        new ProjectFile(project.getRoot(), "hello.ts")
+                .write(
+                        """
                 export function foo(): number { return 1; }
                 export function baz(): number { return 3; }
                 """);
