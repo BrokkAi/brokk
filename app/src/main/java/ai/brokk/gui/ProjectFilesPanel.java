@@ -42,7 +42,6 @@ public class ProjectFilesPanel extends JPanel {
 
     private JTextField searchField;
     private MaterialButton refreshButton;
-    private MaterialButton dependenciesButton;
     private JPanel buttonPanel;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
