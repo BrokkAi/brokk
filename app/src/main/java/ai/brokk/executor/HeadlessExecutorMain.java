@@ -402,6 +402,13 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
+            var plannerModel = jobSpec.plannerModel();
+            if (plannerModel == null || plannerModel.isBlank()) {
+                var error = ErrorPayload.validationError("plannerModel is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
             var jobId = createResult.jobId();
