@@ -2281,16 +2281,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * EZ-mode hook: auto-plays all tasks when the panel is idle.
+     * EZ-mode only: auto-plays all tasks when idle.
      * <p>
-     * Safe to call from any thread. If not on the EDT, the call is re-dispatched.
-     * No-op if:
-     * - an LLM task is already in progress,
-     * - a queue is already active, or
-     * - there are no tasks in the model.
-     * <p>
-     * When guards pass, this leverages the existing run-all behavior (commit gate, queueing, etc.)
-     * by delegating to {@link #onGoStopButtonPressed()}.
+     * Guards: EDT-safe, no-op if LLM busy or queue active.
+     * Prompts once per session if tasks exist. Delegates to {@link #onGoStopButtonPressed()}.
      */
     public void autoPlayAllIfIdle() {
         if (!SwingUtilities.isEventDispatchThread()) {
@@ -2298,12 +2292,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        // Defensive: Advanced mode should not auto-play; trust caller but guard here too.
         if (GlobalUiSettings.isAdvancedMode()) {
             return;
         }
 
-        // Do not auto-start if the LLM is already busy.
         try {
             var cm = chrome.getContextManager();
             if (cm.isLlmTaskInProgress()) {
@@ -2311,7 +2303,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         } catch (Exception ex) {
             logger.debug("Unable to query LLM busy state in autoPlayAllIfIdle", ex);
-            // Notify the user via Chrome UI about the issue (guarded to avoid cascading failures)
             try {
                 String userMsg = "Could not determine whether the LLM is busy: "
                         + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
@@ -2319,16 +2310,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             } catch (Exception notifyEx) {
                 logger.debug("Failed to show user notification for autoPlayAllIfIdle", notifyEx);
             }
-            // Be conservative: do not auto-start if we cannot determine state
             return;
         }
 
-        // Do not auto-start if a queue is already active or there are no tasks.
         if (queueActive) {
             return;
         }
         if (model.getSize() == 0) {
-            // Register a one-shot listener to auto-play once tasks arrive.
             model.addListDataListener(new ListDataListener() {
                 @Override
                 public void intervalAdded(ListDataEvent e) {
@@ -2337,36 +2325,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
 
                 @Override
-                public void intervalRemoved(ListDataEvent e) {
-                    // no-op
-                }
+                public void intervalRemoved(ListDataEvent e) {}
 
                 @Override
-                public void contentsChanged(ListDataEvent e) {
-                    // no-op
-                }
+                public void contentsChanged(ListDataEvent e) {}
             });
             return;
         }
 
-        // EZ-mode gating: prompt once per session before auto-running existing tasks
         if (!autoPlayPromptShownThisSession) {
             autoPlayPromptShownThisSession = true;
             showAutoPlayGateDialogAndAct();
             return;
         }
 
-        // Leverage existing "Play All" behavior (handles commit gate, queueing, etc.)
         onGoStopButtonPressed();
     }
 
     /**
-     * Shows a one-time per-session EZ-mode gate dialog listing existing tasks and offering:
-     * - Execute tasks now (primary)
-     * - Remove existing tasks
-     * - Cancel
-     *
-     * Runs on the EDT. On errors it reports via chrome.toolError and returns without taking action.
+     * Shows a one-time EZ-mode dialog prompting the user to execute, remove, or cancel existing tasks.
      */
     private void showAutoPlayGateDialogAndAct() {
         if (!SwingUtilities.isEventDispatchThread()) {
@@ -2375,7 +2352,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         try {
-            // No-op if there is nothing to show
             if (model.isEmpty()) {
                 autoPlayPromptShownThisSession = true;
                 return;
@@ -2429,7 +2405,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             buttons.add(cancelBtn);
             root.add(buttons, BorderLayout.SOUTH);
 
-            final int[] choice = new int[] {-1}; // 0 = execute, 1 = remove, 2 = cancel
+            final int[] choice = new int[] {-1};
             executeBtn.addActionListener(e -> {
                 choice[0] = 0;
                 dialog.dispose();
@@ -2449,14 +2425,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             dialog.setLocationRelativeTo(owner);
             dialog.setVisible(true);
 
-            // Show only once per session regardless of user choice
             autoPlayPromptShownThisSession = true;
 
             if (choice[0] == 0) {
-                // Execute tasks now
                 onGoStopButtonPressed();
             } else if (choice[0] == 1) {
-                // Remove existing tasks
                 int removed = 0;
                 for (int i = model.getSize() - 1; i >= 0; i--) {
                     model.remove(i);
@@ -2469,9 +2442,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     SwingUtilities.invokeLater(this::updateTasksTabBadge);
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Cleared " + removed + " existing task" + (removed == 1 ? "" : "s") + ".");
                 }
-                // Do not auto-start after clearing
-            } else {
-                // Cancel: no further action
             }
         } catch (Exception ex) {
             logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
