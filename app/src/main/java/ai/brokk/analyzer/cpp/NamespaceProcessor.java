@@ -9,6 +9,7 @@ import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -19,8 +20,16 @@ public class NamespaceProcessor {
     private static final Logger log = LogManager.getLogger(NamespaceProcessor.class);
 
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
+    private final Supplier<String> bodyPlaceholderSupplier;
 
-    public NamespaceProcessor(TSParser templateParser) {}
+    public NamespaceProcessor(TSParser templateParser) {
+        // Default C++ placeholder for presentation purposes only
+        this.bodyPlaceholderSupplier = () -> "{...}";
+    }
+
+    public NamespaceProcessor(TSParser templateParser, Supplier<String> bodyPlaceholderSupplier) {
+        this.bodyPlaceholderSupplier = Objects.requireNonNull(bodyPlaceholderSupplier, "bodyPlaceholderSupplier");
+    }
 
     public record NamespaceBlock(String name, TSNode node, int startByte, int endByte) {}
 
@@ -146,7 +155,9 @@ public class NamespaceProcessor {
             if (FUNCTION_DEFINITION.equals(childType)) {
                 var signature = extractFunctionSignature(child, fileContent);
                 if (!signature.trim().isEmpty()) {
-                    skeletons.add(signature + "  {...}");
+                    // Presentation-only marker: append a consistent placeholder for functions with bodies.
+                    // NOTE: Duplicate handling uses the AST-derived hasBody flag, not this string.
+                    skeletons.add(signature + "  " + bodyPlaceholderSupplier.get());
                 }
             } else if (ENUM_SPECIFIER.equals(childType)) {
                 var enumSkeleton = extractEnumSkeletonFromNode(child, fileContent);

@@ -7,24 +7,30 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CppAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class CppAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(rootDir, "A.cpp", """
+        var initial = new ProjectFile(tempDir, "A.cpp");
+        initial.write("""
                 int foo() { return 1; }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.CPP_TREESITTER);
+        project = new TestProject(tempDir, Languages.CPP_TREESITTER);
         analyzer = new CppAnalyzer(project);
     }
 
@@ -40,10 +46,9 @@ class CppAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("bar()").isEmpty());
 
         // mutate
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "A.cpp",
-                """
+        new ProjectFile(project.getRoot(), "A.cpp")
+                .write(
+                        """
                 int foo() { return 1; }
                 int bar() { return 2; }
                 """);
@@ -57,10 +62,9 @@ class CppAnalyzerUpdateTest {
 
     @Test
     void autoDetect() throws IOException {
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "A.cpp",
-                """
+        new ProjectFile(project.getRoot(), "A.cpp")
+                .write(
+                        """
                 int foo() { return 1; }
                 int baz() { return 3; }
                 """);

@@ -2,6 +2,8 @@ package ai.brokk.util;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
@@ -158,6 +160,11 @@ public class Messages {
 
     public static int getApproximateTokens(Collection<String> texts) {
         return texts.parallelStream().mapToInt(Messages::getApproximateTokens).sum();
+    }
+
+    public static int getApproximateTokens(Context ctx) {
+        var texts = ctx.allFragments().map(ContextFragment::text).toList();
+        return getApproximateTokens(texts);
     }
 
     public static int getApproximateMessageTokens(Collection<ChatMessage> messages) {

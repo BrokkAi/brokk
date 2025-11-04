@@ -661,6 +661,57 @@ public abstract class CodePrompts {
         return getWorkspaceContentsMessages(ctx, false);
     }
 
+    /**
+     * Internal helper to render a list of fragments in the given order.
+     * Converts text fragments to formatted strings and image fragments to ImageContent objects.
+     * Returns both the combined text and the list of images.
+     */
+    private static final class RenderedContent {
+        final String text;
+        final List<ImageContent> images;
+
+        RenderedContent(String text, List<ImageContent> images) {
+            this.text = text;
+            this.images = images;
+        }
+    }
+
+    /**
+     * Renders fragments in the given order without reordering or splitting.
+     * Builds combined text from all fragment formats and collects images separately.
+     */
+    private RenderedContent renderFragments(List<ContextFragment> fragments) {
+        var textBuilder = new StringBuilder();
+        var imageList = new ArrayList<ImageContent>();
+
+        for (var fragment : fragments) {
+            if (fragment.isText()) {
+                String formatted = fragment.format();
+                if (!formatted.isBlank()) {
+                    textBuilder.append(formatted).append("\n\n");
+                }
+            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
+                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
+                try {
+                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
+                    imageList.add(ImageContent.from(l4jImage));
+                    textBuilder.append(fragment.format()).append("\n\n");
+                } catch (IOException | UncheckedIOException e) {
+                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
+                    textBuilder.append(String.format(
+                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                }
+            } else {
+                String formatted = fragment.format();
+                if (!formatted.isBlank()) {
+                    textBuilder.append(formatted).append("\n\n");
+                }
+            }
+        }
+
+        return new RenderedContent(textBuilder.toString().trim(), imageList);
+    }
+
     private List<ChatMessage> getWorkspaceContentsMessages(
             Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
         // If both are empty and no related classes requested, return empty
@@ -718,6 +769,42 @@ public abstract class CodePrompts {
         allContents.addFirst(new TextContent(workspaceText));
 
         // Create the main UserMessage
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
+    }
+
+    /**
+     * Returns messages containing the current workspace context in insertion order (the order fragments were added).
+     * Does not split by read-only/editable or reorder by modification time.
+     * Suitable for agents (e.g., SearchAgent) that need a flat, chronological view of the workspace.
+     *
+     * @param ctx The context to process.
+     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment,
+     *     or empty if no content.
+     */
+    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx) {
+        var allFragments = ctx.allFragments().toList();
+        if (allFragments.isEmpty()) {
+            return List.of();
+        }
+
+        var rendered = renderFragments(allFragments);
+        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var workspaceText =
+                """
+                           <workspace>
+                           %s
+                           </workspace>
+                           """
+                        .formatted(rendered.text);
+
+        allContents.add(new TextContent(workspaceText));
+        allContents.addAll(rendered.images);
+
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }

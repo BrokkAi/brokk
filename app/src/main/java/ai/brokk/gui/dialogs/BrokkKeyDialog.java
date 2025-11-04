@@ -4,6 +4,7 @@ import ai.brokk.Brokk;
 import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -58,9 +59,11 @@ public class BrokkKeyDialog extends JDialog {
         // Center panel with instructions and key field
         var center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.PAGE_AXIS));
-        center.add(
-                new JLabel(
-                        "<html>Please enter your Brokk Key.<br>You can sign up for free at <a href=\"https://brokk.ai\">brokk.ai</a></html>"));
+        center.add(new JLabel("Please enter your Brokk Key."));
+        var linkRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        linkRow.add(new JLabel("You can sign up for free at "));
+        linkRow.add(new BrowserLabel("https://brokk.ai", "brokk.ai"));
+        center.add(linkRow);
         center.add(Box.createVerticalStrut(8));
 
         var keyPanel = new JPanel(new BorderLayout(5, 0));
@@ -83,6 +86,18 @@ public class BrokkKeyDialog extends JDialog {
         add(btnPanel, BorderLayout.SOUTH);
 
         getRootPane().setDefaultButton(okBtn);
+
+        // Close dialog on ESC
+        var esc = KeyStroke.getKeyStroke("ESCAPE");
+        var inputMap = getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        var actionMap = getRootPane().getActionMap();
+        inputMap.put(esc, "brokk.cancel");
+        actionMap.put("brokk.cancel", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                cancel();
+            }
+        });
     }
 
     private void submit() {

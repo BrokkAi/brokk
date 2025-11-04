@@ -1397,11 +1397,12 @@ public class BlitzForgeDialog extends JDialog {
                         """
                                 .formatted(instructions, parallelDetails, effectiveGoal);
 
-                TaskResult postProcessResult;
                 if (fRunOption == PostProcessingOption.ASK) {
                     mainIo.systemNotify(
                             "Ask command has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
-                    postProcessResult = InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                    TaskResult postProcessResult =
+                            InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                    scope.append(postProcessResult);
                 } else {
                     mainIo.systemNotify(
                             "Architect has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
@@ -1411,9 +1412,9 @@ public class BlitzForgeDialog extends JDialog {
                             perFileModel,
                             agentInstructions,
                             scope);
-                    postProcessResult = agent.executeWithSearch();
+                    TaskResult postProcessResult = agent.executeWithScan();
+                    scope.append(postProcessResult);
                 }
-                scope.append(postProcessResult);
             } finally {
                 analyzerWrapper.resume();
             }
@@ -1528,8 +1529,10 @@ public class BlitzForgeDialog extends JDialog {
             if (engineAction == Action.ASK) {
                 var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
                 var llm = cm.getLlm(model, "Ask", true);
+                var meta =
+                        new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
                 llm.setOutput(dialogIo);
-                tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
+                tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
             } else {
                 var agent = new CodeAgent(cm, model, dialogIo);
                 tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);

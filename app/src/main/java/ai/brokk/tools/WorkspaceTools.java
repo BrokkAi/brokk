@@ -3,7 +3,6 @@ package ai.brokk.tools;
 import ai.brokk.AbstractProject;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
-import ai.brokk.ExceptionReporter;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -106,7 +105,7 @@ public class WorkspaceTools {
 
         // Determine already-present files and files-to-add based on current workspace state
         var workspaceFiles = currentWorkspaceFiles();
-        var distinctRequested = new HashSet<>(workspaceFiles);
+        var distinctRequested = new HashSet<>(projectFiles);
         var toAddFiles = distinctRequested.stream()
                 .filter(f -> !workspaceFiles.contains(f))
                 .toList();
@@ -184,10 +183,6 @@ public class WorkspaceTools {
         } catch (IOException e) {
             logger.error("Failed to fetch or process URL content: {}", urlString, e);
             throw new RuntimeException("Failed to fetch URL content for " + urlString + ": " + e.getMessage(), e);
-        } catch (Exception e) {
-            logger.error("Unexpected error processing URL: {}", urlString, e);
-            ExceptionReporter.tryReportException(e);
-            throw new RuntimeException("Unexpected error processing URL " + urlString + ": " + e.getMessage(), e);
         }
     }
 
@@ -252,6 +247,7 @@ public class WorkspaceTools {
             discardedJson = mapper.writeValueAsString(mergedDiscarded);
         } catch (Exception e) {
             logger.error("Failed to serialize DISCARDED_CONTEXT JSON", e);
+            context.getContextManager().reportException(e);
             return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
         }
 
@@ -442,8 +438,9 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
-    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this ONLY to excerpt findings for files that do not need to be kept in the Workspace. DO NOT use this to give instructions to the Code Agent: he is better at his job than you are.")
+    public String appendNote(
+            @P("Markdown content to append to Task Notes. NOT for speculating about implementation!") String markdown) {
         if (markdown.isBlank()) {
             return "Ignoring empty Note";
         }

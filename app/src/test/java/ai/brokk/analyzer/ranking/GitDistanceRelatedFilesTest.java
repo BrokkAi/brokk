@@ -80,6 +80,25 @@ public class GitDistanceRelatedFilesTest {
     }
 
     @Test
+    public void testPMISeedsNotInResults() throws Exception {
+        assertNotNull(analyzer, "Analyzer should be initialized");
+        assertNotNull(testPath, "Test path should not be null");
+
+        // Use multiple seeds that co-occur in commits
+        var userService = new ProjectFile(testProject.getRoot(), "UserService.java");
+        var user = new ProjectFile(testProject.getRoot(), "User.java");
+        var seedWeights = Map.of(userService, 1.0, user, 0.5);
+
+        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10, false);
+        assertFalse(results.isEmpty(), "Should return non-seed related files");
+
+        // Verify no seeds appear in results
+        var resultFiles = results.stream().map(r -> r.file()).toList();
+        assertFalse(resultFiles.contains(userService), "UserService (seed) should not appear in results");
+        assertFalse(resultFiles.contains(user), "User (seed) should not appear in results");
+    }
+
+    @Test
     public void testPMINoSeedWeights() throws Exception {
         assertNotNull(analyzer, "Analyzer should be initialized");
         assertNotNull(testPath, "Test path should not be null");

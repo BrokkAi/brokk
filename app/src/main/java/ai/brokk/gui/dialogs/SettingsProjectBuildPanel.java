@@ -61,7 +61,6 @@ public class SettingsProjectBuildPanel extends JPanel {
     private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
 
     // Executor configuration UI
-    private JTextField executorPathField = new JTextField(20);
     private JTextField executorArgsField = new JTextField(20);
     private MaterialButton testExecutorButton = new MaterialButton("Test");
     private MaterialButton resetExecutorButton = new MaterialButton("Reset");
@@ -304,21 +303,11 @@ public class SettingsProjectBuildPanel extends JPanel {
         shellGbc.anchor = GridBagConstraints.WEST;
         shellGbc.fill = GridBagConstraints.NONE;
         shellConfigPanel.add(new JLabel("Execute with:"), shellGbc);
-        var executorSelectPanel = new JPanel(new GridBagLayout());
-        var gbcInner = new GridBagConstraints();
-        gbcInner.fill = GridBagConstraints.HORIZONTAL;
-        gbcInner.weightx = 1.0;
-        executorSelectPanel.add(executorPathField, gbcInner);
-        gbcInner.weightx = 0;
-        gbcInner.fill = GridBagConstraints.NONE;
-        gbcInner.anchor = GridBagConstraints.WEST;
-        gbcInner.insets = new Insets(0, 5, 0, 0);
-        executorSelectPanel.add(commonExecutorsComboBox, gbcInner);
         shellGbc.gridx = 1;
         shellGbc.gridy = shellRow++;
         shellGbc.weightx = 1.0;
         shellGbc.fill = GridBagConstraints.HORIZONTAL;
-        shellConfigPanel.add(executorSelectPanel, shellGbc);
+        shellConfigPanel.add(commonExecutorsComboBox, shellGbc);
 
         // Default parameters
         shellGbc.gridx = 0;
@@ -764,7 +753,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         String executorPath = project.getCommandExecutor();
         String executorArgs = project.getExecutorArgs();
 
-        executorPathField.setText(executorPath != null ? executorPath : DEFAULT_EXECUTOR_PATH);
+        commonExecutorsComboBox.setSelectedItem(executorPath != null ? executorPath : DEFAULT_EXECUTOR_PATH);
         executorArgsField.setText(executorArgs != null ? executorArgs : DEFAULT_EXECUTOR_ARGS);
 
         logger.trace("Build panel settings loaded/reloaded with details: {}", details);
@@ -825,7 +814,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Apply executor configuration
         String currentExecutorPath = project.getCommandExecutor();
         String currentExecutorArgs = project.getExecutorArgs();
-        String newExecutorPath = executorPathField.getText().trim();
+        var selectedExecutor = (String) commonExecutorsComboBox.getSelectedItem();
+        String newExecutorPath = selectedExecutor != null ? selectedExecutor.trim() : "";
         String newExecutorArgs = executorArgsField.getText().trim();
 
         String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
@@ -913,13 +903,14 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private void initializeExecutorUI() {
         // Set up tooltips
-        executorPathField.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
         executorArgsField.setToolTipText("Arguments to pass to executor (default: " + DEFAULT_EXECUTOR_ARGS + ")");
         executorArgsField.setText(DEFAULT_EXECUTOR_ARGS); // Set default value
 
         // Populate common executors dropdown
         var commonExecutors = ExecutorValidator.getCommonExecutors();
         commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
+        commonExecutorsComboBox.setEditable(true);
+        commonExecutorsComboBox.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
         // pre-select the system default if present
         for (int i = 0; i < commonExecutors.length; i++) {
             if (commonExecutors[i].equalsIgnoreCase(DEFAULT_EXECUTOR_PATH)) {
@@ -931,20 +922,11 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Reset button action
         resetExecutorButton.addActionListener(e -> resetExecutor());
 
-        // Common executors selection action
-        commonExecutorsComboBox.addActionListener(e -> {
-            String selected = (String) commonExecutorsComboBox.getSelectedItem();
-            if (selected != null && !selected.isEmpty()) {
-                executorPathField.setText(selected);
-            }
-        });
-
         // Test executor button action
         testExecutorButton.addActionListener(e -> testExecutor());
     }
 
     private void resetExecutor() {
-        executorPathField.setText(DEFAULT_EXECUTOR_PATH);
         executorArgsField.setText(DEFAULT_EXECUTOR_ARGS);
 
         project.setCommandExecutor(null);
@@ -959,10 +941,10 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void testExecutor() {
-        String executorPath = executorPathField.getText().trim();
+        var executorPath = (String) commonExecutorsComboBox.getSelectedItem();
         String executorArgs = executorArgsField.getText().trim();
 
-        if (executorPath.isEmpty()) {
+        if (executorPath == null || executorPath.isEmpty()) {
             JOptionPane.showMessageDialog(
                     this,
                     "Please specify an executor path first.",

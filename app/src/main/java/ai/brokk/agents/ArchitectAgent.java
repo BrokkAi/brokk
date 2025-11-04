@@ -6,12 +6,11 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.Service.ModelConfig;
 import ai.brokk.TaskResult;
-import ai.brokk.TaskResult.StopDetails;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -45,7 +44,6 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
@@ -159,7 +157,7 @@ public class ArchitectAgent {
         var initialContext = context;
         context = scope.append(result);
 
-        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+        if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild
                     ? "CodeAgent finished! Details are in the Workspace messages."
                     : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
@@ -171,10 +169,10 @@ public class ArchitectAgent {
 
         // For non-SUCCESS outcomes:
         // throw errors that should halt the architect
-        if (reason == TaskResult.StopReason.INTERRUPTED) {
+        if (reason == StopReason.INTERRUPTED) {
             throw new InterruptedException();
         }
-        if (reason == TaskResult.StopReason.LLM_ERROR) {
+        if (reason == StopReason.LLM_ERROR) {
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new FatalLlmException(stopDetails.explanation());
         }
@@ -235,18 +233,19 @@ public class ArchitectAgent {
 
         // Instantiate and run SearchAgent
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
-        var searchAgent = new SearchAgent(
-                context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), scope);
-        searchAgent.scanInitialContext();
+        var searchAgent =
+                new SearchAgent(context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), scope);
+        var tr = searchAgent.scanInitialContext();
+        context = scope.append(tr);
         var result = searchAgent.execute();
         // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
         threadlocalSearchResult.set(result);
 
-        if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
+        if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
         }
 
-        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+        if (result.stopDetails().reason() != StopReason.SUCCESS) {
             logger.debug("SearchAgent returned non-success for query {}: {}", query, result.stopDetails());
             return result.stopDetails().toString();
         }
@@ -280,22 +279,15 @@ public class ArchitectAgent {
      *
      * <p>Returns the search result if it fails, otherwise returns the Architect result.
      */
-    public TaskResult executeWithSearch() throws InterruptedException {
-        // Run Search first using the scan model (fast, token-friendly)
+    public TaskResult executeWithScan() throws InterruptedException {
+        // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(
-                context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), SearchMetrics.noOp(), this.scope);
-        searchAgent.scanInitialContext();
-        io.llmOutput("**Search Agent** engaged: " + goal, ChatMessageType.AI);
-        var searchResult = searchAgent.execute();
-        // Synchronize local context with search results before continuing
-        context = scope.append(searchResult);
+        var searchAgent =
+                new SearchAgent(context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), this.scope);
+        var scanResult = searchAgent.scanInitialContext();
+        context = scope.append(scanResult);
 
-        if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            return searchResult;
-        }
-
-        // Run Architect proper and append its result to scope
+        // Run Architect proper
         var archResult = this.execute();
         context = scope.append(archResult);
         return archResult;
@@ -332,26 +324,21 @@ public class ArchitectAgent {
         while (true) {
             io.llmOutput("\n**Brokk Architect** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
 
-            // Determine active models and their minimum input token limit
+            // Determine active models and their maximum allowed input tokens
             var models = new ArrayList<StreamingChatModel>();
             models.add(this.planningModel);
             models.add(this.codeModel);
-            int minInputTokenLimit = models.stream()
+            int maxInputTokens = models.stream()
                     .mapToInt(modelsService::getMaxInputTokens)
-                    .filter(limit -> limit > 0)
                     .min()
-                    .orElse(64_000);
-
-            if (minInputTokenLimit == 64_000) {
-                logger.warn("Could not determine a valid minimum input token limit from active models {}", models);
-            }
+                    .orElseThrow();
 
             // Calculate current workspace token size
             var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
-            var messages = buildPrompt(workspaceTokenSize, minInputTokenLimit, workspaceContentMessages);
+            var messages = buildPrompt(workspaceTokenSize, maxInputTokens, workspaceContentMessages);
 
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
@@ -359,12 +346,12 @@ public class ArchitectAgent {
 
             // Decide tool availability for this step
             var toolSpecs = new ArrayList<ToolSpecification>();
-            var criticalWorkspaceSize = minInputTokenLimit < Integer.MAX_VALUE
-                    && workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit);
+            var criticalWorkspaceSize =
+                    workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * maxInputTokens);
 
             ToolContext toolContext;
             if (criticalWorkspaceSize) {
-                notifyCriticalWorkspaceRestriction(workspaceTokenSize, minInputTokenLimit);
+                notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
                 var allowed = criticalAllowedTools();
                 toolSpecs.addAll(tr.getTools(allowed));
                 toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
@@ -413,6 +400,8 @@ public class ArchitectAgent {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
 
+                // we know workspace is too large; we don't know by how much so we'll guess 0.8 as the threshold
+                messages = buildPrompt(workspaceTokenSize, (int) (workspaceTokenSize * 0.8), workspaceContentMessages);
                 var currentModelTokens = modelsService.getMaxInputTokens(this.planningModel);
                 var fallbackModel = requireNonNull(modelsService.getModel(ai.brokk.Service.GEMINI_2_5_PRO));
                 var fallbackModelTokens = modelsService.getMaxInputTokens(fallbackModel);
@@ -640,19 +629,26 @@ public class ArchitectAgent {
         return allowed;
     }
 
-    private @NotNull TaskResult codeAgentSuccessResult() {
+    private TaskResult codeAgentSuccessResult() {
         // we've already added the code agent's result to history and we don't have anything extra to add to that here
         return new TaskResult(
                 cm,
                 "Architect finished work for: " + goal,
                 io.getLlmRawMessages(),
                 context,
-                new StopDetails(StopReason.SUCCESS));
+                new TaskResult.StopDetails(StopReason.SUCCESS),
+                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
     }
 
     private TaskResult resultWithMessages(StopReason reason, String message) {
         // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
-        return new TaskResult(cm, message, io.getLlmRawMessages(), context, new StopDetails(reason));
+        return new TaskResult(
+                cm,
+                message,
+                io.getLlmRawMessages(),
+                context,
+                new TaskResult.StopDetails(reason),
+                new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService())));
     }
 
     private TaskResult resultWithMessages(StopReason reason) {
@@ -677,7 +673,7 @@ public class ArchitectAgent {
      * history, agent's session messages, and the final user message with the goal and conditional workspace warnings.
      */
     private List<ChatMessage> buildPrompt(
-            int workspaceTokenSize, int minInputTokenLimit, List<ChatMessage> precomputedWorkspaceMessages)
+            int workspaceTokenSize, int maxInputTokens, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
@@ -719,7 +715,7 @@ public class ArchitectAgent {
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, minInputTokenLimit)));
+                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens)));
         return messages;
     }
 }

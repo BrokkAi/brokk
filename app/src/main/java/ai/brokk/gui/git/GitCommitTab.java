@@ -1,7 +1,6 @@
 package ai.brokk.gui.git;
 
-import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
+import ai.brokk.*;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.analyzer.ProjectFile;
@@ -18,6 +17,8 @@ import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ResponsiveButtonPanel;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -30,6 +31,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.border.Border;
+import javax.swing.border.TitledBorder;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.table.DefaultTableModel;
@@ -43,7 +46,7 @@ import org.jetbrains.annotations.Nullable;
  * Panel for the "Changes" tab (formerly "Commit" tab) in the Git Panel. Handles displaying uncommitted changes,
  * staging, committing, and stashing.
  */
-public class GitCommitTab extends JPanel {
+public class GitCommitTab extends JPanel implements ThemeAware {
 
     private static final Logger logger = LogManager.getLogger(GitCommitTab.class);
 
@@ -74,6 +77,13 @@ public class GitCommitTab extends JPanel {
     // Track the current detected conflict for the Resolve Conflicts button
     @Nullable
     private MergeAgent.MergeConflict currentConflict = null;
+
+    // Store references for theme updates
+    @Nullable
+    private JPanel titledPanel = null;
+
+    @Nullable
+    private JPopupMenu uncommittedContextMenu = null;
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -110,7 +120,7 @@ public class GitCommitTab extends JPanel {
         });
 
         // Popup menu
-        var uncommittedContextMenu = new JPopupMenu();
+        uncommittedContextMenu = new JPopupMenu();
         uncommittedFilesTable.setComponentPopupMenu(uncommittedContextMenu);
 
         var captureDiffItem = new JMenuItem("Capture Diff");
@@ -239,8 +249,14 @@ public class GitCommitTab extends JPanel {
                 return;
             }
 
+            // Determine a safe owner Frame for the CommitDialog:
+            // - prefer the immediate window ancestor if it's a Frame (typical for the main UI)
+            // - otherwise fall back to the main application frame (chrome.getFrame())
+            Window ancestor = SwingUtilities.getWindowAncestor(GitCommitTab.this);
+            Frame ownerFrame = (ancestor instanceof Frame) ? (Frame) ancestor : chrome.getFrame();
+
             CommitDialog dialog = new CommitDialog(
-                    (Frame) SwingUtilities.getWindowAncestor(this),
+                    ownerFrame,
                     chrome,
                     contextManager,
                     workflowService,
@@ -303,7 +319,7 @@ public class GitCommitTab extends JPanel {
             }
         });
 
-        JPanel titledPanel = new JPanel(new BorderLayout());
+        titledPanel = new JPanel(new BorderLayout());
         titledPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
         titledPanel.add(fileStatusPane, BorderLayout.CENTER);
         titledPanel.add(buttonPanel, BorderLayout.SOUTH);
@@ -1013,6 +1029,7 @@ Would you like to resolve these conflicts with the Merge Agent?
                     var agent = new MergeAgent(
                             contextManager, planningModel, codeModel, conflict, scope, customInstructions);
                     var result = agent.execute();
+                    // MergeAgent orchestrates both a planning model and a code model.
                     scope.append(result);
                 } catch (Exception ex) {
                     logger.error("AI merge failed", ex);
@@ -1025,6 +1042,85 @@ Would you like to resolve these conflicts with the Merge Agent?
                     });
                 }
             });
+        });
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        Color panelBg = UIManager.getColor("Panel.background");
+        Color tableBg = UIManager.getColor("Table.background");
+        Color fg = UIManager.getColor("Label.foreground");
+
+        setBackground(panelBg != null ? panelBg : getBackground());
+
+        // Update FileStatusPane with theme support
+        if (fileStatusPane != null) {
+            fileStatusPane.setBackground(panelBg != null ? panelBg : fileStatusPane.getBackground());
+            if (fileStatusPane instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
+            }
+        }
+
+        // Update table colors
+        if (uncommittedFilesTable != null) {
+            uncommittedFilesTable.setBackground(tableBg != null ? tableBg : uncommittedFilesTable.getBackground());
+            uncommittedFilesTable.setForeground(fg != null ? fg : uncommittedFilesTable.getForeground());
+            var header = uncommittedFilesTable.getTableHeader();
+            if (header != null) {
+                header.setBackground(panelBg != null ? panelBg : header.getBackground());
+                header.setForeground(fg != null ? fg : header.getForeground());
+            }
+        }
+
+        // Update button styling
+        if (commitButton != null) {
+            SwingUtil.applyPrimaryButtonStyle(commitButton);
+        }
+        if (stashButton != null) {
+            stashButton.setBackground(UIManager.getColor("Button.background"));
+            stashButton.setForeground(UIManager.getColor("Button.foreground"));
+        }
+        if (resolveConflictsButton != null) {
+            resolveConflictsButton.setBackground(UIManager.getColor("Button.background"));
+            resolveConflictsButton.setForeground(UIManager.getColor("Button.foreground"));
+        }
+
+        // Update button panel
+        if (buttonPanel != null) {
+            buttonPanel.setBackground(panelBg != null ? panelBg : buttonPanel.getBackground());
+        }
+
+        // Update titled border
+        if (titledPanel != null) {
+            titledPanel.setBackground(panelBg != null ? panelBg : titledPanel.getBackground());
+            Border border = titledPanel.getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                Color titleFg = UIManager.getColor("TitledBorder.titleColor");
+                if (titleFg != null) {
+                    titledBorder.setTitleColor(titleFg);
+                }
+            }
+        }
+
+        // Update popup menu
+        if (uncommittedContextMenu != null) {
+            uncommittedContextMenu.setBackground(UIManager.getColor("PopupMenu.background"));
+            uncommittedContextMenu.setForeground(UIManager.getColor("PopupMenu.foreground"));
+            // Update all menu items in the popup
+            for (int i = 0; i < uncommittedContextMenu.getComponentCount(); i++) {
+                Component comp = uncommittedContextMenu.getComponent(i);
+                if (comp instanceof JMenuItem menuItem) {
+                    menuItem.setBackground(UIManager.getColor("PopupMenu.background"));
+                    menuItem.setForeground(UIManager.getColor("PopupMenu.foreground"));
+                }
+            }
+        }
+
+        // Perform complete UI tree update
+        SwingUtilities.invokeLater(() -> {
+            SwingUtilities.updateComponentTreeUI(this);
+            revalidate();
+            repaint();
         });
     }
 }

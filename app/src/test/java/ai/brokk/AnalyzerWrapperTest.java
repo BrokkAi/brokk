@@ -9,6 +9,7 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -54,7 +55,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper with injected watch service
         var listener = new TestAnalyzerListener();
@@ -81,8 +82,8 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service with no initial listeners
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
         Thread.sleep(500);
@@ -118,7 +119,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
@@ -139,7 +140,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new TestAnalyzerListener(), watchService);
@@ -149,7 +150,7 @@ class AnalyzerWrapperTest {
         analyzerWrapper.getWatchService().addListener(customListener);
 
         // Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
         // Create a file to trigger an event
@@ -172,7 +173,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
@@ -230,7 +231,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);

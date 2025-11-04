@@ -2,6 +2,11 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IProject;
@@ -9,7 +14,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +44,14 @@ class SqlAnalyzerTest {
                 // This mock implementation directly returns the provided filesSet.
                 // SqlAnalyzer will then filter these based on .sql extension and exclusions.
                 return filesSet;
+            }
+
+            @Override
+            public Set<ProjectFile> getAnalyzableFiles(Language language) {
+                var extensions = language.getExtensions();
+                return getAllFiles().stream()
+                        .filter(pf -> extensions.contains(pf.extension()))
+                        .collect(Collectors.toSet());
             }
         };
     }
@@ -219,8 +235,28 @@ class SqlAnalyzerTest {
                 excludedDir.getFileName().toString() + "/"
                         + excludedSqlFile.getFileName().toString());
 
-        var testProject = createTestProject(Set.of(includedProjectFile, excludedProjectFile));
-        // Exclude the directory "excluded_dir"
+        // Create a mock where getAnalyzableFiles() only returns the included file
+        var testProject = new IProject() {
+            @Override
+            public Path getRoot() {
+                return tempDir;
+            }
+
+            @Override
+            public Set<ProjectFile> getAllFiles() {
+                return Set.of(includedProjectFile, excludedProjectFile);
+            }
+
+            @Override
+            public Set<ProjectFile> getAnalyzableFiles(Language language) {
+                var extensions = language.getExtensions();
+                // Only return the included file, simulating gitignore filtering
+                return getAllFiles().stream()
+                        .filter(pf -> extensions.contains(pf.extension()))
+                        .filter(pf -> !pf.absPath().toString().contains("excluded_dir"))
+                        .collect(Collectors.toSet());
+            }
+        };
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Set.of(Path.of("excluded_dir")));
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();

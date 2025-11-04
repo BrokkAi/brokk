@@ -9,6 +9,7 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -23,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
@@ -760,12 +760,13 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     /** SwingWorker to suggest PR title and description using GitWorkflowService with streaming. */
-    private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflow.PrSuggestion, Void> {
+    private class SuggestPrDetailsWorker extends ExceptionAwareSwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
         private final PrDetailsConsoleIO streamingIO;
 
         SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
+            super(chrome);
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
             this.streamingIO = new PrDetailsConsoleIO(titleField, descriptionArea, chrome);
@@ -778,81 +779,25 @@ public class CreatePullRequestDialog extends JDialog {
 
         @Override
         protected void done() {
+            // First invoke centralized exception handling (logs, uploads, and notifies user)
+            super.done();
+
+            // If successful, update UI
+            GitWorkflow.PrSuggestion suggestion;
             try {
-                GitWorkflow.PrSuggestion suggestion = get();
-                SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete();
-                    titleField.setText(suggestion.title());
-                    descriptionArea.setText(suggestion.description());
-                    titleField.setCaretPosition(0);
-                    descriptionArea.setCaretPosition(0);
-                    showDescriptionHint(suggestion.usedCommitMessages());
-                });
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("SuggestPrDetailsWorker interrupted for {} -> {}", sourceBranch, targetBranch, e);
-                SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete();
-                    setTextAndResetCaret(titleField, "(suggestion interrupted)");
-                    setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
-                    showDescriptionHint(false);
-                });
-            } catch (CancellationException e) {
-                logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
-                SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete();
-                    setTextAndResetCaret(titleField, "(suggestion cancelled)");
-                    setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
-                    showDescriptionHint(false);
-                });
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof InterruptedException interruptedException) {
-                    Thread.currentThread().interrupt();
-                    logger.warn(
-                            "SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}",
-                            sourceBranch,
-                            targetBranch,
-                            interruptedException);
-                    SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete();
-                        setTextAndResetCaret(titleField, "(suggestion interrupted)");
-                        setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
-                        showDescriptionHint(false);
-                    });
-                } else if (cause instanceof GitAPIException gitException) {
-                    logger.error(
-                            "SuggestPrDetailsWorker failed with Git error for {} -> {}",
-                            sourceBranch,
-                            targetBranch,
-                            gitException);
-                    SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete();
-                        setTextAndResetCaret(titleField, "(suggestion failed)");
-                        setTextAndResetCaret(descriptionArea, "(Git error occurred)");
-                        showDescriptionHint(false);
-                        chrome.toolError(
-                                "Failed to generate PR details due to Git error:\n" + gitException.getMessage(),
-                                "Git Error");
-                    });
-                } else {
-                    logger.warn(
-                            "SuggestPrDetailsWorker failed with ExecutionException for {} -> {}: {}",
-                            sourceBranch,
-                            targetBranch,
-                            (cause != null ? cause.getMessage() : e.getMessage()),
-                            cause);
-                    SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete();
-                        String errorMessage =
-                                (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
-                        errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;
-                        setTextAndResetCaret(titleField, "(suggestion failed)");
-                        setTextAndResetCaret(descriptionArea, "(suggestion failed: " + errorMessage + ")");
-                        showDescriptionHint(false);
-                    });
-                }
+                suggestion = get();
+            } catch (InterruptedException | ExecutionException ignored) {
+                // Already handled by ExceptionAwareSwingWorker.done()
+                return;
             }
+            SwingUtilities.invokeLater(() -> {
+                streamingIO.onComplete();
+                titleField.setText(suggestion.title());
+                descriptionArea.setText(suggestion.description());
+                titleField.setCaretPosition(0);
+                descriptionArea.setCaretPosition(0);
+                showDescriptionHint(suggestion.usedCommitMessages());
+            });
         }
     }
 

@@ -51,6 +51,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ProjectFile - contains root and relative path as strings. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record ProjectFileDto(String id, String repoRoot, String relPath)
             implements PathFragmentDto { // id changed to String
         public ProjectFileDto {
@@ -64,6 +65,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ExternalFile - contains absolute path as string. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record ExternalFileDto(String id, String absPath) implements PathFragmentDto { // id changed to String
         public ExternalFileDto {
             if (absPath.isEmpty()) {
@@ -73,6 +75,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ImageFile - contains absolute path and media type. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record ImageFileDto(String id, String absPath, @Nullable String mediaType)
             implements PathFragmentDto { // id changed to String
         public ImageFileDto {
@@ -168,6 +171,7 @@ public class FragmentDtos {
     }
 
     /** DTO for GitFileFragment - represents a specific revision of a file from Git history. */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record GitFileFragmentDto(String id, String repoRoot, String relPath, String revision, String contentId)
             implements PathFragmentDto { // id changed to String
         public GitFileFragmentDto {
@@ -258,7 +262,8 @@ public class FragmentDtos {
     }
 
     /** DTO for CodeUnit - represents a named code element. */
-    public record CodeUnitDto(ProjectFileDto sourceFile, String kind, String packageName, String shortName) {
+    public record CodeUnitDto(
+            ProjectFileDto sourceFile, String kind, String packageName, String shortName, @Nullable String signature) {
         public CodeUnitDto {
             if (kind.isEmpty()) {
                 throw new IllegalArgumentException("kind cannot be null or empty");
@@ -266,6 +271,7 @@ public class FragmentDtos {
             if (shortName.isEmpty()) {
                 throw new IllegalArgumentException("shortName cannot be null or empty");
             }
+            // signature is optional and intentionally not validated (may be null)
         }
     }
 
@@ -320,15 +326,25 @@ public class FragmentDtos {
 
     /** Compact DTO for TaskEntry, referring to its log fragment by ID. Used within CompactContextDto. */
     public record TaskEntryRefDto(
-            int sequence, @Nullable String logId, @Nullable String summaryContentId) { // logId changed to String
+            int sequence,
+            @Nullable String logId,
+            @Nullable String summaryContentId,
+            @Nullable String taskType,
+            @Nullable String primaryModelName,
+            @Nullable String primaryModelReasoning) {
         public TaskEntryRefDto {
-            // logId can be null if summary is present, and vice-versa
+            // Preserve existing invariant: exactly one of logId or summaryContentId must be non-null
             if ((logId == null) == (summaryContentId == null)) {
                 throw new IllegalArgumentException("Exactly one of logId or summary must be non-null");
             }
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");
             }
+        }
+
+        // Backward-compatible auxiliary constructor for pre-meta call sites
+        public TaskEntryRefDto(int sequence, @Nullable String logId, @Nullable String summaryContentId) {
+            this(sequence, logId, summaryContentId, null, null, null);
         }
     }
 }

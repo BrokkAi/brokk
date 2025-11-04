@@ -1,5 +1,6 @@
 package ai.brokk.gui;
 
+import ai.brokk.exception.GlobalExceptionHandler;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.*;
 import java.awt.RenderingHints;
@@ -47,7 +48,7 @@ public class SwingUtil {
             logger.warn("Thread interrupted", e);
             return defaultValue;
         } catch (Exception e) {
-            logger.warn("Execution error", e);
+            GlobalExceptionHandler.handle(Thread.currentThread(), e, s -> {});
             return defaultValue;
         }
     }

@@ -3,7 +3,9 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.Service;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
@@ -286,6 +288,22 @@ public class ContextSerializationTest {
                 assertEquals(expectedMsg.type(), actualMsg.type());
                 assertEquals(Messages.getRepr(expectedMsg), Messages.getRepr(actualMsg));
             }
+        }
+
+        // Tolerate optional TaskMeta
+        var expectedMeta = expected.meta();
+        var actualMeta = actual.meta();
+        if (expectedMeta == null) {
+            // Accept null or default-like meta (NONE + null model)
+            if (actualMeta != null) {
+                assertEquals(
+                        TaskResult.Type.NONE,
+                        actualMeta.type(),
+                        "When expected meta is null, actual type should be NONE");
+                assertNull(actualMeta.primaryModel(), "When expected meta is null, actual primaryModel should be null");
+            }
+        } else {
+            assertEquals(expectedMeta, actualMeta);
         }
     }
 
@@ -1272,5 +1290,33 @@ public class ContextSerializationTest {
         } else {
             fail("Expected SummaryFragment or FrozenFragment, got: " + loadedRawFragment2.getClass());
         }
+    }
+
+    @Test
+    void testTaskEntryMetaRoundTrip() throws Exception {
+        var messages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Test Task");
+
+        TaskResult.TaskMeta meta = new TaskResult.TaskMeta(
+                TaskResult.Type.CODE,
+                new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
+        var taskEntry = new TaskEntry(42, taskFragment, null, meta);
+
+        var ctx = new Context(mockContextManager, "ctx")
+                .addHistoryEntry(taskEntry, taskFragment, CompletableFuture.completedFuture("action"));
+        ContextHistory ch = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("meta_roundtrip.zip");
+        HistoryIo.writeZip(ch, zipFile);
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+
+        TaskEntry loadedEntry = loaded.getHistory().get(0).getTaskHistory().get(0);
+        assertNotNull(loadedEntry.meta(), "TaskMeta should be present after round-trip");
+        assertEquals(TaskResult.Type.CODE, loadedEntry.meta().type());
+        assertNotNull(loadedEntry.meta().primaryModel());
+        assertEquals("test-model", loadedEntry.meta().primaryModel().name());
+        assertEquals(
+                Service.ReasoningLevel.DEFAULT,
+                loadedEntry.meta().primaryModel().reasoning());
     }
 }

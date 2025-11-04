@@ -3,7 +3,11 @@ package ai.brokk;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents the outcome of an agent session, containing all necessary information to update the context history.
@@ -11,7 +15,11 @@ import java.util.List;
  * Note that the Context must NOT be frozen.
  */
 public record TaskResult(
-        String actionDescription, ContextFragment.TaskFragment output, Context context, StopDetails stopDetails) {
+        String actionDescription,
+        ContextFragment.TaskFragment output,
+        Context context,
+        StopDetails stopDetails,
+        @Nullable TaskMeta meta) {
 
     public TaskResult {
         assert !context.containsFrozenFragments();
@@ -22,34 +30,28 @@ public record TaskResult(
             String actionDescription,
             List<ChatMessage> uiMessages,
             Context resultingContext,
-            StopDetails stopDetails) {
+            StopDetails stopDetails,
+            TaskMeta meta) {
         this(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
-                stopDetails);
+                stopDetails,
+                meta);
     }
 
-    public TaskResult(
+    public static TaskResult humanResult(
             IContextManager contextManager,
             String actionDescription,
             List<ChatMessage> uiMessages,
             Context resultingContext,
             StopReason simpleReason) {
-        this(
+        return new TaskResult(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
-                new StopDetails(simpleReason));
-    }
-
-    /** Creates a new TaskResult by replacing the messages in an existing one while preserving the resulting context. */
-    public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager) {
-        this(
-                base.actionDescription(),
-                new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
-                base.context(),
-                base.stopDetails());
+                new StopDetails(simpleReason),
+                null);
     }
 
     /** Enum representing the reason a session concluded. */
@@ -72,12 +74,12 @@ public record TaskResult(
         READ_ONLY_EDIT,
         /** Unable to write new file contents */
         IO_ERROR,
-        /** the LLM called answer() but did not provide a result */
-        SEARCH_INVALID_ANSWER,
         /** the LLM determined that it was not possible to fulfil the request */
         LLM_ABORTED,
         /** an error occurred while executing a tool */
-        TOOL_ERROR
+        TOOL_ERROR,
+        /** the LLM exceeded the context size limit */
+        LLM_CONTEXT_SIZE
     }
 
     public record StopDetails(StopReason reason, String explanation) {
@@ -91,6 +93,60 @@ public record TaskResult(
                 return reason.toString();
             }
             return "%s:\n%s".formatted(reason.toString(), explanation);
+        }
+
+        public static StopDetails fromResponse(Llm.StreamingResult response) {
+            if (response.error() == null) {
+                return new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            }
+            if (response.error() instanceof ContextTooLargeException) {
+                return new TaskResult.StopDetails(StopReason.LLM_CONTEXT_SIZE, "Context limit exceeded");
+            }
+            return new TaskResult.StopDetails(
+                    TaskResult.StopReason.LLM_ERROR, response.error().getMessage());
+        }
+    }
+
+    public record TaskMeta(Type type, Service.ModelConfig primaryModel) {}
+
+    public enum Type {
+        NONE,
+        ARCHITECT,
+        CODE,
+        ASK,
+        SEARCH,
+        CONTEXT,
+        MERGE,
+        BLITZFORGE;
+
+        public String displayName() {
+            if (this == SEARCH) {
+                return "Lutz Mode";
+            }
+            var lower = name().toLowerCase(Locale.ROOT);
+            return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
+        }
+
+        public static Optional<Type> safeParse(String value) {
+            if (value == null) {
+                return Optional.empty();
+            }
+            var s = value.trim();
+            if (s.isEmpty()) {
+                return Optional.empty();
+            }
+
+            for (var t : values()) {
+                if (t.name().equalsIgnoreCase(s)) {
+                    return Optional.of(t);
+                }
+            }
+            for (var t : values()) {
+                if (t.displayName().equalsIgnoreCase(s)) {
+                    return Optional.of(t);
+                }
+            }
+            return Optional.empty();
         }
     }
 }

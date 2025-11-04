@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -15,6 +16,7 @@ import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
 import ai.brokk.util.AdaptiveExecutor;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /* Added imports for referenced helpers/agents. These are typically in the same package;
@@ -294,14 +297,16 @@ public class MergeAgent {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
             logger.debug("msg");
+            cm.getIo().llmOutput(msg, ChatMessageType.AI);
 
             var ctx = new Context(cm, "Resolved conflicts").addPathFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(
                     cm,
                     "Merge",
-                    List.of(new AiMessage(msg)),
+                    cm.getIo().getLlmRawMessages(),
                     ctx,
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
+                    taskMeta());
         }
 
         // We tried auto-editing files that are mentioned in the build failure, the trouble is that you
@@ -338,11 +343,15 @@ public class MergeAgent {
 
         var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
         logger.debug("ArchitectAgent created. Executing with search.");
-        var architectResult = agent.executeWithSearch();
+        var architectResult = agent.executeWithScan();
         logger.debug(
                 "ArchitectAgent execution completed. Returning annotations with stop reason: {}",
                 architectResult.stopDetails().reason());
         return architectResult;
+    }
+
+    private @NotNull TaskResult.TaskMeta taskMeta() {
+        return new TaskResult.TaskMeta(TaskResult.Type.MERGE, Service.ModelConfig.from(planningModel, cm.getService()));
     }
 
     private AnnotationResult annotate() {
@@ -715,7 +724,8 @@ public class MergeAgent {
                 "Merge",
                 List.of(new AiMessage(message)),
                 resultingCtx,
-                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                taskMeta());
     }
 
     /** Controls how (and whether) non-text conflicts are resolved automatically. */

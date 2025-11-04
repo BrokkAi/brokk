@@ -6,6 +6,7 @@ import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
+import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import java.awt.*;
@@ -37,18 +38,22 @@ public class ProjectFilesPanel extends JPanel {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final IProject project;
+    private final DependenciesPanel dependenciesPanel;
 
     private JTextField searchField;
     private MaterialButton refreshButton;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
+    private JSplitPane contentSplitPane;
+    private boolean dependenciesVisible = false;
 
-    public ProjectFilesPanel(Chrome chrome, ContextManager contextManager) {
+    public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, DependenciesPanel dependenciesPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.project = contextManager.getProject();
+        this.dependenciesPanel = dependenciesPanel;
 
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -60,10 +65,12 @@ public class ProjectFilesPanel extends JPanel {
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
 
-        // Search bar with refresh button
+        // Search bar with refresh button and dependencies toggle
         var searchBarPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         var layeredPane = searchOverlay.createLayeredPane(searchField);
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
 
         refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
@@ -71,15 +78,41 @@ public class ProjectFilesPanel extends JPanel {
         refreshButton.setMargin(new Insets(2, 2, 2, 2)); // match other toolbar material buttons
         refreshButton.setToolTipText("Refresh file list (update tracked files from repository)");
         refreshButton.addActionListener(e -> refreshProjectFiles());
+        buttonPanel.add(refreshButton);
 
-        searchBarPanel.add(refreshButton, BorderLayout.EAST);
+        searchBarPanel.add(buttonPanel, BorderLayout.EAST);
 
         add(searchBarPanel, BorderLayout.NORTH);
-        // JScrollPane treeScrollPane = new JScrollPane(projectTree);
-        // add(treeScrollPane, BorderLayout.CENTER);
+
+        // Create split pane: ProjectTree (top) | Dependencies (bottom, initially hidden)
         var projectTreeScrollPane = new JScrollPane(projectTree);
+        contentSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        contentSplitPane.setTopComponent(projectTreeScrollPane);
+        contentSplitPane.setBottomComponent(dependenciesPanel);
+        contentSplitPane.setResizeWeight(0.7); // 70% to project tree, 30% to dependencies
+        contentSplitPane.setDividerSize(5); // Show divider
+        contentSplitPane.setDividerLocation(0.7); // Set initial position
+        dependenciesPanel.addNotify(); // Trigger initialization
+
+        add(contentSplitPane, BorderLayout.CENTER);
         updateBorderTitle(); // Set initial title with branch name
-        add(projectTreeScrollPane, BorderLayout.CENTER);
+    }
+
+    private void toggleDependenciesPanel() {
+        dependenciesVisible = !dependenciesVisible;
+        if (dependenciesVisible) {
+            contentSplitPane.setDividerSize(
+                    contentSplitPane.getDividerSize() > 0 ? contentSplitPane.getDividerSize() : 5);
+            contentSplitPane.setDividerLocation(0.7);
+            dependenciesPanel.addNotify(); // Trigger initialization
+        } else {
+            contentSplitPane.setDividerSize(0);
+        }
+        contentSplitPane.revalidate();
+    }
+
+    public void toggleDependencies() {
+        toggleDependenciesPanel();
     }
 
     private void updateBorderTitle() {

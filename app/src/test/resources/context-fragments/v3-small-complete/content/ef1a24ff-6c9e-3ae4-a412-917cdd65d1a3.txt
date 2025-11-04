@@ -1,0 +1,414 @@
+Method uses:
+
+<methods class="io.github.jbellis.brokk.CompletionsTest" file="app/src/test/java/io/github/jbellis/brokk/CompletionsTest.java">
+@Test
+    public void testArchCompletion() {
+        var mock = new MockAnalyzer(tempDir);
+        var completions = Completions.completeSymbols("arch", mock);
+        var values = toValues(completions);
+        assertEquals(Set.of("a.b.Architect"), values);
+    }
+
+@Test
+    public void testCamelCaseCompletion() {
+        var mock = new MockAnalyzer(tempDir) {
+            @Override
+            public List<CodeUnit> autocompleteDefinitions(String query) {
+                // give all for the sake of testing camel case fuzzy matching
+                return super.autocompleteDefinitions(".*");
+            }
+        };
+        // Input "CC" -> should match "test.CamelClass" due to camel case matching
+        var completions = Completions.completeSymbols("CC", mock);
+        var values = toValues(completions);
+        assertEquals(Set.of("test.CamelClass"), values);
+
+        completions = Completions.completeSymbols("cam", mock);
+        values = toValues(completions);
+        assertEquals(Set.of("test.CamelClass"), values);
+    }
+
+@Test
+    public void testNestedClassRe() {
+        var mock = new MockAnalyzer(tempDir);
+        var completions = Completions.completeSymbols("Re", mock);
+        var values = toValues(completions);
+
+        assertEquals(2, values.size());
+        assertTrue(values.contains("a.b.Do.Re"));
+        assertTrue(values.contains("a.b.Do.Re.Sub"));
+    }
+
+@Test
+    public void testShortNameCompletions() {
+        var mock = new MockAnalyzer(tempDir);
+
+        var completions = Completions.completeSymbols("Do", mock);
+        assertEquals(3, completions.size());
+        var shortValues = toShortValues(completions);
+        assertTrue(shortValues.contains("Do"));
+        assertTrue(shortValues.contains("Do.Re"));
+        assertTrue(shortValues.contains("Do.Re.Sub"));
+    }
+
+@Test
+    public void testUnqualifiedInput() {
+        var mock = new MockAnalyzer(tempDir);
+
+        // Input "do" -> we want it to match "a.b.Do"
+        // Because "Do" simple name starts with 'D'
+        var completions = Completions.completeSymbols("do", mock);
+
+        var values = toValues(completions);
+        assertEquals(Set.of("a.b.Do"), values);
+    }
+
+@Test
+    public void testUnqualifiedRe() {
+        var mock = new MockAnalyzer(tempDir);
+        // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
+        var completions = Completions.completeSymbols("re", mock);
+        var values = toValues(completions);
+        assertEquals(Set.of("a.b.Do.Re"), values);
+    }
+</methods>
+<methods class="io.github.jbellis.brokk.gui.FileSelectionPanel.FilePanelCompletionProvider" file="app/src/main/java/io/github/jbellis/brokk/gui/FileSelectionPanel.java">
+@Override
+        public List<Completion> getCompletions(JTextComponent tc) {
+            String pattern = getAlreadyEnteredText(tc); // This will be either full line or current token
+            if (pattern.isEmpty() && !multiSelectMode) return List.of(); // For single, empty pattern = no completions
+            if (pattern.trim().isEmpty() && multiSelectMode)
+                return List.of(); // For multi, empty token = no completions
+
+            Path potentialPath = null;
+            boolean isAbsolutePattern = false;
+            if (!pattern.trim().isEmpty()) { // Only try to parse if pattern is not just whitespace
+                try {
+                    potentialPath = Path.of(pattern); // Can throw InvalidPathException
+                    isAbsolutePattern = potentialPath.isAbsolute();
+                } catch (java.nio.file.InvalidPathException e) {
+                    // Invalid syntax, treat as non-absolute. potentialPath remains null.
+                    isAbsolutePattern = false;
+                }
+            }
+
+            // 1. External file completions if pattern is absolute and external files allowed
+            if (allowExternalFiles && isAbsolutePattern) { // check potentialPath not null
+                return getAbsolutePathCompletions(castNonNull(potentialPath), pattern);
+            }
+
+            // 2. Project file and pre-defined candidate completions
+            // (also fallback for non-absolute patterns or if external not allowed)
+            List<Path> candidates;
+            try {
+                candidates = autocompleteCandidatesFuture.get(); // These are pre-vetted paths
+            } catch (InterruptedException | ExecutionException e) {
+                logger.error("Error getting autocomplete candidates", e);
+                candidates = List.of(); // Or throw, but better to degrade gracefully
+            }
+
+            // If project exists, add its files to the candidates for completion
+            // The original MultiFSD used a Future<Set<ProjectFile>>. Here we have Future<List<Path>> from config.
+            // If project files need to be dynamically added, the `autocompleteCandidatesFuture` should provide them.
+            // For simplicity, we assume `autocompleteCandidatesFuture` contains all relevant paths (project +
+            // external).
+            // Or, we can merge if project exists:
+            Set<Path> allCandidatePaths = new java.util.HashSet<>(candidates);
+            if (this.includeProjectFilesInAutocomplete) {
+                project.getRepo().getTrackedFiles().stream()
+                        .map(ProjectFile::absPath)
+                        .forEach(allCandidatePaths::add);
+            }
+
+            if (pattern.trim().isEmpty()) return List.of(); // Avoid processing empty patterns after merging
+
+            // Score based on filename and full path.
+            // Tie-breaking: project files (if identifiable) could be prioritized.
+            // The original FSD/MFSD had specific logic for this.
+            // Here, we simplify: if a path is within project root, it's a "project file" for scoring.
+            var comps = Completions.scoreShortAndLong(
+                    pattern.trim(), // Trim pattern for matching
+                    allCandidatePaths,
+                    p -> p.getFileName().toString(),
+                    Path::toString,
+                    p -> p.startsWith(project.getRoot()) ? 0 : 1, // Simple tie-breaker
+                    this::createPathCompletion);
+
+            // Sizing popup - needs AutoCompletion instance. This is tricky if provider is static.
+            // This suggests AutoCompleteUtil.sizePopupWindows should be called outside, or AC passed in.
+            // For now, let's assume the caller of provider might do this, or we omit it here.
+            // If `autoCompletion` field is accessible (e.g., provider is inner class of panel), then it can be used.
+            // This is not a static class, so it can access outer class members if needed.
+            // The autoCompletion instance that this provider is registered with is what matters.
+
+            return comps.stream().map(c -> (Completion) c).toList();
+        }
+</methods>
+<methods class="io.github.jbellis.brokk.gui.FileSelectionPanel" file="app/src/main/java/io/github/jbellis/brokk/gui/FileSelectionPanel.java">
+/**
+     * Parses the current text in the input component, resolves paths and globs, and returns a list of unique BrokkFile
+     * objects. This is the primary method to get the resolved selection from the panel.
+     */
+    public List<BrokkFile> resolveAndGetSelectedFiles() {
+        String inputText = fileInputComponent.getText().trim();
+        if (inputText.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> tokens = config.multiSelect() ? splitQuotedString(inputText) : List.of(inputText);
+        logger.debug("Input strings to resolve: {}", tokens);
+
+        // De-dup while preserving order
+        Set<BrokkFile> uniques = new LinkedHashSet<>();
+
+        for (String token : tokens) {
+            if (token.isBlank()) continue;
+
+            // Robust, platform-safe expansion for both absolute/relative and glob/exact
+            List<Path> expanded = Completions.expandPatternToPaths(project, token);
+
+            for (Path p : expanded) {
+                var abs = p.toAbsolutePath().normalize();
+                if (abs.startsWith(rootPath)) {
+                    uniques.add(new ProjectFile(rootPath, rootPath.relativize(abs)));
+                } else if (config.allowExternalFiles()) {
+                    uniques.add(new ExternalFile(abs));
+                } else {
+                    logger.warn("External file outside project and not allowed: {}", abs);
+                }
+            }
+        }
+
+        List<BrokkFile> result = new ArrayList<>(uniques);
+
+        logger.debug("Resolved unique files: {}", result);
+        return result;
+    }
+</methods>
+<methods class="io.github.jbellis.brokk.gui.InstructionsPanel.InstructionsCompletionProvider" file="app/src/main/java/io/github/jbellis/brokk/gui/InstructionsPanel.java">
+@Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            String text = getAlreadyEnteredText(comp);
+            if (text.isEmpty()) {
+                return List.of();
+            }
+
+            // Check cache first
+            List<Completion> cached = completionCache.get(text);
+            if (cached != null) {
+                return cached;
+            }
+
+            List<Completion> completions;
+            if (text.contains("/") || text.contains("\\")) {
+                var allFiles = contextManager.getProject().getAllFiles();
+                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
+                        text,
+                        allFiles,
+                        ProjectFile::getFileName,
+                        ProjectFile::toString,
+                        f -> 0,
+                        f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
+                completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
+            } else {
+                var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+                if (analyzer == null) {
+                    return List.of();
+                }
+                var symbols = Completions.completeSymbols(text, analyzer);
+                completions = symbols.stream()
+                        .limit(50)
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
+                        .toList();
+            }
+
+            // Cache the result
+            if (completionCache.size() > CACHE_SIZE) {
+                completionCache.clear();
+            }
+            completionCache.put(text, completions);
+
+            return completions;
+        }
+</methods>
+<methods class="io.github.jbellis.brokk.gui.ProjectFilesPanel.ProjectFileCompletionProvider" file="app/src/main/java/io/github/jbellis/brokk/gui/ProjectFilesPanel.java">
+@Override
+        protected List<Completion> getCompletionsImpl(JTextComponent comp) {
+            String pattern = getAlreadyEnteredText(comp);
+            if (pattern.isEmpty() || !project.hasGit()) {
+                return Collections.emptyList();
+            }
+
+            Set<ProjectFile> candidates = project.getRepo().getTrackedFiles();
+
+            var scoredCompletions = Completions.scoreShortAndLong(
+                    pattern,
+                    candidates,
+                    ProjectFile::getFileName,
+                    pf -> pf.getRelPath().toString(),
+                    pf -> 0,
+                    this::createProjectFileCompletion);
+
+            return scoredCompletions.stream().map(c -> (Completion) c).collect(Collectors.toList());
+        }
+</methods>
+<methods class="io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SymbolCompletionProvider" file="app/src/main/java/io/github/jbellis/brokk/gui/dialogs/MultiFileSelectionDialog.java">
+@Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            String pattern = getAlreadyEnteredText(comp).trim();
+            logger.debug("Class autocomplete pattern='{}'", pattern);
+            if (pattern.isEmpty()) {
+                logger.debug("Class autocomplete: empty pattern, returning no completions");
+                return List.of();
+            }
+
+            List<CodeUnit> availableCompletions;
+            try {
+                var analyzer = analyzerWrapperField.getNonBlocking();
+                if (analyzer == null) {
+                    logger.warn("Analyzer not ready for class completion, returning no completions");
+                    return List.of();
+                }
+                availableCompletions = Completions.completeSymbols(pattern, analyzer).stream()
+                        .filter(CodeUnit::isClass)
+                        .toList();
+            } catch (Exception e) {
+                logger.error("Error loading symbol completions", e);
+                return List.of();
+            }
+
+            var matches = Completions.scoreShortAndLong(
+                    pattern,
+                    availableCompletions,
+                    CodeUnit::identifier,
+                    CodeUnit::fqName,
+                    cu -> 0,
+                    this::createClassCompletion);
+
+            if (classAutoCompletion != null) { // classAutoCompletion can be null if Classes tab is not created
+                AutoCompleteUtil.sizePopupWindows(classAutoCompletion, comp, matches);
+            }
+            return matches.stream().map(c -> (Completion) c).toList();
+        }
+</methods>
+<methods class="io.github.jbellis.brokk.gui.dialogs.SymbolSelectionPanel.SymbolCompletionProvider" file="app/src/main/java/io/github/jbellis/brokk/gui/dialogs/SymbolSelectionPanel.java">
+@Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            String text = comp.getText();
+            int caretPosition = comp.getCaretPosition();
+
+            // If the caret is not at the end, adjust the text
+            if (caretPosition < text.length()) {
+                text = text.substring(0, caretPosition);
+            }
+
+            // Get completions using the brokk Completions utility
+            var completions = Completions.completeSymbols(text, analyzer);
+
+            // Convert to RSTA completions, filtering by the requested types
+            var L = completions.stream()
+                    .filter(c -> typeFilter.contains(c.kind()))
+                    .map(c -> new ShorthandCompletion(this, c.shortName(), c.fqName()))
+                    .toList();
+
+            // Dynamically size the popup windows
+            AutoCompleteUtil.sizePopupWindows(autoCompletion, symbolInput, L);
+
+            return L.stream().map(c -> (Completion) c).toList();
+        }
+</methods>
+<methods class="io.github.jbellis.brokk.tools.SearchTools" file="app/src/main/java/io/github/jbellis/brokk/tools/SearchTools.java">
+@Tool(
+            value =
+                    """
+                            Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
+                            Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
+                            This is a fast and efficient way to read multiple related files at once.
+                            (But if you don't know where what you want is located, you should use searchSymbols instead.)
+                            """)
+    public String getFileSummaries(
+            @P(
+                            "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
+                    List<String> filePaths) {
+        assert getAnalyzer() instanceof SkeletonProvider : "Cannot get summaries: Code Intelligence is not available.";
+        if (filePaths.isEmpty()) {
+            return "Cannot get summaries: file paths list is empty";
+        }
+
+        var project = contextManager.getProject();
+        List<ProjectFile> projectFiles = filePaths.stream()
+                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .distinct()
+                .sorted() // Sort for deterministic output order
+                .toList();
+
+        if (projectFiles.isEmpty()) {
+            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
+        }
+
+        List<String> allSkeletons = new ArrayList<>();
+        List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
+        for (var file : projectFiles) {
+            var skeletonsInFile = ((SkeletonProvider) getAnalyzer()).getSkeletons(file);
+            if (!skeletonsInFile.isEmpty()) {
+                // Add all skeleton strings from this file to the list
+                allSkeletons.addAll(skeletonsInFile.values());
+                filesProcessed.add(file.toString());
+            } else {
+                logger.debug("No skeletons found in file: {}", file);
+            }
+        }
+
+        if (allSkeletons.isEmpty()) {
+            // filesProcessed will be empty if no skeletons were found in any matched file
+            var processedFilesString = filesProcessed.isEmpty()
+                    ? projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "))
+                    : String.join(", ", filesProcessed);
+            return "No class summaries found in the matched files: " + processedFilesString;
+        }
+
+        // Return the combined skeleton strings directly, joined by newlines
+        return String.join("\n\n", allSkeletons);
+    }
+</methods>
+<methods class="io.github.jbellis.brokk.tools.WorkspaceTools" file="app/src/main/java/io/github/jbellis/brokk/tools/WorkspaceTools.java">
+@Tool(
+            value =
+                    """
+                  Retrieves summaries (fields and method signatures) for all classes defined within specified project files and adds them to the Workspace.
+                  Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
+                  Faster and more efficient than reading entire files when you just need the API definitions.
+                  (But if you don't know where what you want is located, you should use Search Agent instead.)
+                  """)
+    public String addFileSummariesToWorkspace(
+            @P(
+                            "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']. Must not be empty.")
+                    List<String> filePaths) {
+        assert getAnalyzer() instanceof SkeletonProvider : "Cannot add summaries: Code Intelligence is not available.";
+        if (filePaths.isEmpty()) {
+            return "Cannot add summaries: file paths list is empty";
+        }
+
+        var project = contextManager.getProject();
+        List<String> resolvedFilePaths = filePaths.stream() // Changed variable name and type
+                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .map(ProjectFile::toString) // Store paths as strings
+                .distinct()
+                .toList();
+
+        if (resolvedFilePaths.isEmpty()) {
+            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
+        }
+
+        var fragment = new ContextFragment.SkeletonFragment(
+                contextManager, resolvedFilePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass contextManager
+        contextManager.addVirtualFragment(fragment);
+
+        return "Added dynamic file summaries for: [%s]"
+                .formatted(String.join(", ", resolvedFilePaths.stream().sorted().toList()));
+    }
+</methods>

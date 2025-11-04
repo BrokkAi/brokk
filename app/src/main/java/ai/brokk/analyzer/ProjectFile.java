@@ -83,6 +83,15 @@ public class ProjectFile implements BrokkFile {
         return relPath.toString();
     }
 
+    /**
+     * Returns the relative path as a Unix-style string (forward slashes).
+     * Use this when interfacing with APIs that require Unix-style path strings (e.g., JGit).
+     * The path is already normalized (no ./ prefix or redundant separators).
+     */
+    public String toUnixString() {
+        return relPath.toString().replace('\\', '/');
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

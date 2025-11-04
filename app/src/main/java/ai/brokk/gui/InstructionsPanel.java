@@ -4,8 +4,6 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
-import ai.brokk.Brokk;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -14,14 +12,11 @@ import ai.brokk.Llm;
 import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
@@ -30,7 +25,6 @@ import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.gui.dialogs.SettingsGlobalPanel;
-import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -38,7 +32,6 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
-import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
@@ -59,8 +52,6 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -79,7 +70,6 @@ import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
@@ -94,11 +84,9 @@ import org.jetbrains.annotations.Nullable;
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
 
-    public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Lutz Mode";
-    public static final String ACTION_RUN = "Run";
 
     private static final String PLACEHOLDER_TEXT =
             """
@@ -354,8 +342,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
+        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -418,6 +406,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize mode indicator
         refreshModeIndicator();
+
+        // Subscribe to service reload events to update button states
+        contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -765,8 +756,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     vgap = fl.getVgap();
                 }
                 int chipsHeight = (rows * rowH) + (rows > 1 ? (rows - 1) * vgap : 0);
-                Dimension pref = new Dimension(Math.max(100, super.getPreferredSize().width), chipsHeight);
-                return pref;
+                return new Dimension(Math.max(100, super.getPreferredSize().width), chipsHeight);
             }
 
             @Override
@@ -877,11 +867,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var support = new TransferHandler.TransferSupport(titledContainer, transferable);
                 if (transferHandler.canImport(support)) {
                     e.acceptDrop(e.getDropAction());
-                    if (!transferHandler.importData(support)) {
-                        e.dropComplete(false);
-                    } else {
-                        e.dropComplete(true);
-                    }
+                    e.dropComplete(transferHandler.importData(support));
                 } else {
                     e.rejectDrop();
                     e.dropComplete(false);
@@ -921,7 +907,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
-    private void updateTokenCostIndicator() {
+    void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
@@ -938,7 +924,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
-                                100);
+                                100,
+                                true);
                     }
 
                     var fullText = new StringBuilder();
@@ -961,9 +948,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
 
-                    int successRate = ModelBenchmarkData.getSuccessRate(config, approxTokens);
+                    var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(config, approxTokens);
+                    int successRate = rateResult.successRate();
+                    boolean isTested = rateResult.isTested();
                     TokenUsageBar.WarningLevel warningLevel;
-                    if (successRate == -1) {
+                    if (!isTested) {
+                        // Untested (extrapolated) token count — always warn RED
+                        warningLevel = TokenUsageBar.WarningLevel.RED;
+                    } else if (successRate == -1) {
                         // Unknown/untested combination: don't warn
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     } else if (successRate < 30) {
@@ -977,7 +969,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     String tooltipHtml =
                             buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate);
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -986,12 +978,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
                             return;
                         }
+                        // make metadata available to TokenUsageBar for tooltip/warning rendering
+                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+
+                        // Compute shared tooltip for both TokenUsageBar and ModelSelector
+                        String sharedTooltip = TokenUsageBar.computeWarningTooltip(
+                                stat.isTested,
+                                stat.config,
+                                stat.warningLevel,
+                                stat.successRate,
+                                stat.approxTokens,
+                                stat.toolTipHtml);
+
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(stat.toolTipHtml);
-                        modelSelector.getComponent().setToolTipText(stat.toolTipHtml);
+                        contextAreaContainer.setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
+                        modelSelector
+                                .getComponent()
+                                .setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -1001,13 +1007,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }));
     }
 
-    private static record TokenUsageBarComputation(
+    private record TokenUsageBarComputation(
             String toolTipHtml,
             int maxTokens,
             int approxTokens,
             TokenUsageBar.WarningLevel warningLevel,
             Service.ModelConfig config,
-            int successRate) {}
+            int successRate,
+            boolean isTested) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1358,32 +1365,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // --- Private Execution Logic ---
 
     /**
-     * Called by the contextSuggestionTimer or external events (like context changes) to initiate a context suggestion
-     * task. It increments the generation counter and submits the task to the sequential worker executor.
-     */
-
-    /**
-     * Performs the actual context suggestion logic off the EDT. This method includes checks against the current
-     * `suggestionGeneration` to ensure only the latest task proceeds and updates the UI.
-     *
-     * @param myGen The generation number of this specific task.
-     * @param snapshot The input text captured when this task was initiated.
-     */
-
-    /**
-     * Checks if the new text/embeddings are semantically different from the last processed state
-     * (`lastCheckedInputText`, `lastCheckedEmbeddings`).
-     */
-
-    /** Helper to show the failure label with a message. */
-
-    /** Helper to show the suggestions table with file references. */
-
-    /**
      * Executes the core logic for the "Ask" command. This runs inside the Runnable passed to
      * contextManager.submitAction.
      */
     public static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
         List<ChatMessage> messages;
         try {
             messages = CodePrompts.instance.collectAskMessages(cm, question, model);
@@ -1393,15 +1381,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     "Ask: " + question,
                     cm.getIo().getLlmRawMessages(),
                     cm.liveContext(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                    meta);
         }
-        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
 
-        return executeAskCommand(llm, messages, cm, question);
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        return executeAskCommand(llm, messages, cm, question, meta);
     }
 
     public static TaskResult executeAskCommand(
-            Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
+            Llm llm, List<ChatMessage> messages, IContextManager cm, String question, TaskResult.TaskMeta meta) {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
@@ -1413,12 +1402,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Determine stop details based on the response
         if (response != null) {
-            if (response.error() != null) {
-                String explanation = Objects.requireNonNullElse(response.error().getMessage(), "Unknown LLM error");
-                stop = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, explanation);
-            } else {
-                stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-            }
+            stop = TaskResult.StopDetails.fromResponse(response);
         }
 
         // construct TaskResult
@@ -1429,158 +1413,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 resultingCtx, // Ask never changes files; use current live context
-                stop);
+                stop,
+                meta);
     }
 
     // --- Action Handlers ---
-
-    public void runArchitectCommand() {
-        var goal = getInstructions();
-        if (goal.isBlank()) {
-            chrome.toolError("Please provide an initial goal or instruction for the Architect");
-            return;
-        }
-
-        chrome.getProject().addToInstructionsHistory(goal, 20);
-        clearCommandInput();
-
-        var project = chrome.getProject();
-        var runInWorktree = project.getArchitectRunInWorktree();
-
-        if (runInWorktree) {
-            runArchitectInNewWorktree(goal);
-        } else {
-            // User confirmed options, now submit the actual agent execution to the background.
-            runArchitectCommand(goal);
-        }
-    }
-
-    private void runArchitectInNewWorktree(String originalInstructions) {
-        var currentProject = chrome.getProject();
-        ContextManager cm = chrome.getContextManager();
-
-        // Start branch name generation task (LLM summarization)
-        var branchNameWorker = new ContextManager.SummarizeWorker(cm, originalInstructions, 3);
-        branchNameWorker.execute();
-
-        // Add to history of current project (already done by caller if not worktree)
-        // No need to clearCommandInput, also done by caller
-
-        // don't use submitAction, we're going to kick off a new Worktree + Chrome and run in that, leaving the original
-        // free
-        cm.submitExclusiveAction(() -> {
-            try {
-                chrome.showOutputSpinner("Setting up Git worktree...");
-
-                // Retrieve the generated branch name suggestion from the SummarizeWorker
-                String rawBranchNameSuggestion = branchNameWorker.get(); // Blocks until SummarizeWorker is done
-                String generatedBranchName = cm.getRepo().sanitizeBranchName(rawBranchNameSuggestion);
-
-                // Check Git availability (original position relative to setup)
-                if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
-                    chrome.hideOutputSpinner();
-                    chrome.toolError(
-                            "Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
-                    populateInstructionsArea(originalInstructions); // Restore instructions if setup fails
-                    return;
-                }
-
-                Path newWorktreePath;
-                String actualBranchName;
-
-                MainProject projectForWorktreeSetup = currentProject.getMainProject();
-                IGitRepo repo = projectForWorktreeSetup.getRepo();
-                if (!(repo instanceof GitRepo mainGitRepo)) {
-                    chrome.hideOutputSpinner();
-                    chrome.toolError(
-                            "Cannot create worktree: Main project repository does not support Git operations.");
-                    populateInstructionsArea(originalInstructions);
-                    return;
-                }
-                String sourceBranchForNew =
-                        mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
-
-                var setupResult = GitWorktreeTab.setupNewGitWorktree(
-                        projectForWorktreeSetup,
-                        mainGitRepo,
-                        generatedBranchName,
-                        true, // Always creating a new branch in this flow
-                        sourceBranchForNew);
-                newWorktreePath = setupResult.worktreePath();
-                actualBranchName = setupResult.branchName();
-
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "New worktree created at: " + newWorktreePath + " on branch: " + actualBranchName);
-
-                // Define the initial task to run in the new project, using pre-collected options
-                Consumer<Chrome> initialArchitectTask = newWorktreeChrome -> {
-                    InstructionsPanel newWorktreeIP = newWorktreeChrome.getInstructionsPanel();
-                    // Run the architect command directly with the original instructions and determined options
-                    newWorktreeIP.runArchitectCommand(originalInstructions);
-                };
-
-                MainProject mainProject = (currentProject instanceof MainProject mainProj)
-                        ? mainProj
-                        : (MainProject) currentProject.getParent();
-
-                new Brokk.OpenProjectBuilder(newWorktreePath)
-                        .parent(mainProject)
-                        .initialTask(initialArchitectTask)
-                        .sourceContextForSession(cm.topContext())
-                        .open()
-                        .thenAccept(success -> {
-                            if (success) {
-                                chrome.showNotification(
-                                        IConsoleIO.NotificationRole.INFO, "New worktree opened for Architect");
-                            } else {
-                                chrome.toolError("Failed to open the new worktree project for Architect.");
-                                populateInstructionsArea(originalInstructions);
-                            }
-                        })
-                        .exceptionally(ex -> {
-                            chrome.toolError("Error opening new worktree project: " + ex.getMessage());
-                            populateInstructionsArea(originalInstructions);
-                            return null;
-                        });
-            } catch (InterruptedException e) {
-                logger.debug("Architect worktree setup interrupted.", e);
-                populateInstructionsArea(originalInstructions);
-            } catch (GitAPIException | IOException | ExecutionException ex) {
-                chrome.toolError("Error setting up worktree: " + ex.getMessage());
-                populateInstructionsArea(originalInstructions);
-            } finally {
-                chrome.hideOutputSpinner();
-            }
-        });
-    }
-
-    /**
-     * Overload for programmatic invocation of Architect agent after options are determined, typically called directly
-     * or from the worktree setup.
-     *
-     * @param goal The user's goal/instructions.
-     */
-    public void runArchitectCommand(String goal) {
-        submitAction(ACTION_ARCHITECT, goal, scope -> {
-            var service = chrome.getContextManager().getService();
-            var planningModel = service.getModel(Service.GEMINI_2_5_PRO);
-            if (planningModel == null) {
-                throw new ModelUnavailableException();
-            }
-
-            // Determine Code model from the Instructions dropdown
-            Service.ModelConfig codeCfg = modelSelector.getModel();
-            var codeModel = service.getModel(codeCfg);
-            if (codeModel == null) {
-                throw new ModelUnavailableException();
-            }
-
-            // Proceed with execution using the selected options
-            var agent = new ArchitectAgent(chrome.getContextManager(), planningModel, codeModel, goal, scope);
-            return agent.execute();
-        });
-    }
 
     // Core method to prepare and submit the Code action
     private void prepareAndRunCodeCommand(StreamingChatModel modelToUse) {
@@ -1628,8 +1465,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var contextManager1 = chrome.getContextManager();
 
             CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
-            var result = agent.runTask(input, Set.of());
-            return result;
+            return agent.runTask(input, Set.of());
         });
     }
 
@@ -1653,10 +1489,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
         submitAction(ACTION_ASK, input, () -> {
-            var result = executeAskCommand(contextManager, modelToUse, input);
-
-            // Persist to history regardless of success/failure
-            return result;
+            return executeAskCommand(contextManager, modelToUse, input);
         });
     }
 
@@ -1687,10 +1520,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     query,
                     modelToUse,
                     EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    SearchMetrics.noOp(),
                     scope);
             try {
-                agent.scanInitialContext();
+                var tr = agent.scanInitialContext();
+                scope.append(tr);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return new TaskResult(
@@ -1698,7 +1531,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         "Search: " + query,
                         cm.getIo().getLlmRawMessages(),
                         cm.liveContext(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                        new TaskResult.TaskMeta(
+                                TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
             }
             return agent.execute();
         });
@@ -1710,7 +1545,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private static String spinnerTextFor(String action) {
         return switch (action) {
-            case ACTION_ARCHITECT -> "Architect Mode — planning and applying code changes...";
             case ACTION_CODE -> "Applying Code Mode — editing files in your Workspace...";
             case ACTION_SEARCH -> "Running Lutz Mode — agentic search and plan generation...";
             case ACTION_ASK -> "Answering from existing Context only...";
@@ -1729,6 +1563,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
+
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
                     scope.append(result);
@@ -1753,6 +1588,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
+
                 try (var scope = cm.beginTask(input, false, "Lutz Mode")) {
                     var result = task.apply(scope);
                     scope.append(result);
@@ -1809,9 +1645,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
-            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-            // Action button reflects current running state
-            if (isActionRunning()) {
+            // Check if service is online
+            var service = contextManager.getService();
+            boolean serviceIsOnline = service.isOnline();
+
+            if (!serviceIsOnline) {
+                // Service is offline: show offline state
+                actionButton.showOfflineMode();
+            } else if (isActionRunning()) {
+                // Service is online but action is running: show stop mode
+                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                 actionButton.showStopMode();
                 actionButton.setToolTipText("Cancel the current operation");
                 Color bg = UIManager.getColor("Brokk.action_button_bg_stop");
@@ -1822,7 +1665,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+                actionButton.setEnabled(true);
             } else {
+                // Service is online and no action running: show normal mode
+                boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                 actionButton.showNormalMode();
                 // Keep tooltip consistent: prepend mode-specific tooltip to base tooltip
                 actionButton.updateTooltip();
@@ -1834,14 +1680,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+                actionButton.setEnabled(true);
             }
-            actionButton.setEnabled(true);
 
-            // Enable/disable wand depending on running state
-            wandButton.setEnabled(!isActionRunning());
+            // Enable/disable wand depending on running state and service availability
+            wandButton.setEnabled(serviceIsOnline && !isActionRunning());
 
             // Ensure storedAction is consistent with split button's selected mode
-            storedAction = actionButton.getSelectedMode();
+            if (serviceIsOnline) {
+                storedAction = actionButton.getSelectedMode();
+            }
 
             chrome.enableHistoryPanel();
         });
@@ -1920,11 +1768,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             // Go action
             switch (storedAction) {
-                case ACTION_ARCHITECT -> runArchitectCommand();
                 case ACTION_CODE -> prepareAndRunCodeCommand(getSelectedModel());
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
-                default -> runArchitectCommand();
+                default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
             }
         }
         // Always return focus to the instructions area to avoid re-triggering with Enter on the button
@@ -1942,7 +1789,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var toggleKs = GlobalUiSettings.getKeybinding(
                     "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
             var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-            if (toggleStr == null || toggleStr.isBlank()) {
+            if (toggleStr.isBlank()) {
                 toggleStr = "(unbound)";
             }
 
@@ -1971,15 +1818,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
 
-            StringBuilder body = new StringBuilder();
-            body.append("<div><b>").append(htmlEscape(title)).append("</b></div>");
-            body.append("<div style='margin-top: 4px;'>")
-                    .append(htmlEscape(desc))
-                    .append("</div>");
-            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
-            body.append("<div>Toggle mode: ").append(htmlEscape(toggleStr)).append("</div>");
-
-            String html = wrapTooltipHtml(body.toString(), 320);
+            String body =
+                    "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
+                            .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
+            String html = wrapTooltipHtml(body, 320);
             modeBadge.setToolTipText(html);
         } catch (Exception ex) {
             // Defensive: ensure tooltip failures don't affect the UI
@@ -2343,6 +2185,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             repaint();
         }
 
+        public void showOfflineMode() {
+            SwingUtilities.invokeLater(() -> {
+                setText("Offline");
+                setToolTipText("Unable to connect to Brokk");
+                setEnabled(false);
+                setIcon(null);
+                repaint();
+            });
+        }
+
         private void updateButtonText() {
             if (!inStopMode) {
                 String displayText =
@@ -2645,16 +2497,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             while (parent != null && !(parent instanceof Window)) {
                 parent = parent.getParent();
             }
-            if (parent instanceof Window) {
+            if (parent != null) {
                 return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
             }
             return instructionsArea;
-        }
-    }
-
-    private static class ModelUnavailableException extends RuntimeException {
-        public ModelUnavailableException() {
-            super("Model is unavailable. Usually this indicates a networking problem.");
         }
     }
 
@@ -2719,19 +2565,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var toggleKs = GlobalUiSettings.getKeybinding(
                         "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                 var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr == null || toggleStr.isBlank()) {
+                if (toggleStr.isBlank()) {
                     toggleStr = "(unbound)";
                 }
 
-                StringBuilder body = new StringBuilder();
-                body.append("<div><b>").append(htmlEscape(title)).append("</b></div>");
-                body.append("<div style='margin-top: 4px;'>")
-                        .append(htmlEscape(desc))
-                        .append("</div>");
-                body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
-                body.append("<div>Toggle mode: ").append(htmlEscape(toggleStr)).append("</div>");
-
-                return wrapTooltipHtml(body.toString(), 320);
+                String body =
+                        "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
+                                .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
+                return wrapTooltipHtml(body, 320);
             } catch (Exception e) {
                 return super.getToolTipText(event);
             }

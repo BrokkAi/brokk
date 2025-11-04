@@ -9,6 +9,7 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,7 +54,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Step 1: Create IWatchService (like ContextManager does)
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
 
         // Step 2: Create AnalyzerWrapper with injected watch service (like ContextManager does)
         // Note: Pass null for analyzerListener to avoid git repo access in tests
@@ -64,7 +65,7 @@ class FileListenersIntegrationTest {
         watchService.addListener(externalListener);
 
         // Step 4: Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500); // Give watcher time to initialize
 
         // Step 5: Trigger a file change
@@ -97,7 +98,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
@@ -108,7 +109,7 @@ class FileListenersIntegrationTest {
         watchService.addListener(listener2);
 
         // Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
         // Trigger event
@@ -134,7 +135,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
@@ -144,7 +145,7 @@ class FileListenersIntegrationTest {
         watchService.removeListener(externalListener);
 
         // Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
         // Trigger event
@@ -172,7 +173,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, List.of());
+        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Simulate two different components accessing the watch service
@@ -192,7 +193,7 @@ class FileListenersIntegrationTest {
         watchServiceFromComponent2.addListener(listener2);
 
         // Start and trigger event
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
         Files.writeString(projectRoot.resolve("Test.java"), "public class Test {}");
 

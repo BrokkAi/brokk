@@ -1,1 +1,42 @@
-app/src/test/resources/** text eol=lf
+# Git Attributes File
+# --------------------
+# This file provides instructions to Git on how to handle different file types
+# to ensure consistency and prevent corruption.
+
+# Auto-detect text files and normalize all line endings to LF (Unix-style).
+# This is the recommended setting for cross-platform projects.
+* text=auto
+
+# Explicitly declare binary file types.
+# The 'binary' attribute tells Git to treat these files as-is and to not
+# perform any text processing (like line-ending normalization) on them.
+# This is critical to prevent corruption of binary assets.
+
+# Archives (relevant to test history files)
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.rar    binary
+
+# Images (relevant to context fragments)
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+
+# Compiled Code & Dependencies
+*.jar    binary
+*.class  binary
+
+# Other Common Binary Formats
+*.pdf    binary
+*.doc    binary
+*.docx   binary
+*.xls    binary
+*.xlsx   binary
+*.ppt    binary
+*.pptx   binary
+
+# Test source code
+app/src/test/resources/testcode-*/** text eol=lf
