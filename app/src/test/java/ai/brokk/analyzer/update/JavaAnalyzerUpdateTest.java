@@ -10,28 +10,30 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 
 class JavaAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
 
     private TestProject project;
     private IAnalyzer analyzer;
 
     @BeforeEach
     void setUp() throws IOException {
-        var rootDir = UpdateTestUtil.newTempDir();
         // initial Java source
-        UpdateTestUtil.writeFile(
-                rootDir,
-                "A.java",
-                """
+        new ProjectFile(tempDir, "A.java")
+                .write("""
         public class A {
           public int method1() { return 1; }
         }
         """);
 
-        project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        project = new TestProject(tempDir, Languages.JAVA);
         analyzer = new JavaAnalyzer(project);
     }
 
@@ -47,10 +49,9 @@ class JavaAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("A.method2").isEmpty());
 
         // mutate source – add method2
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "A.java",
-                """
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
         public class A {
           public int method1() { return 1; }
           public int method2() { return 2; }
@@ -69,10 +70,9 @@ class JavaAnalyzerUpdateTest {
         assertTrue(analyzer.getDefinition("A.method2").isPresent());
 
         // change again but don't include file in explicit set
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "A.java",
-                """
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
         public class A {
           public int method1() { return 1; }
           public int method2() { return 2; }
@@ -87,10 +87,9 @@ class JavaAnalyzerUpdateTest {
     @Test
     void automaticUpdateDetection() throws IOException {
         // add new method then rely on hash detection
-        UpdateTestUtil.writeFile(
-                project.getRoot(),
-                "A.java",
-                """
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
         public class A {
           public int method1() { return 1; }
           public int method4() { return 4; }

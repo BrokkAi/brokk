@@ -8,6 +8,7 @@ import ai.brokk.gui.HistoryGrouping.GroupDescriptor;
 import ai.brokk.gui.HistoryGrouping.GroupType;
 import ai.brokk.gui.HistoryGrouping.GroupingBuilder;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -141,7 +142,7 @@ public class HistoryGroupingTest {
         var oldKeyUuid = UUID.fromString(oldKey);
 
         // Simulate seeded expansion state keyed by UUID
-        var expandedMap = new java.util.HashMap<UUID, Boolean>();
+        var expandedMap = new HashMap<UUID, Boolean>();
         expandedMap.put(oldKeyUuid, Boolean.TRUE);
 
         // Append a new ungrouped item after the group

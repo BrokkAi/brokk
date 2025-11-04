@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -205,7 +206,7 @@ public class LlmTest {
                 false,
                 false,
                 false);
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var mapper = new ObjectMapper();
 
         // Case 1: Pure JSON with tool calls
         var pureJson =

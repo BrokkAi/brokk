@@ -642,15 +642,6 @@ public class Context {
         return true;
     }
 
-    public boolean containsFrozenFragments() {
-        return allFragments().anyMatch(f -> f instanceof FrozenFragment);
-    }
-
-    /**
-     * Checks if any fragments in this context are dynamic (compute values asynchronously).
-     * Note: In the new live-context design, dynamic fragments are expected and should be
-     * accessed via ComputedValue APIs (tryGet/await) rather than direct text() calls.
-     */
     public boolean containsDynamicFragments() {
         return allFragments().anyMatch(ContextFragment::isDynamic);
     }
@@ -665,10 +656,6 @@ public class Context {
      * @return a new context containing the union of fragments from both contexts
      */
     public Context union(Context other) {
-        // we're going to do some casting that's not valid if FF is involved
-        assert !containsFrozenFragments() : "Context.union: This context contains frozen fragments";
-        assert !other.containsFrozenFragments() : "Context.union: The other context contains frozen fragments";
-
         if (this.fragments.isEmpty()) {
             return other;
         }

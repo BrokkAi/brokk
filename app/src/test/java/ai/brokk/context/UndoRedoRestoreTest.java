@@ -6,6 +6,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,7 @@ public class UndoRedoRestoreTest {
 
         var live =
                 new Context(cm, "Initial").addPathFragments(List.of(new ContextFragment.ProjectPathFragment(pf, cm)));
+        live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // 2) Build history with the initial snapshot
         var history = new ContextHistory(live);
