@@ -2357,6 +2357,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * @return LinkedHashSet of task texts that are incomplete and in preExisting
      */
     private Set<String> collectTaskTexts(Set<String> preExisting) {
+        assert SwingUtilities.isEventDispatchThread() : "collectTaskTexts must be called on EDT";
         var texts = new LinkedHashSet<String>();
         for (int i = 0; i < model.size(); i++) {
             var it = requireNonNull(model.get(i));
@@ -2379,6 +2380,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * @return User's choice: 0=Execute, 1=Clean and run, 2=Cancel
      */
     private int showAutoPlayDialog(Set<String> texts) {
+        assert SwingUtilities.isEventDispatchThread() : "showAutoPlayDialog must be called on EDT";
         Window owner = SwingUtilities.getWindowAncestor(this);
         JDialog dialog = (owner != null)
                 ? new JDialog(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL)
