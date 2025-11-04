@@ -661,7 +661,7 @@ public class Service implements IExceptionReportingService {
         // we left off, we limit the output tokens to 1/8 of the input token budget.
         // (Previously we hard-capped this at 32k, but gpt5-mini and gpt5-nano with reasoning=high will blow past that,
         // causing request failures. So now it's uncapped.)
-        int ceiling = min(value, getMaxInputTokens(location) / 8);
+        int ceiling = min(value, getMaxInputTokensForLocation(location) / 8);
         int floor = min(8192, value);
         return max(floor, ceiling);
     }
@@ -672,10 +672,26 @@ public class Service implements IExceptionReportingService {
      */
     public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        return getMaxInputTokens(location);
+        return getMaxInputTokensForLocation(location);
     }
 
-    private int getMaxInputTokens(String location) {
+    /**
+     * Retrieves the maximum input tokens for the given model display name.
+     * Falls back to the default value if the model is unknown.
+     *
+     * @param modelName The display name of the model (as shown in settings).
+     * @return The maximum input tokens for the model, or a default of 65536 if unknown.
+     */
+    public int getMaxInputTokens(String modelName) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("max_input_tokens requested for unknown model name: {}", modelName);
+            return 65536;
+        }
+        return getMaxInputTokensForLocation(location);
+    }
+
+    public int getMaxInputTokensForLocation(String location) {
         var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
