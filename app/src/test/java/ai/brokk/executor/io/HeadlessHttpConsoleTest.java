@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskEntry;
+import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobStore;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Path;
@@ -196,6 +197,92 @@ class HeadlessHttpConsoleTest {
         var data = (Map<String, Object>) event.data();
         assertEquals("taskInProgress", data.get("name"));
         assertEquals(true, data.get("value"));
+
+        cleanup();
+    }
+
+    @Test
+    void testUpdateWorkspace_MapsToStateHintEvent() throws Exception {
+        console.updateWorkspace();
+
+        Thread.sleep(100);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("STATE_HINT", event.type());
+        assertEquals(1L, event.seq());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("workspaceUpdated", data.get("name"));
+        assertEquals(true, data.get("value"));
+
+        cleanup();
+    }
+
+    @Test
+    void testUpdateGitRepo_MapsToStateHintEvent() throws Exception {
+        console.updateGitRepo();
+
+        Thread.sleep(100);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("STATE_HINT", event.type());
+        assertEquals(1L, event.seq());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("gitRepoUpdated", data.get("name"));
+        assertEquals(true, data.get("value"));
+
+        cleanup();
+    }
+
+    @Test
+    void testUpdateContextHistoryTable_MapsToStateHintEvent() throws Exception {
+        console.updateContextHistoryTable();
+
+        Thread.sleep(100);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("STATE_HINT", event.type());
+        assertEquals(1L, event.seq());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("contextHistoryUpdated", data.get("name"));
+        assertEquals(true, data.get("value"));
+        assertEquals(null, data.get("count"));
+
+        cleanup();
+    }
+
+    @Test
+    void testUpdateContextHistoryTableWithContext_MapsToStateHintEvent() throws Exception {
+        console.updateContextHistoryTable(Context.EMPTY);
+
+        Thread.sleep(100);
+
+        var events = jobStore.readEvents(jobId, -1, 100);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("STATE_HINT", event.type());
+        assertEquals(1L, event.seq());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("contextHistoryUpdated", data.get("name"));
+        assertEquals(true, data.get("value"));
+        assertEquals(1, data.get("count"));
 
         cleanup();
     }
