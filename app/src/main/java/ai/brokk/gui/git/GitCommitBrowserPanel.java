@@ -380,7 +380,28 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             @Override
             public Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+
+                ICommitInfo commit = (ICommitInfo) table.getModel().getValueAt(row, COL_COMMIT_OBJ);
+                boolean isSigned = commit.isSigned();
+
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (c instanceof JLabel label) {
+                    label.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+                    if (column == 0) { // Message column
+                        String text = value.toString();
+                        if (isSigned) {
+                            text = "\uD83D\uDD11 " + text;
+                        }
+                        label.setText(text);
+                    }
+                }
+
+                if (column == COL_UNPUSHED) {
+                    if (c instanceof JCheckBox checkBox) {
+                        checkBox.setSelected((boolean) table.getModel().getValueAt(row, COL_UNPUSHED));
+                    }
+                }
+
                 boolean isDark = chrome.getTheme().isDarkTheme();
                 boolean unpushed = (boolean) table.getModel().getValueAt(row, COL_UNPUSHED);
 
@@ -1794,46 +1815,20 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     /** Builds a git-style tooltip string for a commit using HTML formatting. */
     private String buildTooltip(ICommitInfo commit) {
-        String author = commit.author();
+        String shortId = getShortId(commit.id());
+        String author = escapeHtml(commit.author());
+        String date =
+                commit.date() != null ? GitUiUtil.formatRelativeDate(commit.date(), LocalDate.now()) : "N/A";
+        String message = escapeHtml(commit.message());
+        String signedStatus = commit.isSigned() ? "Signed" : "Not Signed";
 
-        String dateStr = "";
-        if (commit.date() != null) {
-            dateStr = DateTimeFormatter.ofPattern("EEE MMM d HH:mm:ss yyyy Z", Locale.US)
-                    .format(ZonedDateTime.ofInstant(commit.date(), ZoneId.systemDefault()));
-        }
-
-        // Fetch full commit message (fallback to short message if unavailable)
-        String fullMessage;
-        try {
-            fullMessage = getRepo().getCommitFullMessage(commit.id());
-        } catch (Exception e) {
-            fullMessage = commit.message();
-        }
-
-        // Truncate very long messages for tooltip display
-        final int MAX_LINES = 20;
-        final int MAX_LINE_LENGTH = 100;
-        var linesList = Splitter.on(Pattern.compile("\\R")).splitToList(fullMessage);
-        var tooltipLines = new ArrayList<String>();
-
-        for (int i = 0; i < Math.min(linesList.size(), MAX_LINES); i++) {
-            String line = linesList.get(i);
-            if (line.length() > MAX_LINE_LENGTH) {
-                line = line.substring(0, MAX_LINE_LENGTH) + "...";
-            }
-            tooltipLines.add(line);
-        }
-
-        if (linesList.size() > MAX_LINES) {
-            tooltipLines.add("... (" + (linesList.size() - MAX_LINES) + " more lines)");
-        }
-
-        String messageHtml = escapeHtml(String.join("\n", tooltipLines));
-
-        return "<html><body style='max-width: 500px;'>"
-                + "<b>Author:</b> " + escapeHtml(author) + "<br>"
-                + "<b>Date:</b> " + escapeHtml(dateStr) + "<br><br>"
-                + "<pre style='margin: 0; white-space: pre-wrap;'>" + messageHtml + "</pre>"
+        // Use a more robust width for the tooltip content
+        return "<html><body style='width: 350px;'>"
+                + "<b>Commit:</b> " + shortId + "<br>"
+                + "<b>Author:</b> " + author + "<br>"
+                + "<b>Date:</b> " + date + "<br>"
+                + "<b>Signature:</b> " + signedStatus + "<br><br>"
+                + "<p>" + message + "</p>"
                 + "</body></html>";
     }
 

@@ -101,6 +101,7 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
+    private static final String GPG_SIGN_COMMITS_KEY = "gpgSignCommits";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -1129,6 +1130,17 @@ public final class MainProject extends AbstractProject {
     public static void setExceptionReportingEnabled(boolean enabled) {
         var props = loadGlobalProperties();
         props.setProperty(EXCEPTION_REPORTING_ENABLED_KEY, String.valueOf(enabled));
+        saveGlobalProperties(props);
+    }
+
+    public static boolean isGpgSignCommits() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(GPG_SIGN_COMMITS_KEY, "false"));
+    }
+
+    public static void setGpgSignCommits(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(GPG_SIGN_COMMITS_KEY, String.valueOf(enabled));
         saveGlobalProperties(props);
     }
 

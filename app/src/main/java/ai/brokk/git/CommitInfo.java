@@ -15,26 +15,35 @@ public final class CommitInfo implements ICommitInfo {
     private final String author;
     private final Instant date;
     private final Optional<Integer> stashIndex; // Optional stash index
+    private final boolean isSigned;
 
     /** Constructor for regular commits. */
-    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date) {
-        this(repo, id, message, author, date, Optional.empty());
+    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date, boolean isSigned) {
+        this(repo, id, message, author, date, Optional.empty(), isSigned);
     }
 
     /** Constructor for stash commits. */
-    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date, int stashIndex) {
-        this(repo, id, message, author, date, Optional.of(stashIndex));
+    public CommitInfo(
+            GitRepo repo, String id, String message, String author, Instant date, int stashIndex, boolean isSigned) {
+        this(repo, id, message, author, date, Optional.of(stashIndex), isSigned);
     }
 
     /** General purpose constructor. */
     private CommitInfo(
-            GitRepo repo, String id, String message, String author, Instant date, Optional<Integer> stashIndex) {
+            GitRepo repo,
+            String id,
+            String message,
+            String author,
+            Instant date,
+            Optional<Integer> stashIndex,
+            boolean isSigned) {
         this.repo = repo;
         this.id = id;
         this.message = message;
         this.author = author;
         this.date = date;
         this.stashIndex = stashIndex;
+        this.isSigned = isSigned;
     }
 
     /**
@@ -78,6 +87,11 @@ public final class CommitInfo implements ICommitInfo {
     }
 
     @Override
+    public boolean isSigned() {
+        return isSigned;
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (obj == this) return true;
         if (!(obj instanceof CommitInfo that)) return false; // Pattern matching
@@ -86,12 +100,13 @@ public final class CommitInfo implements ICommitInfo {
                 && Objects.equals(this.author, that.author)
                 && Objects.equals(this.date, that.date)
                 && // Instant has well-defined equals
-                Objects.equals(this.stashIndex, that.stashIndex);
+                Objects.equals(this.stashIndex, that.stashIndex)
+                && this.isSigned == that.isSigned;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, message, author, date, stashIndex);
+        return Objects.hash(id, message, author, date, stashIndex, isSigned);
     }
 
     @Override
@@ -101,6 +116,7 @@ public final class CommitInfo implements ICommitInfo {
                 + message + ", " + "author="
                 + author + ", " + "date="
                 + date + ", " + "stashIndex="
-                + stashIndex + ']'; // Include stashIndex in toString
+                + stashIndex + ", " + "isSigned="
+                + isSigned + ']'; // Include stashIndex in toString
     }
 }

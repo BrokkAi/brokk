@@ -18,6 +18,11 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import ai.brokk.git.ICommitInfo;
+import javax.swing.table.TableRowSorter;
+import javax.swing.table.TableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.JLabel;
 
 /** A panel representing a single tab showing the Git history for a specific file. */
 public class GitHistoryTab extends JPanel {
@@ -45,7 +50,8 @@ public class GitHistoryTab extends JPanel {
     }
 
     private void buildHistoryTabUI() {
-        fileHistoryModel = new DefaultTableModel(new Object[] {"Message", "Author", "Date", "ID", "Path"}, 0) {
+        fileHistoryModel =
+                new DefaultTableModel(new Object[] {"Message", "Author", "Date", "ID", "Path", "CommitObject"}, 0) {
             @Override
             public boolean isCellEditable(int r, int c) {
                 return false;
@@ -56,33 +62,69 @@ public class GitHistoryTab extends JPanel {
                 return String.class;
             }
         };
-
         fileHistoryTable = new JTable(fileHistoryModel) {
             @Override
             @Nullable
             public String getToolTipText(MouseEvent e) {
-                var p = e.getPoint();
-                int row = rowAtPoint(p);
-                int col = columnAtPoint(p);
-                if (row < 0 || col != 0) return null;
-                var value = getValueAt(row, col);
-                if (value == null) return null;
-                var text = value.toString();
-                if (text.indexOf('\n') >= 0) {
-                    text = "<html>" + text.replace("\n", "<br>") + "</html>";
+                int row = rowAtPoint(e.getPoint());
+                if (row == -1) {
+                    return null;
                 }
-                return text;
+                var commit = (ICommitInfo) fileHistoryModel.getValueAt(row, 5);
+                String shortId = getRepo().shortHash(commit.id());
+                String author = commit.author();
+                String date = commit.date() != null
+                        ? GitUiUtil.formatRelativeDate(commit.date(), LocalDate.now())
+                        : "N/A";
+                String message = commit.message();
+                String signedStatus = commit.isSigned() ? "Signed" : "Not Signed";
+
+                // Use a more robust width for the tooltip content
+                return "<html><body style='width: 350px;'>"
+                        + "<b>Commit:</b> " + shortId + "<br>"
+                        + "<b>Author:</b> " + author + "<br>"
+                        + "<b>Date:</b> " + date + "<br>"
+                        + "<b>Signature:</b> " + signedStatus + "<br><br>"
+                        + "<p>" + message + "</p>"
+                        + "</body></html>";
             }
         };
+        fileHistoryTable.setDefaultRenderer(String.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                var c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (c instanceof JLabel label) {
+                    label.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+                    if (column == 0) { // Message column
+                        var commit = (ICommitInfo) fileHistoryModel.getValueAt(row, 5);
+                        String text = value.toString();
+                        if (commit.isSigned()) {
+                            text = "\uD83D\uDD11 " + text;
+                        }
+                        label.setText(text);
+                    }
+                }
+                return c;
+            }
+        });
         fileHistoryTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        fileHistoryTable.setRowHeight(18);
+        fileHistoryTable.setAutoCreateRowSorter(true);
+        TableRowSorter<TableModel> sorter = new TableRowSorter<>(fileHistoryModel);
+        fileHistoryTable.setRowSorter(sorter);
 
-        // Hide the “ID” and “Path” columns
-        for (int col : new int[] {3, 4}) {
-            fileHistoryTable.getColumnModel().getColumn(col).setMinWidth(0);
-            fileHistoryTable.getColumnModel().getColumn(col).setMaxWidth(0);
-            fileHistoryTable.getColumnModel().getColumn(col).setWidth(0);
-        }
+        // Hide ID, Path, and CommitObject columns by default
+        fileHistoryTable.getColumn("ID").setMinWidth(0);
+        fileHistoryTable.getColumn("ID").setMaxWidth(0);
+        fileHistoryTable.getColumn("Path").setMinWidth(0);
+        fileHistoryTable.getColumn("Path").setMaxWidth(0);
+        fileHistoryTable.getColumn("CommitObject").setMinWidth(0);
+        fileHistoryTable.getColumn("CommitObject").setMaxWidth(0);
+
+        var sp = new JScrollPane(fileHistoryTable);
+        // TODO: The styleScrollPane method is not found in the GuiTheme class.
+        // This could be due to a missing method or an incorrect class reference.
+        // chrome.getTheme().styleScrollPane(sp);
 
         var menu = new JPopupMenu();
         chrome.getTheme().registerPopupMenu(menu);
@@ -200,7 +242,7 @@ public class GitHistoryTab extends JPanel {
 
         editFileItem.addActionListener(e -> GitUiUtil.editFile(contextManager, getFilePath()));
 
-        add(new JScrollPane(fileHistoryTable), BorderLayout.CENTER);
+        add(sp, BorderLayout.CENTER);
     }
 
     private void loadFileHistory() {
@@ -210,21 +252,26 @@ public class GitHistoryTab extends JPanel {
                 SwingUtilities.invokeLater(() -> {
                     fileHistoryModel.setRowCount(0);
                     if (history.isEmpty()) {
-                        fileHistoryModel.addRow(new Object[] {"No history found", "", "", "", ""});
+                        fileHistoryModel.addRow(new Object[] {"No history found", "", "", "", "", ""});
                         return;
                     }
 
                     var today = LocalDate.now(ZoneId.systemDefault());
 
                     for (var entry : history) {
-                        var date = GitUiUtil.formatRelativeDate(entry.commit().date(), today);
+                        var commit = entry.commit();
+                        var pathInCommit = entry.path();
                         fileHistoryModel.addRow(new Object[] {
-                            entry.commit().message(),
-                            entry.commit().author(),
-                            date,
-                            entry.commit().id(),
-                            entry.path()
+                            commit.message(),
+                            commit.author(),
+                            commit.date() != null ? GitUiUtil.formatRelativeDate(commit.date(), LocalDate.now()) : "",
+                            commit.id(),
+                            pathInCommit.toString(),
+                            commit
                         });
+                    }
+                    if (!history.isEmpty()) {
+                        fileHistoryTable.setRowSelectionInterval(0, 0);
                     }
 
                     TableUtils.fitColumnWidth(fileHistoryTable, 1);
@@ -234,7 +281,7 @@ public class GitHistoryTab extends JPanel {
                 logger.error("Error loading file history for: {}", file, ex);
                 SwingUtilities.invokeLater(() -> {
                     fileHistoryModel.setRowCount(0);
-                    fileHistoryModel.addRow(new Object[] {"Error loading history: " + ex.getMessage(), "", "", "", ""});
+                    fileHistoryModel.addRow(new Object[] {"Error loading history: " + ex.getMessage(), "", "", "", "", ""});
                 });
             }
             return null;

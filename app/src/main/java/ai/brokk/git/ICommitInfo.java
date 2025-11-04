@@ -26,6 +26,15 @@ public interface ICommitInfo {
      */
     Optional<Integer> stashIndex();
 
+    /**
+     * Checks if the commit has a valid GPG signature.
+     *
+     * @return true if the commit is signed, false otherwise.
+     */
+    default boolean isSigned() {
+        return false;
+    }
+
     class CommitInfoStub implements ICommitInfo {
         private final String message;
 

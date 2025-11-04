@@ -36,6 +36,13 @@ import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
+import org.eclipse.jgit.api.errors.NoHeadException;
+import org.eclipse.jgit.dircache.DirCache;
+import org.eclipse.jgit.lib.CommitBuilder;
+import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.ObjectInserter;
+import org.eclipse.jgit.lib.PersonIdent;
+import org.eclipse.jgit.lib.RefUpdate;
 
 /**
  * A Git repository abstraction using JGit.
@@ -74,6 +81,14 @@ public class GitRepo implements Closeable, IGitRepo {
 
     public GitRepoData data() {
         return data;
+    }
+
+    /**
+     * Returns whether the application is configured to sign commits by default.
+     * Used by UI components for tooltips/labels only.
+     */
+    public boolean isSignedCommitsEnabled() {
+        return MainProject.isGpgSignCommits();
     }
 
     /**
@@ -615,104 +630,6 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Determines if native signed commits should be used based on git config or environment variables.
-     * Prefers git config: commit.gpgsign=true. Environment override BROKK_GIT_SIGN_COMMITS=[1|true|yes].
-     */
-    private boolean isNativeSigningEnabled() {
-        try {
-            var cfg = git.getRepository().getConfig();
-            boolean signed = cfg.getBoolean("commit", null, "gpgsign", false);
-            if (!signed) {
-                var env = System.getenv("BROKK_GIT_SIGN_COMMITS");
-                signed = env != null
-                        && (env.equalsIgnoreCase("1")
-                                || env.equalsIgnoreCase("true")
-                                || env.equalsIgnoreCase("yes"));
-            }
-            return signed;
-        } catch (Exception e) {
-            logger.debug("Unable to read commit signing configuration", e);
-            return false;
-        }
-    }
-
-    /**
-     * Public accessor so UI code can indicate when commits will be GPG-signed.
-     * Returns true if commit signing is enabled by git config or BROKK_GIT_SIGN_COMMITS env var.
-     */
-    public boolean isSignedCommitsEnabled() {
-        return isNativeSigningEnabled();
-    }
-
-    /**
-     * Reads configured signing key from git config (user.signingkey), if present.
-     */
-    private @Nullable String getSigningKeyFromConfig() {
-        try {
-            var cfg = git.getRepository().getConfig();
-            var key = cfg.getString("user", null, "signingkey");
-            if (key != null) {
-                key = key.trim();
-            }
-            return (key == null || key.isEmpty()) ? null : key;
-        } catch (Exception e) {
-            logger.debug("Unable to read user.signingkey from git config", e);
-            return null;
-        }
-    }
-
-    /**
-     * Performs a native git commit with GPG signing using the user's environment (gpg-agent).
-     * Uses a temp file for the message and --only to commit only the provided paths.
-     */
-    private String commitFilesWithNativeGit(List<ProjectFile> files, String message) throws GitAPIException {
-        Path workTree = repository.getWorkTree().toPath();
-        Path msgFile = null;
-        try {
-            msgFile = Files.createTempFile("brokk_commit_", ".txt");
-            Files.writeString(msgFile, message, StandardCharsets.UTF_8);
-
-            // Build command: git commit -F <msgfile> -S [--gpg-sign=<key>] --only <paths...>
-            var sb = new StringBuilder();
-            sb.append("git commit -F ").append(msgFile.toAbsolutePath());
-            sb.append(" -S");
-
-            var key = getSigningKeyFromConfig();
-            if (key != null) {
-                sb.append(" --gpg-sign=").append(key);
-            }
-
-            sb.append(" --only");
-            for (var f : files) {
-                sb.append(" ").append(toRepoRelativePath(f));
-            }
-
-            var cmd = sb.toString();
-            logger.debug("Executing native signed commit: {}", cmd);
-
-            try {
-                Environment.instance.runShellCommand(cmd, workTree, out -> {}, Environment.GIT_TIMEOUT);
-            } catch (Environment.SubprocessException | InterruptedException e) {
-                var em = e.getMessage() != null ? e.getMessage() : e.toString();
-                throw new GitRepoException("Signed commit failed: " + em, e);
-            }
-
-            invalidateCaches();
-            return resolveToCommit("HEAD").getName();
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        } finally {
-            if (msgFile != null) {
-                try {
-                    Files.deleteIfExists(msgFile);
-                } catch (IOException ignore) {
-                    // best-effort cleanup
-                }
-            }
-        }
-    }
-
-    /**
      * Prepares a Git commit command, handling signing if required.
      *
      * @return a properly configured Git commit command.
@@ -732,27 +649,69 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return The commit ID of the new commit
      */
     public String commitFiles(List<ProjectFile> files, String message) throws GitAPIException {
-        // Stage the files first so both the JGit and native paths see consistent state
-        add(files);
+        return commitFiles(files, message, isGpgSigned());
+    }
 
-        // If signing is enabled via git config or environment, use native git to sign with gpg-agent
-        if (isNativeSigningEnabled()) {
-            return commitFilesWithNativeGit(files, message);
+    public String commitFiles(List<ProjectFile> files, String message, boolean sign) throws GitAPIException {
+        if (files.isEmpty()) {
+            logger.warn("commitFiles called with no files to commit.");
+            throw new GitAPIException("No files to commit") {};
         }
 
-        // Fallback to pure JGit (no signing or signing not configured)
-        var commitCommand = commitCommand().setMessage(message);
+        try {
+            add(files);
 
-        if (!files.isEmpty()) {
-            for (var file : files) {
-                commitCommand.setOnly(toRepoRelativePath(file));
+            var cmd = git.commit().setMessage(message).setSign(sign);
+
+            // Add author if available from config
+            var config = repository.getConfig();
+            String authorName = config.getString("user", null, "name");
+            String authorEmail = config.getString("user", null, "email");
+            if (authorName != null && authorEmail != null) {
+                cmd.setAuthor(authorName, authorEmail);
+            }
+
+            RevCommit revCommit = cmd.call();
+            invalidateCaches();
+            return revCommit.getId().name();
+        } catch (NoHeadException e) {
+            // This happens on the very first commit in a repo.
+            logger.warn("Encountered NoHeadException, likely first commit. Creating initial commit.", e);
+            try (ObjectInserter odi = repository.newObjectInserter()) {
+                // Create a tree from the index
+                DirCache index = repository.lockDirCache();
+                ObjectId treeId = index.writeTree(odi);
+                index.unlock();
+
+                // Create the commit
+                PersonIdent author = new PersonIdent(repository);
+                CommitBuilder commitBuilder = new CommitBuilder();
+                commitBuilder.setAuthor(author);
+                commitBuilder.setCommitter(author);
+                commitBuilder.setEncoding(StandardCharsets.UTF_8);
+                commitBuilder.setMessage(message);
+                commitBuilder.setTreeId(treeId);
+
+                // Note: GPG signing on first commit with this workaround is not straightforward with low-level APIs.
+                if (sign) {
+                    logger.warn("GPG signing is not supported for the first commit in a repository via this workaround.");
+                }
+
+                ObjectId commitId = odi.insert(commitBuilder);
+                odi.flush();
+
+                // Update HEAD to point to the new commit
+                RefUpdate refUpdate = repository.updateRef(Constants.HEAD);
+                refUpdate.setNewObjectId(commitId);
+                refUpdate.setRefLogMessage("commit: " + message, false);
+                refUpdate.update();
+
+                invalidateCaches();
+                return commitId.name();
+            } catch (IOException ioe) {
+                throw new GitWrappedIOException("Failed to perform initial commit workaround", ioe);
             }
         }
-
-        var commitResult = commitCommand.call();
-        var commitId = commitResult.getId().getName();
-        invalidateCaches();
-        return commitId;
     }
 
     /**
@@ -776,8 +735,9 @@ public class GitRepo implements Closeable, IGitRepo {
         if (!githubToken.trim().isEmpty()) {
             command.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", githubToken));
         } else {
-            throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                    + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+            throw new GitHubAuthenticationException(
+                    "GitHub token required for HTTPS authentication. "
+                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
         }
     }
 
@@ -863,7 +823,7 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * True iff {@code branchName} is one of this repository’s **local** branches. Falls back to {@code false} if the
+     * True iff {@code branchName} is one of this repository's **local** branches. Falls back to {@code false} if the
      * branch list cannot be obtained.
      */
     public boolean isLocalBranch(String branchName) {
@@ -876,7 +836,7 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * True iff {@code branchName} is one of this repository’s **remote** branches (e.g. origin/main). Falls back to
+     * True iff {@code branchName} is one of this repository's **remote** branches (e.g. origin/main). Falls back to
      * {@code false} on error.
      */
     public boolean isRemoteBranch(String branchName) {
@@ -1860,7 +1820,7 @@ public class GitRepo implements Closeable, IGitRepo {
         return new ArrayList<>(commits);
     }
 
-    /** One commit in a file’s history together with the path the file had inside that commit. */
+    /** One commit in a file's history together with the path the file had inside that commit. */
     public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
 
     /**
@@ -2006,7 +1966,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     for (var f : active) {
                         if (!Objects.equals(trackedPath.get(f), newPath)) continue;
 
-                        // We’re about to read the short message → ensure the body is available.
+                        // We're about to read the short message → ensure the body is available.
                         // This is cheap and only runs for commits we actually keep.
                         revWalk.parseBody(commit);
 
@@ -2181,21 +2141,27 @@ public class GitRepo implements Closeable, IGitRepo {
     public CommitInfo fromRevCommit(RevCommit commit) {
         return new CommitInfo(
                 this,
-                commit.getName(),
+                commit.getId().name(),
                 commit.getShortMessage(),
                 commit.getAuthorIdent().getName(),
-                commit.getCommitterIdent().getWhenAsInstant());
+                commit.getAuthorIdent().getWhenAsInstant(),
+                // FIXME: commit.getGpgSignature() is not available in all JGit versions.
+                // This is a placeholder. For full GPG support, ensure JGit is version 5.6+
+                false);
     }
 
     /** Factory method to create CommitInfo for a stash entry from a JGit RevCommit. */
     public CommitInfo fromStashCommit(RevCommit commit, int index) {
         return new CommitInfo(
                 this,
-                commit.getName(),
+                commit.getId().name(),
                 commit.getShortMessage(),
                 commit.getAuthorIdent().getName(),
                 commit.getAuthorIdent().getWhenAsInstant(),
-                index);
+                index,
+                // FIXME: commit.getGpgSignature() is not available in all JGit versions.
+                // This is a placeholder. For full GPG support, ensure JGit is version 5.6+
+                false);
     }
 
     /** Computes the merge base of two commits. */
@@ -2434,7 +2400,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // `git worktree add` might fail. This gives a cleaner error to the user.
         var status = git.status().call();
 
-        // A worktree is considered “dirty” for merge-simulation purposes ONLY if
+        // A worktree is considered "dirty" for merge-simulation purposes ONLY if
         //   • the index contains staged additions / changes, OR
         //   • any *tracked* file is modified, missing, or staged for removal.
         // Untracked/ignored files are allowed; they will be checked separately

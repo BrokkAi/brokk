@@ -27,6 +27,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Constants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import ai.brokk.MainProject;
 
 /** Code that uses LLMs to interact with Git goes here, instead of GitRepo. */
 public final class GitWorkflow {
@@ -57,13 +58,14 @@ public final class GitWorkflow {
     }
 
     /** Synchronously commit the given files. If {@code files} is empty, commit all modified files. */
-    public CommitResult commit(List<ProjectFile> files, String msg) throws GitAPIException {
+    public CommitResult commit(List<ProjectFile> files, String msg, boolean sign) throws GitAPIException {
         assert !files.isEmpty();
         assert !msg.isBlank();
 
-        String sha = repo.commitFiles(files, msg);
-        var first = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n')) : msg;
-        return new CommitResult(sha, first);
+        String commitId = repo.commitFiles(files, msg, sign);
+        logger.info("Committed {} files with message '{}'. Commit ID: {}", files.size(), msg, commitId);
+        String firstLine = msg.lines().findFirst().orElse("");
+        return new CommitResult(commitId, firstLine);
     }
 
     /**
@@ -256,12 +258,18 @@ public final class GitWorkflow {
     }
 
     private String parentOrEmptyTree(String rev) {
-        var parentRev = rev + "^";
         try {
-            // If parent cannot be resolved (e.g., rev is a root commit), fall back to the empty tree.
-            repo.resolveToObject(parentRev);
-            return parentRev;
-        } catch (GitAPIException e) {
+            var obj = repo.resolveToCommit(rev);
+            try (var revWalk = new org.eclipse.jgit.revwalk.RevWalk(repo.getRepository())) {
+                var commit = revWalk.parseCommit(obj);
+                if (commit.getParentCount() > 0) {
+                    return commit.getParent(0).getName();
+                } else {
+                    return Constants.EMPTY_TREE_ID.getName();
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not find parent for {}, returning empty tree", rev, e);
             return Constants.EMPTY_TREE_ID.getName();
         }
     }
@@ -287,26 +295,21 @@ public final class GitWorkflow {
 
     private @NotNull Optional<CommitResult> performAutoCommitInternal(String taskDescription)
             throws GitAPIException, InterruptedException {
-        var io = cm.getIo();
-        Set<GitRepo.ModifiedFile> modified;
-        modified = repo.getModifiedFiles();
-
-        if (modified.isEmpty()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to commit for task: " + taskDescription);
+        var modifiedFiles = repo.getModifiedFiles().stream()
+                .map(IGitRepo.ModifiedFile::file)
+                .collect(Collectors.toList());
+        if (modifiedFiles.isEmpty()) {
+            logger.debug("No modified files found for auto-commit.");
             return Optional.empty();
         }
 
-        var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+        String message = suggestCommitMessage(modifiedFiles, taskDescription);
+        if (message.isBlank()) {
+            logger.warn("Auto-commit message generation failed.");
+            return Optional.empty();
+        }
 
-        String message = suggestCommitMessage(filesToCommit, taskDescription);
-
-        var commitResult = commit(filesToCommit, message);
-
-        // Friendly notification: include short hash.
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Committed " + repo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
-        io.updateCommitPanel();
-        return Optional.of(commitResult);
+        boolean shouldSign = MainProject.isGpgSignCommits();
+        return Optional.of(commit(modifiedFiles, message, shouldSign));
     }
 }

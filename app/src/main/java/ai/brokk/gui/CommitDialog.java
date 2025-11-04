@@ -8,7 +8,6 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.*;
@@ -17,6 +16,8 @@ import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import java.util.stream.Collectors;
+import ai.brokk.MainProject;
 
 public class CommitDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CommitDialog.class);
@@ -24,6 +25,7 @@ public class CommitDialog extends JDialog {
     private final JTextArea commitMessageArea;
     private final MaterialButton commitButton;
     private final MaterialButton cancelButton;
+    private final JCheckBox gpgSignCheckbox;
     private final transient ContextManager contextManager;
     private final transient GitWorkflow workflowService;
     private final transient List<ProjectFile> filesToCommit;
@@ -85,15 +87,26 @@ public class CommitDialog extends JDialog {
         cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
 
+        gpgSignCheckbox = new JCheckBox("Sign commit");
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cancelButton);
         buttonPanel.add(commitButton);
+
+        var gpgSignPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        gpgSignPanel.setOpaque(false);
+        gpgSignPanel.add(gpgSignCheckbox);
+
+        var bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.setOpaque(false);
+        bottomPanel.add(gpgSignPanel, BorderLayout.CENTER);
+        bottomPanel.add(buttonPanel, BorderLayout.EAST);
 
         // Add padding around the dialog content
         JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         contentPanel.add(scrollPane, BorderLayout.CENTER);
-        contentPanel.add(buttonPanel, BorderLayout.SOUTH);
+        contentPanel.add(bottomPanel, BorderLayout.SOUTH);
 
         add(contentPanel, BorderLayout.CENTER);
 
@@ -127,6 +140,9 @@ public class CommitDialog extends JDialog {
             commitMessageArea.requestFocusInWindow();
             checkCommitButtonState();
         }
+
+        // Set checkbox initial state from global settings
+        gpgSignCheckbox.setSelected(MainProject.isGpgSignCommits());
     }
 
     private void checkCommitButtonState() {
@@ -176,11 +192,13 @@ public class CommitDialog extends JDialog {
         // Disable UI during commit
         commitButton.setEnabled(false);
         cancelButton.setEnabled(false);
+        gpgSignCheckbox.setEnabled(false);
         commitMessageArea.setEnabled(false);
 
         contextManager.submitExclusiveAction(() -> {
             try {
-                GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
+                boolean sign = gpgSignCheckbox.isSelected();
+                GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg, sign);
                 SwingUtilities.invokeLater(() -> {
                     onCommitSuccessCallback.accept(result);
                     dispose();
@@ -188,27 +206,11 @@ public class CommitDialog extends JDialog {
             } catch (Exception ex) {
                 logger.error("Error committing files from dialog:", ex);
                 SwingUtilities.invokeLater(() -> {
-                    String baseMsg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-                    String hint = "";
-                    try {
-                        String lower = baseMsg.toLowerCase(Locale.ROOT);
-                        if (lower.contains("gpg") || lower.contains("sign")) {
-                            hint =
-                                    """
-                                    
-                                    Hint: Ensure GPG is installed, a valid signing key is available, and gpg-agent is running.
-                                    - Verify: git config commit.gpgsign (should be true) and git config user.signingkey (optional)
-                                    - You can disable signing for this repo with: git config commit.gpgsign false
-                                    - Environment override (for this app): BROKK_GIT_SIGN_COMMITS=[1|true|yes]
-                                    """;
-                        }
-                    } catch (Exception ignore) {
-                        // best-effort hint detection
-                    }
-                    chrome.toolError("Error committing files: " + baseMsg + hint, "Commit Error");
+                    chrome.toolError("Error committing files: " + ex.getMessage(), "Commit Error");
                     // Re-enable UI for retry or cancel
                     commitMessageArea.setEnabled(true);
                     cancelButton.setEnabled(true);
+                    gpgSignCheckbox.setEnabled(true);
                     checkCommitButtonState(); // Re-check commit button state
                 });
             }

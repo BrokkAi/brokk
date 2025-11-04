@@ -479,12 +479,10 @@ public class Environment {
     private static ProcessBuilder createProcessBuilder(Path root, String... command) {
         var pb = new ProcessBuilder(command);
         pb.directory(root.toFile());
-        // Redirect input from /dev/null (or NUL on Windows) so interactive prompts fail fast
-        if (isWindows()) {
-            pb.redirectInput(ProcessBuilder.Redirect.from(new File("NUL")));
-        } else {
-            pb.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
-        }
+        // Do not redirect stdin from /dev/null. While this was intended to make interactive
+        // prompts fail fast, it prevents GUI-based prompts like a GPG pinentry from appearing,
+        // causing commands that need user input to hang until they time out. Allowing stdin
+        // to be inherited gives these prompts a chance to run.
         // Remove environment variables that might interfere with non-interactive operation
         pb.environment().remove("EDITOR");
         pb.environment().remove("VISUAL");
