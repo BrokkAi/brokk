@@ -1,0 +1,306 @@
+/* SPDX-FileCopyrightText: 2025 Blender Authors
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later */
+
+#include "testing/testing.h"
+
+#include <algorithm>
+#include <cmath>
+#include <unordered_set>
+#include <vector>
+
+#include "BLI_math_matrix.h"
+#include "BLI_math_rotation.h"
+#include "BLI_math_vector.h"
+
+#include "bmesh.hh"
+
+/* Helpers */
+
+static void axis_angle_rmat_3x3(float rmat[3][3], const float axis[3], float angle)
+{
+  float naxis[3];
+  copy_v3_v3(naxis, axis);
+  normalize_v3(naxis);
+  axis_angle_normalized_to_mat3(rmat, naxis, angle);
+}
+
+/* Compute angle in [0, 2*pi) of (co - cent) around given axis.
+ * For the test axis=(0,0,1) & cent=(0,0,0), this reduces to atan2(y, x).
+ * Implemented generically by projecting onto the plane orthogonal to axis. */
+static float angle_around_axis(const float cent[3], const float axis[3], const float co[3])
+{
+  float v[3];
+  sub_v3_v3v3(v, co, cent);
+
+  /* Build orthonormal basis (u, v, w=axis). */
+  float w[3];
+  copy_v3_v3(w, axis);
+  normalize_v3(w);
+
+  float u[3], tmp[3] = {1.0f, 0.0f, 0.0f};
+  if (fabsf(dot_v3v3(w, tmp)) > 0.99f) {
+    copy_v3_fl3(tmp, 0.0f, 1.0f, 0.0f);
+  }
+  cross_v3_v3v3(u, w, tmp);
+  normalize_v3(u);
+  float vv[3];
+  cross_v3_v3v3(vv, w, u);
+
+  /* Coordinates in the plane: (x=u·v, y=vv·v). */
+  float x = dot_v3v3(u, v);
+  float y = dot_v3v3(vv, v);
+  float a = atan2f(y, x);
+  if (a < 0.0f) {
+    a += 2.0f * float(M_PI);
+  }
+  return a;
+}
+
+static void compute_expected_position(const float r_i[3][3],
+                                      const float cent[3],
+                                      const float p0[3],
+                                      const float t_space[3],
+                                      float r_out[3])
+{
+  float d[3];
+  sub_v3_v3v3(d, p0, cent);
+  float rr[3];
+  copy_v3_v3(rr, d);
+  mul_m3_v3((float(*)[3])r_i, rr);
+  add_v3_v3(rr, cent);
+  add_v3_v3(rr, t_space);
+  copy_v3_v3(r_out, rr);
+}
+
+/* Accumulate screw translation t_accum += R_i * dvec_space for step 'step_index' (1..steps).
+ * Returns t_space_out = float3(t_accum). */
+static void accumulate_screw_translation(const int step_index,
+                                         const int steps,
+                                         const float angle_total,
+                                         const float axis[3],
+                                         const float dvec_space[3],
+                                         double t_accum[3],
+                                         float t_space_out[3])
+{
+  float angle_i = angle_total * (float(step_index) / float(steps));
+  float rmat_i[3][3];
+  axis_angle_rmat_3x3(rmat_i, axis, angle_i);
+  float delta[3];
+  copy_v3_v3(delta, dvec_space);
+  mul_m3_v3(rmat_i, delta);
+  t_accum[0] += double(delta[0]);
+  t_accum[1] += double(delta[1]);
+  t_accum[2] += double(delta[2]);
+  t_space_out[0] = float(t_accum[0]);
+  t_space_out[1] = float(t_accum[1]);
+  t_space_out[2] = float(t_accum[2]);
+}
+
+/* Build a minimal mesh: two verts along +X and a single edge. */
+static void build_single_edge_mesh(BMesh *bm, BMVert **r_v0, BMVert **r_v1, BMEdge **r_e01)
+{
+  const float co0[3] = {1.0f, 0.0f, 0.0f};
+  const float co1[3] = {2.0f, 0.0f, 0.0f};
+  BMVert *v0 = BM_vert_create(bm, co0, nullptr, BM_CREATE_NOP);
+  BMVert *v1 = BM_vert_create(bm, co1, nullptr, BM_CREATE_NOP);
+  BMEdge *e01 = BM_edge_create(bm, v0, v1, nullptr, BM_CREATE_NOP);
+  *r_v0 = v0;
+  *r_v1 = v1;
+  *r_e01 = e01;
+}
+
+/* Return true if vertex 'v' is in 'orig' set. */
+static bool is_original_vert(const std::unordered_set<const BMVert *> &orig, const BMVert *v)
+{
+  return orig.find(v) != orig.end();
+}
+
+static void run_spin_precision_test(int steps, const float angle_total, const float dvec_in[3], float epsilon)
+{
+  BMeshCreateParams params{};
+  params.use_toolflags = true;
+  BMesh *bm = BM_mesh_create(&bm_mesh_allocsize_default, &params);
+
+  BMVert *v0, *v1;
+  BMEdge *e01;
+  build_single_edge_mesh(bm, &v0, &v1, &e01);
+
+  /* Keep originals for filtering. */
+  std::unordered_set<const BMVert *> orig_verts;
+  orig_verts.insert(v0);
+  orig_verts.insert(v1);
+
+  /* Save original coordinates by index after the operator writes indices into v->no. */
+  /* We do not know indices yet, but bmo_spin_exec writes them into v->no at entry,
+   * so we can rely on that for mapping newly created vertices to their originals. */
+
+  /* Prepare operator. */
+  BMOperator op;
+  BMO_op_init(bm, &op, 0, "spin");
+
+  /* Input geometry: pass both verts and the edge. */
+  {
+    BMElem *elems[3];
+    elems[0] = (BMElem *)v0;
+    elems[1] = (BMElem *)v1;
+    elems[2] = (BMElem *)e01;
+    BMO_slot_buffer_from_array(bm, &op, "geom", BM_ALL_NOLOOP, (void **)elems, 3);
+  }
+
+  /* Parameters. */
+  const float cent[3] = {0.0f, 0.0f, 0.0f};
+  const float axis[3] = {0.0f, 0.0f, 1.0f};
+  float dvec[3] = {dvec_in[0], dvec_in[1], dvec_in[2]};
+  float space[4][4];
+  unit_m4(space);
+
+  BMO_slot_vec_set(op.slots_in, "cent", (const float *)cent);
+  BMO_slot_vec_set(op.slots_in, "axis", (const float *)axis);
+  BMO_slot_vec_set(op.slots_in, "dvec", (const float *)dvec);
+  BMO_slot_int_set(op.slots_in, "steps", steps);
+  BMO_slot_float_set(op.slots_in, "angle", angle_total);
+  BMO_slot_mat4_set(op.slots_in, "space", space);
+  BMO_slot_bool_set(op.slots_in, "use_duplicate", true);
+  BMO_slot_bool_set(op.slots_in, "use_merge", false);
+  BMO_slot_bool_set(op.slots_in, "use_normal_flip", false);
+
+  /* Execute. */
+  BMO_op_exec(bm, &op);
+
+  /* Record original positions by the indices stored in 'no'. */
+  /* Build a mapping orig_idx -> P0 (co_orig). */
+  std::vector<float3> co_orig_vec; /* We'll emulate float3 as array below. */
+  {
+    int i = 0;
+    BMIter iter;
+    BMVert *v;
+#if 1
+    /* First pass: find max index so we can size co_orig_vec. */
+    int max_idx = -1;
+    BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
+      if (is_original_vert(orig_verts, v)) {
+        /* bmo_spin_exec writes index to v->no, fetch it. */
+        int idx = *((const int *)&v->no[0]);
+        if (idx > max_idx) {
+          max_idx = idx;
+        }
+      }
+    }
+    co_orig_vec.resize(max_idx + 1);
+    /* Fill co_orig by iterating originals again. */
+    BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
+      if (is_original_vert(orig_verts, v)) {
+        int idx = *((const int *)&v->no[0]);
+        co_orig_vec[idx] = {v->co[0], v->co[1], v->co[2]};
+      }
+    }
+#else
+    (void)i;
+#endif
+  }
+
+  /* Gather new vertices by original index. */
+  std::vector<BMVert *> clones_by_idx0;
+  std::vector<BMVert *> clones_by_idx1;
+  {
+    BMIter iter;
+    BMVert *v;
+    BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
+      if (is_original_vert(orig_verts, v)) {
+        continue;
+      }
+      int idx = *((const int *)&v->no[0]);
+      if (idx == 0) {
+        clones_by_idx0.push_back(v);
+      }
+      else if (idx == 1) {
+        clones_by_idx1.push_back(v);
+      }
+    }
+  }
+
+  /* Sanity: we expect exactly 'steps' clones for each original vertex. */
+  EXPECT_EQ((int)clones_by_idx0.size(), steps);
+  EXPECT_EQ((int)clones_by_idx1.size(), steps);
+
+  /* Sort clones by measured angle so j-th vertex corresponds to step index i=j+1. */
+  auto angle_cmp = [&](BMVert *a, BMVert *b) {
+    float aa = angle_around_axis(cent, axis, a->co);
+    float bb = angle_around_axis(cent, axis, b->co);
+    return aa < bb;
+  };
+  std::sort(clones_by_idx0.begin(), clones_by_idx0.end(), angle_cmp);
+  std::sort(clones_by_idx1.begin(), clones_by_idx1.end(), angle_cmp);
+
+  /* Validate per-step positions for one representative original (idx 0). */
+  {
+    const float p0[3] = {co_orig_vec[0].x, co_orig_vec[0].y, co_orig_vec[0].z};
+    double t_accum[3] = {0.0, 0.0, 0.0};
+    for (int i = 1; i <= steps; i++) {
+      BMVert *v = clones_by_idx0[i - 1];
+
+      float r_i[3][3];
+      axis_angle_rmat_3x3(r_i, axis, angle_total * (float(i) / float(steps)));
+
+      float t_space[3] = {0, 0, 0};
+      if (!is_zero_v3(dvec)) {
+        accumulate_screw_translation(i, steps, angle_total, axis, dvec, t_accum, t_space);
+      }
+
+      float target[3];
+      compute_expected_position(r_i, cent, p0, t_space, target);
+
+      float diff[3];
+      sub_v3_v3v3(diff, v->co, target);
+      float max_abs = std::max(std::fabs(diff[0]), std::max(std::fabs(diff[1]), std::fabs(diff[2])));
+      ASSERT_LE(max_abs, epsilon) << "Step " << i << " deviation too high for orig idx 0";
+    }
+  }
+
+  /* Optionally, validate for the second original as well. */
+  {
+    const float p0[3] = {co_orig_vec[1].x, co_orig_vec[1].y, co_orig_vec[1].z};
+    double t_accum[3] = {0.0, 0.0, 0.0};
+    for (int i = 1; i <= steps; i++) {
+      BMVert *v = clones_by_idx1[i - 1];
+
+      float r_i[3][3];
+      axis_angle_rmat_3x3(r_i, axis, angle_total * (float(i) / float(steps)));
+
+      float t_space[3] = {0, 0, 0};
+      if (!is_zero_v3(dvec)) {
+        accumulate_screw_translation(i, steps, angle_total, axis, dvec, t_accum, t_space);
+      }
+
+      float target[3];
+      compute_expected_position(r_i, cent, p0, t_space, target);
+
+      float diff[3];
+      sub_v3_v3v3(diff, v->co, target);
+      float max_abs = std::max(std::fabs(diff[0]), std::max(std::fabs(diff[1]), std::fabs(diff[2])));
+      ASSERT_LE(max_abs, epsilon) << "Step " << i << " deviation too high for orig idx 1";
+    }
+  }
+
+  BMO_op_finish(bm, &op);
+  BM_mesh_free(bm);
+}
+
+/* Tests */
+
+TEST(BMesh, SpinPrecision_PureRotation)
+{
+  const float angle_total = 1.2345f;
+  const float dvec[3] = {0.0f, 0.0f, 0.0f};
+  run_spin_precision_test(200, angle_total, dvec, 1.0e-6f);
+  run_spin_precision_test(800, angle_total, dvec, 1.0e-6f);
+}
+
+TEST(BMesh, SpinPrecision_Screw)
+{
+  const float angle_total = 1.2345f;
+  const float dvec[3] = {0.01f, 0.02f, 0.003f};
+  run_spin_precision_test(200, angle_total, dvec, 1.0e-5f);
+  run_spin_precision_test(800, angle_total, dvec, 1.0e-5f);
+}
