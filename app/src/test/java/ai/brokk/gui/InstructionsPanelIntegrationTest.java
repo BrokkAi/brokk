@@ -157,6 +157,7 @@ class InstructionsPanelIntegrationTest {
                 warningLevel,
                 "Token count 200,000 (beyond tested range) should produce RED warning");
     }
+
     @Test
     void testCerebrasAbove131kWithinModelLimit_notRedAndTooltipTested() {
         int approxTokens = 200_000; // above 131,071 but within many large-context models
@@ -176,8 +177,38 @@ class InstructionsPanelIntegrationTest {
 
         assertNotNull(tooltip, "Tooltip should not be null");
         // When tested, tooltip should not include 'Untested' messaging
-        assertFalse(tooltip.toLowerCase().contains("untested"), "Tooltip should reflect tested status (no 'Untested').");
+        assertFalse(
+                tooltip.toLowerCase().contains("untested"), "Tooltip should reflect tested status (no 'Untested').");
         // Tooltip should include some reasonable content (the base passed content)
         assertTrue(tooltip.toLowerCase().contains("context"), "Tooltip should include base context content.");
+    }
+
+    @Test
+    void testCerebrasModelWithProviderPrefix_findsBenchmarkData() {
+        // Verify that models with provider prefixes (e.g., "cerebras/qwen3-coder")
+        // correctly match benchmark data stored without prefixes (e.g., "qwen3-coder")
+        var config = new Service.ModelConfig("cerebras/qwen3-coder", Service.ReasoningLevel.DEFAULT);
+        int tokenCount = 50_000; // Within RANGE_32K_65K
+
+        int successRate = ModelBenchmarkData.getSuccessRate(config, tokenCount);
+
+        // qwen3-coder has benchmark data: (73, 57, 32) for ranges (16-32k, 32-65k, 65-131k)
+        // At 50k tokens, should return the 32-65k range value: 57
+        assertEquals(57, successRate, "Cerebras model with provider prefix should find benchmark data");
+    }
+
+    @Test
+    void testCerebrasModelWithSizeSuffix_findsBenchmarkData() {
+        // Verify that models with size suffixes (e.g., "cerebras/qwen-3-coder-480b")
+        // correctly match benchmark data by normalizing to base model name ("qwen3-coder")
+        var config = new Service.ModelConfig("cerebras/qwen-3-coder-480b", Service.ReasoningLevel.DEFAULT);
+        int tokenCount = 56_862; // Within RANGE_32K_65K
+
+        int successRate = ModelBenchmarkData.getSuccessRate(config, tokenCount);
+
+        // qwen-3-coder-480b should normalize to qwen3-coder
+        // qwen3-coder has benchmark data: (73, 57, 32) for ranges (16-32k, 32-65k, 65-131k)
+        // At 56862 tokens, should return the 32-65k range value: 57
+        assertEquals(57, successRate, "Cerebras model with size suffix should find benchmark data via normalization");
     }
 }
