@@ -228,9 +228,9 @@ public final class HeadlessExecutorMain {
      * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
      */
     private static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
-        var parts = path.split("/");
-        if (parts.length >= 4 && "jobs".equals(parts[2])) {
-            return parts[3];
+        var parts = Splitter.on('/').splitToList(path);
+        if (parts.size() >= 4 && "jobs".equals(parts.get(2))) {
+            return parts.get(3);
         }
         return null;
     }
