@@ -7,7 +7,6 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.Component;
 import java.io.IOException;
@@ -23,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Headless implementation of IConsoleIO that maps console I/O events to durable JobEvents.
+ * <p>Inherits MemoryConsole so headless runs retain an in-memory transcript that mirrors GUI/CLI behavior alongside the durable token event log.
  *
  * <p>All methods are non-blocking: events are enqueued into a single-threaded executor
  * that serializes them to the JobStore's event log. This ensures:
@@ -102,14 +102,6 @@ public class HeadlessHttpConsole extends MemoryConsole {
         enqueueEvent("NOTIFICATION", data);
     }
 
-    /**
-     * Headless consoles do not retain an in-memory transcript; callers should reconstruct
-     * token streams from durable LLM_TOKEN events.
-     */
-    @Override
-    public List<ChatMessage> getLlmRawMessages() {
-        return List.of();
-    }
 
     @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
