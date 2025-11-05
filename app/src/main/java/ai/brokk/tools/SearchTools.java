@@ -163,6 +163,7 @@ public class SearchTools {
             """
                     Search for symbols (class/method/field definitions) using static analysis.
                     This should usually be the first step in a search.
+                    Returns symbol names with their file locations for quick navigation.
                     """)
     public String searchSymbols(
             @P(
@@ -193,12 +194,12 @@ public class SearchTools {
         }
 
         var references = allDefinitions.stream()
-                .map(CodeUnit::fqName)
-                .distinct() // Ensure uniqueness
-                .sorted() // Consistent order
-                .toList();
+                .map(cu -> cu.fqName() + " -> " + cu.source().toString())
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining("\n"));
 
-        return String.join(", ", references);
+        return references;
     }
 
     @Tool(
