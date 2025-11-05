@@ -62,7 +62,6 @@ public class Context {
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
-    private static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     private final transient IContextManager contextManager;
 
@@ -961,8 +960,8 @@ public class Context {
 
     /**
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
-     * Accepts both live and frozen contexts. Live contexts should have had ensureFilesSnapshot() pre-called to materialize
-     * computed values for dynamic fragments.
+     * Accepts both live and frozen contexts. This method awaits all async computations (e.g., ComputedValue)
+     * before returning the final diff list.
      */
     public List<DiffEntry> getDiff(Context other) {
         var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
@@ -970,21 +969,34 @@ public class Context {
             return cached;
         }
 
-        var diffs = fragments.stream()
-                .map(cf -> computeDiffForFragment(cf, other))
-                .filter(Objects::nonNull)
-                .toList();
+        // Trigger all async diff computations and collect their futures
+        var diffFutures =
+                fragments.stream().map(cf -> computeDiffForFragment(cf, other)).toList();
 
-        diffCache.put(other.id(), diffs);
-        return diffs;
+        // Wait for all futures to complete (no timeout, wait indefinitely)
+        try {
+            List<DiffEntry> diffs = diffFutures.stream()
+                    .map(CompletableFuture::join) // Wait indefinitely for each future
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            diffCache.put(other.id(), diffs);
+            return diffs;
+        } catch (Exception ex) {
+            logger.error("Error computing diffs between contexts: {}", ex.getMessage(), ex);
+            return List.of();
+        }
     }
 
     /**
-     * Helper method to compute diff for a single fragment against the other context.
-     * Handles ComputedFragment and non-dynamic virtual fragments appropriately.
-     * Live fragments are stored directly in DiffEntry without freezing.
+     * Helper method to compute diff for a single fragment against the other context asynchronously.
+     * Returns a CompletableFuture that completes when all async dependencies (e.g., ComputedValue)
+     * are resolved and the diff is computed.
+     * Triggers async computations but does not block on them.
+     * Errors are logged and result in a placeholder DiffEntry with empty diff.
      */
-    private @Nullable DiffEntry computeDiffForFragment(ContextFragment thisFragment, Context other) {
+    @Blocking
+    private CompletableFuture<@Nullable DiffEntry> computeDiffForFragment(ContextFragment thisFragment, Context other) {
         // Find matching fragment in 'other' context using universal matching semantics
         var otherFragment = other.fragments.stream()
                 .filter(thisFragment::hasSameSource)
@@ -994,100 +1006,134 @@ public class Context {
         if (otherFragment == null) {
             // No matching fragment in 'other'; fragment is either new or was removed
             // For any new fragment (file or virtual), diff against empty
-            var newContent = extractFragmentContent(thisFragment, true);
-            var result = ContentDiffUtils.computeDiffResult(
-                    "", newContent, "old/" + thisFragment.shortDescription(), "new/" + thisFragment.shortDescription());
-            if (result.diff().isEmpty()) {
-                return null;
-            }
-            return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+            return extractFragmentContentAsync(thisFragment, true)
+                    .thenApply(newContent -> {
+                        var result = ContentDiffUtils.computeDiffResult(
+                                "",
+                                newContent,
+                                "old/" + thisFragment.shortDescription(),
+                                "new/" + thisFragment.shortDescription());
+                        if (result.diff().isEmpty()) {
+                            return null;
+                        }
+                        return new DiffEntry(
+                                thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                    })
+                    .exceptionally(ex -> {
+                        logger.warn(
+                                "Error computing diff for new fragment '{}': {}",
+                                thisFragment.shortDescription(),
+                                ex.getMessage(),
+                                ex);
+                        return new DiffEntry(
+                                thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
+                    });
         }
 
-        // Extract content from both fragments
-        String oldContent = extractFragmentContent(otherFragment, false);
-        String newContent = extractFragmentContent(thisFragment, true);
+        // Extract content from both fragments asynchronously
+        var oldContentFuture = extractFragmentContentAsync(otherFragment, false);
+        var newContentFuture = extractFragmentContentAsync(thisFragment, true);
 
         // For image fragments, handle specially
         if (!thisFragment.isText() || !otherFragment.isText()) {
-            return computeImageDiffEntry(thisFragment, otherFragment);
+            return newContentFuture
+                    .thenCombine(oldContentFuture, (nc, oc) -> computeImageDiffEntry(thisFragment, otherFragment))
+                    .exceptionally(ex -> {
+                        logger.warn(
+                                "Error computing image diff for fragment '{}': {}",
+                                thisFragment.shortDescription(),
+                                ex.getMessage(),
+                                ex);
+                        return new DiffEntry(
+                                thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]");
+                    });
         }
 
-        int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-        int newLineCount = newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-        logger.trace(
-                "getDiff: fragment='{}' id={} oldLines={} newLines={}",
-                thisFragment.shortDescription(),
-                id,
-                oldLineCount,
-                newLineCount);
+        // For text fragments, combine both content futures and compute diff
+        return oldContentFuture
+                .thenCombine(newContentFuture, (oldContent, newContent) -> {
+                    int oldLineCount =
+                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+                    int newLineCount =
+                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+                    logger.trace(
+                            "getDiff: fragment='{}' id={} oldLines={} newLines={}",
+                            thisFragment.shortDescription(),
+                            id,
+                            oldLineCount,
+                            newLineCount);
 
-        var result = ContentDiffUtils.computeDiffResult(
-                oldContent,
-                newContent,
-                "old/" + thisFragment.shortDescription(),
-                "new/" + thisFragment.shortDescription());
+                    var result = ContentDiffUtils.computeDiffResult(
+                            oldContent,
+                            newContent,
+                            "old/" + thisFragment.shortDescription(),
+                            "new/" + thisFragment.shortDescription());
 
-        logger.trace(
-                "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                thisFragment.shortDescription(),
-                result.added(),
-                result.deleted(),
-                result.diff().isEmpty());
+                    logger.trace(
+                            "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
+                            thisFragment.shortDescription(),
+                            result.added(),
+                            result.deleted(),
+                            result.diff().isEmpty());
 
-        if (result.diff().isEmpty()) {
-            return null;
-        }
+                    if (result.diff().isEmpty()) {
+                        return null;
+                    }
 
-        // Store live fragment directly in DiffEntry
-        return new DiffEntry(thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+                    // Store live fragment directly in DiffEntry
+                    return new DiffEntry(
+                            thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+                })
+                .exceptionally(ex -> {
+                    logger.warn(
+                            "Error computing diff for fragment '{}': {}",
+                            thisFragment.shortDescription(),
+                            ex.getMessage(),
+                            ex);
+                    return new DiffEntry(
+                            thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
+                });
     }
 
     /**
-     * Extract text content from a fragment, handling FrozenFragment, ComputedFragment, and non-dynamic fragments.
-     * Uses appropriate timeouts and fallback logic to avoid blocking the UI.
+     * Extract text content from a fragment asynchronously.
+     * Returns a CompletableFuture that completes with the fragment's text content.
+     * For ComputedFragment, triggers the computation and chains it properly.
+     * For non-dynamic fragments, returns an already-completed future.
      */
-    private String extractFragmentContent(ContextFragment fragment, boolean isNew) {
+    private CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
         try {
-            // ComputedFragment: try non-blocking access first, fall back to bounded await
+            // ComputedFragment: chain the computed text future
             if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var tryGetResult = cf.computedText().tryGet();
-                if (tryGetResult.isPresent()) {
-                    return tryGetResult.get();
-                }
-
-                // Fall back to bounded await with appropriate timeout based on fragment type
-                Duration timeout = getTimeoutForFragmentType(fragment);
-                var awaitResult = cf.computedText().await(timeout);
-                if (awaitResult.isPresent()) {
-                    return awaitResult.get();
-                } else {
+                var computedTextFuture = cf.computedText().future();
+                return computedTextFuture.exceptionally(ex -> {
                     logger.warn(
-                            "Timeout or cancelled waiting for computed text of {} fragment '{}' (timeout={}ms); continuing with empty content. "
-                                    + "Fragment may not have been pre-warmed by ensureFilesSnapshot().",
+                            "Error computing text for {} fragment '{}': {}",
                             fragment.getClass().getSimpleName(),
                             fragment.shortDescription(),
-                            timeout.toMillis());
+                            ex.getMessage(),
+                            ex);
                     return "";
-                }
+                });
             }
 
-            // Non-dynamic virtual fragments: use text() directly (non-blocking)
-            return fragment.text();
-        } catch (java.util.concurrent.CancellationException e) {
-            logger.warn(
-                    "Computation cancelled for {} fragment '{}'; continuing with empty content. Cause: {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return "";
+            // Non-dynamic virtual fragments: use text() directly and wrap in completed future
+            return CompletableFuture.completedFuture(fragment.text());
         } catch (UncheckedIOException e) {
             logger.warn(
-                    "IO error reading content for {} fragment '{}' ({}); skipping from diff. Cause: {}",
+                    "IO error reading content for {} fragment '{}' ({}): {}",
                     fragment.getClass().getSimpleName(),
                     fragment.shortDescription(),
                     isNew ? "new" : "old",
                     e.getMessage());
-            return "";
+            return CompletableFuture.completedFuture("");
+        } catch (java.util.concurrent.CancellationException e) {
+            logger.warn(
+                    "Computation cancelled for {} fragment '{}': {}",
+                    fragment.getClass().getSimpleName(),
+                    fragment.shortDescription(),
+                    e.getMessage());
+            return CompletableFuture.completedFuture("");
         } catch (Exception e) {
             logger.error(
                     "Unexpected error extracting content for {} fragment '{}': {}",
@@ -1095,20 +1141,8 @@ public class Context {
                     fragment.shortDescription(),
                     e.getMessage(),
                     e);
-            return "";
+            return CompletableFuture.completedFuture("");
         }
-    }
-
-    /**
-     * Determine the appropriate timeout for a fragment type.
-     * Most fragments use SNAPSHOT_AWAIT_TIMEOUT; expensive operations like Usage and CallGraph use longer timeout.
-     */
-    private Duration getTimeoutForFragmentType(ContextFragment fragment) {
-        if (fragment instanceof ContextFragment.UsageFragment
-                || fragment instanceof ContextFragment.CallGraphFragment) {
-            return Duration.ofMinutes(1);
-        }
-        return SNAPSHOT_AWAIT_TIMEOUT;
     }
 
     /**
