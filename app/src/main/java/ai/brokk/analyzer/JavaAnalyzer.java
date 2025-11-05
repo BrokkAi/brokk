@@ -369,6 +369,45 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
      * (string literal) for fast extraction; falls back to manual field traversal if needed.
      */
     @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
+
+        for (String importLine : importStatements) {
+            if (importLine.isBlank()) continue;
+
+            String normalized = importLine.strip();
+            if (!normalized.startsWith("import ")) continue;
+            if (normalized.startsWith("import static ")) continue;
+
+            if (normalized.endsWith(";")) {
+                normalized = normalized.substring(0, normalized.length() - 1).trim();
+            }
+            normalized = normalized.substring("import ".length()).trim();
+
+            if (normalized.endsWith(".*")) {
+                // Wildcard import: resolve all classes in the package
+                String packageName =
+                        normalized.substring(0, normalized.length() - 2).trim();
+                String pattern = "^" + Pattern.quote(packageName) + "\\.[A-Z][a-zA-Z0-9_]*$";
+                List<CodeUnit> classesInPackage = searchDefinitions(pattern);
+                for (CodeUnit cu : classesInPackage) {
+                    if (cu.isClass()) {
+                        resolved.add(cu);
+                    }
+                }
+            } else if (!normalized.isEmpty()) {
+                // Explicit import: try to find the exact class
+                Optional<CodeUnit> found = getDefinition(normalized);
+                if (found.isPresent() && found.get().isClass()) {
+                    resolved.add(found.get());
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    @Override
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
@@ -386,91 +425,5 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         }
 
         return JavaTypeAnalyzer.compute(cu, tree, src, getTSLanguage(), this::textSlice, this::searchDefinitions);
-
-        // Parse import statements from this file for resolution assistance.
-        //        List<String> importLines = importStatementsOf(cu.source());
-        //        Map<String, String> explicitImports = new LinkedHashMap<>(); // simpleName -> FQCN
-        //        List<String> wildcardPackages = new ArrayList<>(); // package prefixes from .* imports
-        //        for (String line : importLines) {
-        //            if (line.isBlank()) continue;
-        //            String t = line.strip();
-        //            if (!t.startsWith("import ")) continue;
-        //            if (t.startsWith("import static ")) continue; // ignore static imports
-        //
-        //            if (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
-        //            t = t.substring("import ".length()).trim();
-        //
-        //            if (t.endsWith(".*")) {
-        //                String pkg = t.substring(0, t.length() - 2).trim();
-        //                if (!pkg.isEmpty()) wildcardPackages.add(pkg);
-        //                continue;
-        //            }
-        //
-        //            if (!t.isEmpty()) {
-        //                String fq = t;
-        //                int lastDot = fq.lastIndexOf('.');
-        //                if (lastDot > 0 && lastDot < fq.length() - 1) {
-        //                    String simple = fq.substring(lastDot + 1);
-        //                    explicitImports.putIfAbsent(simple, fq);
-        //                }
-        //            }
-        //        }
-        //
-        //        // Resolve collected raw names to known CodeUnits using imports/package/search
-        //        List<CodeUnit> resolved = new ArrayList<>(rawNames.size());
-        //        for (String raw : rawNames) {
-        //            if (raw.isEmpty()) continue;
-        //
-        //            String normalized = normalizeFullName(raw).trim();
-        //            String simpleName =
-        //                    normalized.contains(".") ? normalized.substring(normalized.lastIndexOf('.') + 1) :
-        // normalized;
-        //
-        //            LinkedHashSet<String> candidates = new LinkedHashSet<>();
-        //
-        //            if (normalized.contains(".")) {
-        //                candidates.add(normalized);
-        //            }
-        //            String explicit = explicitImports.get(simpleName);
-        //            if (explicit != null && !explicit.isBlank()) {
-        //                candidates.add(explicit);
-        //            }
-        //            for (String wp : wildcardPackages) {
-        //                candidates.add(wp + "." + simpleName);
-        //            }
-        //            if (!cu.packageName().isEmpty()) {
-        //                candidates.add(cu.packageName() + "." + simpleName);
-        //            }
-        //            candidates.add(simpleName);
-        //
-        //            CodeUnit match = null;
-        //            for (String fq : candidates) {
-        //                var def = getDefinition(fq);
-        //                if (def.isPresent() && def.get().isClass()) {
-        //                    match = def.get();
-        //                    break;
-        //                }
-        //            }
-        //
-        //            if (match == null) {
-        //                String pattern = ".*\\." + Pattern.quote(simpleName) + "$";
-        //                var options = searchDefinitions(pattern).stream()
-        //                        .filter(CodeUnit::isClass)
-        //                        .toList();
-        //
-        //                if (!options.isEmpty()) {
-        //                    Optional<CodeUnit> samePkg = options.stream()
-        //                            .filter(o -> o.packageName().equals(cu.packageName()))
-        //                            .findFirst();
-        //                    match = samePkg.orElse(options.getFirst());
-        //                }
-        //            }
-        //
-        //            if (match != null) {
-        //                resolved.add(match);
-        //            }
-        //        }
-        //
-        //        return List.copyOf(resolved);
     }
 }

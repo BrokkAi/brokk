@@ -113,12 +113,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param topLevelCodeUnits the top-level code units.
      * @param parsedTree        the corresponding parse tree.
      * @param importStatements  imports found on this file.
+     * @param resolvedImports   resolved CodeUnits from import statements.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits, @Nullable TSTree parsedTree, List<String> importStatements) {
+            List<CodeUnit> topLevelCodeUnits,
+            @Nullable TSTree parsedTree,
+            List<String> importStatements,
+            Set<CodeUnit> resolvedImports) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), null, Collections.emptyList());
+            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), Set.of());
         }
     }
 
@@ -406,6 +410,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Populate supertypes/basetypes after initial parse+ingest
         this.state = runTypeAnalysis(this.state);
 
+        // Resolve imports for all files
+        this.state = runImportResolution(this.state);
+
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
@@ -461,7 +468,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         e -> new FileProperties(
                                 e.getValue().topLevelCodeUnits(),
                                 null,
-                                e.getValue().importStatements())));
+                                e.getValue().importStatements(),
+                                e.getValue().resolvedImports())));
         this.state = new AnalyzerState(
                 current.symbolIndex(),
                 current.codeUnitState(),
@@ -540,6 +548,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return fileProperties(file).importStatements();
+    }
+
+    /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    public Set<CodeUnit> resolvedImportsOf(ProjectFile file) {
+        return fileProperties(file).resolvedImports();
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
@@ -3115,7 +3133,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         targetFileState.put(
                 pf,
                 new FileProperties(
-                        analysisResult.topLevelCUs(), analysisResult.parsedTree(), analysisResult.importStatements()));
+                        analysisResult.topLevelCUs(),
+                        analysisResult.parsedTree(),
+                        analysisResult.importStatements(),
+                        Set.of()));
 
         long __mergeEnd = System.nanoTime();
         if (timing != null) {
@@ -3331,7 +3352,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         long detectMs = System.currentTimeMillis() - detectStartMs;
 
-        // reuse the existing incremental logic
+        // reuse the existing incremental logic, then recompute type and import analysis
         long updateStartMs = System.currentTimeMillis();
         var analyzer = update(changed);
         long updateMs = System.currentTimeMillis() - updateStartMs;
@@ -3356,6 +3377,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
         return List.of();
+    }
+
+    /**
+     * Overridable hook to resolve import statements to concrete CodeUnits for a given file.
+     * Default implementation returns an empty set. Subclasses can override to provide language-specific
+     * import resolution logic.
+     *
+     * @param file           the project file being analyzed
+     * @param importStatements the raw import statement strings from the file
+     * @return a set of resolved CodeUnits corresponding to the imports
+     */
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return Set.of();
     }
 
     /**
@@ -3399,6 +3433,59 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     baseState.snapshotEpochNanos());
         } catch (Throwable t) {
             log.warn("runTypeAnalysis encountered an error: {}", t.getMessage(), t);
+            // On error, return the original state unchanged
+            return baseState;
+        } finally {
+            // Restore original state
+            this.state = previous;
+        }
+    }
+
+    /**
+     * Runs the import-resolution pass to resolve import statements to concrete CodeUnits for all files.
+     * Returns a new immutable AnalyzerState with resolved imports populated in FileProperties,
+     * leaving the input state unmodified.
+     *
+     * This method temporarily installs the provided baseState into this analyzer so that helper methods
+     * (e.g., searchDefinitions) operate against the same snapshot while computing.
+     */
+    protected AnalyzerState runImportResolution(AnalyzerState baseState) {
+        AnalyzerState previous = this.state;
+        try {
+            // Ensure helper methods read from the provided snapshot while computing
+            this.state = baseState;
+
+            // Start with a mutable copy of the file state
+            Map<ProjectFile, FileProperties> updated = new HashMap<>(baseState.fileState());
+
+            for (var entry : baseState.fileState().entrySet()) {
+                var file = entry.getKey();
+                var fileProps = entry.getValue();
+
+                Set<CodeUnit> resolvedImports = resolveImports(file, fileProps.importStatements());
+
+                // Only update if resolved imports differ from empty (optimization to avoid unnecessary map updates)
+                if (!resolvedImports.isEmpty() || !fileProps.resolvedImports().isEmpty()) {
+                    updated.put(
+                            file,
+                            new FileProperties(
+                                    fileProps.topLevelCodeUnits(),
+                                    fileProps.parsedTree(),
+                                    fileProps.importStatements(),
+                                    Collections.unmodifiableSet(resolvedImports)));
+                }
+            }
+
+            // Rebuild immutable map and AnalyzerState snapshot
+            var nextFileState = HashTreePMap.from(updated);
+            return new AnalyzerState(
+                    baseState.symbolIndex(),
+                    baseState.codeUnitState(),
+                    nextFileState,
+                    baseState.symbolKeyIndex(),
+                    baseState.snapshotEpochNanos());
+        } catch (Throwable t) {
+            log.warn("runImportResolution encountered an error: {}", t.getMessage(), t);
             // On error, return the original state unchanged
             return baseState;
         } finally {
