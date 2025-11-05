@@ -2571,14 +2571,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         restorer.restore(gitState);
     }
 
-    // Convert a throwable to a string with full stack trace
-    private String getStackTraceAsString(Throwable throwable) {
-        var sw = new java.io.StringWriter();
-        var pw = new java.io.PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
-    }
-
     /**
      * Override the active {@link IConsoleIO}. Intended for headless execution: callers should install
      * their console implementation before starting a job and restore the previous console around the job run.
