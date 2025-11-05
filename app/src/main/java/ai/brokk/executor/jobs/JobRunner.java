@@ -277,8 +277,10 @@ public final class JobRunner {
                         current = current.completed(null);
                         logger.info("Job {} completed successfully", jobId);
                     }
-                    long lastSeq = console.getLastSeq();
-                    current = current.withMetadata("lastSeq", Long.toString(lastSeq));
+                    if (console != null) {
+                        long lastSeq = console.getLastSeq();
+                        current = current.withMetadata("lastSeq", Long.toString(lastSeq));
+                    }
                     store.updateStatus(jobId, current);
                 }
 
@@ -290,10 +292,12 @@ public final class JobRunner {
                 var errorMessage = formatThrowableMessage(failure);
 
                 // Emit error event
-                try {
-                    console.toolError(errorMessage, "Job error");
-                } catch (Throwable ignore) {
-                    // Non-critical: event writing failed
+                if (console != null) {
+                    try {
+                        console.toolError(errorMessage, "Job error");
+                    } catch (Throwable ignore) {
+                        // Non-critical: event writing failed
+                    }
                 }
 
                 // Update status to FAILED
@@ -303,8 +307,10 @@ public final class JobRunner {
                         s = JobStatus.queued(jobId);
                     }
                     s = s.failed(errorMessage);
-                    long lastSeq = console.getLastSeq();
-                    s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                    if (console != null) {
+                        long lastSeq = console.getLastSeq();
+                        s = s.withMetadata("lastSeq", Long.toString(lastSeq));
+                    }
                     store.updateStatus(jobId, s);
                 } catch (Exception e2) {
                     logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
@@ -313,10 +319,12 @@ public final class JobRunner {
                 future.completeExceptionally(failure);
             } finally {
                 // Clean up
-                try {
-                    console.shutdown(5);
-                } catch (Throwable ignore) {
-                    // Non-critical: shutdown failed
+                if (console != null) {
+                    try {
+                        console.shutdown(5);
+                    } catch (Throwable ignore) {
+                        // Non-critical: shutdown failed
+                    }
                 }
                 // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
                 // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is
