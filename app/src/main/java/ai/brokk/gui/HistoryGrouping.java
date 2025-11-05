@@ -54,15 +54,7 @@ public final class HistoryGrouping {
             String label,
             List<Context> children,
             boolean shouldShowHeader,
-            boolean isLastGroup) {
-
-        public GroupDescriptor {
-            Objects.requireNonNull(type, "type");
-            Objects.requireNonNull(key, "key");
-            Objects.requireNonNull(label, "label");
-            Objects.requireNonNull(children, "children");
-        }
-    }
+            boolean isLastGroup) {}
 
     public static final class GroupingBuilder {
         private GroupingBuilder() {}
@@ -139,7 +131,12 @@ public final class HistoryGrouping {
                             .orElse(null);
 
                     out.add(new GroupDescriptor(
-                            GroupType.GROUP_BY_ID, groupId.toString(), preferredLabel, children, true, false));
+                            GroupType.GROUP_BY_ID,
+                            groupId.toString(),
+                            preferredLabel != null ? preferredLabel : groupId.toString(),
+                            children,
+                            true,
+                            false));
                     i = j;
                 } else {
                     // If this item is a boundary and ungrouped, it must not be absorbed into a legacy run.
@@ -184,7 +181,7 @@ public final class HistoryGrouping {
         }
 
         private static String safeFirstWord(String text) {
-            if (text == null || text.isBlank()) {
+            if (text.isBlank()) {
                 return "";
             }
             int idx = text.indexOf(' ');
@@ -195,25 +192,19 @@ public final class HistoryGrouping {
     /**
      * Build a mapping from Context.id to the visible row index in the given JTable.
      * Visible children map to their own row; children of collapsed groups map to the group's header row.
-     * If the table is null, returns an empty map. If descriptors are null or empty, maps only currently
-     * visible Context rows (collapsed children cannot be resolved to headers without descriptors).
+     * If descriptors are empty, maps only currently visible Context rows (collapsed children cannot be
+     * resolved to headers without descriptors).
      */
     public static java.util.Map<java.util.UUID, Integer> buildContextToRowMap(
             java.util.List<GroupDescriptor> descriptors, javax.swing.JTable table) {
-        if (table == null) {
-            return java.util.Map.of();
-        }
-
         // Index descriptors by UUID key (groupId for id-groups; first-child id for legacy action groups)
         var byKey = new HashMap<java.util.UUID, GroupDescriptor>();
-        if (descriptors != null) {
-            for (var gd : descriptors) {
-                try {
-                    var keyUuid = java.util.UUID.fromString(gd.key());
-                    byKey.put(keyUuid, gd);
-                } catch (IllegalArgumentException ignored) {
-                    // skip malformed keys
-                }
+        for (var gd : descriptors) {
+            try {
+                var keyUuid = java.util.UUID.fromString(gd.key());
+                byKey.put(keyUuid, gd);
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed keys
             }
         }
 

@@ -1,6 +1,5 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -416,7 +415,7 @@ public final class PythonAnalyzerTest {
 
         // Verify methods are properly attached as children of their classes
         for (var localClass : scopedLocalClasses) {
-            var children = analyzer.getSubDeclarations(localClass);
+            var children = analyzer.getDirectChildren(localClass);
             assertEquals(
                     1,
                     children.size(),
@@ -707,12 +706,12 @@ public final class PythonAnalyzerTest {
                 "DeepLocal should use consistent $ separation throughout");
 
         // Verify parent-child relationships work correctly
-        var innerChildren = analyzer.getSubDeclarations(innerLocal);
+        var innerChildren = analyzer.getDirectChildren(innerLocal);
         assertTrue(
                 innerChildren.stream().anyMatch(cu -> cu.equals(deepLocal)),
                 "InnerLocal should have DeepLocal as child");
 
-        var outerChildren = analyzer.getSubDeclarations(outerLocal);
+        var outerChildren = analyzer.getDirectChildren(outerLocal);
         assertTrue(
                 outerChildren.stream().anyMatch(cu -> cu.equals(innerLocal)),
                 "OuterLocal should have InnerLocal as child");
@@ -792,7 +791,7 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.fqName().equals("_PrivateClass"))
                 .findFirst()
                 .orElseThrow();
-        var privateClassChildren = analyzer.getSubDeclarations(privateClass);
+        var privateClassChildren = analyzer.getDirectChildren(privateClass);
         assertTrue(
                 privateClassChildren.stream().anyMatch(cu -> cu.equals(nestedClass)),
                 "_PrivateClass should have NestedClass as child");
@@ -850,7 +849,7 @@ public final class PythonAnalyzerTest {
                 "FirstLocal should NOT exist - first function definition was replaced");
 
         // Verify parent-child relationship
-        var functionChildren = analyzer.getSubDeclarations(myFunction);
+        var functionChildren = analyzer.getDirectChildren(myFunction);
         assertEquals(1, functionChildren.size(), "my_function should have exactly 1 child (SecondLocal)");
         assertTrue(
                 functionChildren.stream().anyMatch(cu -> cu.equals(secondLocal)),
@@ -875,7 +874,7 @@ public final class PythonAnalyzerTest {
                 .orElseThrow(() -> new AssertionError("TestDuplicates class not found"));
 
         // Get children of TestDuplicates
-        var children = analyzer.getSubDeclarations(testDuplicatesClass);
+        var children = analyzer.getDirectChildren(testDuplicatesClass);
 
         // 1. Test duplicate method - should have only 1 "method" (last wins)
         var methods = children.stream()
@@ -945,14 +944,14 @@ public final class PythonAnalyzerTest {
                 "Local class FQN should be in package with function-local naming");
 
         // Verify parent-child relationship
-        var functionChildren = analyzer.getSubDeclarations(myFunction);
+        var functionChildren = analyzer.getDirectChildren(myFunction);
         assertEquals(1, functionChildren.size(), "my_function should have exactly 1 child (LocalClass)");
         assertTrue(
                 functionChildren.stream().anyMatch(cu -> cu.equals(localClass)),
                 "my_function should have LocalClass as child");
 
         // Verify the local class has a method
-        var classChildren = analyzer.getSubDeclarations(localClass);
+        var classChildren = analyzer.getDirectChildren(localClass);
         assertEquals(1, classChildren.size(), "LocalClass should have exactly 1 method");
         var method = classChildren.stream().findFirst().orElseThrow();
         // Methods in function-local classes use dot notation throughout (not $)
