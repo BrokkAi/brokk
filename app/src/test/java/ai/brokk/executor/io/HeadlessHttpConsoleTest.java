@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
@@ -638,6 +639,18 @@ class HeadlessHttpConsoleTest {
         assertEquals(ChatMessageType.AI, message.type());
         var aiMessage = (AiMessage) message;
         assertEquals("Hello world", aiMessage.text());
+    }
+
+    @Test
+    void testGetLlmRawMessages_ReturnsUnmodifiableSnapshot() {
+        console.llmOutput("Hello", ChatMessageType.AI, true, false);
+        console.llmOutput(" world", ChatMessageType.AI, false, false);
+
+        var snapshot = console.getLlmRawMessages();
+
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.add(AiMessage.from("oops")));
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.remove(0));
+        assertThrows(UnsupportedOperationException.class, snapshot::clear);
     }
 
     @Test
