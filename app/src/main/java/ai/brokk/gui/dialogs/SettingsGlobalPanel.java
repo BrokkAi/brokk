@@ -851,6 +851,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         appearancePanel.add(wordWrapCheckbox, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
+
+        // Diff View
+        gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Diff View:"), gbc);
+
+        var diffViewGroup = new ButtonGroup();
+        diffViewGroup.add(diffSideBySideRadio);
+        diffViewGroup.add(diffUnifiedRadio);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(diffSideBySideRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(diffUnifiedRadio, gbc);
+
+        gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
         //
         // Detect JetBrains Runtime (JBR) and defer to its HiDPI handling if present
         var vmVendor = System.getProperty("java.vm.vendor", "");
