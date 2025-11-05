@@ -1453,6 +1453,7 @@ public class BlitzForgeDialog extends JDialog {
         // Per-file processor: mirrors the previous dialog's processSingleFile logic
         return engine.executeParallel(filesToProcessList, file -> {
             if (Thread.currentThread().isInterrupted()) {
+                logger.debug("BlitzForge per-file interruption observed for {} on thread {}", file, Thread.currentThread().getName());
                 return new BlitzForge.FileResult(file, false, "Cancelled by user.", "");
             }
 
