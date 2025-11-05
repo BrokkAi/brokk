@@ -448,12 +448,6 @@ public class ArchitectAgent {
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
-            io.llmOutput(
-                    "\nTool call(s): %s"
-                            .formatted(deduplicatedRequests.stream()
-                                    .map(req -> "`" + req.name() + "`")
-                                    .collect(Collectors.joining(", "))),
-                    ChatMessageType.AI);
 
             // execute tool calls in the following order:
             // 1. projectFinished
