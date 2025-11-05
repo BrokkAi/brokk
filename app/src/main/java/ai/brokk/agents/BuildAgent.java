@@ -170,7 +170,7 @@ public class BuildAgent {
             // 4. Add tools
             // Get specifications for ALL tools the agent might use in this turn, from the local registry.
             var tools = new ArrayList<>(
-                    tr.getTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContent")));
+                    tr.getTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
                 tools.addAll(tr.getTools(List.of("reportBuildDetails", "abortBuildDetails")));

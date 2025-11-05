@@ -556,7 +556,7 @@ public class SearchAgent {
         names.add("searchSubstrings");
         names.add("searchGitCommitMessages");
         names.add("searchFilenames");
-        names.add("getFileContent");
+        names.add("getFileContents");
         names.add("getFileSummaries");
 
         // Workspace curation
@@ -670,7 +670,7 @@ public class SearchAgent {
                     "searchFilenames",
                     "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContent", "getFileSummaries", "getFiles" -> 8;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
 
             case "createTaskList" -> 100;
             case "answer", "workspaceComplete" -> 101; // should never co-occur
@@ -1014,7 +1014,7 @@ public class SearchAgent {
                         "searchSubstrings",
                         "searchFilenames",
                         "searchGitCommitMessages",
-                        "getFileContent",
+                        "getFileContents",
                         "getFileSummaries")
                 .contains(toolName);
     }

@@ -220,7 +220,7 @@ public class ArchitectAgent {
 
     /**
      * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
-     * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContent). The results are added
+     * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
      * as a context fragment.
      */
     @Tool(

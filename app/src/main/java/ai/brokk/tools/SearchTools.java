@@ -607,38 +607,55 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full contents of the specified file. Use this after searchFilenames or searchSubstrings, or when you need the content of a **non-code** file.
-                    Prefer getFileSummaries for code files first to get a quick overview. Huge files may be summarized.
-                    You can call the tool multiple times in parallel for multiple files.
+                    Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
+                    This can be expensive for large files.
                     """)
-    public String getFileContent(@P("Filename (relative to project root) to retrieve contents for.") String filename) {
-        if (filename.isBlank()) {
-            throw new IllegalArgumentException("Cannot get file contents: filename is empty");
+    public String getFileContents(@P("List of filenames (relative to project root) to retrieve contents for.") List<String> filenames) {
+        if (filenames.isEmpty()) {
+            throw new IllegalArgumentException("Cannot get file contents: filenames list is empty");
         }
 
-        logger.debug("Getting contents for file: {}", filename);
+        logger.debug("Getting contents for files: {}", filenames);
 
-        try {
-            var file = contextManager.toFile(filename);
-            if (!file.exists()) {
-                return "File not found: " + filename;
+        StringBuilder result = new StringBuilder();
+        boolean anySuccess = false;
+
+        for (String filename : filenames.stream().distinct().toList()) {
+            try {
+                var file = contextManager.toFile(filename); // Use contextManager
+                if (!file.exists()) {
+                    logger.debug("File not found or not a regular file: {}", file);
+                    continue;
+                }
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) {
+                    logger.debug("Skipping unreadable file: {}", filename);
+                    continue;
+                }
+                var content = contentOpt.get();
+                if (result.length() > 0) {
+                    result.append("\n\n");
+                }
+                result.append(
+                        """
+                                ```%s
+                                %s
+                                ```
+                                """
+                                .stripIndent()
+                                .formatted(filename, content));
+                anySuccess = true;
+            } catch (Exception e) {
+                logger.error("Unexpected error getting content for {}: {}", filename, e.getMessage());
+                // Continue to next file
             }
-            var contentOpt = file.read();
-            if (contentOpt.isEmpty()) {
-                return "File is not readable: " + filename;
-            }
-            var content = contentOpt.get();
-            return """
-                    ```%s
-                    %s
-                    ```
-                    """
-                    .stripIndent()
-                    .formatted(filename, content);
-        } catch (Exception e) {
-            logger.error("Unexpected error getting content for {}: {}", filename, e.getMessage());
-            return "Error reading file: " + filename + " - " + e.getMessage();
         }
+
+        if (!anySuccess) {
+            return "None of the requested files could be read: " + String.join(", ", filenames);
+        }
+
+        return result.toString();
     }
 
     // Only includes project files. Is this what we want?
