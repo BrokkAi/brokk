@@ -131,8 +131,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
         var decision = defaultDecisionFor(optionType);
-        emitConfirmRequestEvent(
-                message != null ? message : "", title != null ? title : "", optionType, messageType, decision);
+        emitConfirmRequestEvent(message, title, optionType, messageType, decision);
         return decision;
     }
 

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
-import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -42,7 +41,6 @@ public record JobSpec(TaskType type, TaskSpecification tasks, @Nullable JobOptio
      */
     public record TaskIndices(List<Integer> indices) implements TaskSpecification {
         public TaskIndices {
-            Objects.requireNonNull(indices, "indices must not be null");
             if (indices.isEmpty()) {
                 throw new IllegalArgumentException("indices must not be empty");
             }
@@ -55,7 +53,6 @@ public record JobSpec(TaskType type, TaskSpecification tasks, @Nullable JobOptio
      */
     public record TaskText(List<String> text) implements TaskSpecification {
         public TaskText {
-            Objects.requireNonNull(text, "text must not be null");
             if (text.isEmpty()) {
                 throw new IllegalArgumentException("text must not be empty");
             }
@@ -91,13 +88,5 @@ public record JobSpec(TaskType type, TaskSpecification tasks, @Nullable JobOptio
         public static JobOptions of(@JsonProperty("autoCompress") boolean autoCompress) {
             return new JobOptions(autoCompress, null);
         }
-    }
-
-    /**
-     * Validate that type and tasks are non-null.
-     */
-    public JobSpec {
-        Objects.requireNonNull(type, "type must not be null");
-        Objects.requireNonNull(tasks, "tasks must not be null");
     }
 }

@@ -2,7 +2,6 @@ package ai.brokk.executor.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Represents a single event in a job's event log.
@@ -24,11 +23,9 @@ public record JobEvent(long seq, long ts, @JsonProperty("type") String eventType
         if (ts < 0) {
             throw new IllegalArgumentException("ts must be non-negative, got: " + ts);
         }
-        Objects.requireNonNull(eventType, "eventType must not be null");
         if (eventType.isBlank()) {
             throw new IllegalArgumentException("eventType must not be blank");
         }
-        Objects.requireNonNull(payload, "payload must not be null");
     }
 
     /**

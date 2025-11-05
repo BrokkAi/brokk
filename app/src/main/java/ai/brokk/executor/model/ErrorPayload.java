@@ -1,6 +1,5 @@
 package ai.brokk.executor.model;
 
-import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -16,11 +15,9 @@ public record ErrorPayload(String code, String message, @Nullable String details
      * Validate that code and message are non-blank.
      */
     public ErrorPayload {
-        Objects.requireNonNull(code, "code must not be null");
         if (code.isBlank()) {
             throw new IllegalArgumentException("code must not be blank");
         }
-        Objects.requireNonNull(message, "message must not be null");
         if (message.isBlank()) {
             throw new IllegalArgumentException("message must not be blank");
         }

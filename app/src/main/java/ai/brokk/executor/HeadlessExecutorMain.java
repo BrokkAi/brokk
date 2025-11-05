@@ -404,7 +404,7 @@ public final class HeadlessExecutorMain {
             }
 
             var plannerModel = jobSpec.plannerModel();
-            if (plannerModel == null || plannerModel.isBlank()) {
+            if (plannerModel.isBlank()) {
                 var error = ErrorPayload.validationError("plannerModel is required");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
@@ -568,33 +568,33 @@ public final class HeadlessExecutorMain {
 
             // Get configuration from args or environment
             var execIdStr = getConfigValue(parsedArgs, "exec-id", "EXEC_ID");
-            if (execIdStr == null || execIdStr.isBlank()) {
+            if (execIdStr.isBlank()) {
                 throw new IllegalArgumentException(
                         "EXEC_ID must be provided via --exec-id argument or EXEC_ID environment variable");
             }
             var execId = UUID.fromString(execIdStr);
 
             var listenAddr = getConfigValue(parsedArgs, "listen-addr", "LISTEN_ADDR");
-            if (listenAddr == null || listenAddr.isBlank()) {
+            if (listenAddr.isBlank()) {
                 throw new IllegalArgumentException(
                         "LISTEN_ADDR must be provided via --listen-addr argument or LISTEN_ADDR environment variable");
             }
 
             var authToken = getConfigValue(parsedArgs, "auth-token", "AUTH_TOKEN");
-            if (authToken == null || authToken.isBlank()) {
+            if (authToken.isBlank()) {
                 throw new IllegalArgumentException(
                         "AUTH_TOKEN must be provided via --auth-token argument or AUTH_TOKEN environment variable");
             }
 
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
-            if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
+            if (workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
                         "WORKSPACE_DIR must be provided via --workspace-dir argument or WORKSPACE_DIR environment variable");
             }
             var workspaceDir = Path.of(workspaceDirStr);
 
             var sessionsDirStr = getConfigValue(parsedArgs, "sessions-dir", "SESSIONS_DIR");
-            var sessionsDir = sessionsDirStr != null && !sessionsDirStr.isBlank()
+            var sessionsDir = !sessionsDirStr.isBlank()
                     ? Path.of(sessionsDirStr)
                     : workspaceDir.resolve(".brokk").resolve("sessions");
 

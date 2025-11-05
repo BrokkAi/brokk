@@ -1,6 +1,5 @@
 package ai.brokk.executor.model;
 
-import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -36,7 +35,6 @@ public record JobStatus(
      * Validate that state is non-null, timestamps are non-negative, and attempts >= 1.
      */
     public JobStatus {
-        Objects.requireNonNull(state, "state must not be null");
         if (createdAt < 0) {
             throw new IllegalArgumentException("createdAt must be non-negative, got: " + createdAt);
         }
