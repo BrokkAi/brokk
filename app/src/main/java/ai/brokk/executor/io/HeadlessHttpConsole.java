@@ -46,8 +46,8 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * @param jobId The job ID to append events to
      */
     public HeadlessHttpConsole(JobStore jobStore, String jobId) {
-        this.jobStore = Objects.requireNonNull(jobStore);
-        this.jobId = Objects.requireNonNull(jobId);
+        this.jobStore = jobStore;
+        this.jobId = jobId;
 
         // Single-threaded executor to serialize event writes
         this.eventWriter = Executors.newSingleThreadExecutor(r -> {
