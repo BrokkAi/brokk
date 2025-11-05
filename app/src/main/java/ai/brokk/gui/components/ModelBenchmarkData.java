@@ -189,30 +189,18 @@ public class ModelBenchmarkData {
      */
     @Nullable
     private static String tryModelNameVariants(String modelName, Service.ReasoningLevel reasoningLevel) {
-        // Try normalization: "qwen-3-coder-480b" -> "qwen3-coder"
+        // Normalize model name for lookup: "qwen-3-coder-480b" -> "qwen3-coder"
         // 1. Remove hyphens between name and version number: qwen-3 -> qwen3
         String normalized = modelName.replaceFirst("-(\\d)", "$1");
 
         // 2. Strip size suffixes: -480b, -30b, -70b, etc.
         normalized = normalized.replaceAll("-\\d+[bB]$", "");
 
-        // 3. Strip other common suffixes: -fp8, -int8, -turbo, etc.
-        normalized = normalized.replaceAll("-(fp8|int8|turbo|instruct)$", "");
-
-        // Try the normalized name
+        // Try the normalized name if different from original
         if (!normalized.equals(modelName)) {
             ModelKey testKey = new ModelKey(normalized, reasoningLevel);
             if (BENCHMARK_DATA.containsKey(testKey)) {
                 return normalized;
-            }
-        }
-
-        // Try without any size suffix at all
-        String baseName = modelName.replaceAll("-\\d+[bB]$", "");
-        if (!baseName.equals(modelName) && !baseName.equals(normalized)) {
-            ModelKey testKey = new ModelKey(baseName, reasoningLevel);
-            if (BENCHMARK_DATA.containsKey(testKey)) {
-                return baseName;
             }
         }
 
