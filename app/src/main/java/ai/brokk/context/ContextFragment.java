@@ -1221,7 +1221,7 @@ public interface ContextFragment {
 
             if (thisType != null && thatType != null) {
                 // Both descriptions map to StringFragmentTypes entries
-                return thisType == thatType;
+                return Objects.equals(thisType, thatType);
             }
 
             // Default behavior: compare text and syntax style for non-system fragments
