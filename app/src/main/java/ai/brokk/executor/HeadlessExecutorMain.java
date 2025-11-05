@@ -7,6 +7,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.model.ErrorPayload;
+import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,16 +88,16 @@ public final class HeadlessExecutorMain {
         this.sessionsDir = sessionsDir;
 
         // Parse listen address
-        var parts = listenAddr.split(":");
-        if (parts.length != 2) {
+        var parts = Splitter.on(':').splitToList(listenAddr);
+        if (parts.size() != 2) {
             throw new IllegalArgumentException("LISTEN_ADDR must be in format host:port, got: " + listenAddr);
         }
-        var host = parts[0];
+        var host = parts.get(0);
         int port;
         try {
-            port = Integer.parseInt(parts[1]);
+            port = Integer.parseInt(parts.get(1));
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid port in LISTEN_ADDR: " + parts[1], e);
+            throw new IllegalArgumentException("Invalid port in LISTEN_ADDR: " + parts.get(1), e);
         }
 
         logger.info(
