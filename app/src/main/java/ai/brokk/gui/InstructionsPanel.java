@@ -2672,6 +2672,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Auto-clears completed tasks when in EZ mode (non-Advanced).
      * If Advanced Mode is enabled, this is a no-op.
      * Filters out completed tasks from the current task list and updates the UI if any were removed.
+     * Handles null or empty task lists gracefully with no side effects.
      */
     private void autoClearCompletedTasks() {
         // Early exit if Advanced Mode is enabled
@@ -2682,16 +2683,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         var data = cm.getTaskList();
 
-        // Guard against null task list
-        if (data == null || data.tasks() == null) {
+        // Guard against null task list or null tasks collection
+        if (data == null || data.tasks() == null || data.tasks().isEmpty()) {
             return;
         }
 
         // Filter to keep only incomplete tasks
-        var filtered = data.tasks().stream().filter(t -> !t.done()).toList();
+        var originalTasks = data.tasks();
+        var filtered = originalTasks.stream().filter(t -> !t.done()).toList();
 
         // If any tasks were removed, update the task list and refresh UI
-        if (filtered.size() != data.tasks().size()) {
+        if (filtered.size() < originalTasks.size()) {
             cm.setTaskList(new TaskList.TaskListData(filtered));
             chrome.refreshTaskListUI(false);
         }
