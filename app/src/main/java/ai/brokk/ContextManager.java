@@ -997,7 +997,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(
                     targetFrozenContext, liveContext(), liveContext().getTaskHistory());
-            contextHistory.pushLive(newLive);
+            contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetFrozenContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1012,7 +1012,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(targetFrozenContext, liveContext(), targetFrozenContext.getTaskHistory());
-            contextHistory.pushLive(newLive);
+            contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetFrozenContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);

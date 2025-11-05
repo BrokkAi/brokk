@@ -59,7 +59,7 @@ public class ContextHistory {
     private final DiffService diffService;
 
     public ContextHistory(Context liveContext) {
-        pushLive(liveContext);
+        pushContext(liveContext);
         this.diffService = new DiffService(this);
     }
 
@@ -143,16 +143,16 @@ public class ContextHistory {
         var updatedLiveContext = contextGenerator.apply(topContext());
         // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
         // materialize
-        if (topContext() == updatedLiveContext) {
+        if (Objects.equals(topContext(), updatedLiveContext)) {
             return topContext();
         }
 
-        pushLive(updatedLiveContext);
+        pushContext(updatedLiveContext);
         return topContext();
     }
 
     /** Push {@code ctx}, select it, and clear redo stack. */
-    public synchronized void pushLive(Context ctx) {
+    public synchronized void pushContext(Context ctx) {
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -212,7 +212,7 @@ public class ContextHistory {
         if (isContinuation) {
             replaceTop(updatedLive);
         } else {
-            pushLive(updatedLive);
+            pushContext(updatedLive);
         }
         return updatedLive;
     }

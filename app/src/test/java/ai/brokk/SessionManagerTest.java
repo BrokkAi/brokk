@@ -113,7 +113,7 @@ public class SessionManagerTest {
         Context context2 = new Context(mockContextManager, "Second context with fragments")
                 .addVirtualFragment(sf)
                 .addPathFragments(List.of(pf));
-        originalHistory.pushLive(context2);
+        originalHistory.pushContext(context2);
 
         // Get initial modified time
         long initialModifiedTime = sessionManager.listSessions().stream()

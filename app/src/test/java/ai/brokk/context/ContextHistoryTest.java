@@ -63,7 +63,7 @@ public class ContextHistoryTest {
                 CompletableFuture.completedFuture("Modified"));
 
         // Push the modified context to history
-        history.pushLive(modifiedContext);
+        history.pushContext(modifiedContext);
 
         // Verify history contains both contexts
         var contextList = history.getHistory();
@@ -104,7 +104,7 @@ public class ContextHistoryTest {
 
         var extendedContext = initialContext.addVirtualFragment(fragment2);
 
-        history.pushLive(extendedContext);
+        history.pushContext(extendedContext);
 
         // Compute diff
         var diffService = history.getDiffService();
@@ -144,7 +144,7 @@ public class ContextHistoryTest {
                 null,
                 CompletableFuture.completedFuture("Action"));
 
-        history.pushLive(contextCopy);
+        history.pushContext(contextCopy);
 
         // Compute diff
         var diffService = history.getDiffService();
@@ -185,7 +185,7 @@ public class ContextHistoryTest {
         var modifiedContext = new Context(
                 contextManager, List.of(fragment2), List.of(), null, CompletableFuture.completedFuture("Modified"));
 
-        history.pushLive(modifiedContext);
+        history.pushContext(modifiedContext);
 
         // Compute diff
         var diffService = history.getDiffService();
@@ -226,7 +226,7 @@ public class ContextHistoryTest {
                 List.of(),
                 null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action 2"));
-        history.pushLive(context2);
+        history.pushContext(context2);
 
         var diffService = history.getDiffService();
 
@@ -268,7 +268,7 @@ public class ContextHistoryTest {
         var contextWithHistory = initialContext.addHistoryEntry(
                 taskEntry, null, java.util.concurrent.CompletableFuture.completedFuture("Action"));
 
-        history.pushLive(contextWithHistory);
+        history.pushContext(contextWithHistory);
 
         // Compute diff
         var diffService = history.getDiffService();
@@ -305,7 +305,7 @@ public class ContextHistoryTest {
                 List.of(),
                 null,
                 java.util.concurrent.CompletableFuture.completedFuture("Action 2"));
-        history.pushLive(context2);
+        history.pushContext(context2);
 
         var diffService = history.getDiffService();
 

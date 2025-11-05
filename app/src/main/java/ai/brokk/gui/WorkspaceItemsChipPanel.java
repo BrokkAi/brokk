@@ -155,19 +155,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         logger.debug("subscribeToComputedUpdates: attaching listeners for fragment {}", fragment);
 
-        // Kick off background computations
-        try {
-            cf.computedText().start();
-        } catch (Exception ignored) {
-        }
-        try {
-            cf.computedDescription().start();
-        } catch (Exception ignored) {
-        }
-        try {
-            cf.computedFiles().start();
-        } catch (Exception ignored) {
-        }
+        // Kick off background computations (exceptions logged by ComputedValue framework)
+        cf.computedText().start();
+        cf.computedDescription().start();
+        cf.computedFiles().start();
 
         // Initial placeholder for summaries if files are not yet known
         if (classify(fragment) == ChipKind.SUMMARY) {
@@ -257,12 +248,19 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 .count();
         String text = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         label.setText(text);
+
         try {
             label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+        } catch (Exception ex) {
+            logger.debug("Failed to build aggregate summary tooltip", ex);
+        }
+
+        try {
             label.getAccessibleContext().setAccessibleDescription("All summaries combined");
         } catch (Exception ex) {
-            logger.debug("Failed to refresh synthetic summary tooltip", ex);
+            logger.debug("Failed to set accessibility description for synthetic chip", ex);
         }
+
         styleChip((JPanel) chip, label, null);
         chip.revalidate();
         chip.repaint();
@@ -272,29 +270,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private void subscribeSummaryGroupUpdates(List<ContextFragment> summaries, JComponent chip, JLabel label) {
         for (var f : summaries) {
             if (f instanceof ContextFragment.ComputedFragment cf) {
-                try {
-                    cf.computedFiles().start();
-                } catch (Exception ignored) {
-                }
+                // Start computed value computations; exceptions are non-fatal (logged by ComputedValue framework)
+                cf.computedFiles().start();
                 var s = cf.computedFiles().onComplete((v, ex) -> {
                     SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
                 });
                 registerCvSubscription(chip, s);
 
                 // Also update on description/text changes to improve tooltips
-                try {
-                    cf.computedDescription().start();
-                } catch (Exception ignored) {
-                }
+                cf.computedDescription().start();
                 var sDesc = cf.computedDescription().onComplete((v, ex) -> {
                     SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
                 });
                 registerCvSubscription(chip, sDesc);
 
-                try {
-                    cf.computedText().start();
-                } catch (Exception ignored) {
-                }
+                cf.computedText().start();
                 var sText = cf.computedText().onComplete((v, ex) -> {
                     SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
                 });
@@ -441,15 +431,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        // Entry debug
-        try {
-            logger.debug(
-                    "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
-                    fragments.size(),
-                    MainProject.getForceToolEmulation(),
-                    readOnly);
-        } catch (Exception ignored) {
-        }
+        logger.debug(
+                "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
+                fragments.size(),
+                MainProject.getForceToolEmulation(),
+                readOnly);
 
         // Filter out visually-empty fragments unless dev-mode override is enabled.
         var visibleFragments = fragments.stream()
@@ -514,8 +500,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             if (chip != null) {
                 try {
                     setComponentZOrder(chip, z++);
-                } catch (Exception ignored) {
-                    logger.warn("Failed to set componentZOrder for fragment filtered by renderability: {}", f);
+                } catch (Exception ex) {
+                    logger.debug("Failed to set component z-order for fragment: {}", f.id(), ex);
                 }
             }
         }
@@ -539,45 +525,35 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     add(syntheticSummaryChip);
                 }
             } else {
-                // Update label/tooltip and subscribe to any newly observed summaries
-                try {
-                    var labelObj = syntheticSummaryChip.getClientProperty("brokk.chip.label");
-                    if (labelObj instanceof JLabel lbl) {
-                        refreshSyntheticSummaryChip(syntheticSummaryChip, lbl, summaries);
-                    }
-                } catch (Exception ex) {
-                    logger.debug("Failed to refresh existing synthetic summary chip", ex);
+                // Update label/tooltip
+                var labelObj = syntheticSummaryChip.getClientProperty("brokk.chip.label");
+                if (labelObj instanceof JLabel lbl) {
+                    refreshSyntheticSummaryChip(syntheticSummaryChip, lbl, summaries);
                 }
 
                 // Subscribe to new summary ids if needed
-                try {
-                    @SuppressWarnings("unchecked")
-                    Set<String> prevIds = (Set<String>) syntheticSummaryChip.getClientProperty("brokk.summary.ids");
-                    if (prevIds == null) prevIds = Set.of();
-                    Set<String> nowIds =
-                            summaries.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
+                @SuppressWarnings("unchecked")
+                Set<String> prevIds = (Set<String>) syntheticSummaryChip.getClientProperty("brokk.summary.ids");
+                if (prevIds == null) prevIds = Set.of();
+                Set<String> nowIds =
+                        summaries.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
 
-                    // Subscribe for newly added summary ids
-                    for (var f : summaries) {
-                        if (!prevIds.contains(f.id()) && f instanceof ContextFragment.ComputedFragment) {
-                            subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, (JLabel)
-                                    syntheticSummaryChip.getClientProperty("brokk.chip.label"));
-                        }
+                // Subscribe for newly added summary ids
+                for (var f : summaries) {
+                    if (!prevIds.contains(f.id()) && f instanceof ContextFragment.ComputedFragment) {
+                        subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, (JLabel)
+                                syntheticSummaryChip.getClientProperty("brokk.chip.label"));
                     }
-                    syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
-                } catch (Exception ex) {
-                    logger.debug("Failed to update synthetic summary subscriptions", ex);
                 }
+                syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
             }
 
             // Keep synthetic at end
             if (syntheticSummaryChip != null) {
                 try {
                     setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
-                } catch (Exception ignored) {
-                    logger.warn(
-                            "Failed to set componentZOrder for fragment filtered by renderability: {}",
-                            syntheticSummaryChip);
+                } catch (Exception ex) {
+                    logger.debug("Failed to set component z-order for synthetic summary chip", ex);
                 }
             }
         }
@@ -1487,10 +1463,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         close.setMargin(new Insets(0, 0, 0, 0));
         close.setPreferredSize(new Dimension(14, 14));
         close.setToolTipText("Remove from Workspace");
+
         try {
             close.getAccessibleContext().setAccessibleName("Remove " + safeShortDescription);
-        } catch (Exception ignored) {
-            // best-effort accessibility improvements
+        } catch (Exception ex) {
+            logger.trace("Failed to set accessibility name for close button", ex);
         }
         close.addMouseListener(new MouseAdapter() {
             @Override
@@ -1654,13 +1631,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private @Nullable Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
         if (summaries.isEmpty()) return null;
 
-        // Filter summaries to only those that are renderable unless developer override is enabled.
         var renderableSummaries = summaries.stream()
                 .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
                 .toList();
 
         if (renderableSummaries.isEmpty()) {
-            // Nothing to show (defensive): avoid creating an empty synthetic chip.
             logger.debug("No renderable summaries for synthetic chip; skipping creation.");
             return null;
         }
@@ -1669,41 +1644,135 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Label: aggregate count across only renderable summaries
-        int totalFiles = (int) renderableSummaries.stream()
-                .flatMap(f -> {
-                    if (f instanceof ContextFragment.ComputedFragment cff) {
-                        return cff.computedFiles().renderNowOr(Set.of()).stream();
-                    } else {
-                        return f.files().stream();
-                    }
-                })
-                .map(ProjectFile::toString)
-                .distinct()
-                .count();
-        String labelText = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-        var label = new JLabel(labelText);
+        var label = new JLabel();
+        refreshSyntheticSummaryChip(chip, label, renderableSummaries);
 
-        // If any summary hasn't computed its files yet, show a friendly loading placeholder
-        boolean anyLoading = renderableSummaries.stream().anyMatch(f -> {
-            if (f instanceof ContextFragment.ComputedFragment cf) {
-                return cf.computedFiles().tryGet().isEmpty();
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        subscribeSummaryGroupUpdates(renderableSummaries, chip, label);
+
+        var close = createStandardCloseButton(() -> executeSyntheticChipDrop(renderableSummaries));
+        var sep = createStandardDivider(label);
+
+        chip.add(label);
+        chip.add(sep);
+        chip.add(close);
+
+        chip.putClientProperty("brokk.fragments", Set.copyOf(renderableSummaries));
+        chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+        chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
+        styleChip(chip, label, null);
+
+        attachSyntheticChipMouseListeners(chip, label, sep, renderableSummaries);
+
+        return chip;
+    }
+
+    private MaterialButton createStandardCloseButton(Runnable onClickAction) {
+        var close = new MaterialButton("");
+        close.setFocusable(false);
+        close.setOpaque(false);
+        close.setContentAreaFilled(false);
+        close.setBorderPainted(false);
+        close.setFocusPainted(false);
+        close.setMargin(new Insets(0, 0, 0, 0));
+        close.setPreferredSize(new Dimension(14, 14));
+        close.setToolTipText("Remove all summaries from Workspace");
+        close.getAccessibleContext().setAccessibleName("Remove all summaries");
+
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleContextMenuTrigger(e);
+                }
             }
-            return false;
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleContextMenuTrigger(e);
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (readOnly) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                if (!Objects.equals(contextManager.selectedContext(), contextManager.topContext())) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                onClickAction.run();
+            }
         });
-        if (anyLoading) {
-            label.setText("Summaries (Loading...)");
-        }
 
-        // Aggregated tooltip
-        try {
-            label.setToolTipText(buildAggregateSummaryTooltip(renderableSummaries));
-            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
-        } catch (Exception ex) {
-            logger.debug("Failed to set synthetic chip tooltip", ex);
-        }
+        return close;
+    }
 
-        // Click to preview all summaries
+    private JPanel createStandardDivider(JLabel label) {
+        var sep = new JPanel();
+        sep.putClientProperty("brokk.chip.separator", true);
+        sep.setOpaque(true);
+        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
+        sep.setMinimumSize(new Dimension(1, 10));
+        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
+        return sep;
+    }
+
+    private void handleContextMenuTrigger(MouseEvent e) {
+        if (readOnly) {
+            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            e.consume();
+        }
+    }
+
+    private void attachSyntheticChipMouseListeners(
+            JPanel chip, JLabel label, JPanel sep, List<ContextFragment> renderableSummaries) {
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0 && onHover != null) {
+                    for (var summary : renderableSummaries) {
+                        try {
+                            onHover.accept(summary, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
+                    for (var summary : renderableSummaries) {
+                        try {
+                            onHover.accept(summary, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Attach hover listeners to all components
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        var close = (MaterialButton) chip.getClientProperty("brokk.chip.closeButton");
+        if (close != null) {
+            close.addMouseListener(hoverAdapter);
+        }
+        sep.addMouseListener(hoverAdapter);
+
+        // Label: click to preview or right-click for context menu
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -1738,168 +1807,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    int totalFiles = (int) renderableSummaries.stream()
-                            .flatMap(f -> {
-                                if (f instanceof ContextFragment.ComputedFragment cff) {
-                                    return cff.computedFiles().renderNowOr(Set.of()).stream();
-                                } else {
-                                    return f.files().stream();
-                                }
-                            })
-                            .map(ProjectFile::toString)
-                            .distinct()
-                            .count();
-                    String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-
-                    // Concatenate all summary text like the copy operation does
-                    StringBuilder combinedText = new StringBuilder();
-                    for (var summary : renderableSummaries) {
-                        try {
-                            String txt = (summary instanceof ContextFragment.ComputedFragment cf)
-                                    ? cf.computedText().renderNowOr("")
-                                    : summary.text();
-                            combinedText.append(txt).append("\n\n");
-                        } catch (Exception ex) {
-                            logger.debug("Error reading summary text for preview", ex);
-                        }
-                    }
-
-                    // Display in a regular PreviewTextPanel like other text content
-                    var previewPanel = new PreviewTextPanel(
-                            chrome.getContextManager(),
-                            null,
-                            combinedText.toString(),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                            chrome.getTheme(),
-                            null);
-                    chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                    previewSyntheticChip(renderableSummaries);
                 }
             }
         });
 
-        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-
-        // Subscribe to summaries' computed updates
-        subscribeSummaryGroupUpdates(renderableSummaries, chip, label);
-
-        var close = new MaterialButton("");
-        close.setFocusable(false);
-        close.setOpaque(false);
-        close.setContentAreaFilled(false);
-        close.setBorderPainted(false);
-        close.setFocusPainted(false);
-        close.setMargin(new Insets(0, 0, 0, 0));
-        close.setPreferredSize(new Dimension(14, 14));
-        close.setToolTipText("Remove all summaries from Workspace");
-        try {
-            close.getAccessibleContext().setAccessibleName("Remove all summaries");
-        } catch (Exception e) {
-            logger.error(e);
-        }
-        close.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    if (readOnly) {
-                        chrome.systemNotify(
-                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                        e.consume();
-                        return;
-                    }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
-                    menu.show(close, e.getX(), e.getY());
-                    e.consume();
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    if (readOnly) {
-                        chrome.systemNotify(
-                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                        e.consume();
-                        return;
-                    }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
-                    menu.show(close, e.getX(), e.getY());
-                    e.consume();
-                }
-            }
-
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (readOnly) {
-                    chrome.systemNotify(
-                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                    return;
-                }
-                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-                if (!onLatest) {
-                    chrome.systemNotify(
-                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                    return;
-                }
-
-                contextManager.submitContextTask(() -> {
-                    contextManager.dropWithHistorySemantics(renderableSummaries);
-                });
-            }
-        });
-
-        chip.add(label);
-
-        // Add a slim vertical divider between label and close button
-        var sep = new JPanel();
-        sep.putClientProperty("brokk.chip.separator", true);
-        sep.setOpaque(true);
-        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
-        sep.setMinimumSize(new Dimension(1, 10));
-        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
-        chip.add(sep);
-
-        chip.add(close);
-
-        chip.putClientProperty("brokk.fragments", Set.copyOf(renderableSummaries));
-        chip.putClientProperty("brokk.chip.closeButton", close);
-        chip.putClientProperty("brokk.chip.label", label);
-        chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
-        styleChip(chip, label, null);
-
-        // Hover handlers for the synthetic chip
-        final int[] hoverCounter = {0};
-        MouseAdapter hoverAdapter = new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                if (hoverCounter[0]++ == 0 && onHover != null) {
-                    for (var summary : renderableSummaries) {
-                        try {
-                            onHover.accept(summary, true);
-                        } catch (Exception ex) {
-                            logger.trace("onHover callback threw", ex);
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
-                    for (var summary : renderableSummaries) {
-                        try {
-                            onHover.accept(summary, false);
-                        } catch (Exception ex) {
-                            logger.trace("onHover callback threw", ex);
-                        }
-                    }
-                }
-            }
-        };
-        chip.addMouseListener(hoverAdapter);
-        label.addMouseListener(hoverAdapter);
-        close.addMouseListener(hoverAdapter);
-        sep.addMouseListener(hoverAdapter);
-
+        // Chip background: right-click for context menu, left-click on label area for preview
         chip.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -1937,64 +1850,64 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
+                    // Click on close button area
                     if (readOnly) {
                         chrome.systemNotify(
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
-                    boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-                    if (!onLatest) {
+                    if (!Objects.equals(contextManager.selectedContext(), contextManager.topContext())) {
                         chrome.systemNotify(
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
-
-                    contextManager.submitContextTask(() -> {
-                        contextManager.dropWithHistorySemantics(renderableSummaries);
-                    });
+                    executeSyntheticChipDrop(renderableSummaries);
                 } else {
+                    // Click on label area
                     if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                        int totalFiles = (int) renderableSummaries.stream()
-                                .flatMap(f -> {
-                                    if (f instanceof ContextFragment.ComputedFragment cff) {
-                                        return cff.computedFiles().renderNowOr(Set.of()).stream();
-                                    } else {
-                                        return f.files().stream();
-                                    }
-                                })
-                                .map(ProjectFile::toString)
-                                .distinct()
-                                .count();
-                        String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-
-                        // Concatenate all summary text like the copy operation does
-                        StringBuilder combinedText = new StringBuilder();
-                        for (var summary : renderableSummaries) {
-                            try {
-                                String txt = (summary instanceof ContextFragment.ComputedFragment cf)
-                                        ? cf.computedText().renderNowOr("")
-                                        : summary.text();
-                                combinedText.append(txt).append("\n\n");
-                            } catch (Exception ex) {
-                                logger.debug("Error reading summary text for preview", ex);
-                            }
-                        }
-
-                        // Display in a regular PreviewTextPanel like other text content
-                        var previewPanel = new PreviewTextPanel(
-                                chrome.getContextManager(),
-                                null,
-                                combinedText.toString(),
-                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                                chrome.getTheme(),
-                                null);
-                        chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                        previewSyntheticChip(renderableSummaries);
                     }
                 }
             }
         });
+    }
 
-        return chip;
+    private void previewSyntheticChip(List<ContextFragment> renderableSummaries) {
+        int totalFiles = (int) renderableSummaries.stream()
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
+                .map(ProjectFile::toString)
+                .distinct()
+                .count();
+        String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+
+        StringBuilder combinedText = new StringBuilder();
+        for (var summary : renderableSummaries) {
+            String txt = (summary instanceof ContextFragment.ComputedFragment cf)
+                    ? cf.computedText().renderNowOr("")
+                    : summary.text();
+            combinedText.append(txt).append("\n\n");
+        }
+
+        var previewPanel = new PreviewTextPanel(
+                chrome.getContextManager(),
+                null,
+                combinedText.toString(),
+                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                chrome.getTheme(),
+                null);
+        chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+    }
+
+    private void executeSyntheticChipDrop(List<ContextFragment> renderableSummaries) {
+        contextManager.submitContextTask(() -> {
+            contextManager.dropWithHistorySemantics(renderableSummaries);
+        });
     }
 
     @Override

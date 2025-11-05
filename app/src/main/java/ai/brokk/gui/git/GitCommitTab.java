@@ -778,7 +778,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
         // Take a snapshot before mutating the working tree so the user can undo the stash
         var liveContext = contextManager.liveContext();
-        contextManager.getContextHistory().pushLive(liveContext);
+        contextManager.getContextHistory().pushContext(liveContext);
 
         RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {

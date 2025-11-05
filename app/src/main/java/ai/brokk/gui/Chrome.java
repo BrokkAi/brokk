@@ -2320,7 +2320,7 @@ public class Chrome
         if (textNow != null) {
             // Immediate display possible
             if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(syntaxNow)) {
-                JPanel contentPanel = renderMarkdownContent(textNow, initialTitle);
+                JPanel contentPanel = renderMarkdownContent(textNow);
                 showPreviewFrame(contextManager, initialTitle, contentPanel);
                 if (styleNow == null) {
                     // Syntax might have been inferred; let it resolve in background
@@ -2424,8 +2424,10 @@ public class Chrome
 
     /**
      * Renders markdown content and wraps it in a searchable preview panel.
+     * The panel itself is content-only; the caller is responsible for setting
+     * window titles via showPreviewFrame().
      */
-    private JPanel renderMarkdownContent(String text, String title) {
+    private JPanel renderMarkdownContent(String text) {
         var markdownPanel = MarkdownOutputPool.instance().borrow();
         markdownPanel.updateTheme(MainProject.getTheme());
         markdownPanel.setText(List.of(Messages.customSystem(text)));
@@ -2437,7 +2439,7 @@ public class Chrome
      */
     private void renderPreviewContent(String text, String style, String title) {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
-            JPanel contentPanel = renderMarkdownContent(text, title);
+            JPanel contentPanel = renderMarkdownContent(text);
             showPreviewFrame(contextManager, title, contentPanel);
         } else {
             var panel = new PreviewTextPanel(contextManager, null, text, style, themeManager, null);
@@ -2450,7 +2452,7 @@ public class Chrome
      */
     private void renderAndShowPreview(String text, String resolvedStyle, String title) {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(resolvedStyle)) {
-            JPanel contentPanel = renderMarkdownContent(text, title);
+            JPanel contentPanel = renderMarkdownContent(text);
             showPreviewFrame(contextManager, title, contentPanel);
         } else {
             var panel = new PreviewTextPanel(contextManager, null, text, resolvedStyle, themeManager, null);
