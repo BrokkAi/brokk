@@ -464,15 +464,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 .filter(f -> classify(f) != ChipKind.SUMMARY)
                 .toList();
 
-        try {
-            logger.debug(
-                    "updateChips: {} visible ({} summaries, {} others) out of {}",
-                    visibleFragments.size(),
-                    summaries.size(),
-                    others.size(),
-                    fragments.size());
-        } catch (Exception ignored) {
-        }
+        logger.debug(
+                "updateChips: {} visible ({} summaries, {} others) out of {}",
+                visibleFragments.size(),
+                summaries.size(),
+                others.size(),
+                fragments.size());
 
         // Build a new map for others (non-summaries) by id, preserving order
         Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
@@ -518,6 +515,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 try {
                     setComponentZOrder(chip, z++);
                 } catch (Exception ignored) {
+                    logger.warn("Failed to set componentZOrder for fragment filtered by renderability: {}", f);
                 }
             }
         }
@@ -577,6 +575,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 try {
                     setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
                 } catch (Exception ignored) {
+                    logger.warn(
+                            "Failed to set componentZOrder for fragment filtered by renderability: {}",
+                            syntheticSummaryChip);
                 }
             }
         }
@@ -700,13 +701,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     /**
      * Conservative predicate deciding whether a fragment has visible/renderable content.
-     *
+     * <p>
      * Rules:
      * - Immediately return true for ComputedFragment or any dynamic fragment (isDynamic()).
      * - Always keep output fragments (history / outputs).
      * - For static non-computed text fragments: require non-blank text.
      * - For static non-text fragments: require at least an image, at least one file, or a non-empty description.
-     *
+     * <p>
      * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
      */
     private boolean hasRenderableContent(ContextFragment f) {

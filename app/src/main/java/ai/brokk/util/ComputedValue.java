@@ -118,6 +118,13 @@ public final class ComputedValue<T> {
     }
 
     /**
+     * Non-blocking. If the value is available, returns it; otherwise returns null.
+     */
+    public @Nullable T renderNowOrNull() {
+        return tryGet().orElse(null);
+    }
+
+    /**
      * Explicitly start the computation (no-op if already started).
      */
     public void start() {
