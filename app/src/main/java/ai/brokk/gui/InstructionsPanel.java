@@ -2666,6 +2666,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    /**
+     * Auto-clears completed tasks when in EZ mode (non-Advanced).
+     * If Advanced Mode is enabled, this is a no-op.
+     * Filters out completed tasks from the current task list and updates the UI if any were removed.
+     */
+    private void autoClearCompletedTasks() {
+        // Early exit if Advanced Mode is enabled
+        if (GlobalUiSettings.isAdvancedMode()) {
+            return;
+        }
+
+        var cm = chrome.getContextManager();
+        var data = cm.getTaskList();
+
+        // Guard against null task list
+        if (data == null || data.tasks() == null) {
+            return;
+        }
+
+        // Filter to keep only incomplete tasks
+        var filtered = data.tasks().stream().filter(t -> !t.done()).toList();
+
+        // If any tasks were removed, update the task list and refresh UI
+        if (filtered.size() != data.tasks().size()) {
+            cm.setTaskList(new TaskList.TaskListData(filtered));
+            chrome.refreshTaskListUI(false);
+        }
+    }
+
     public static class WandButton extends MaterialButton {
         private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
 
