@@ -41,7 +41,6 @@ public class JavaTypeHierarchyTest {
     }
 
     @Test
-    @Disabled("Type hierarchy not finalized; enabling later")
     public void implementsOnly_singleFile() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
@@ -68,7 +67,6 @@ public class JavaTypeHierarchyTest {
     }
 
     @Test
-    @Disabled("Type hierarchy not finalized; enabling later")
     public void extendsAndImplements_orderPreserved() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
@@ -103,7 +101,6 @@ public class JavaTypeHierarchyTest {
     }
 
     @Test
-    @Disabled("Type hierarchy not finalized; enabling later")
     public void classWithNoAncestors_returnsEmpty() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
@@ -122,7 +119,6 @@ public class JavaTypeHierarchyTest {
     }
 
     @Test
-    @Disabled("Type hierarchy not finalized; enabling later")
     public void inheritanceAcrossFiles_transitive() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
