@@ -33,6 +33,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
