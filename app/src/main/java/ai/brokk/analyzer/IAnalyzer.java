@@ -25,45 +25,31 @@ public interface IAnalyzer {
         return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
     }
 
-    default List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        throw new UnsupportedOperationException();
-    }
+    List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
-    default List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        throw new UnsupportedOperationException();
-    }
+    List<CodeUnit> getSubDeclarations(CodeUnit cu);
 
     /** Returns the set of languages this analyzer understands. */
-    default Set<Language> languages() {
-        return Set.of();
-    }
+    Set<Language> languages();
 
     /**
      * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is O(M) in the number of
      * changed files. Assume this update is not in place, and rather use the returned
      * IAnalyzer.
      */
-    default IAnalyzer update(Set<ProjectFile> changedFiles) {
-        // should always be supported; UOE here is for convenience in mocking
-        throw new UnsupportedOperationException();
-    }
+    IAnalyzer update(Set<ProjectFile> changedFiles);
 
     /**
      * Scan for changes across all files in the project. This involves comparing the last modified time of the file with
      * respect to this object's "last analyzed" time.  This is O(N) in the number of project files. Assume this update
      * is not in place, and rather use the returned IAnalyzer.
      */
-    default IAnalyzer update() {
-        // should always be supported; UOE here is for convenience in mocking
-        throw new UnsupportedOperationException();
-    }
+    IAnalyzer update();
 
     // Summarization
 
     /** The project this analyzer targets */
-    default IProject getProject() {
-        throw new UnsupportedOperationException();
-    }
+    IProject getProject();
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
         return getDefinition(fqClass)
@@ -73,9 +59,7 @@ public interface IAnalyzer {
     }
 
     /** All top-level declarations in the project. */
-    default List<CodeUnit> getAllDeclarations() {
-        throw new UnsupportedOperationException();
-    }
+    List<CodeUnit> getAllDeclarations();
 
     /** The metrics around the codebase as determined by the analyzer. */
     default CodeBaseMetrics getMetrics() {
@@ -85,9 +69,7 @@ public interface IAnalyzer {
     }
 
     /** Gets all declarations in a given file. */
-    default Set<CodeUnit> getDeclarations(ProjectFile file) {
-        throw new UnsupportedOperationException();
-    }
+    Set<CodeUnit> getDeclarations(ProjectFile file);
 
     default Optional<ProjectFile> getFileFor(String fqName) {
         return getDefinition(fqName).map(CodeUnit::source);
@@ -100,9 +82,7 @@ public interface IAnalyzer {
      *     order, so if you have a field and a method with the same name, the method will be returned.
      * @return An Optional containing the CodeUnit if exactly one match is found, otherwise empty.
      */
-    default Optional<CodeUnit> getDefinition(String fqName) {
-        throw new UnsupportedOperationException();
-    }
+    Optional<CodeUnit> getDefinition(String fqName);
 
     /**
      * Checks if a definition is available for the given fully-qualified name without creating the CodeUnit object. This
@@ -113,14 +93,6 @@ public interface IAnalyzer {
      */
     default boolean isDefinitionAvailable(String fqName) {
         return getDefinition(fqName).isPresent();
-    }
-
-    /**
-     * Gets the source code for the entire given class. Implementations may return Optional.empty() when the analyzer
-     * cannot provide source text for the requested FQCN.
-     */
-    default Optional<String> getClassSource(String fqcn) {
-        throw new UnsupportedOperationException();
     }
 
     /**
@@ -311,17 +283,13 @@ public interface IAnalyzer {
     }
 
     /** @return the import snippets for the given file where other code units may be referred to by. */
-    default List<String> importStatementsOf(ProjectFile file) {
-        throw new UnsupportedOperationException();
-    }
+    List<String> importStatementsOf(ProjectFile file);
 
     /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      *     invalid.
      */
-    default Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
-        throw new UnsupportedOperationException();
-    }
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {

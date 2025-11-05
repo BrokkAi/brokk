@@ -281,7 +281,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
         if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
-            return new DisabledAnalyzer();
+            return new DisabledAnalyzer(project);
         }
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */

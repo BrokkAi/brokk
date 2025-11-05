@@ -254,7 +254,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new DisabledAnalyzer();
+            return new DisabledAnalyzer(project);
         }
 
         @Override
