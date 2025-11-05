@@ -742,7 +742,7 @@ public class ContextAgent {
         if (showBatch1Reasoning) {
             cm.getIo()
                     .llmOutput(
-                            "All batches complete. " + combinedFiles.size() + " files selected.",
+                            "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
                             ChatMessageType.AI,
                             false,
                             true);

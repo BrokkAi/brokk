@@ -333,8 +333,7 @@ public class SearchTools {
                     Accepts all symbol types: classes, methods, fields, and modules.
                     """)
     public String getSymbolLocations(
-            @P("Fully qualified symbol names to locate (classes, methods, fields, or modules)")
-                    List<String> symbols) {
+            @P("Fully qualified symbol names to locate (classes, methods, fields, or modules)") List<String> symbols) {
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -612,8 +611,7 @@ public class SearchTools {
                     Prefer getFileSummaries for code files first to get a quick overview. Huge files may be summarized.
                     You can call the tool multiple times in parallel for multiple files.
                     """)
-    public String getFileContent(
-            @P("Filename (relative to project root) to retrieve contents for.") String filename) {
+    public String getFileContent(@P("Filename (relative to project root) to retrieve contents for.") String filename) {
         if (filename.isBlank()) {
             throw new IllegalArgumentException("Cannot get file contents: filename is empty");
         }

@@ -663,7 +663,12 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "searchSymbols", "getSymbolLocations", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
+            case "searchSymbols",
+                    "getSymbolLocations",
+                    "getUsages",
+                    "searchSubstrings",
+                    "searchFilenames",
+                    "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContent", "getFileSummaries", "getFiles" -> 8;
 
@@ -1003,6 +1008,7 @@ public class SearchAgent {
 
     private boolean shouldSummarize(String toolName) {
         return Set.of(
+                        "searchSymbols",
                         "getUsages",
                         "getClassSources",
                         "searchSubstrings",
