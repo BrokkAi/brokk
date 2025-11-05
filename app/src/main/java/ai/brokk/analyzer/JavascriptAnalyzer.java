@@ -30,6 +30,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             Map.of( // captureConfiguration
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE, // Phase 2 optimization
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
@@ -71,7 +72,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
-            case CaptureNames.FUNCTION_DEFINITION -> {
+            case CaptureNames.FUNCTION_DEFINITION, CaptureNames.ARROW_FUNCTION_DEFINITION -> {
                 String finalShortName;
                 if (!classChain.isEmpty()) { // It's a method within a class structure
                     finalShortName = classChain + "." + simpleName;

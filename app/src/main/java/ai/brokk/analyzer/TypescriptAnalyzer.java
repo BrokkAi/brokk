@@ -174,6 +174,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 return CodeUnit.cls(file, packageName, finalShortName);
             }
             case FUNCTION_LIKE -> {
+                if (definitionNode != null && !definitionNode.isNull()) {
+                    String nodeType = definitionNode.getType();
+                    if ("call_signature".equals(nodeType)) {
+                        finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+                        return CodeUnit.fn(file, packageName, finalShortName);
+                    }
+                }
                 if (simpleName.equals("anonymous_arrow_function") || simpleName.isEmpty()) {
                     log.warn(
                             "Anonymous or unnamed function found for capture {} in file {}. ClassChain: {}. Will use placeholder or rely on extracted name.",
@@ -185,6 +192,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 return CodeUnit.fn(file, packageName, finalShortName);
             }
             case FIELD_LIKE -> {
+                if (definitionNode != null && !definitionNode.isNull()) {
+                    String nodeType = definitionNode.getType();
+                    if ("index_signature".equals(nodeType)) {
+                        finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
+                        return CodeUnit.field(file, packageName, finalShortName);
+                    }
+                }
                 finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
@@ -225,10 +239,52 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return text; // Should not happen if TS grammar for return_type capture is specific to type_annotation
     }
 
+    /**
+     * Extracts namespace path for a definition node by traversing up the AST.
+     * Returns namespace chain like "A.B.C" if node is inside nested namespaces.
+     * Handles both "namespace A.B.C { }" (dotted) and nested namespace declarations.
+     */
+    private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
+        var namespaces = new java.util.ArrayList<String>();
+        TSNode current = definitionNode.getParent();
+
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+
+            if ("internal_module".equals(nodeType)) { // internal_module = namespace in TypeScript grammar
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = cachedTextSliceStripped(nameNode, src);
+                    // Handle dotted names: namespace A.B.C { } is equivalent to nested namespaces
+                    // Split on dots and prepend all parts
+                    if (name.contains(".")) {
+                        var parts = java.util.Arrays.asList(name.split("\\."));
+                        namespaces.addAll(0, parts); // Prepend all parts (we're traversing up)
+                    } else {
+                        namespaces.add(0, name); // Prepend single name
+                    }
+                }
+            }
+
+            current = current.getParent();
+        }
+
+        if (namespaces.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(String.join(".", namespaces));
+    }
+
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        // Initial implementation: directory-based, like JavaScript.
-        // TODO: Enhance to detect 'namespace A.B.C {}' or 'module A.B.C {}' and use that.
+        // Try namespace-based package name first
+        var namespacePath = extractNamespacePath(definitionNode, src);
+        if (namespacePath.isPresent()) {
+            return namespacePath.get();
+        }
+
+        // Fall back to directory-based package name
         var projectRoot = getProject().getRoot();
         var filePath = file.absPath();
         var parentDir = filePath.getParent();
@@ -644,8 +700,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // Suppress DEBUG message for function.definition when name capture is missing
         // - function_declaration: fallback extractSimpleName works correctly
         // - construct_signature: intentionally has no name, uses default "new"
-        return "function.definition".equals(captureName)
-                && ("function_declaration".equals(nodeType) || "construct_signature".equals(nodeType));
+        // - call_signature: intentionally has no name, uses default "[call]"
+        if ("function.definition".equals(captureName)
+                && ("function_declaration".equals(nodeType)
+                        || "construct_signature".equals(nodeType)
+                        || "call_signature".equals(nodeType))) {
+            return true;
+        }
+        // - index_signature: intentionally has no name, uses default "[index]"
+        if ("value.definition".equals(captureName) && "index_signature".equals(nodeType)) {
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -961,11 +1027,32 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
-        // Handle constructor signatures which don't have a name field
-        if ("construct_signature".equals(decl.getType())) {
+        // Provide default names for special TypeScript constructs that don't have explicit names
+        String nodeType = decl.getType();
+        if ("construct_signature".equals(nodeType)) {
             return Optional.of("new");
         }
+        if ("index_signature".equals(nodeType)) {
+            return Optional.of("[index]");
+        }
+        if ("call_signature".equals(nodeType)) {
+            return Optional.of("[call]");
+        }
         return super.extractSimpleName(decl, src);
+    }
+
+    @Override
+    protected boolean isClassLike(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        String nodeType = node.getType();
+        // Exclude namespace nodes (internal_module) from classChain since they're used for packageName
+        // This prevents duplication like "strings.strings.format" when namespace is "strings"
+        if ("internal_module".equals(nodeType)) {
+            return false;
+        }
+        return super.isClassLike(node);
     }
 
     @Override

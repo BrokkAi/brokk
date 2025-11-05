@@ -240,6 +240,17 @@
   (property_signature
     name: [(property_identifier) (string) (number) (computed_property_name)] @value.name) @value.definition)
 
+; Index signatures in interfaces
+; Matches: [key: string]: any, [index: number]: string
+(interface_body
+  (index_signature) @value.definition (#set! "default_name" "[index]"))
+
+; Call signatures in interfaces
+; Matches: (x: number): string, (): void
+(interface_body
+  (call_signature
+    type_parameters: (_)? @function.type_parameters) @function.definition (#set! "default_name" "[call]"))
+
 ; Enum members
 (enum_body
   [
