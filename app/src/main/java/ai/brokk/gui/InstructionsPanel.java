@@ -919,7 +919,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100, true, false),
+                                        "Unavailable",
+                                        128000,
+                                        "0.00",
+                                        TokenUsageBar.WarningLevel.NONE,
+                                        100,
+                                        true,
+                                        false),
                                 128000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
@@ -970,9 +976,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     String tooltipHtml = buildTokenUsageTooltip(
-                            modelName, maxTokens, costStr, warningLevel, successRate, withinModelLimit, hasBenchmarkData);
+                            modelName,
+                            maxTokens,
+                            costStr,
+                            warningLevel,
+                            successRate,
+                            withinModelLimit,
+                            hasBenchmarkData);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, withinModelLimit, hasBenchmarkData);
+                            tooltipHtml,
+                            maxTokens,
+                            approxTokens,
+                            warningLevel,
+                            config,
+                            successRate,
+                            withinModelLimit,
+                            hasBenchmarkData);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {

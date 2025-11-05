@@ -39,16 +39,13 @@ class InstructionsPanelIntegrationTest {
     void exceedsModelLimit_setsRed() {
         // Setup: tokens exceed model limit (regardless of benchmark data)
         boolean withinModelLimit = false;
-        boolean hasBenchmarkData = true;  // doesn't matter
-        int successRate = 93;  // doesn't matter
+        boolean hasBenchmarkData = true; // doesn't matter
+        int successRate = 93; // doesn't matter
 
         var warningLevel = computeWarningLevel(withinModelLimit, hasBenchmarkData, successRate);
 
         // Assert: RED warning when exceeding model limit
-        assertEquals(
-                TokenUsageBar.WarningLevel.RED,
-                warningLevel,
-                "Exceeding model limit should produce RED warning");
+        assertEquals(TokenUsageBar.WarningLevel.RED, warningLevel, "Exceeding model limit should produce RED warning");
     }
 
     @Test
@@ -56,22 +53,19 @@ class InstructionsPanelIntegrationTest {
         // Setup: within model limit but no benchmark data
         boolean withinModelLimit = true;
         boolean hasBenchmarkData = false;
-        int successRate = -1;  // unknown
+        int successRate = -1; // unknown
 
         var warningLevel = computeWarningLevel(withinModelLimit, hasBenchmarkData, successRate);
 
         // Assert: NONE warning when no benchmark data (we don't know if it's good or bad)
-        assertEquals(
-                TokenUsageBar.WarningLevel.NONE,
-                warningLevel,
-                "No benchmark data should produce NONE warning");
+        assertEquals(TokenUsageBar.WarningLevel.NONE, warningLevel, "No benchmark data should produce NONE warning");
     }
 
     @Test
     void tested_highSuccess93_setsNone() {
         // Setup: gpt-5 DEFAULT @20k tokens has 93% success rate
         int approxTokens = 20_000;
-        int maxTokens = 200_000;  // well within limit
+        int maxTokens = 200_000; // well within limit
         var rateResult =
                 ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
@@ -80,8 +74,8 @@ class InstructionsPanelIntegrationTest {
         assertEquals(93, rateResult.successRate(), "gpt-5 DEFAULT @20k should be 93% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(
-                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
+        var warningLevel =
+                computeWarningLevel(approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: NONE warning (success rate >= 50%)
         assertEquals(
@@ -94,7 +88,7 @@ class InstructionsPanelIntegrationTest {
     void tested_mediumSuccess34_setsYellow() {
         // Setup: gpt-5-mini DEFAULT @70k tokens has 34% success rate
         int approxTokens = 70_000;
-        int maxTokens = 200_000;  // well within limit
+        int maxTokens = 200_000; // well within limit
         var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
                 "gpt-5-mini", Service.ReasoningLevel.DEFAULT, approxTokens);
 
@@ -103,8 +97,8 @@ class InstructionsPanelIntegrationTest {
         assertEquals(34, rateResult.successRate(), "gpt-5-mini DEFAULT @70k should be 34% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(
-                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
+        var warningLevel =
+                computeWarningLevel(approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: YELLOW warning (30% <= rate < 50%)
         assertEquals(
@@ -117,7 +111,7 @@ class InstructionsPanelIntegrationTest {
     void tested_lowSuccess17_setsRed() {
         // Setup: gemini-2.5-flash DEFAULT @70k tokens has 17% success rate
         int approxTokens = 70_000;
-        int maxTokens = 200_000;  // well within limit
+        int maxTokens = 200_000; // well within limit
         var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
                 "gemini-2.5-flash", Service.ReasoningLevel.DEFAULT, approxTokens);
 
@@ -126,8 +120,8 @@ class InstructionsPanelIntegrationTest {
         assertEquals(17, rateResult.successRate(), "gemini-2.5-flash DEFAULT @70k should be 17% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(
-                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
+        var warningLevel =
+                computeWarningLevel(approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: RED warning (success rate < 30%)
         assertEquals(
@@ -141,7 +135,7 @@ class InstructionsPanelIntegrationTest {
         // Setup: gpt-5 DEFAULT @131071 tokens
         // gpt-5 DEFAULT @131071 falls in 65K-131K range: 50% success rate is at threshold for NONE
         int approxTokens = 131_071;
-        int maxTokens = 200_000;  // well within limit
+        int maxTokens = 200_000; // well within limit
         var rateResult =
                 ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
@@ -150,8 +144,8 @@ class InstructionsPanelIntegrationTest {
         assertEquals(50, rateResult.successRate(), "gpt-5 DEFAULT @131071 should be 50% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(
-                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
+        var warningLevel =
+                computeWarningLevel(approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: NONE warning (success rate >= 50% threshold)
         assertEquals(
@@ -172,8 +166,8 @@ class InstructionsPanelIntegrationTest {
         boolean withinModelLimit = approxTokens <= maxTokens;
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(
-                withinModelLimit, rateResult.hasBenchmarkData(), rateResult.successRate());
+        var warningLevel =
+                computeWarningLevel(withinModelLimit, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: RED warning for exceeding model limit
         assertEquals(
@@ -189,7 +183,7 @@ class InstructionsPanelIntegrationTest {
         // Simulate within-limit case for Cerebras (models typically support large contexts)
         boolean withinModelLimit = true;
         int successRate = -1; // unknown for this model/token combo
-        boolean hasBenchmarkData = false;  // no data for this combo
+        boolean hasBenchmarkData = false; // no data for this combo
 
         var warningLevel = computeWarningLevel(withinModelLimit, hasBenchmarkData, successRate);
         // Within model limit with no benchmark data should be NONE
