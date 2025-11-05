@@ -26,7 +26,6 @@ public final class HeadlessExecutorMain {
     private final UUID execId;
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
-    private final Path workspaceDir;
     private final Path sessionsDir;
     private final JobStore jobStore;
     private final SessionManager sessionManager;
@@ -85,7 +84,6 @@ public final class HeadlessExecutorMain {
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, Path workspaceDir, Path sessionsDir)
             throws IOException {
         this.execId = execId;
-        this.workspaceDir = workspaceDir;
         this.sessionsDir = sessionsDir;
 
         // Parse listen address
