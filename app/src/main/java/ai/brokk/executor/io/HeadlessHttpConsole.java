@@ -161,6 +161,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
+        resetTranscript(); // Mimic GUI clear-before-stream so the next response starts from this baseline.
         var data = Map.of(
                 "count", history.size(),
                 "snippet", formatHistorySnippet(history));
@@ -172,6 +173,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
+        resetTranscript(); // Reset transcript before staging baseline + pending entry, mirroring GUI behavior.
         var data = Map.of("count", history.size() + 1, "snippet", formatHistorySnippet(history));
         enqueueEvent("CONTEXT_BASELINE", data);
     }
