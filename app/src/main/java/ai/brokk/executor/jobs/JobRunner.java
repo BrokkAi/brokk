@@ -6,6 +6,7 @@ import ai.brokk.Service;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
+import com.google.common.base.Splitter;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
@@ -426,7 +427,7 @@ public final class JobRunner {
         }
 
         var list = new ArrayList<TaskList.TaskItem>();
-        for (String line : taskInput.split("\n")) {
+        for (String line : Splitter.on('\n').split(taskInput)) {
             var trimmed = line.trim();
             if (!trimmed.isEmpty()) {
                 list.add(new TaskList.TaskItem(trimmed, false));
