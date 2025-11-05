@@ -313,7 +313,15 @@ public class CodeAgent {
             }
 
             // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
-            var parseJavaOutcome = parseJavaPhase(cs, es, metrics);
+            Step parseJavaOutcome;
+            try {
+                parseJavaOutcome = parseJavaPhase(cs, es, metrics);
+            } catch (Throwable e) {
+                var msg = "Parse Java phase encountered an unexpected error";
+                logger.error(msg, e);
+                contextManager.reportException(new JavaPreLintFalsePositiveException(msg, e));
+                parseJavaOutcome = new Step.Continue(cs, es);
+            }
             if (parseJavaOutcome instanceof Step.Retry retryJava) {
                 cs = retryJava.cs();
                 es = retryJava.es();
@@ -718,6 +726,10 @@ public class CodeAgent {
     private static class JavaPreLintFalsePositiveException extends RuntimeException {
         public JavaPreLintFalsePositiveException(String message) {
             super(message);
+        }
+
+        public JavaPreLintFalsePositiveException(String msg, Throwable e) {
+            super(msg, e);
         }
     }
 

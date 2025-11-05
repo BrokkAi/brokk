@@ -14,12 +14,14 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.AutoPlayGateDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.GlobalUiSettings;
 import com.google.common.base.Splitter;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -51,6 +53,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -126,6 +129,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
+    private @Nullable ListDataListener autoPlayListener = null;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
@@ -838,6 +842,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void loadTasksForCurrentSession() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            return;
+        }
         var sid = getCurrentSessionId();
         var previous = this.sessionIdAtLoad;
         this.sessionIdAtLoad = sid;
@@ -2063,6 +2071,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     @Override
     public void removeNotify() {
+        // Clean up auto-play listener early to prevent leaks when panel is removed
+        if (autoPlayListener != null) {
+            try {
+                logger.debug("removeNotify: removing autoPlayListener");
+                model.removeListDataListener(autoPlayListener);
+                logger.debug("removeNotify: autoPlayListener cleared");
+            } catch (Exception e) {
+                logger.debug("Error removing autoPlayListener on removeNotify", e);
+            }
+            autoPlayListener = null;
+        }
+
         try {
             saveTasksForCurrentSession();
         } catch (Exception e) {
@@ -2104,6 +2124,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void contextChanged(Context newCtx) {
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
+        logger.debug(
+                "contextChanged: session changed? {} (current={}, loaded={}); scheduling reload if changed",
+                !Objects.equals(current, loaded),
+                current,
+                loaded);
         if (!Objects.equals(current, loaded)) {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
@@ -2265,5 +2290,220 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void enablePlay() {
         // Recompute full state when an LLM action completes (accounts for selection, queue, etc.)
         SwingUtilities.invokeLater(this::updateButtonStates);
+    }
+
+    /**
+     * EZ-mode only: auto-plays all tasks when idle.
+     * <p>
+     * Guards: EDT-safe, no-op if queue active or LLM is busy.
+     * Prompts if tasks exist.
+     */
+    public void autoPlayAllIfIdle() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
+            return;
+        }
+        autoPlayAllIfIdle(Set.of());
+    }
+
+    public void autoPlayAllIfIdle(Set<String> preExistingIncompleteTasks) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> this.autoPlayAllIfIdle(preExistingIncompleteTasks));
+            return;
+        }
+
+        logger.debug(
+                "autoPlayAllIfIdle: advancedMode={}, queueActive={}, modelSize={}, preExistingIncomplete={}",
+                GlobalUiSettings.isAdvancedMode(),
+                queueActive,
+                model.getSize(),
+                preExistingIncompleteTasks.size());
+
+        if (GlobalUiSettings.isAdvancedMode()) {
+            return;
+        }
+
+        if (queueActive) {
+            return;
+        }
+
+        if (model.getSize() == 0) {
+            // Remove any existing listener before creating a new one
+            if (autoPlayListener != null) {
+                logger.debug("EZ-mode: existing autoPlayListener detected; removing before creating a new one");
+                model.removeListDataListener(autoPlayListener);
+                autoPlayListener = null;
+            }
+
+            autoPlayListener = new ListDataListener() {
+                @Override
+                public void intervalAdded(ListDataEvent e) {
+                    logger.debug("autoPlayListener.intervalAdded: will remove self and re-invoke autoPlayAllIfIdle");
+                    model.removeListDataListener(this);
+                    autoPlayListener = null;
+                    SwingUtilities.invokeLater(() -> TaskListPanel.this.autoPlayAllIfIdle(preExistingIncompleteTasks));
+                }
+
+                @Override
+                public void intervalRemoved(ListDataEvent e) {}
+
+                @Override
+                public void contentsChanged(ListDataEvent e) {}
+            };
+            model.addListDataListener(autoPlayListener);
+            logger.debug("EZ-mode: autoPlayListener registered and waiting for first task");
+            return;
+        }
+
+        showAutoPlayGateDialogAndAct(preExistingIncompleteTasks);
+    }
+
+    /**
+     * Gather deduplicated, pre-existing incomplete task texts from the current model.
+     * Iterates model entries, includes only items that are not done, strips text,
+     * and includes only if present in preExisting. Uses LinkedHashSet to preserve display order.
+     *
+     * @param preExisting Set of pre-existing task texts to filter by
+     * @return LinkedHashSet of task texts that are incomplete and in preExisting
+     */
+    private Set<String> collectTaskTexts(Set<String> preExisting) {
+        assert SwingUtilities.isEventDispatchThread() : "collectTaskTexts must be called on EDT";
+        var texts = new LinkedHashSet<String>();
+        for (int i = 0; i < model.size(); i++) {
+            var it = requireNonNull(model.get(i));
+            if (it.done()) {
+                continue;
+            }
+            var t = it.text().strip();
+            if (!t.isEmpty() && preExisting.contains(t)) {
+                texts.add(t);
+            }
+        }
+        return texts;
+    }
+
+    /**
+     * Count the number of incomplete tasks in the model.
+     *
+     * @return Number of incomplete tasks
+     */
+    private int countIncompleteTasks() {
+        assert SwingUtilities.isEventDispatchThread() : "countIncompleteTasks must be called on EDT";
+        int count = 0;
+        for (int i = 0; i < model.getSize(); i++) {
+            var task = model.get(i);
+            if (task != null && !task.done()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Remove tasks from the model by their text content.
+     *
+     * @param textsToRemove Set of task texts to remove
+     * @return Number of tasks removed
+     */
+    private int removeTasksByText(Set<String> textsToRemove) {
+        assert SwingUtilities.isEventDispatchThread() : "removeTasksByText must be called on EDT";
+        int removed = 0;
+        for (int i = model.getSize() - 1; i >= 0; i--) {
+            var task = model.get(i);
+            if (task != null && !task.done()) {
+                var t = task.text().strip();
+                if (textsToRemove.contains(t)) {
+                    model.remove(i);
+                    removed++;
+                }
+            }
+        }
+        return removed;
+    }
+
+    /**
+     * Handle the user's choice from the auto-play gate dialog.
+     *
+     * @param choice User's selection from AutoPlayGateDialog
+     * @param texts Set of pre-existing incomplete tasks shown in the dialog
+     */
+    private void handleAutoPlayChoice(AutoPlayGateDialog.UserChoice choice, Set<String> texts) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        switch (choice) {
+            case EXECUTE_ALL -> {
+                var totalIncompleteTasks = countIncompleteTasks();
+                logger.debug("EZ-mode executing all {} incomplete tasks", totalIncompleteTasks);
+                runArchitectOnAll();
+            }
+            case CLEAN_AND_RUN -> {
+                var totalIncompleteTasks = countIncompleteTasks();
+                var removed = removeTasksByText(texts);
+
+                if (removed > 0) {
+                    clearExpansionOnStructureChange();
+                    saveTasksForCurrentSession();
+                    updateButtonStates();
+                    SwingUtilities.invokeLater(this::updateTasksTabBadge);
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
+                }
+
+                var remaining = totalIncompleteTasks - removed;
+                logger.debug("EZ-mode removed {} pre-existing tasks, executing {} remaining tasks", removed, remaining);
+                runArchitectOnAll();
+            }
+            case CANCEL -> logger.debug("EZ-mode dialog cancelled");
+        }
+    }
+
+    /**
+     * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
+     * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
+     */
+    private void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
+            return;
+        }
+
+        try {
+            if (model.isEmpty()) {
+                return;
+            }
+
+            // If no pre-existing incomplete tasks, auto-execute without prompting
+            if (preExistingIncompleteTasks.isEmpty()) {
+                var totalTasks = countIncompleteTasks();
+                logger.debug("EZ-mode auto-executing {} tasks (no pre-existing incomplete tasks)", totalTasks);
+                runArchitectOnAll();
+                return;
+            }
+
+            // Collect deduplicated pre-existing incomplete task texts
+            var texts = collectTaskTexts(preExistingIncompleteTasks);
+            if (texts.isEmpty()) {
+                return;
+            }
+
+            logger.debug(
+                    "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
+                    texts.size(),
+                    countIncompleteTasks());
+
+            // Show dialog and handle user choice
+            var choice = AutoPlayGateDialog.show(SwingUtilities.getWindowAncestor(this), texts);
+            handleAutoPlayChoice(choice, texts);
+        } catch (Exception ex) {
+            logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
+            try {
+                String msg = "Could not open the auto-play dialog: "
+                        + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                chrome.toolError(msg, "Auto-play");
+            } catch (Exception notifyEx) {
+                logger.debug("Failed to show toolError for auto-play gate dialog failure", notifyEx);
+            }
+        }
     }
 }

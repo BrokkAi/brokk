@@ -109,6 +109,28 @@ public class BadgedIcon implements Icon {
             int badgeX = x + baseIcon.getIconWidth() - badgeSize;
             int badgeY = y + baseIcon.getIconHeight() - badgeSize + 2;
 
+            // Clamp badge position so the circle lies fully within this Icon's bounds
+            int maxBadgeX = x + getIconWidth() - badgeSize;
+            int maxBadgeY = y + getIconHeight() - badgeSize;
+            badgeX = Math.max(x, Math.min(badgeX, maxBadgeX));
+            badgeY = Math.max(y, Math.min(badgeY, maxBadgeY));
+
+            // Extra safety: ensure the badge does not overflow the reported bounds
+            int rightBound = x + getIconWidth();
+            int bottomBound = y + getIconHeight();
+            if (badgeX + badgeSize > rightBound) {
+                badgeX = rightBound - badgeSize;
+            }
+            if (badgeY + badgeSize > bottomBound) {
+                badgeY = bottomBound - badgeSize;
+            }
+            if (badgeX < x) {
+                badgeX = x;
+            }
+            if (badgeY < y) {
+                badgeY = y;
+            }
+
             // Use theme-managed badge colors
             boolean isDarkTheme = themeManager.isDarkTheme(); // Get current theme state
             Color badgeBackgroundColor = ThemeColors.getColor(isDarkTheme, ThemeColors.GIT_BADGE_BACKGROUND);
@@ -135,15 +157,23 @@ public class BadgedIcon implements Icon {
         }
     }
 
+    /**
+     * Intentionally returns a constant width of baseIcon.getIconWidth() + 2, regardless of badge count.
+     * The extra 2px reserve prevents toolbar reflow when the badge appears or disappears.
+     * The badge is drawn entirely within these reserved bounds.
+     */
     @Override
     public int getIconWidth() {
-        // Reserve just 2 pixels for minimal badge overlap
-        return baseIcon.getIconWidth() + (count > 0 ? 2 : 0);
+        return baseIcon.getIconWidth() + 2;
     }
 
+    /**
+     * Intentionally returns a constant height of baseIcon.getIconHeight() + 2, regardless of badge count.
+     * The extra 2px reserve prevents toolbar reflow when the badge appears or disappears.
+     * The badge is drawn entirely within these reserved bounds.
+     */
     @Override
     public int getIconHeight() {
-        // Reserve just 2 pixels for minimal badge overlap
-        return baseIcon.getIconHeight() + (count > 0 ? 2 : 0);
+        return baseIcon.getIconHeight() + 2;
     }
 }
