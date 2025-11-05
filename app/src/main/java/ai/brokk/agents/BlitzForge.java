@@ -95,6 +95,7 @@ public final class BlitzForge {
      * provided processor should be thread-safe.
      */
     public TaskResult executeParallel(Collection<ProjectFile> files, Function<ProjectFile, FileResult> processor) {
+        logger.debug("BlitzForge.executeParallel start: totalFiles={}, thread={}", files.size(), Thread.currentThread().getName());
         listener.onStart(files.size());
 
         if (files.isEmpty()) {
@@ -139,6 +140,7 @@ public final class BlitzForge {
             int startIdx = 0;
             if (!config.sharedContext().get().isBlank()) {
                 var first = sortedFiles.getFirst();
+                logger.debug("BlitzForge.executeParallel warm-up start on {}", first);
                 listener.onFileStart(first);
                 if (Thread.currentThread().isInterrupted()) {
                     return interruptedResult(processedCount, files);
@@ -147,6 +149,7 @@ public final class BlitzForge {
                 results.add(fr);
                 ++processedCount;
                 listener.onFileResult(fr.file(), fr.edited(), fr.errorMessage(), fr.llmOutput());
+                logger.debug("BlitzForge.executeParallel warm-up end on {}", first);
                 startIdx = 1;
             }
 
@@ -155,6 +158,7 @@ public final class BlitzForge {
             IdentityHashMap<Future<FileResult>, ProjectFile> futureFiles = new IdentityHashMap<>();
             for (var file : sortedFiles.subList(startIdx, sortedFiles.size())) {
                 listener.onFileStart(file);
+                logger.debug("BlitzForge.executeParallel submitting {}", file);
 
                 interface TokenAwareCallable extends Callable<FileResult>, TokenAware {}
 
@@ -182,6 +186,7 @@ public final class BlitzForge {
 
                     @Override
                     public FileResult call() {
+                        logger.debug("BlitzForge.TokenAwareCallable.call start for {} on thread {}", file, Thread.currentThread().getName());
                         return processor.apply(file);
                     }
                 });
@@ -192,6 +197,7 @@ public final class BlitzForge {
             int pending = sortedFiles.size() - startIdx;
             for (int i = 0; i < pending; i++) {
                 if (Thread.currentThread().isInterrupted()) {
+                    logger.debug("BlitzForge.executeParallel main thread interrupted during collection");
                     return interruptedResult(processedCount, files);
                 }
 
@@ -200,6 +206,7 @@ public final class BlitzForge {
                     fut = completionService.take();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    logger.debug("BlitzForge.executeParallel interrupted while taking from completion service");
                     return interruptedResult(processedCount, files);
                 }
 
@@ -210,6 +217,7 @@ public final class BlitzForge {
                     listener.onFileResult(res.file(), res.edited(), res.errorMessage(), res.llmOutput());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    logger.debug("BlitzForge.executeParallel interrupted while getting result");
                     return interruptedResult(processedCount, files);
                 } catch (ExecutionException e) {
                     var cause = e.getCause() == null ? e : e.getCause();
@@ -271,6 +279,7 @@ public final class BlitzForge {
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
         var finalResult = new TaskResult(cm, config.instructions(), uiMessages, resultingCtx, sd, meta);
 
+        logger.debug("BlitzForge.executeParallel delivering onComplete: reason={}, processed={}/{}, thread={}", finalResult.stopDetails().reason(), processedCount, files.size(), Thread.currentThread().getName());
         listener.onComplete(finalResult);
         return finalResult;
     }
@@ -284,10 +293,12 @@ public final class BlitzForge {
     }
 
     private TaskResult interruptedResult(int processed, Collection<ProjectFile> files) {
+        logger.debug("BlitzForge.interruptedResult: processed={}/{} on thread {}", processed, files.size(), Thread.currentThread().getName());
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var meta =
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
         var tr = new TaskResult(cm, config.instructions(), List.of(), cm.topContext(), sd, meta);
+        logger.debug("BlitzForge.interruptedResult delivering onComplete before listener.onComplete call, thread={}", Thread.currentThread().getName());
         listener.onComplete(tr);
         logger.debug("Interrupted; processed {} of {}", processed, files.size());
         return tr;
