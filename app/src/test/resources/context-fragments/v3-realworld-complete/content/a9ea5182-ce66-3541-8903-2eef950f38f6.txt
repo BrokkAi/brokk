@@ -1,0 +1,22 @@
+Reasoning:
+
+
+**Preparing workspace for code annotation**
+
+I need to prepare the workspace for annotating `bmo_dupe.cc` based on the user's request to record original indices and coordinates. However, I also have to follow developer instructions that Search Agent should not modify code. The task involves annotating the file, and while I can't write the actual code, I can update the workspace with notes, specify where changes are needed, and maybe even create a small patch that indicates what to change without writing any code myself.
+
+**Clarifying workspace instructions**
+
+I noticed that earlier, it mentioned to use `addFilesToWorkspace` for files needing new code, but it seems I shouldn't modify existing content. According to developer instructions, using `addSymbolUsagesToWorkspace` might be sufficient for refactoring, allowing the Code Agent to edit directly. My goal is to curate the workspace with the necessary info for the Code Agent without modifying file content. I should prune the workspace and consider adding method sources for math functions, but I need to decide on the appropriate tools to call.
+
+**Pruning workspace and adding notes**
+
+I need to prune workspace fragments and add detailed instruction notes specific to insertion points. It might be useful to include a small summary of `bmo_dupe.cc` and highlight the locations for changes. I definitely plan to use `getFileContents` to fetch the current content since the file is in the editable workspace. We should drop any extraneous fragments we previously identified. Ultimately, I’ll create notes for the Code Agent using `appendNote` for step-by-step instructions, referencing line numbers and snippets, while keeping to the rules. I'll ensure the tool calls are set up correctly.
+
+**Planning annotations and instructions**
+
+I realized that using `getFileContents` wouldn't really add value since it just returns the content. Instead, I think using `appendNote` to provide a detailed change plan with exact patch locations and small snippets would be more effective. We should prune any irrelevant fragments remaining in the workspace, which currently shows only editable files and appended notes. I want to ensure the annotations address the function clearly and guide the Code Agent on where to insert changes, like before the vtable allocation. Finally, I’ll call `appendNote` with all the necessary instructions and then finish with `workspaceComplete`.
+
+**Determining tool actions for appendNote**
+
+The prompt specifies that final actions must be the only tool used in a turn, so I see that I need to make non-final tool calls first. I can call `appendNote` now to provide detailed notes, but I can't include `workspaceComplete` in the same turn. Using `appendNote`, I plan to summarize precision issues while annotating `bmo_dupe.cc`, detailing the code additions, and flexible suggestions on accessing function names without being too specific. I'll prepare concise instructions, including pseudocode steps, and ensure that it covers everything needed for the Code Agent.

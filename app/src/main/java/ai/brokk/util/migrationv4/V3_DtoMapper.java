@@ -181,6 +181,7 @@ public class V3_DtoMapper {
         var meta = ffd.meta();
         try {
             switch (original) {
+                case "ai.brokk.util.migrationv4.V3_FragmentDtos$ProjectFileDto":
                 case "io.github.jbellis.brokk.context.ContextFragment$ProjectPathFragment":
                 case "ai.brokk.context.ContextFragment$ProjectPathFragment": {
                     var relPath = meta.get("relPath");

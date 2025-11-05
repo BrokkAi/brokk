@@ -193,7 +193,10 @@ public class Service implements IExceptionReportingService {
         }
 
         /** Converts a String to a ReasoningLevel, falling back to the provided default. */
-        public static ReasoningLevel fromString(String value, ReasoningLevel defaultLevel) {
+        public static ReasoningLevel fromString(@Nullable String value, ReasoningLevel defaultLevel) {
+            if (value == null) {
+                return defaultLevel;
+            }
             try {
                 return ReasoningLevel.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
@@ -321,7 +324,7 @@ public class Service implements IExceptionReportingService {
             quickEditModel = quickModel;
         } else {
             var qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
-            quickEditModel = qe == null ? qm : qe;
+            quickEditModel = qe == null ? quickModel : qe;
         }
 
         // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible

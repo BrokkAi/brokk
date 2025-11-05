@@ -686,27 +686,19 @@ public class ArchitectAgent {
         // Add related identifiers as a separate message/ack pair
         var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
-            var topClassesRaw = related.entrySet().stream()
-                    .sorted(Comparator.comparing(e -> e.getKey().fqName()))
-                    .map(e -> {
-                        var cu = e.getKey();
-                        var subs = e.getValue();
-                        return "- " + cu.fqName() + (subs.isBlank() ? "" : " (members: " + subs + ")");
-                    })
-                    .collect(Collectors.joining("\n"));
-            var topClassesText =
+            var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
+            var topFilesText =
                     """
-                            <related_classes>
-                            Here are some classes that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
-                            If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                            visible to Code Agent. If they are not relevant, just ignore them.
+                    <related_files>
+                    Here are some files that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
+                    If relevant, explicitly add them (e.g., summaries or sources) so they become visible to Code Agent. If they are not relevant, ignore them.
 
-                            %s
-                            </related_classes>
-                            """
-                            .formatted(topClassesRaw);
-            messages.add(new UserMessage(topClassesText));
-            messages.add(new AiMessage("Okay, I will consider these related classes."));
+                    %s
+                    </related_files>
+                    """
+                            .formatted(relatedBlock);
+            messages.add(new UserMessage(topFilesText));
+            messages.add(new AiMessage("Okay, I will consider these related files."));
         }
 
         // History from previous tasks/sessions

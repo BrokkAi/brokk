@@ -293,11 +293,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         String packageName = cu.packageName();
 
-        if (classChain != null && !classChain.isBlank()) {
+        if (!classChain.isBlank()) {
             // Extract first segment to determine if this is function-local
-            String firstSegment = classChain.contains(".") || classChain.contains("$")
-                    ? classChain.split("[.$]")[0]
-                    : classChain;
+            String firstSegment;
+            int dotIndex = classChain.indexOf('.');
+            int dollarIndex = classChain.indexOf('$');
+            if (dotIndex >= 0 && (dollarIndex < 0 || dotIndex < dollarIndex)) {
+                firstSegment = classChain.substring(0, dotIndex);
+            } else if (dollarIndex >= 0) {
+                firstSegment = classChain.substring(0, dollarIndex);
+            } else {
+                firstSegment = classChain;
+            }
 
             // Check if classChain starts with a function (lowercase = function, PascalCase = class)
             boolean isFunctionLocal = isLowercaseIdentifier(firstSegment);

@@ -1170,6 +1170,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             try {
                 dropOther.getAccessibleContext().setAccessibleName("Drop Others");
             } catch (Exception ignored) {
+                // Accessibility support is optional, failure is non-fatal
             }
 
             // Determine enabled state at menu construction time
@@ -1362,10 +1363,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
     }
 
-    private Component createChip(ContextFragment fragment) {
-        // Defensive pre-check: guard against null fragments.
-        if (fragment == null) {
-            logger.debug("createChip: fragment is null, returning null");
+    private @Nullable Component createChip(ContextFragment fragment) {
+        // Defensive pre-check: guard against visually-empty fragments.
+        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
+            logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
             return null;
         }
 
@@ -1388,6 +1389,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception e) {
             logger.debug("description() threw for fragment {}", fragment, e);
             safeDescription = "";
+        }
+
+        // Last-line safety: re-check that the fragment still has renderable content before building UI.
+        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
+            logger.debug("Avoiding chip creation after re-check for fragment {}", fragment);
+            return null;
         }
 
         var chip = new RoundedChipPanel();
@@ -1643,8 +1650,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return chip;
     }
 
-    private Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
-        if (summaries == null || summaries.isEmpty()) return null;
+    private @Nullable Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
+        if (summaries.isEmpty()) return null;
 
         // Filter summaries to only those that are renderable unless developer override is enabled.
         var renderableSummaries = summaries.stream()

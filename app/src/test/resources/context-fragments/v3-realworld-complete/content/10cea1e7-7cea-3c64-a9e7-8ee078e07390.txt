@@ -1,0 +1,11 @@
+
+```json
+{
+  "tool_calls": [
+    {
+      "name": "workspaceComplete",
+      "arguments": {}
+    }
+  ]
+}
+```

@@ -1,0 +1,4 @@
+package (default package);
+
+struct BMFace {
+}

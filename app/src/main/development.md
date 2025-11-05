@@ -143,8 +143,8 @@ The build uses ErrorProne for compile-time bug detection with conditional NullAw
 
 #### ErrorProne & NullAway
 
-- **Regular builds** (`./gradlew build`, `test`): Fast - basic ErrorProne checks only (~10-30% overhead)
-- **Full analysis** (`./gradlew check`): Slow - includes NullAway dataflow analysis (~20-50% overhead)
+- **Regular builds** (`./gradlew build`, `test`): Fast - ErrorProne completely disabled (0% overhead)
+- **Full analysis** (`./gradlew check`): Slow - includes ErrorProne + NullAway dataflow analysis (~20-50% overhead)
 
 #### Running Static Analysis Locally
 
@@ -177,11 +177,11 @@ The pre-push hook will block the push if any errors are found, ensuring code qua
 
 #### Usage Summary
 
-- `./gradlew build` → Fast compilation, basic ErrorProne only
-- `./gradlew test` → Fast tests without expensive null analysis
-- `./gradlew analyze` → Static analysis only (NullAway + spotless, no tests)
-- `./gradlew check` → Full verification (tests + NullAway + spotless)
-- CI automatically runs `check` for complete validation
+- `./gradlew build` → Fast compilation, no static analysis overhead
+- `./gradlew test` → Fast tests, no static analysis overhead
+- `./gradlew analyze` → Static analysis only (ErrorProne + NullAway + spotless, no tests)
+- `./gradlew check` → Full verification (tests + ErrorProne + NullAway + spotless)
+- CI should run `check` for complete validation
 
 The build system uses aggressive multi-level caching for optimal performance:
 

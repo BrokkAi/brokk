@@ -101,7 +101,7 @@ public final class BlitzForge {
             // No files → produce an empty successful TaskResult whose resultingContext is the current top context
             Context resultingCtx = cm.topContext();
             var meta = new TaskResult.TaskMeta(
-                    TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(requireNonNull(config.model()), service));
+                    TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
             var emptyResult = new TaskResult(
                     cm,
                     config.instructions(),
@@ -127,7 +127,7 @@ public final class BlitzForge {
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
             executor = Executors.newFixedThreadPool(pool);
         } else {
-            executor = AdaptiveExecutor.create(service, requireNonNull(config.model()), files.size());
+            executor = AdaptiveExecutor.create(service, config.model(), files.size());
         }
 
         int processedCount = 0;
@@ -267,8 +267,8 @@ public final class BlitzForge {
         var top = cm.topContext();
         var resultingCtx = top.addPathFragments(cm.toPathFragments(changedFiles));
 
-        var meta = new TaskResult.TaskMeta(
-                TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(requireNonNull(config.model()), service));
+        var meta =
+                new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
         var finalResult = new TaskResult(cm, config.instructions(), uiMessages, resultingCtx, sd, meta);
 
         listener.onComplete(finalResult);
@@ -285,8 +285,8 @@ public final class BlitzForge {
 
     private TaskResult interruptedResult(int processed, Collection<ProjectFile> files) {
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
-        var meta = new TaskResult.TaskMeta(
-                TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(requireNonNull(config.model()), service));
+        var meta =
+                new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
         var tr = new TaskResult(cm, config.instructions(), List.of(), cm.topContext(), sd, meta);
         listener.onComplete(tr);
         logger.debug("Interrupted; processed {} of {}", processed, files.size());

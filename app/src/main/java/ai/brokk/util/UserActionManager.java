@@ -3,8 +3,6 @@ package ai.brokk.util;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.exception.GlobalExceptionHandler;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -136,13 +134,6 @@ public class UserActionManager {
             }
         };
         return new LoggingExecutorService(delegate, onError);
-    }
-
-    private String getStackTraceAsString(Throwable throwable) {
-        var sw = new StringWriter();
-        var pw = new PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
     }
 
     @FunctionalInterface

@@ -385,7 +385,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return modelConfig;
     }
 
-    public static String computeWarningTooltip(
+    public static @Nullable String computeWarningTooltip(
             boolean rateIsTested,
             @Nullable Service.ModelConfig modelConfig,
             WarningLevel warningLevel,
