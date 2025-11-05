@@ -556,7 +556,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param file the project file
      * @return an unmodifiable set of resolved CodeUnits from import statements
      */
-    public Set<CodeUnit> resolvedImportsOf(ProjectFile file) {
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return fileProperties(file).resolvedImports();
     }
 
@@ -3129,14 +3129,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             });
         });
 
-        // Update file state
+        // Update file state - initialize with empty resolved imports (will be populated during import resolution pass)
         targetFileState.put(
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(),
                         analysisResult.parsedTree(),
                         analysisResult.importStatements(),
-                        Set.of()));
+                        Collections.unmodifiableSet(new HashSet<>())));
 
         long __mergeEnd = System.nanoTime();
         if (timing != null) {

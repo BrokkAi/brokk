@@ -388,8 +388,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 // Wildcard import: resolve all classes in the package
                 String packageName =
                         normalized.substring(0, normalized.length() - 2).trim();
-                String pattern = "^" + Pattern.quote(packageName) + "\\.[A-Z][a-zA-Z0-9_]*$";
-                List<CodeUnit> classesInPackage = searchDefinitions(pattern);
+                // Use a regex pattern to match all classes starting with the package name followed by dot
+                // This will match both top-level classes (package.ClassName) and nested classes (package.Outer.Inner)
+                String escapedPackage = Pattern.quote(packageName);
+                String patternStr = "^" + escapedPackage + "\\.[A-Za-z_][a-zA-Z0-9_.]*$";
+                Pattern compiledPattern = Pattern.compile(patternStr);
+                List<CodeUnit> classesInPackage = searchDefinitionsImpl(patternStr, null, compiledPattern);
                 for (CodeUnit cu : classesInPackage) {
                     if (cu.isClass()) {
                         resolved.add(cu);
