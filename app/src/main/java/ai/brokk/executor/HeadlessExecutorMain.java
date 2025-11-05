@@ -402,7 +402,7 @@ public final class HeadlessExecutorMain {
             }
 
             var plannerModel = jobSpec.plannerModel();
-            if (plannerModel == null || plannerModel.isBlank()) {
+            if (plannerModel.isBlank()) {
                 var error = ErrorPayload.validationError("plannerModel is required");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
