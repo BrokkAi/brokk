@@ -77,7 +77,7 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult runTask(String userInput, boolean forArchitect) {
-        var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
+        var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         var io = contextManager.getIo();
