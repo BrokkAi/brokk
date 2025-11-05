@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -165,8 +167,21 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String classChain,
             TSNode definitionNode,
             SkeletonType skeletonType) {
+        // In TypeScript, namespaces appear in BOTH packageName and classChain.
+        // To avoid duplication in FQNames, strip the package prefix from classChain.
+        String adjustedClassChain = classChain;
+        if (!packageName.isBlank() && !classChain.isBlank()) {
+            if (classChain.equals(packageName)) {
+                // ClassChain is exactly the package - just the namespace, no nesting
+                adjustedClassChain = "";
+            } else if (classChain.startsWith(packageName + ".")) {
+                // ClassChain starts with package - remove the package prefix
+                adjustedClassChain = classChain.substring(packageName.length() + 1);
+            }
+        }
+
         String finalShortName;
-        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+        final String shortName = adjustedClassChain.isEmpty() ? simpleName : adjustedClassChain + "." + simpleName;
 
         switch (skeletonType) {
             case CLASS_LIKE -> {
@@ -195,15 +210,24 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 if (definitionNode != null && !definitionNode.isNull()) {
                     String nodeType = definitionNode.getType();
                     if ("index_signature".equals(nodeType)) {
-                        finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
+                        // Fields require "Container.field" format; use _module_. when no class container
+                        finalShortName = adjustedClassChain.isEmpty()
+                                ? "_module_." + simpleName
+                                : adjustedClassChain + "." + simpleName;
                         return CodeUnit.field(file, packageName, finalShortName);
                     }
                 }
-                finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
+                // Fields require "Container.field" format; use _module_. when no class container
+                finalShortName = adjustedClassChain.isEmpty()
+                        ? "_module_." + simpleName
+                        : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             case ALIAS_LIKE -> {
-                finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
+                // Type aliases are fields and require "Container.alias" format; use _module_. when no class container
+                finalShortName = adjustedClassChain.isEmpty()
+                        ? "_module_." + simpleName
+                        : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
@@ -239,6 +263,38 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return text; // Should not happen if TS grammar for return_type capture is specific to type_annotation
     }
 
+    @Override
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        // In TypeScript, namespaces appear in BOTH packageName (from extractNamespacePath)
+        // and classChain (from walking up AST). To avoid duplication, we need to remove
+        // the namespace prefix from classChain when building the parent FQN.
+        //
+        // Example: for a function inside namespace "MyModule":
+        // - packageName = "MyModule" (from extractNamespacePath)
+        // - classChain = "MyModule" (from AST walk)
+        // - Without this fix: parentFqName = "MyModule.MyModule" (WRONG)
+        // - With this fix: parentFqName = "MyModule" (CORRECT)
+
+        String packageName = cu.packageName();
+
+        // If package is a prefix of classChain, remove it to avoid duplication
+        if (!packageName.isBlank() && !classChain.isBlank()) {
+            if (classChain.equals(packageName)) {
+                // ClassChain is exactly the package - parent is the namespace itself
+                return packageName;
+            } else if (classChain.startsWith(packageName + ".")) {
+                // ClassChain starts with package - remove the package prefix
+                String remainingChain = classChain.substring(packageName.length() + 1);
+                return Stream.of(packageName, remainingChain)
+                        .filter(s -> !s.isBlank())
+                        .collect(Collectors.joining("."));
+            }
+        }
+
+        // Default behavior: package + classChain
+        return super.buildParentFqName(cu, classChain);
+    }
+
     /**
      * Extracts namespace path for a definition node by traversing up the AST.
      * Returns namespace chain like "A.B.C" if node is inside nested namespaces
@@ -246,6 +302,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * Handles both "namespace A.B.C { }" (dotted) and nested namespace declarations.
      */
     private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
+
         var namespaces = new java.util.ArrayList<String>();
         TSNode current = definitionNode.getParent();
         boolean insideClass = false;

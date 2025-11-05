@@ -306,11 +306,12 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(skeletons.get(topLevelGenericAlias)));
 
         // Check a nested item via getSkeleton
+        // With namespace-as-package: FQN is "MyModule.InnerClass" (package="MyModule", shortName="InnerClass")
         Optional<String> innerClassSkel = AnalyzerUtil.getSkeleton(analyzer, "MyModule.InnerClass");
         assertTrue(innerClassSkel.isPresent());
         // When getting skeleton for a nested CU, it should be part of the parent's reconstruction.
         // The current `getSkeleton` will reconstruct from the top-level parent of that CU.
-        // So `getSkeleton("MyModule$InnerClass")` should effectively return the skeleton of `MyModule` because
+        // So `getSkeleton("MyModule.InnerClass")` should effectively return the skeleton of `MyModule` because
         // `InnerClass` is a child of `MyModule`.
         // This might be unintuitive if one expects only the InnerClass part.
         // Let's test this behavior:
@@ -319,20 +320,21 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(innerClassSkel.get()),
                 "getSkeleton for nested class should return the reconstructed parent skeleton.");
 
-        Optional<String> innerTypeAliasSkelViaParent = AnalyzerUtil.getSkeleton(analyzer, "MyModule.InnerTypeAlias");
+        // Type alias FQN is "MyModule._module_.InnerTypeAlias" (package="MyModule", shortName="_module_.InnerTypeAlias")
+        Optional<String> innerTypeAliasSkelViaParent = AnalyzerUtil.getSkeleton(analyzer, "MyModule._module_.InnerTypeAlias");
         assertTrue(
                 innerTypeAliasSkelViaParent.isPresent(),
-                "Skeleton for MyModule.InnerTypeAlias should be part of MyModule's skeleton");
+                "Skeleton for MyModule._module_.InnerTypeAlias should be part of MyModule's skeleton");
         assertEquals(
                 normalize.apply(expectedMyModuleSkeleton),
                 normalize.apply(innerTypeAliasSkelViaParent.get()),
                 "getSkeleton for nested type alias should return reconstructed parent skeleton.");
 
         Set<CodeUnit> declarations = analyzer.getDeclarations(moduleTsFile);
-        // TODO: capture nested modules
-        assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "", "MyModule.NestedNamespace.DeeperClass")));
-        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.InnerTypeAlias")));
-        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.NestedNamespace.DeepType")));
+        // With namespace-as-package semantics: package contains namespace, shortName contains class/field name
+        assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "MyModule.NestedNamespace", "DeeperClass")));
+        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "MyModule", "_module_.InnerTypeAlias")));
+        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "MyModule.NestedNamespace", "_module_.DeepType")));
         assertTrue(declarations.contains(topLevelGenericAlias));
     }
 
