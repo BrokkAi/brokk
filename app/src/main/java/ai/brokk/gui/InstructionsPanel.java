@@ -275,9 +275,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
-        // This panel is a root for focus traversal. The main Chrome frame will provide the policy
-        // that cycles between this panel and others.
-        setFocusCycleRoot(true);
         // Initialize components
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
@@ -2039,6 +2036,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public void addModelSelectionListener(Consumer<Service.ModelConfig> listener) {
         modelSelector.addSelectionListener(listener);
+    }
+
+    // Public getters for focus traversal policy
+    public VoiceInputButton getMicButton() {
+        return micButton;
+    }
+
+    public WandButton getWandButton() {
+        return wandButton;
+    }
+
+    public SplitButton getHistoryDropdown() {
+        return historyDropdown;
+    }
+
+    public ActionSplitButton getActionButton() {
+        return actionButton;
     }
 
     /**

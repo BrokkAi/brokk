@@ -699,4 +699,17 @@ public final class DependenciesPanel extends JPanel {
             }
         }
     }
+
+    // Public getters for focus traversal policy
+    public JTable getDependencyTable() {
+        return table;
+    }
+
+    public MaterialButton getAddButton() {
+        return addButton;
+    }
+
+    public MaterialButton getRemoveButton() {
+        return removeButton;
+    }
 }
