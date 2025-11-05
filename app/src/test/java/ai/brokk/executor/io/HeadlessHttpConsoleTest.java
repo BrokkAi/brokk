@@ -11,6 +11,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobStore;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Path;
 import java.util.List;
@@ -556,9 +557,17 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
-    void testGetLlmRawMessages_ReturnsEmptyList() {
+    void testGetLlmRawMessages_RetainsTranscript() {
+        console.llmOutput("Hello", ChatMessageType.AI, true, false);
+        console.llmOutput(" world", ChatMessageType.AI, false, false);
+
         var messages = console.getLlmRawMessages();
-        assertEquals(List.of(), messages);
+        assertEquals(1, messages.size());
+
+        var message = messages.getFirst();
+        assertEquals(ChatMessageType.AI, message.type());
+        var aiMessage = (AiMessage) message;
+        assertEquals("Hello world", aiMessage.text());
     }
 
     @Test
