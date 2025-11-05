@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -50,7 +51,7 @@ public final class JobRunner {
             var tags = spec.tags();
             var raw = tags.getOrDefault("mode", "").trim();
             if (raw.isEmpty()) return Mode.ARCHITECT;
-            return Mode.valueOf(raw.toUpperCase());
+            return Mode.valueOf(raw.toUpperCase(Locale.ROOT));
         } catch (Exception ignore) {
             return Mode.ARCHITECT;
         }
