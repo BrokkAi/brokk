@@ -1,0 +1,5 @@
+# Explanation
+
+Root cause: `bmo_spin_exec` applies the same incremental rotation/translation per step to geometry that was already transformed in the previous step. Floating-point error compounds across steps, so at high step counts the final vertices deviate from their ideal angular positions.
+
+High-level fix: For each step, place the new geometry using an absolute transform computed from the original (step-0) vertex positions instead of re-transforming the previous step. Compute an absolute rotation for step i (stable quaternion power or exact axis-angle), operate in the provided `space` (typically world) coordinates, accumulate screw-translation in double precision, and write the resulting coordinates directly to the new vertices. Keep existing topology creation (duplicate/extrude) and the merge/splice logic for full revolutions intact.

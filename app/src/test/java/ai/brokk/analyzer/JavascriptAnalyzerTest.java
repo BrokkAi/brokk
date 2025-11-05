@@ -4,6 +4,7 @@ import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.context.Context;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -709,5 +710,16 @@ public final class JavascriptAnalyzerTest {
         assertTrue(
                 fieldAsMethodSourceOpt.isEmpty(),
                 "Requesting method source for a field symbol should return Option.empty().");
+    }
+
+    @Test
+    void testBuildRelatedIdentifiers() {
+        var related = Context.buildRelatedIdentifiers(jsAnalyzer, helloJsFile);
+        var expected = """
+- Hello
+    - greet
+- util
+""".strip();
+        assertEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
     }
 }

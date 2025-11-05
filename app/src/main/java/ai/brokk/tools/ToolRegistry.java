@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * Tools are methods annotated with @Tool on registered object instances.
  *
  * Builder pattern:
- * - Create per-turn registries via ToolRegistry.builder(base).register(...).build()
+ * - Create per-turn registries via ToolRegistry.fromBase(base).register(...).build()
  * - Built registries are sealed (immutable) and cannot be mutated.
  */
 public class ToolRegistry {
@@ -137,7 +137,7 @@ public class ToolRegistry {
     }
 
     /** Builder for creating a sealed local registry based on a base registry. */
-    public static Builder builder(ToolRegistry base) {
+    public static Builder fromBase(ToolRegistry base) {
         return new Builder(base);
     }
 

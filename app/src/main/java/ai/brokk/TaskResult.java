@@ -102,8 +102,9 @@ public record TaskResult(
             if (response.error() instanceof ContextTooLargeException) {
                 return new TaskResult.StopDetails(StopReason.LLM_CONTEXT_SIZE, "Context limit exceeded");
             }
+            var errorMessage = response.error().getMessage();
             return new TaskResult.StopDetails(
-                    TaskResult.StopReason.LLM_ERROR, response.error().getMessage());
+                    TaskResult.StopReason.LLM_ERROR, errorMessage != null ? errorMessage : "Unknown error");
         }
     }
 
@@ -127,7 +128,7 @@ public record TaskResult(
             return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
         }
 
-        public static Optional<Type> safeParse(String value) {
+        public static Optional<Type> safeParse(@Nullable String value) {
             if (value == null) {
                 return Optional.empty();
             }

@@ -23,7 +23,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Test suite for verifying the migration of V3 history zip files to the V4 format.
  *
  * <p>This test class focuses on the integrity of the migration process itself, ensuring that {@link
- * ai.brokk.util.migrationv4.HistoryV4Migrator} can process various V3 archives
+ * HistoryV4Migrator} can process various V3 archives
  * without throwing exceptions. It uses a parameterized test to run the migration on a collection of
  * V3 zip files, each containing different fragment types and history states.
  *
