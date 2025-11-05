@@ -1826,7 +1826,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public boolean hasDisplayableOutput() {
         // First check if there is rendered/displayed text in the panel
         String displayedText = llmStreamArea.getDisplayedText();
-        if (displayedText != null && !displayedText.isEmpty()) {
+        if (!displayedText.isEmpty()) {
             return true;
         }
 
