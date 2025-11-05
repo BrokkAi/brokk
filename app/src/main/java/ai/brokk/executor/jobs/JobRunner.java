@@ -48,7 +48,6 @@ public final class JobRunner {
     private static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
-            if (tags == null) return Mode.ARCHITECT;
             var raw = tags.getOrDefault("mode", "").trim();
             if (raw.isEmpty()) return Mode.ARCHITECT;
             return Mode.valueOf(raw.toUpperCase());
@@ -64,8 +63,8 @@ public final class JobRunner {
      * @param store The JobStore for persistence
      */
     public JobRunner(ContextManager cm, JobStore store) {
-        this.cm = Objects.requireNonNull(cm, "ContextManager must not be null");
-        this.store = Objects.requireNonNull(store, "JobStore must not be null");
+        this.cm = cm;
+        this.store = store;
         this.runner = Executors.newSingleThreadExecutor(r -> {
             var t = new Thread(r, "JobRunner");
             t.setDaemon(true);
@@ -82,9 +81,6 @@ public final class JobRunner {
      * @throws IllegalStateException if another job is already running and has a different jobId
      */
     public synchronized CompletableFuture<Void> runAsync(String jobId, JobSpec spec) {
-        Objects.requireNonNull(jobId, "jobId must not be null");
-        Objects.requireNonNull(spec, "spec must not be null");
-
         // Guard: prevent concurrent execution of different jobs
         if (activeJobId != null && !activeJobId.equals(jobId)) {
             var fut = new CompletableFuture<Void>();
@@ -155,7 +151,7 @@ public final class JobRunner {
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
-                                yield plannerName == null || plannerName.isBlank() ? "(unused)" : plannerName.trim();
+                                yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                         };
                 String codeModelNameForLog =
@@ -424,7 +420,7 @@ public final class JobRunner {
      * @return A list of TaskItems
      */
     private static List<TaskList.TaskItem> parseTasks(String taskInput) {
-        if (taskInput == null || taskInput.isBlank()) {
+        if (taskInput.isBlank()) {
             return List.of();
         }
 
