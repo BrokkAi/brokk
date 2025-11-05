@@ -244,7 +244,7 @@ public final class HeadlessExecutorMain {
             return params;
         }
 
-        for (var pair : query.split("&")) {
+        for (var pair : Splitter.on('&').split(query)) {
             var keyValue = pair.split("=", 2);
             var key = keyValue[0];
             var value = keyValue.length > 1 ? keyValue[1] : "";
