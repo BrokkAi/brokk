@@ -1,0 +1,84 @@
+**Code Agent** engaged: Goal: Add a regression test that detects drift in the Spin operator (bmo_spin_exec). The test should run the spin operator on a simple mesh for large step counts with dvec = 0 and with a small non-zero dvec, and compare new vertex positions against an analytical target. This ensures our absolute-per-step transform and precise screw translation accumulation eliminate cumulative drift.
+
+Context you have in the Workspace:
+- The implementation of bmo_spin_exec is in source/blender/bmesh/operators/bmo_dupe.cc. It records original vertex indices in v->no before stepping, and duplicates copy attributes (including no) so each new vertex holds the original vertex index in its normal field.
+- You also have bmesh_core_test.cc and tests/CMakeLists.txt to mirror the test harness style and registration, and the math headers for axis-angle rotation.
+
+Task:
+1) Create a new test file at: source/blender/bmesh/tests/test_bmo_spin_precision.cc
+   - Use the same includes and style as bmesh_core_test.cc (gtest, BLI math headers, bmesh internals). Typical includes:
+     - "testing/testing.h"
+     - "BLI_math_rotation.h"
+     - "BLI_math_matrix.h"
+     - "BLI_math_vector.h"
+     - "bmesh.hh"
+     - "intern/bmesh_operators.h" (for BMO_op_* APIs)
+   - Implement helper routines in the test file:
+     - static void axis_angle_rmat_3x3(float rmat[3][3], const float axis[3], float angle): just call axis_angle_normalized_to_mat3(rmat, axis, angle) from BLI_math_rotation.h.
+     - static float angle_around_axis(const float cent[3], const float axis[3], const float co[3]): compute the angle in [0, 2*pi) of (co - cent) projected onto the plane perpendicular to axis. Since we'll set axis = (0,0,1) and cent = (0,0,0), you can implement a simple atan2(y, x) for robustness; still write it generally (project onto plane) if you prefer.
+     - static void compute_expected_position(float r_i[3][3], const float cent[3], const float p0[3], const float t_space[3], float r_out[3]): Compute cent + r_i * (p0 - cent) + t_space.
+     - static void accumulate_screw_translation(int step_index, int steps, float angle_total, const float axis[3], const float dvec_space[3], double t_accum[3], float t_space_out[3]): For this particular step, accumulate t_accum by adding R_i * dvec_space where R_i is rotation for angle_total * (step_index / steps). Return t_space_out = (float)t_accum.
+
+2) Build a minimal source mesh:
+   - Create a new BMesh with BM_mesh_create, add two verts and a single edge along the X-axis for determinism, e.g. v0=(1, 0, 0), v1=(2, 0, 0).
+   - Keep a Vector/array of the original vertex pointers to distinguish them from new vertices later.
+   - Also store co_orig for each original vertex (object-space coordinates). We'll use the original vertex index written by bmo_spin_exec into v->no to map new vertices back to their P0.
+
+3) Implement a reusable test driver function in the test file (static void run_spin_precision_test(int steps, const float angle_total, const float dvec[3], float epsilon)) that:
+   - Sets up operator inputs for the spin op with:
+     - cent = {0,0,0}
+     - axis = {0,0,1} (normalize)
+     - dvec as passed-in
+     - steps as passed-in
+     - angle = angle_total (e.g., 1.2345f radians for tests)
+     - space = identity 4x4
+     - use_duplicate = true
+     - use_merge = false (to avoid topology merging at the end and keep all steps present)
+     - use_normal_flip = false
+     - geom input should include the original verts, edges (and faces if you choose a triangle). Follow patterns from bmesh_core_test.cc to populate the operator’s "geom" input slot. A typical approach is:
+       - BMO_op_init(bm, &op, op.flag, "spin");
+       - BMO_slot_buffer_from_array(bm, &op, "geom", BM_VERT, (void **)orig_verts, orig_vert_count);
+       - Also include edges by pushing them into the same geom slot (BM_EDGE) if needed. Alternatively, construct a BMO buffer of all original verts+edges. If there is a helper like BMO_slot_buffer_from_all or BMO_slot_buffer_from_enabled_flag in tests, use it appropriately.
+       - If unsure, you can duplicate the pattern used for other operators in bmesh_core_test.cc for feeding geometry into an operator.
+   - Execute the operator with BMO_op_exec(bm, &op) and BMO_op_finish(bm, &op) afterwards.
+
+   - After execution, gather all new vertices by iterating over mesh verts and skipping any that are in the original vertex set. For each new vertex, read the original vertex index via `const int orig_idx = *((const int *)&v->no[0]);` and group them by this orig_idx. For an edge-only source, each orig_idx should have exactly `steps` new vertices (since use_merge=false), one per step.
+
+   - For each group corresponding to a single original vertex index (focus at least on one representative, say orig_idx==0), build a mapping from step index i in [1..steps] to the actual vertex:
+     - Compute the target angle angle_i = angle_total * (i / steps).
+     - For each new vertex in the group, compute its angular position around axis using angle_around_axis(cent, axis, v->co). Normalize to [0, 2*pi) and also compute the expected absolute angle norm_target = fmodf(angle_i, 2*pi).
+     - Map each new vertex to the nearest step index by minimizing angular difference. To avoid ambiguous assignment, do this by:
+       - Sort the new vertices by their measured angle.
+       - Create an expected sequence of angles angle_i sorted ascending (modulo 2*pi) and greedily pair in order (this is robust because steps is large and the operator produces near-perfect ordering). Alternatively, directly compute the nearest integer round((measured_angle / angle_total) * steps) and clamp to [1..steps] if angle_total < 2*pi.
+     - Note: Since we choose axis=(0,0,1), cent=(0,0,0), and angle_total well below 2*pi (see below), the angular ordering is monotonic without wrap; you can simplify pairing by sorting and assuming j-th vertex corresponds to i=j.
+
+   - Analytical target computation:
+     - space is identity, so work fully in object space.
+     - Let P0 = co_orig[orig_idx]. For each assigned step index i, compute R_i via axis_angle_normalized_to_mat3 with angle_i = angle_total * (i / steps).
+     - Accumulate screw translation in double precision across steps: initialize t_accum={0,0,0}; then for i from 1 to steps, accumulate t_accum += R_i * dvec (cast result to double before accumulating). Use the running accumulator for the current i when computing p_target for step i.
+     - P_target = cent + R_i * (P0 - cent) + (float)t_accum.
+     - Compare the actual v->co with P_target using a tight epsilon:
+       - epsilon = 1e-6f when dvec == {0,0,0}
+       - epsilon = 1e-5f when dvec != 0
+     - Assert the maximum absolute component-wise deviation <= epsilon.
+
+4) Add two tests using the helper:
+   - TEST(BMesh, SpinPrecision_PureRotation): Runs run_spin_precision_test with step counts 200 and 800, angle_total = 1.2345f, dvec = {0,0,0}, epsilon = 1e-6f.
+   - TEST(BMesh, SpinPrecision_Screw): Same step counts and angle_total, with dvec = {0.01f, 0.02f, 0.003f}, epsilon = 1e-5f.
+
+5) Register the test in CMake:
+   - Edit source/blender/bmesh/tests/CMakeLists.txt to add the new test_bmo_spin_precision.cc to the bmesh tests target (mirror how bmesh_core_test.cc is added). If the CMake uses a macro like BLENDER_SRC_GTEST, append the file into the appropriate list so CI builds and runs it.
+
+Notes and constraints:
+- Ensure use_duplicate = true and use_merge = false to avoid last-step merging; we want exactly `steps` duplicates per original vertex.
+- angle_total should be positive and strictly less than 2*pi to avoid wrap complexities; use e.g. 1.2345f radians as suggested.
+- The grouping-by-original-index via v->no relies on bmo_spin_exec writing the index to original verts, and duplicate copying attributes. Our current implementation does that.
+- Keep the geometry minimal (single edge) to keep runtime low even for 800 steps.
+- Clean up BMesh instances and any allocated memory in the tests.
+
+Deliverables:
+- source/blender/bmesh/tests/test_bmo_spin_precision.cc with the tests described above.
+- Updated source/blender/bmesh/tests/CMakeLists.txt to include the new test file.
+
+Build & run:
+- Ensure the project builds and the new tests pass. The test should fail if the spin backend accumulates transformations incrementally instead of using absolute transforms and high-precision screw accumulation.

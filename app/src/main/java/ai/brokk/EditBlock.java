@@ -732,7 +732,6 @@ public class EditBlock {
         if (scpOpt.isEmpty()) {
             throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
         }
-        var scp = scpOpt.get();
 
         if ("CLASS".equals(kind)) {
             Optional<String> opt = AnalyzerUtil.getClassSource(analyzer, fqName, true);

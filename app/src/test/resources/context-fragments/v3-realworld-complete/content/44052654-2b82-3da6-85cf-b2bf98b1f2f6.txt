@@ -1,0 +1,13 @@
+{
+  "bmo_utils.cc [source/blender/bmesh/operators]" : "Utility transform operators; not part of Spin and not needed for diagnosing per-step rotation error.",
+  "bmo_extrude.cc [source/blender/bmesh/operators]" : "Extrude operators implementation; unrelated to Spin rounding defect.",
+  "editmesh_extrude_spin_gizmo.cc [source/blender/editors/mesh]" : "Spin gizmo UI; math issue is in the operator/back-end, not the gizmo.",
+  "editmesh_extrude.cc [source/blender/editors/mesh]" : "Extrude operator UI/ops; unrelated to the Spin operator's rounding behavior.",
+  "Blender spin tool comparison." : "Image reference; not required for code fix once issue is understood.",
+  "Summary of BMesh" : "Generic BMesh struct summary unrelated to spin accuracy; no APIs used by the fix.",
+  "Summary of BMOperator" : "Generic BMOperator struct summary; not needed directly for the spin math investigation.",
+  "editmesh_extrude_spin.cc [source/blender/editors/mesh]" : "UI/operator front-end is already correct; the numerical error originates in the BMesh operator backend.",
+  "BLI_math_rotation.h [source/blender/blenlib]" : "Large math header not being modified; we only need to reference functions like pow_qt_fl_normalized and axis/quat helpers, not keep the entire header inline.",
+  "Paste of Spin tool in Blender inaccurate with high step counts, causing rounding errors" : "User-facing issue report; useful for context but not needed for implementation once the backend cause is identified.",
+  "Code Notes" : "Replaced by concise Task Notes capturing only the essential implementation guidance for fixing spin precision; pruning long-form notes to keep the workspace focused."
+}

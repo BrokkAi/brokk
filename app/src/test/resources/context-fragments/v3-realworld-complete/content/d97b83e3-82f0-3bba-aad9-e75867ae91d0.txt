@@ -1,0 +1,12 @@
+
+**Brokk** performing initial workspace review…
+```json
+{
+  "tool_calls": [
+    {
+      "name": "performedInitialReview",
+      "arguments": {}
+    }
+  ]
+}
+```

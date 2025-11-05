@@ -31,6 +31,8 @@ public class TestProject implements IProject {
     }
 
     public TestProject(Path root, Language language) {
+        assertTrue(Files.exists(root), "TestProject root does not exist: " + root);
+        assertTrue(Files.isDirectory(root), "TestProject root is not a directory: " + root);
         this.root = root;
         this.language = language;
     }

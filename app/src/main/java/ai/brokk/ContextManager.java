@@ -49,8 +49,6 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.Image;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -2156,10 +2154,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
-        private TaskScope(boolean compressResults) {
-            this(compressResults, null);
-        }
-
         private TaskScope(boolean compressResults, @Nullable String groupLabel) {
             this.compressResults = compressResults;
             this.groupLabel = groupLabel;
@@ -2579,8 +2573,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Convert a throwable to a string with full stack trace
     private String getStackTraceAsString(Throwable throwable) {
-        var sw = new StringWriter();
-        var pw = new PrintWriter(sw);
+        var sw = new java.io.StringWriter();
+        var pw = new java.io.PrintWriter(sw);
         throwable.printStackTrace(pw);
         return sw.toString();
     }
@@ -2597,6 +2591,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
     }
 
+    @Override
     public IConsoleIO getIo() {
         return io;
     }

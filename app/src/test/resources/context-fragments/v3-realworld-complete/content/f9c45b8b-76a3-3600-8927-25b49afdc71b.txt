@@ -1,0 +1,23 @@
+**Code Agent** engaged: Please fix type issues in the new test so it compiles cleanly.
+
+File to edit: source/blender/bmesh/tests/test_bmo_spin_precision.cc
+
+Required changes:
+1) Add missing include for std::array at the top with the other includes:
+   - Add: #include <array>
+
+2) Replace the invalid use of 'float3' with a standard container type.
+   - Change declaration: 'std::vector<float3> co_orig_vec;' -> 'std::vector<std::array<float, 3>> co_orig_vec;'
+   - The existing assignment using braced initializer will work with std::array: 'co_orig_vec[idx] = {v->co[0], v->co[1], v->co[2]};'
+
+3) Update accesses to use std::array indexing instead of '.x/.y/.z' members.
+   - In the section where p0 is defined for idx 0:
+     Replace: 'const float p0[3] = {co_orig_vec[0].x, co_orig_vec[0].y, co_orig_vec[0].z};'
+     With:    'const float p0[3] = {co_orig_vec[0][0], co_orig_vec[0][1], co_orig_vec[0][2]};'
+   - In the section where p0 is defined for idx 1:
+     Replace: 'const float p0[3] = {co_orig_vec[1].x, co_orig_vec[1].y, co_orig_vec[1].z};'
+     With:    'const float p0[3] = {co_orig_vec[1][0], co_orig_vec[1][1], co_orig_vec[1][2]};'
+
+No other logic changes.
+
+After making the edits, build to ensure the test compiles.

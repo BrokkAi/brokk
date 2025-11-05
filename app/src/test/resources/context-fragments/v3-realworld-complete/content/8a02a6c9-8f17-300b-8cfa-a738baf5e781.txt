@@ -1,0 +1,28 @@
+package (default package);
+
+struct BMOpSlot {
+  eBMOpSlotType slot_type;
+  eBMOpSlotSubType_Union slot_subtype;
+  int len;
+  union {
+      int i;
+      float f;
+      void *p;
+      float vec[3];
+      void **buf;
+      GHash *ghash;
+      struct {
+        /** Don't clobber (i) when assigning flags, see #eBMOpSlotSubType_Int. */
+        int _i;
+        BMO_FlagSet *flags;
+      } enum_data;
+    } data;
+  int i;
+  float f;
+  struct {
+        /** Don't clobber (i) when assigning flags, see #eBMOpSlotSubType_Int. */
+        int _i;
+        BMO_FlagSet *flags;
+      } enum_data;
+  int _i;
+}

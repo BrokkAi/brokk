@@ -9,6 +9,7 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -64,7 +65,7 @@ class FileListenersIntegrationTest {
         watchService.addListener(externalListener);
 
         // Step 4: Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500); // Give watcher time to initialize
 
         // Step 5: Trigger a file change
@@ -108,7 +109,7 @@ class FileListenersIntegrationTest {
         watchService.addListener(listener2);
 
         // Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
         // Trigger event
@@ -144,7 +145,7 @@ class FileListenersIntegrationTest {
         watchService.removeListener(externalListener);
 
         // Start watching
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
         // Trigger event
@@ -192,7 +193,7 @@ class FileListenersIntegrationTest {
         watchServiceFromComponent2.addListener(listener2);
 
         // Start and trigger event
-        watchService.start(java.util.concurrent.CompletableFuture.completedFuture(null));
+        watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
         Files.writeString(projectRoot.resolve("Test.java"), "public class Test {}");
 

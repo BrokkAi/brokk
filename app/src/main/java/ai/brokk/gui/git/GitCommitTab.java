@@ -65,9 +65,6 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
-    // Thread-safe cached count for badge updates
-    private volatile int cachedModifiedFileCount = 0;
-
     // Thread-safe cached list of modified files
     private volatile List<ProjectFile> cachedModifiedFiles = List.of();
 
@@ -253,7 +250,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
             // - prefer the immediate window ancestor if it's a Frame (typical for the main UI)
             // - otherwise fall back to the main application frame (chrome.getFrame())
             Window ancestor = SwingUtilities.getWindowAncestor(GitCommitTab.this);
-            Frame ownerFrame = (ancestor instanceof Frame) ? (Frame) ancestor : chrome.getFrame();
+            Frame ownerFrame = (ancestor instanceof Frame f) ? f : chrome.getFrame();
 
             CommitDialog dialog = new CommitDialog(
                     ownerFrame,
@@ -828,9 +825,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     private void updateAfterStatusChange(List<ProjectFile> newFiles) {
         assert SwingUtilities.isEventDispatchThread() : "updateAfterStatusChange must be called on EDT";
 
-        // Update cached files and count for thread-safe access
+        // Update cached files for thread-safe access
         cachedModifiedFiles = List.copyOf(newFiles);
-        cachedModifiedFileCount = newFiles.size();
 
         // Update the git tab badge
         chrome.updateGitTabBadge(newFiles.size());
@@ -1051,51 +1047,60 @@ Would you like to resolve these conflicts with the Merge Agent?
         Color tableBg = UIManager.getColor("Table.background");
         Color fg = UIManager.getColor("Label.foreground");
 
-        setBackground(panelBg != null ? panelBg : getBackground());
-
-        // Update FileStatusPane with theme support
-        if (fileStatusPane != null) {
-            fileStatusPane.setBackground(panelBg != null ? panelBg : fileStatusPane.getBackground());
-            if (fileStatusPane instanceof ThemeAware themeAware) {
-                themeAware.applyTheme(guiTheme);
-            }
+        if (panelBg != null) {
+            setBackground(panelBg);
         }
 
+        // Update FileStatusPane with theme support
+        if (panelBg != null) {
+            fileStatusPane.setBackground(panelBg);
+        }
+        ((ThemeAware) fileStatusPane).applyTheme(guiTheme);
+
         // Update table colors
-        if (uncommittedFilesTable != null) {
-            uncommittedFilesTable.setBackground(tableBg != null ? tableBg : uncommittedFilesTable.getBackground());
-            uncommittedFilesTable.setForeground(fg != null ? fg : uncommittedFilesTable.getForeground());
-            var header = uncommittedFilesTable.getTableHeader();
-            if (header != null) {
-                header.setBackground(panelBg != null ? panelBg : header.getBackground());
-                header.setForeground(fg != null ? fg : header.getForeground());
+        if (tableBg != null) {
+            uncommittedFilesTable.setBackground(tableBg);
+        }
+        if (fg != null) {
+            uncommittedFilesTable.setForeground(fg);
+        }
+        var header = uncommittedFilesTable.getTableHeader();
+        if (header != null) {
+            if (panelBg != null) {
+                header.setBackground(panelBg);
+            }
+            if (fg != null) {
+                header.setForeground(fg);
             }
         }
 
         // Update button styling
-        if (commitButton != null) {
-            SwingUtil.applyPrimaryButtonStyle(commitButton);
+        SwingUtil.applyPrimaryButtonStyle(commitButton);
+
+        var buttonBg = UIManager.getColor("Button.background");
+        var buttonFg = UIManager.getColor("Button.foreground");
+        if (buttonBg != null) {
+            stashButton.setBackground(buttonBg);
+            resolveConflictsButton.setBackground(buttonBg);
         }
-        if (stashButton != null) {
-            stashButton.setBackground(UIManager.getColor("Button.background"));
-            stashButton.setForeground(UIManager.getColor("Button.foreground"));
-        }
-        if (resolveConflictsButton != null) {
-            resolveConflictsButton.setBackground(UIManager.getColor("Button.background"));
-            resolveConflictsButton.setForeground(UIManager.getColor("Button.foreground"));
+        if (buttonFg != null) {
+            stashButton.setForeground(buttonFg);
+            resolveConflictsButton.setForeground(buttonFg);
         }
 
         // Update button panel
-        if (buttonPanel != null) {
-            buttonPanel.setBackground(panelBg != null ? panelBg : buttonPanel.getBackground());
+        if (panelBg != null) {
+            buttonPanel.setBackground(panelBg);
         }
 
         // Update titled border
         if (titledPanel != null) {
-            titledPanel.setBackground(panelBg != null ? panelBg : titledPanel.getBackground());
+            if (panelBg != null) {
+                titledPanel.setBackground(panelBg);
+            }
             Border border = titledPanel.getBorder();
             if (border instanceof TitledBorder titledBorder) {
-                Color titleFg = UIManager.getColor("TitledBorder.titleColor");
+                var titleFg = UIManager.getColor("TitledBorder.titleColor");
                 if (titleFg != null) {
                     titledBorder.setTitleColor(titleFg);
                 }

@@ -2,7 +2,11 @@ package ai.brokk.prompts;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.ProjectFile;
 import dev.langchain4j.data.message.SystemMessage;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 public abstract class ArchitectPrompts extends CodePrompts {
     public static final ArchitectPrompts instance = new ArchitectPrompts() {};
@@ -200,5 +204,26 @@ public abstract class ArchitectPrompts extends CodePrompts {
             %s
             """
                 .formatted(goal, formatWorkspaceToc(cm), workspaceWarning);
+    }
+
+    /**
+     * Formats related files and their identifiers for prompts.
+     * Each entry is rendered as:
+     * <file path="...">
+     * identifiers...
+     * </file>
+     */
+    public static String formatRelatedFiles(Map<ProjectFile, String> related) {
+        if (related.isEmpty()) {
+            return "";
+        }
+        return related.entrySet().stream()
+                .sorted(Comparator.comparing(e -> e.getKey().toString()))
+                .map(e -> {
+                    var pf = e.getKey();
+                    var ids = e.getValue();
+                    return "<file path=\"%s\">\n%s\n</file>".formatted(pf.toString(), ids.strip());
+                })
+                .collect(Collectors.joining("\n"));
     }
 }

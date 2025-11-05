@@ -37,10 +37,6 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        throw new UnsupportedOperationException();
-    }
-
     /** Returns the set of languages this analyzer understands. */
     default Set<Language> languages() {
         return Set.of();
@@ -74,7 +70,7 @@ public interface IAnalyzer {
     }
 
     default List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
-        return directChildren(classUnit);
+        return getDirectChildren(classUnit);
     }
 
     /** All top-level declarations in the project. */
@@ -239,7 +235,7 @@ public interface IAnalyzer {
      *
      * See getSymbols(java.util.Set) for how this method is used in symbol collection.
      */
-    default List<CodeUnit> directChildren(CodeUnit cu) {
+    default List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return List.of();
     }
 
@@ -285,7 +281,7 @@ public interface IAnalyzer {
             addShort(cu.shortName(), symbols);
 
             // 2) recurse
-            work.addAll(directChildren(cu));
+            work.addAll(getDirectChildren(cu));
         }
         return symbols;
     }
