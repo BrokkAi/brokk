@@ -375,8 +375,11 @@ public class ToolRegistry {
         }
         try {
             var vi = validateTool(request);
-            var argsYaml = toYaml(vi);
             var headline = headlineFor(request.name());
+
+            // Omit args block entirely for zero-parameter tools
+            var noArgs = vi.method().getParameterCount() == 0;
+            var argsYaml = noArgs ? "" : toYaml(vi);
             return """
                    `%s`
                    ````yaml
