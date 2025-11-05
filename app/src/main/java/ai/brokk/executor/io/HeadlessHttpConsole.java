@@ -109,7 +109,6 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
-        Objects.requireNonNull(cancelCallback, "cancelCallback");
         return unused -> HeadlessHttpConsole.this;
     }
 
