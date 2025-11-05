@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.TSQueryLoader;
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -77,7 +78,7 @@ public class JavaTypeAnalyzer {
                     case "package.path" -> {
                         String pkgText = textSlice.apply(cap.getNode(), src);
                         // Split by dots to get package parts
-                        String[] parts = pkgText.split("\\.");
+                        List<String> parts = Splitter.on(".").splitToList(pkgText);
                         packageParts.clear();
                         for (String part : parts) {
                             if (!part.isEmpty()) {
