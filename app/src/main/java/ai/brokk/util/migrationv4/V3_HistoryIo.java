@@ -91,7 +91,7 @@ public final class V3_HistoryIo {
             while ((entry = zis.getNextEntry()) != null) {
                 switch (entry.getName()) {
                     case V3_FRAGMENTS_FILENAME -> {
-                        byte[] fragmentJsonBytes = zis.readAllBytes();
+                        byte[] fragmentJsonBytes = remapPolymorphicTypeIds(zis.readAllBytes());
                         // Try parsing as-is; if type-id points at classes that exist on classpath but are not subtypes
                         // of our V3 DTOs (e.g., ai.brokk.context.FragmentDtos$*), remap type ids and retry.
                         try {

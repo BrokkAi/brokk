@@ -181,25 +181,25 @@ public class V3_DtoMapper {
         var meta = ffd.meta();
         try {
             switch (original) {
-                case "ai.brokk.util.migrationv4.V3_FragmentDtos$ProjectFileDto":
-                case "io.github.jbellis.brokk.context.ContextFragment$ProjectPathFragment":
-                case "ai.brokk.context.ContextFragment$ProjectPathFragment": {
+                case "ai.brokk.util.migrationv4.V3_FragmentDtos$ProjectFileDto",
+                        "io.github.jbellis.brokk.context.ContextFragment$ProjectPathFragment",
+                        "ai.brokk.context.ContextFragment$ProjectPathFragment" -> {
                     var relPath = meta.get("relPath");
                     if (relPath == null)
                         throw new IllegalArgumentException("Missing metadata 'relPath' for ProjectPathFragment");
                     var file = mgr.toFile(relPath);
                     return new ContextFragment.ProjectPathFragment(file, mgr);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment":
-                case "ai.brokk.context.ContextFragment$ExternalPathFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
+                        "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
                     var absPath = meta.get("absPath");
                     if (absPath == null)
                         throw new IllegalArgumentException("Missing metadata 'absPath' for ExternalPathFragment");
                     var file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                     return new ContextFragment.ExternalPathFragment(file, mgr);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment":
-                case "ai.brokk.context.ContextFragment$ImageFileFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
+                        "ai.brokk.context.ContextFragment$ImageFileFragment" -> {
                     var absPath = meta.get("absPath");
                     if (absPath == null)
                         throw new IllegalArgumentException("Missing metadata 'absPath' for ImageFileFragment");
@@ -215,8 +215,8 @@ public class V3_DtoMapper {
                     }
                     return new ContextFragment.ImageFileFragment(file, mgr);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$GitFileFragment":
-                case "ai.brokk.context.ContextFragment$GitFileFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$GitFileFragment",
+                        "ai.brokk.context.ContextFragment$GitFileFragment" -> {
                     var relPath = meta.get("relPath");
                     var revision = meta.get("revision");
                     if (relPath == null || revision == null) {
@@ -230,8 +230,8 @@ public class V3_DtoMapper {
                     var content = reader.readContent(contentId);
                     return new ContextFragment.GitFileFragment(file, revision, content);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment":
-                case "ai.brokk.context.ContextFragment$SkeletonFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment",
+                        "ai.brokk.context.ContextFragment$SkeletonFragment" -> {
                     var targetIdentifiersStr = meta.get("targetIdentifiers");
                     var summaryTypeStr = meta.get("summaryType");
                     if (targetIdentifiersStr == null || summaryTypeStr == null) {
@@ -244,8 +244,8 @@ public class V3_DtoMapper {
                     var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
                     return new ContextFragment.SkeletonFragment(mgr, targets, summaryType);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$SummaryFragment":
-                case "ai.brokk.context.ContextFragment$SummaryFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$SummaryFragment",
+                        "ai.brokk.context.ContextFragment$SummaryFragment" -> {
                     var targetIdentifier = meta.get("targetIdentifier");
                     var summaryTypeStr = meta.get("summaryType");
                     if (targetIdentifier == null || summaryTypeStr == null) {
@@ -255,16 +255,16 @@ public class V3_DtoMapper {
                     var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
                     return new ContextFragment.SummaryFragment(mgr, targetIdentifier, summaryType);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment":
-                case "ai.brokk.context.ContextFragment$UsageFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment",
+                        "ai.brokk.context.ContextFragment$UsageFragment" -> {
                     var targetIdentifier = meta.get("targetIdentifier");
                     if (targetIdentifier == null) {
                         throw new IllegalArgumentException("Missing 'targetIdentifier' for UsageFragment");
                     }
                     return new ContextFragment.UsageFragment(mgr, targetIdentifier);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment":
-                case "ai.brokk.context.ContextFragment$CallGraphFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
+                        "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
                     var methodName = meta.get("methodName");
                     var depthStr = meta.get("depth");
                     var isCalleeGraphStr = meta.get("isCalleeGraph");
@@ -276,8 +276,8 @@ public class V3_DtoMapper {
                     boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
                     return new ContextFragment.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
                 }
-                case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment":
-                case "ai.brokk.context.ContextFragment$CodeFragment": {
+                case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
+                        "ai.brokk.context.ContextFragment$CodeFragment" -> {
                     var relPath = meta.get("relPath");
                     var kindStr = meta.get("kind");
                     var packageName = meta.get("packageName");
@@ -300,7 +300,7 @@ public class V3_DtoMapper {
                     }
                     return new ContextFragment.CodeFragment(mgr, unit);
                 }
-                default: {
+                default -> {
                     throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
                 }
             }

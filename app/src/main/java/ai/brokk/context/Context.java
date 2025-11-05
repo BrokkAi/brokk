@@ -11,7 +11,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
@@ -960,21 +959,6 @@ public class Context {
                 this.groupLabel);
     }
 
-    private boolean isNewFileInGitAndText(ContextFragment fragment) {
-        if (fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-            return false;
-        }
-        if (!fragment.isText()) {
-            return false;
-        }
-        var files = fragment.files();
-        if (files.isEmpty()) {
-            return false;
-        }
-        IGitRepo repo = contextManager.getRepo();
-        return !repo.getTrackedFiles().contains(files.iterator().next());
-    }
-
     /**
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
      * Accepts both live and frozen contexts. Live contexts should have had ensureFilesSnapshot() pre-called to materialize
@@ -1025,7 +1009,7 @@ public class Context {
 
         // For image fragments, handle specially
         if (!thisFragment.isText() || !otherFragment.isText()) {
-            return computeImageDiffEntry(thisFragment, otherFragment, oldContent, newContent);
+            return computeImageDiffEntry(thisFragment, otherFragment);
         }
 
         int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
@@ -1164,11 +1148,7 @@ public class Context {
     /**
      * Compute diff entry for image fragments. Shows "[image changed]" as diff if either side unavailable.
      */
-    private @Nullable DiffEntry computeImageDiffEntry(
-            ContextFragment thisFragment,
-            ContextFragment otherFragment,
-            String oldContentPlaceholder,
-            String newContentPlaceholder) {
+    private @Nullable DiffEntry computeImageDiffEntry(ContextFragment thisFragment, ContextFragment otherFragment) {
         byte[] oldImageBytes = extractImageBytes(otherFragment);
         byte[] newImageBytes = extractImageBytes(thisFragment);
 
@@ -1179,7 +1159,7 @@ public class Context {
 
         boolean imagesEqual = false;
         if (oldImageBytes != null && newImageBytes != null) {
-            imagesEqual = java.util.Arrays.equals(oldImageBytes, newImageBytes);
+            imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
         }
 
         if (imagesEqual) {
@@ -1188,7 +1168,6 @@ public class Context {
 
         // Generate placeholder diff showing image changed
         String diff = "[Image changed]";
-
         return new DiffEntry(
                 thisFragment,
                 diff,

@@ -589,17 +589,4 @@ public class ContextHistory {
                     "Undo/Redo Warning");
         }
     }
-
-    private void applyFragmentSnapshotToWorkspace(String newContent, ProjectFile pf, IConsoleIO io) throws IOException {
-        var currentContent = pf.exists() ? pf.read().orElse("") : "";
-
-        if (!newContent.equals(currentContent)) {
-            pf.write(newContent);
-            var restoredFiles = new ArrayList<String>();
-            restoredFiles.add(pf.toString());
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
-            io.updateWorkspace();
-        }
-    }
 }
