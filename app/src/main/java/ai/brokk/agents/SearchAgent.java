@@ -541,6 +541,7 @@ public class SearchAgent {
         // Any Analyzer at all provides these
         if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
             names.add("searchSymbols");
+            names.add("getSymbolLocations");
             names.add("getFiles");
         }
 
@@ -662,7 +663,7 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
+            case "searchSymbols", "getSymbolLocations", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContent", "getFileSummaries", "getFiles" -> 8;
 
@@ -1002,7 +1003,6 @@ public class SearchAgent {
 
     private boolean shouldSummarize(String toolName) {
         return Set.of(
-                        "searchSymbols",
                         "getUsages",
                         "getClassSources",
                         "searchSubstrings",

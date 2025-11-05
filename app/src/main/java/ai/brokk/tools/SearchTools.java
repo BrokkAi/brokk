@@ -327,6 +327,54 @@ public class SearchTools {
 
     @Tool(
             """
+                    Returns the file paths where the specified symbols are defined.
+                    Use this after searchSymbols to locate where interesting symbols live,
+                    then use getFileSummaries to get an overview of those files.
+                    Accepts all symbol types: classes, methods, fields, and modules.
+                    """)
+    public String getSymbolLocations(
+            @P("Fully qualified symbol names to locate (classes, methods, fields, or modules)")
+                    List<String> symbols) {
+        // Sanitize symbols: remove potential `(params)` suffix from LLM.
+        symbols = stripParams(symbols);
+        if (symbols.isEmpty()) {
+            throw new IllegalArgumentException("Cannot get symbol locations: symbols list is empty");
+        }
+
+        var analyzer = getAnalyzer();
+        List<String> locationMappings = new ArrayList<>();
+        List<String> notFound = new ArrayList<>();
+
+        for (String symbol : symbols.stream().distinct().toList()) {
+            if (symbol.isBlank()) {
+                continue;
+            }
+            var cuOpt = analyzer.getDefinition(symbol);
+            if (cuOpt.isPresent()) {
+                var cu = cuOpt.get();
+                var filepath = cu.source().toString();
+                locationMappings.add(symbol + " -> " + filepath);
+            } else {
+                notFound.add(symbol);
+            }
+        }
+
+        if (locationMappings.isEmpty()) {
+            return "No locations found for symbols: " + String.join(", ", symbols);
+        }
+
+        StringBuilder result = new StringBuilder();
+        result.append(String.join("\n", locationMappings));
+
+        if (!notFound.isEmpty()) {
+            result.append("\n\nNot found: ").append(String.join(", ", notFound));
+        }
+
+        return result.toString();
+    }
+
+    @Tool(
+            """
                     Returns the full source code of specific methods. Use this to examine the implementation of particular methods without retrieving the entire classes.
                     """)
     public String getMethodSources(
