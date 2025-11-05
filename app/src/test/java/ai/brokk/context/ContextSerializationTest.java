@@ -6,11 +6,9 @@ import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.CodeUnitType;
-import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.*;
 import ai.brokk.testutil.NoOpConsoleIO;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
@@ -25,10 +23,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Comparator;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
@@ -45,7 +42,10 @@ public class ContextSerializationTest {
 
     @BeforeEach
     void setup() throws IOException {
-        mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
+        var codeFragmentTargetCu = CodeUnit.cls(
+                new ProjectFile(tempDir, "src/CodeFragmentTarget.java"), "com.example", "CodeFragmentTarget");
+        var testAnalyzer = new TestAnalyzer(List.of(codeFragmentTargetCu), Map.of());
+        mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), testAnalyzer);
         // Reset fragment ID counter for test isolation
         ContextFragment.setMinimumId(1);
 
@@ -230,6 +230,13 @@ public class ContextSerializationTest {
         assertEquals(expected.isText(), actual.isText(), "Fragment isText mismatch for ID " + expected.id());
         assertEquals(
                 expected.syntaxStyle(), actual.syntaxStyle(), "Fragment syntaxStyle mismatch for ID " + expected.id());
+
+        // Let fragments construct CodeUnits from mock analyzer
+        if (expected instanceof ContextFragment.ComputedFragment ecf
+                && actual instanceof ContextFragment.ComputedFragment acf) {
+            ecf.computedText().await(Duration.of(10, ChronoUnit.SECONDS));
+            acf.computedText().await(Duration.of(10, ChronoUnit.SECONDS));
+        }
 
         if (expected.isText()) {
             assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
@@ -1149,7 +1156,12 @@ public class ContextSerializationTest {
                 .orElseThrow();
 
         if (loadedRawFragment instanceof ContextFragment.CodeFragment loadedFragment) {
-            assertEquals(codeUnit.fqName(), loadedFragment.getCodeUnit().fqName());
+            var maybeCu = loadedFragment.computedUnit().await(Duration.ofSeconds(10));
+            if (maybeCu.isPresent()) {
+                assertEquals(codeUnit.fqName(), maybeCu.get().fqName());
+            } else {
+                fail("Code unit could not be computed within 10 seconds");
+            }
         } else {
             fail("Expected CodeFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }

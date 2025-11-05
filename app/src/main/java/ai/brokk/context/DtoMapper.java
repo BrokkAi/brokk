@@ -331,7 +331,7 @@ public class DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit(), mgr));
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName());
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -463,7 +463,7 @@ public class DtoMapper {
             }
             case ContextFragment.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
-            case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), toCodeUnitDto(cf.getCodeUnit()));
+            case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName());
             case ContextFragment.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))
@@ -691,27 +691,11 @@ public class DtoMapper {
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
-                    var relPath = meta.get("relPath");
-                    var kindStr = meta.get("kind");
-                    var packageName = meta.get("packageName");
-                    var shortName = meta.get("shortName");
-                    CodeUnit unit;
-                    if (relPath != null && kindStr != null && packageName != null && shortName != null) {
-                        var pf = mgr.toFile(relPath);
-                        var kind = CodeUnitType.valueOf(kindStr);
-                        unit = new CodeUnit(pf, kind, packageName, shortName);
-                    } else {
-                        var fqName = meta.get("fqName");
-                        if (fqName == null) {
-                            throw new IllegalArgumentException(
-                                    "Missing 'fqName' or detailed symbol metadata for CodeFragment");
-                        }
-                        var analyzer = mgr.getAnalyzerUninterrupted();
-                        unit = analyzer.getDefinition(fqName)
-                                .orElseThrow(() -> new IllegalArgumentException(
-                                        "Unable to resolve CodeUnit for fqName: " + fqName));
+                    var fqName = meta.get("fqName");
+                    if (fqName == null) {
+                        throw new IllegalArgumentException("Missing 'fqName' for CodeFragment");
                     }
-                    return new ContextFragment.CodeFragment(mgr, unit);
+                    return new ContextFragment.CodeFragment(mgr, fqName);
                 }
                 default -> throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
             }

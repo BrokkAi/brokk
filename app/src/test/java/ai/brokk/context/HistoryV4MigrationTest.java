@@ -3,7 +3,10 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.migrationv4.HistoryV4Migrator;
@@ -12,6 +15,8 @@ import java.net.URISyntaxException;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -42,7 +47,13 @@ class HistoryV4MigrationTest {
     void setup() throws IOException {
         Path projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
-        mockContextManager = new TestContextManager(projectRoot, new NoOpConsoleIO());
+        var testAnalyzer = new TestAnalyzer(
+                List.of(CodeUnit.cls(
+                        new ProjectFile(projectRoot, "src/com/example/CodeFragmentTarget.java"),
+                        "com.example",
+                        "CodeFragmentTarget")),
+                Map.of());
+        mockContextManager = new TestContextManager(projectRoot, new NoOpConsoleIO(), testAnalyzer);
     }
 
     static Stream<String> v3ZipProvider() throws URISyntaxException, IOException {
@@ -224,7 +235,12 @@ class HistoryV4MigrationTest {
             var cf = findFragment(ctx, ContextFragment.CodeFragment.class, f -> true);
             assertNotNull(cf);
             assertTrue(cf.description().startsWith("Source for"));
-            assertNotNull(cf.getCodeUnit());
+            var maybeCu = cf.computedUnit().await(Duration.ofSeconds(10));
+            if (maybeCu.isPresent()) {
+                assertNotNull(maybeCu.get().fqName());
+            } else {
+                fail("Code unit could not be computed within 10 seconds");
+            }
         } else if ("v3-callgraph-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.topContext();

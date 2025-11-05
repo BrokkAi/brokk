@@ -43,6 +43,10 @@ public final class TestContextManager implements IContextManager {
         this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), new TestAnalyzer());
     }
 
+    public TestContextManager(Path projectRoot, IConsoleIO consoleIO, IAnalyzer analyzer) {
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), analyzer);
+    }
+
     public TestContextManager(
             TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
         this.project = project;

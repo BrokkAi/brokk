@@ -1778,19 +1778,29 @@ public interface ContextFragment {
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
     class CodeFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
-        private final CodeUnit unit;
+        private final String fullyQualifiedName;
+        private @Nullable ComputedValue<CodeUnit> unitCv;
 
+        public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
+            super(contextManager);
+            assert !fullyQualifiedName.isBlank();
+            this.fullyQualifiedName = fullyQualifiedName;
+        }
+
+        public CodeFragment(String existingId, IContextManager contextManager, String fullyQualifiedName) {
+            super(existingId, contextManager);
+            assert !fullyQualifiedName.isBlank();
+            this.fullyQualifiedName = fullyQualifiedName;
+        }
+
+        /**
+         * A convenience constructor for if we already have our code unit, to avoid unnecessary re-computation.
+         */
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
             super(contextManager);
             validateCodeUnit(unit);
-            this.unit = unit;
-        }
-
-        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
-        public CodeFragment(String existingId, IContextManager contextManager, CodeUnit unit) {
-            super(existingId, contextManager);
-            validateCodeUnit(unit);
-            this.unit = unit;
+            this.fullyQualifiedName = unit.fqName();
+            this.unitCv = ComputedValue.completed("cf-unit-" + id(), unit);
         }
 
         private static void validateCodeUnit(CodeUnit unit) {
@@ -1804,24 +1814,47 @@ public interface ContextFragment {
             return FragmentType.CODE;
         }
 
+        private ComputedValue<CodeUnit> getComputedUnit() {
+            if (unitCv == null) {
+                unitCv = new ComputedValue<>(
+                        "cf-unit-" + id(),
+                        () -> {
+                            var analyzer = getAnalyzer();
+                            return analyzer.getDefinition(fullyQualifiedName)
+                                    .orElseThrow(() -> new IllegalArgumentException(
+                                            "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
+                        },
+                        getFragmentExecutor());
+            }
+            return unitCv;
+        }
+
         @Override
         public String description() {
-            return "Source for " + unit.fqName();
+            return "Source for " + fullyQualifiedName;
         }
 
         @Override
         public String shortDescription() {
-            return unit.shortName();
+            var unit = getComputedUnit().renderNowOrNull();
+            if (unit != null) {
+                return unit.shortName();
+            }
+            return fullyQualifiedName.substring(fullyQualifiedName.lastIndexOf('.') + 1);
         }
 
         @Override
         @Blocking
         public String text() {
             var analyzer = getAnalyzer();
+            var unit = getComputedUnit().renderNowOrNull();
+            if (unit == null) {
+                return "Code Intelligence is loading the code unit for: " + fullyQualifiedName;
+            }
 
             var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
             if (maybeSourceCodeProvider.isEmpty()) {
-                return "Code Intelligence cannot extract source for: " + unit.fqName();
+                return "Code Intelligence cannot extract source for: " + fullyQualifiedName;
             }
             var scp = maybeSourceCodeProvider.get();
 
@@ -1830,13 +1863,13 @@ public interface ContextFragment {
                 if (!code.isEmpty()) {
                     return new AnalyzerUtil.CodeWithSource(code, unit).text();
                 }
-                return "No source found for method: " + unit.fqName();
+                return "No source found for method: " + fullyQualifiedName;
             } else {
                 var code = scp.getClassSource(unit, true).orElse("");
                 if (!code.isEmpty()) {
                     return new AnalyzerUtil.CodeWithSource(code, unit).text();
                 }
-                return "No source found for class: " + unit.fqName();
+                return "No source found for class: " + fullyQualifiedName;
             }
         }
 
@@ -1846,36 +1879,55 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Set<CodeUnit> sources() {
+            var unit = getComputedUnit().renderNowOrNull();
+            if (unit == null) {
+                return Set.of();
+            }
             return unit.classUnit().map(Set::of).orElseThrow();
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
 
         @Override
         public String repr() {
-            if (unit.isFunction()) {
-                return "Methods(['%s'])".formatted(unit.fqName());
-            } else {
-                return "Classes(['%s'])".formatted(unit.fqName());
+            var unit = getComputedUnit().renderNowOrNull();
+            if (unit != null) {
+                if (unit.isFunction()) {
+                    return "Method(['%s'])".formatted(unit.fqName());
+                } else {
+                    return "Class(['%s'])".formatted(unit.fqName());
+                }
             }
+            return "Method(['%s'])".formatted(fullyQualifiedName);
         }
 
         @Override
+        @Blocking
         public String syntaxStyle() {
-            return unit.source().getSyntaxStyle();
+            var unit = getComputedUnit().renderNowOrNull();
+            if (unit != null) {
+                return unit.source().getSyntaxStyle();
+            }
+            return SyntaxConstants.SYNTAX_STYLE_JAVA;
         }
 
-        public CodeUnit getCodeUnit() {
-            return unit;
+        public String getFullyQualifiedName() {
+            return fullyQualifiedName;
+        }
+
+        public ComputedValue<CodeUnit> computedUnit() {
+            return getComputedUnit();
         }
 
         @Override
         public ContextFragment refreshCopy() {
-            return new CodeFragment(id(), getContextManager(), unit);
+            return new CodeFragment(id(), getContextManager(), fullyQualifiedName);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
