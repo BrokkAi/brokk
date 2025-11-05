@@ -1,6 +1,7 @@
 package ai.brokk.executor.io;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.cli.MemoryConsole;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.context.Context;
@@ -31,7 +32,7 @@ import org.jetbrains.annotations.Nullable;
  *   <li>Durable: events persist to disk via JobStore</li>
  * </ul>
  */
-public class HeadlessHttpConsole implements IConsoleIO {
+public class HeadlessHttpConsole extends MemoryConsole {
     private static final Logger logger = LogManager.getLogger(HeadlessHttpConsole.class);
 
     private final JobStore jobStore;
