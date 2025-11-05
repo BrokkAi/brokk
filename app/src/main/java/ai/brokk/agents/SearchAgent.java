@@ -542,7 +542,6 @@ public class SearchAgent {
         if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
             names.add("searchSymbols");
             names.add("getSymbolLocations");
-            names.add("getFiles");
         }
 
         // Fine-grained Analyzer capabilities
@@ -670,7 +669,7 @@ public class SearchAgent {
                     "searchFilenames",
                     "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
             case "createTaskList" -> 100;
             case "answer", "workspaceComplete" -> 101; // should never co-occur

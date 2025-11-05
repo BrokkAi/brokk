@@ -1,7 +1,6 @@
 package ai.brokk.tools;
 
 import ai.brokk.AbstractProject;
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
@@ -393,48 +392,6 @@ public class WorkspaceTools {
         }
 
         return "Added %d method source(s).".formatted(addedCount);
-    }
-
-    @Tool("Returns the file paths relative to the project root for the given fully-qualified class names.")
-    public String getFiles(
-            @P(
-                            "List of fully qualified class names (e.g., ['com.example.MyClass', 'org.another.Util']). Must not be empty.")
-                    List<String> classNames) {
-        if (classNames.isEmpty()) {
-            return "Class names list cannot be empty.";
-        }
-
-        List<String> foundFiles = new ArrayList<>();
-        List<String> notFoundClasses = new ArrayList<>();
-        var analyzer = getAnalyzer();
-
-        classNames.stream().distinct().forEach(className -> {
-            if (className.isBlank()) {
-                notFoundClasses.add("<blank or null>");
-                return;
-            }
-            var fileOpt = AnalyzerUtil.getFileFor(analyzer, className);
-            if (fileOpt.isPresent()) {
-                foundFiles.add(fileOpt.get().toString());
-            } else {
-                notFoundClasses.add(className);
-                logger.warn("Could not find file for class: {}", className);
-            }
-        });
-
-        if (foundFiles.isEmpty()) {
-            return "Could not find files for any of the provided class names: " + String.join(", ", classNames);
-        }
-
-        String resultMessage =
-                "Files found: " + String.join(", ", foundFiles.stream().sorted().toList());
-
-        if (!notFoundClasses.isEmpty()) {
-            resultMessage += ". Could not find files for the following classes: [%s]"
-                    .formatted(String.join(", ", notFoundClasses));
-        }
-
-        return resultMessage;
     }
 
     @Tool(
