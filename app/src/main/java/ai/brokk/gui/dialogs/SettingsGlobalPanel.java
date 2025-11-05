@@ -1655,6 +1655,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
         }
 
+        // Diff View preference
+        boolean useUnified = diffUnifiedRadio.isSelected();
+        GlobalUiSettings.saveDiffUnifiedView(useUnified);
+        logger.debug("Applied Diff View: {}", useUnified ? "Unified" : "Side-by-Side");
+
         // Startup behavior
         var currentStartupMode = MainProject.getStartupOpenMode();
         var selectedStartupMode =
