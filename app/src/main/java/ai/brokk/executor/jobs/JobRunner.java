@@ -7,6 +7,7 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -34,7 +35,7 @@ public final class JobRunner {
     private final ContextManager cm;
     private final JobStore store;
     private final ExecutorService runner;
-    private volatile HeadlessHttpConsole console;
+    private volatile @Nullable HeadlessHttpConsole console;
     private volatile String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
