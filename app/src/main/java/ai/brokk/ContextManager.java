@@ -1488,8 +1488,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
+        // Load current state from storage to avoid using stale in-memory copy
+        TaskList.TaskListData currentData;
+        try {
+            currentData =
+                    project.getSessionManager().readTaskList(currentSessionId).get();
+        } catch (Exception ex) {
+            logger.debug("Unable to read current task list, using in-memory copy", ex);
+            currentData = taskList;
+        }
+        var currentTasks = currentData != null ? currentData.tasks() : List.<TaskList.TaskItem>of();
+
+        // Collect pre-existing incomplete task texts to pass to UI
+        var preExistingIncompleteTasks = currentTasks.stream()
+                .filter(t -> !t.done())
+                .map(t -> t.text().strip())
+                .filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toSet());
+
         var combined = new ArrayList<TaskList.TaskItem>();
-        combined.addAll(taskList.tasks());
+        combined.addAll(currentTasks);
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
@@ -1498,7 +1516,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Persist via existing SessionManager API (UI DTO)
         project.getSessionManager().writeTaskList(currentSessionId, newData);
         if (io instanceof Chrome chrome) {
-            chrome.refreshTaskListUI();
+            // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
+            chrome.refreshTaskListUI(true, preExistingIncompleteTasks);
         }
 
         io.showNotification(
