@@ -453,6 +453,17 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         });
     }
 
+    /**
+     * Called by FilePanel to request that both file panels clear any viewport-related caches.
+     */
+    public void invalidateViewportCacheForBothSides() {
+        for (var fp : filePanels.values()) {
+            if (fp != null) {
+                fp.invalidateViewportCache();
+            }
+        }
+    }
+
     /** Build the top row that holds search bars. */
     public JPanel activateBarDialog(String columns) {
         // Use the same FormLayout structure as the file panels to align search bars with text areas

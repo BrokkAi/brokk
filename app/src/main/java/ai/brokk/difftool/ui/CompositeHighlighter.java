@@ -45,8 +45,22 @@ public class CompositeHighlighter extends RSyntaxTextAreaHighlighter implements 
 
     @Override
     public Object addHighlight(int p0, int p1, HighlightPainter painter) throws BadLocationException {
-        // forward to JMHighlighter (secondary)
-        return secondary.addHighlight(p0, p1, painter);
+        // forward to JMHighlighter (secondary) when possible; otherwise let superclass handle it
+        if (secondary instanceof JMHighlighter jm) {
+            return jm.addHighlight(p0, p1, painter);
+        }
+        return super.addHighlight(p0, p1, painter);
+    }
+
+    /**
+     * Overloaded API used by delta/search highlighters to indicate a specific JM layer.
+     */
+    public Object addHighlight(int layer, int p0, int p1, HighlightPainter painter) throws BadLocationException {
+        if (secondary instanceof JMHighlighter jm) {
+            return jm.addHighlight(layer, p0, p1, painter);
+        }
+        // Fallback: ignore layer and add normally
+        return super.addHighlight(p0, p1, painter);
     }
 
     @Override

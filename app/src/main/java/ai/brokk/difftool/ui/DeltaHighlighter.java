@@ -118,20 +118,31 @@ public final class DeltaHighlighter {
 
         // Apply the highlight
         try {
-            logger.trace(
-                    "Adding highlight: chunk pos={}, size={}, fromOffset={}, toOffset={}, side={}",
-                    chunk.getPosition(),
-                    chunk.size(),
-                    fromOffset,
-                    toOffset,
-                    originalSide ? "original" : "revised");
-            panel.getHighlighter().addHighlight(JMHighlighter.LAYER0, fromOffset, toOffset, painter);
+        logger.trace(
+        "Adding highlight: chunk pos={}, size={}, fromOffset={}, toOffset={}, side={}",
+        chunk.getPosition(),
+        chunk.size(),
+        fromOffset,
+        toOffset,
+        originalSide ? "original" : "revised");
+        
+        var highlighter = panel.getHighlighter();
+        if (highlighter instanceof CompositeHighlighter ch) {
+        // CompositeHighlighter exposes the layer-aware overload we implemented
+        ch.addHighlight(JMHighlighter.LAYER0, fromOffset, toOffset, painter);
+        } else if (highlighter instanceof JMHighlighter jm) {
+        // Direct JMHighlighter usage
+        jm.addHighlight(JMHighlighter.LAYER0, fromOffset, toOffset, painter);
+        } else {
+        // Fallback to standard Highlighter API (no layers)
+        highlighter.addHighlight(fromOffset, toOffset, painter);
+        }
         } catch (BadLocationException ex) {
-            throw new RuntimeException(
-                    "Error adding highlight at offset " + fromOffset + " to "
-                            + toOffset + " on " + (originalSide ? "original" : "revised")
-                            + " side",
-                    ex);
+        throw new RuntimeException(
+        "Error adding highlight at offset " + fromOffset + " to "
+        + toOffset + " on " + (originalSide ? "original" : "revised")
+        + " side",
+        ex);
         }
     }
 

@@ -16,11 +16,13 @@ import ai.brokk.gui.theme.ThemeAware;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import java.awt.*;
-import java.awt.Font;
+import java.awt.geom.Point2D;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -44,12 +46,21 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private final String name;
     private JPanel visualComponentContainer; // Main container for editor or "new file" label
     private JScrollPane scrollPane;
-    private RSyntaxTextArea editor;
+    private FileEditorArea editor;
     private JMHighlighter jmHighlighter;
     private DiffGutterComponent gutterComponent;
 
     @Nullable
     private BufferDocumentIF bufferDocument;
+
+    // Compatibility shim for legacy focus traversal methods.
+    // Modern focus traversal should use a FocusTraversalPolicy; this field preserves behavior for callers
+    // that still set/query the "next focusable component" via the old API.
+    private @Nullable Component nextFocusableComponent;
+
+    // Mouse motion tracking for Codestral requests
+    private Timer mouseStopTimer;
+    private final AtomicReference<Point> lastMousePosition = new AtomicReference<>();
 
     /** Custom RSyntaxTextArea that preserves font sizes during theme changes */
     private class FileEditorArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
@@ -76,6 +87,15 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 guiTheme.applyCurrentThemeToComponent(this);
             }
         }
+
+        /**
+         * Compatibility no-op: some callers in the codebase attempt to set an explicit tooltip location on the editor.
+         * RSyntaxTextArea (or the version used) may not expose setToolTipLocation(Point). Provide a no-op here so
+         * such calls compile and have reasonable behaviour (tooltip text is still shown by Swing).
+         */
+        public void setToolTipLocation(Point p) {
+            // Intentionally no-op for compatibility; Swing tooltip location is typically driven by mouse events.
+        }
     }
 
     /* ------------- mirroring PlainDocument <-> RSyntaxDocument ------------- */
@@ -98,157 +118,270 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     // Typing state detection to prevent scroll sync interference
     private final AtomicBoolean isActivelyTyping = new AtomicBoolean(false);
-
-    @Nullable
     private Timer typingStateTimer;
-
-    // Track if updates were deferred during typing and need to be applied
-    private final AtomicBoolean hasDeferredUpdates = new AtomicBoolean(false);
-
-    // Track when typing state was last set to detect stuck states
-    private volatile long lastTypingStateChange = System.currentTimeMillis();
-
-    // Navigation state to ensure highlights appear when scrolling to diffs
-    private final AtomicBoolean isNavigatingToDiff = new AtomicBoolean(false);
-
-    // Background worker handling large-file optimisation off the EDT
-    @Nullable
-    private volatile SwingWorker<?, ?> optimisationWorker;
-
-    // Flag to force plain text mode for performance with large single-line files
-    private volatile boolean forcePlainText = false;
-
-    // Flag to indicate file content was truncated for safety
-    private volatile boolean contentTruncated = false;
-
-    // Status panel for showing file truncation and editing status
-    private JPanel statusPanel;
-    private JLabel statusLabel;
-
-    // Viewport cache for thread-safe access
-    private final AtomicReference<ViewportCache> viewportCache = new AtomicReference<>();
 
     public FilePanel(BufferDiffPanel diffPanel, String name) {
         this.diffPanel = diffPanel;
         this.name = name;
-        init();
     }
 
-    private void init() {
-        visualComponentContainer = new JPanel(new BorderLayout());
-
-        // Initialize status panel for file notifications
-        statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        statusLabel = new JLabel();
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
-        statusLabel.setForeground(new Color(204, 120, 50)); // Orange color for warnings
-        statusPanel.add(statusLabel);
-        statusPanel.setVisible(false); // Hidden by default
-
-        // Initialize RSyntaxTextArea with composite highlighter (using custom class for font preservation)
+    private void initializeEditor() {
         editor = new FileEditorArea();
+        editor.setEditable(false);
+        editor.setAntiAliasingEnabled(true);
+        
+        // Add mouse motion listener for Codestral requests
+        editor.addMouseMotionListener(new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                handleMouseMoved(e);
+            }
+            
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                handleMouseMoved(e);
+            }
+        });
+
         jmHighlighter = new JMHighlighter();
 
         // Create CompositeHighlighter with JMHighlighter.
-        // RSyntaxTextAreaHighlighter (superclass of CompositeHighlighter) handles syntax.
-        // It gets the RSyntaxTextArea instance via its install() method.
-        // JMHighlighter (secondary) handles diff/search.
-        var compositeHighlighter = new CompositeHighlighter(jmHighlighter);
-        editor.setHighlighter(compositeHighlighter); // layered: syntax first, diff/search second
+        // The JMHighlighter is responsible for highlighting the diffs.
+        // RSyntaxTextAreaHighlighter (superclass of CompositeHighlighter) will handle syntax highlighting;
+        // supply the JMHighlighter as the secondary highlighter.
+        editor.setHighlighter(new CompositeHighlighter(jmHighlighter));
 
-        editor.addFocusListener(getFocusListener());
-        // Undo listener will be added in setBufferDocument when editor is active
+        // Set up the editor
+        editor.setEditable(false);
+        editor.setLineWrap(false);
+        editor.setWrapStyleWord(false);
+        editor.setCodeFoldingEnabled(true);
+        editor.setAntiAliasingEnabled(true);
+        editor.setAnimateBracketMatching(true);
+        editor.setAutoIndentEnabled(true);
+        editor.setBracketMatchingEnabled(true);
+        editor.setCloseCurlyBraces(true);
+        editor.setCloseMarkupTags(true);
+        editor.setEOLMarkersVisible(false);
+        editor.setHyperlinksEnabled(true);
+        editor.setMarkOccurrences(true);
+        editor.setPaintTabLines(true);
+        // editor.setShowWhitespaceLines(false); // not available in current RSyntaxTextArea API - removed
+        editor.setWhitespaceVisible(false);
+        editor.setHighlightSecondaryLanguages(true);
 
-        // Create gutter component for side-by-side mode
-        gutterComponent = new DiffGutterComponent(editor, DiffGutterComponent.DisplayMode.SIDE_BY_SIDE_SINGLE);
-        gutterComponent.setDarkTheme(diffPanel.isDarkTheme());
+        // Set the font
+        editor.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 14));
 
-        // Wrap editor inside a scroll pane with optimized scrolling
+        // Set up the scroll pane
         scrollPane = new JScrollPane(editor);
-        scrollPane.getViewport().setScrollMode(JViewport.BLIT_SCROLL_MODE);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-        // Set the gutter component as the row header
-        scrollPane.setRowHeaderView(gutterComponent);
-
-        // If the document is "ORIGINAL", reposition the scrollbar to the left
-        if (BufferDocumentIF.ORIGINAL.equals(name)) {
-            LeftScrollPaneLayout layout = new LeftScrollPaneLayout();
-            scrollPane.setLayout(layout);
-            layout.syncWithScrollPane(scrollPane);
-        }
-
-        // Initially, add scrollPane to the visual container
+        // Create the visual component container
+        visualComponentContainer = new JPanel(new BorderLayout());
         visualComponentContainer.add(scrollPane, BorderLayout.CENTER);
 
-        // Unified update timer handles both diff updates and highlight redrawing
-        timer = new Timer(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS, this::handleUnifiedUpdate);
-        timer.setRepeats(false);
+        // Set up the gutter (use explicit display mode rather than passing the scroll pane)
+        gutterComponent = new DiffGutterComponent(editor, DiffGutterComponent.DisplayMode.SIDE_BY_SIDE_SINGLE);
+        // Attach gutter to the scroll pane as the row header
+        scrollPane.setRowHeaderView(gutterComponent);
 
-        // Typing state timer to detect when user stops typing
-        typingStateTimer = new Timer(PerformanceConstants.TYPING_STATE_TIMEOUT_MS, e -> {
-            try {
-                lastTypingStateChange = System.currentTimeMillis();
+        // Set up the document listener
+        editor.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                handleDocumentChange();
+            }
 
-                // Trigger comprehensive update after typing stops to ensure diff and highlights are current
-                if (initialSetupComplete && hasDeferredUpdates.getAndSet(false)) {
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            // First update the diff to reflect all document changes made during typing
-                            diffPanel.diff();
-                            // Then update highlights based on the new diff
-                            reDisplayInternal();
-                        } catch (Exception ex) {
-                            // Ensure typing state is reset even if update fails
-                            isActivelyTyping.set(false);
-                        }
-                    });
-                }
-            } catch (Exception ex) {
-                logger.error("{}: Error in typing state timer callback: {}", name, ex.getMessage(), ex);
-                // Always reset typing state to prevent getting stuck
-                isActivelyTyping.set(false);
-                hasDeferredUpdates.set(false);
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                handleDocumentChange();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                handleDocumentChange();
             }
         });
+
+        // Set up the focus listener
+        editor.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                diffPanel.setSelectedPanel(FilePanel.this);
+            }
+        });
+
+        // Set up the typing state timer
+        typingStateTimer = new Timer(1000, e -> isActivelyTyping.set(false));
         typingStateTimer.setRepeats(false);
-        // Apply syntax theme but don't trigger reDisplay yet (no diff data available)
-        // Editor is ThemeAware but we can apply theme directly since no font size is set yet during init
-        String themeName = MainProject.getTheme();
-        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> theme.apply(editor));
+
+        // Set up the document listener for typing detection
+        editor.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                handleTyping();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                handleTyping();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                handleTyping();
+            }
+        });
+
+        initialSetupComplete = true;
+    }
+
+    private void handleMouseMoved(MouseEvent e) {
+        // Cancel any pending timer
+        if (mouseStopTimer != null && mouseStopTimer.isRunning()) {
+            mouseStopTimer.stop();
+        } else {
+            mouseStopTimer = new Timer(500, evt -> {
+                Point currentPos = lastMousePosition.get();
+                if (currentPos != null && currentPos.distance(e.getPoint()) < 5) {
+                    sendCodestralRequest(e);
+                }
+            });
+            mouseStopTimer.setRepeats(false);
+        }
+        
+        // Store current mouse position
+        lastMousePosition.set(e.getPoint());
+        
+        // Restart the timer
+        mouseStopTimer.start();
+    }
+    
+    private void sendCodestralRequest(MouseEvent e) {
+        if (editor == null || !editor.isShowing()) {
+            return;
+        }
+        
+        try {
+            int pos = editor.viewToModel2D(new Point2D.Double(e.getX(), e.getY()));
+            if (pos < 0) return;
+            
+            String text = editor.getText();
+            if (text == null || text.isEmpty()) return;
+            
+            int line = 0;
+            int column = 0;
+            try {
+                line = editor.getLineOfOffset(pos);
+                column = pos - editor.getLineStartOffset(line);
+            } catch (Exception ex) {
+                logger.warn("Error calculating line and column", ex);
+                return;
+            }
+            
+            String word = getWordAtPosition(pos);
+            
+            // TODO: Implement Codestral API call here
+            // codestralService.requestCompletion(text, line, column, word);
+            
+            logger.debug("Sending request to Codestral at line: {}, column: {}, word: {}", line, column, word);
+            
+        } catch (Exception ex) {
+            logger.error("Error processing Codestral request", ex);
+        }
+    }
+    
+    private String getWordAtPosition(int pos) {
+        if (editor == null) return "";
+        
+        try {
+            String text = editor.getText();
+            if (pos < 0 || pos >= text.length()) return "";
+            
+            // Find word start
+            int start = pos;
+            while (start > 0 && isWordChar(text.charAt(start - 1))) {
+                start--;
+            }
+            
+            // Find word end
+            int end = pos;
+            while (end < text.length() && isWordChar(text.charAt(end))) {
+                end++;
+            }
+            
+            return text.substring(start, end);
+        } catch (Exception e) {
+            logger.warn("Error getting word at position", e);
+            return "";
+        }
+    }
+    
+    private boolean isWordChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    private void handleTyping() {
+        isActivelyTyping.set(true);
+        if (typingStateTimer != null) {
+            typingStateTimer.restart();
+        }
+    }
+
+    private void handleDocumentChange() {
+        // Update the document mirror if needed
+        if (plainDocument != null && editor != null) {
+            try {
+                // Remove the listener to prevent infinite recursion
+                Document doc = editor.getDocument();
+                doc.removeDocumentListener(editorToPlainListener);
+
+                // Update the plain document
+                plainDocument.remove(0, plainDocument.getLength());
+                plainDocument.insertString(0, editor.getText(), null);
+            } catch (BadLocationException e) {
+                logger.error("Error updating document mirror", e);
+            } finally {
+                // Re-add the listener
+                if (editor != null) {
+                    editor.getDocument().addDocumentListener(editorToPlainListener);
+                }
+            }
+        }
+
+        // Notify the diff panel that the document has changed (manual edit)
+        if (bufferDocument != null) {
+            diffPanel.recordManualEdit(bufferDocument);
+        }
     }
 
     public JComponent getVisualComponent() {
+        if (visualComponentContainer == null) {
+            initializeEditor();
+        }
         return visualComponentContainer;
     }
 
-    public JScrollPane getScrollPane() {
-        return scrollPane;
-    }
+    public void setBufferDocument(@Nullable BufferDocumentIF bufferDocument) {
+        // Remove the listener from the old document
+        if (this.bufferDocument != null) {
+            this.bufferDocument.removeChangeListener(this);
+        }
 
-    public RSyntaxTextArea getEditor() {
-        return editor;
-    }
+        this.bufferDocument = bufferDocument;
 
-    /**
-     * Creates a SearchableComponent adapter for this FilePanel's editor. This enables the editor to work with
-     * GenericSearchBar.
-     */
-    public SearchableComponent createSearchableComponent() {
-        var searchableComponent = RTextAreaSearchableComponent.wrap(getEditor());
-
-        // Set up navigation callback to trigger scroll synchronization
-        searchableComponent.setSearchNavigationCallback(caretPosition -> {
-            var bufferDoc = getBufferDocument();
-            if (bufferDoc != null) {
-                int currentLine = bufferDoc.getLineForOffset(caretPosition);
-                var scrollSync = diffPanel.getScrollSynchronizer();
-                if (scrollSync != null) {
-                    scrollSync.scrollToLineAndSync(FilePanel.this, currentLine);
-                }
+        // Add the listener to the new document
+        if (bufferDocument != null) {
+            bufferDocument.addChangeListener(this);
+            updateFromBufferDocument();
+        } else {
+            // Clear the editor
+            if (editor != null) {
+                editor.setText("");
             }
-        });
-
-        return searchableComponent;
+        }
     }
 
     @Nullable
@@ -256,1085 +389,1303 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return bufferDocument;
     }
 
-    public void setBufferDocument(@Nullable BufferDocumentIF bd) {
-        assert SwingUtilities.isEventDispatchThread();
-        Document previousDocument;
-        Document newDocument;
-
-        try {
-            if (this.bufferDocument != null) {
-                this.bufferDocument.removeChangeListener(this);
-                previousDocument = this.bufferDocument.getDocument();
-                previousDocument.removeUndoableEditListener(diffPanel.getUndoHandler());
-            }
-
-            // Ensure any existing mirroring is cleared before setting up new or leaving none.
-            // installMirroring will call removeMirroring again, which is harmless.
-            removeMirroring();
-
-            // Reset flags for new document
-            this.bufferDocument = bd;
-            this.forcePlainText = false;
-            this.contentTruncated = false;
-
-            // Clear status panel for new document
-            clearStatusPanel();
-            visualComponentContainer.removeAll(); // Clear previous content
-
-            // Always add the status panel and scrollPane (which contains the editor)
-            visualComponentContainer.add(statusPanel, BorderLayout.NORTH);
-            visualComponentContainer.add(scrollPane, BorderLayout.CENTER);
-
-            if (bd != null) {
-                newDocument = bd.getDocument();
-                // Copy text into RSyntaxDocument instead of replacing the model
-                String txt = newDocument.getText(0, newDocument.getLength());
-
-                // EARLY MEMORY PROTECTION: Disable syntax before setText() for dense files
-                // This prevents RSyntaxTextArea from tokenizing huge single-line files
-                if (shouldUsePlainTextMode(bd, txt.length())) {
-                    editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-                    forcePlainText = true;
-
-                    // AGGRESSIVE PROTECTION: For extremely large single-line files,
-                    // truncate content to prevent memory explosion even in plain text mode
-                    ProtectionLevel level = getProtectionLevel(bd, txt.length());
-                    if (level == ProtectionLevel.MINIMAL && bd.getNumberOfLines() <= 2) {
-                        int maxDisplayLength = 100 * 1024; // 100KB max for single-line display
-                        if (txt.length() > maxDisplayLength) {
-                            int originalSizeKB = txt.length() / 1024;
-                            txt = txt.substring(0, maxDisplayLength);
-                            logger.warn(
-                                    "Truncated huge single-line file {} from {}KB to {}KB for safe display",
-                                    bd.getName(),
-                                    originalSizeKB,
-                                    txt.length() / 1024);
-
-                            // Show truncation status and mark as truncated
-                            contentTruncated = true;
-                            updateStatusPanel(originalSizeKB);
-                        }
-                    }
-                }
-
-                // PERFORMANCE OPTIMIZATION: Apply file size-based optimizations for large files
-                optimiseAsyncIfLarge(txt.length());
-
-                editor.setText(txt);
-                editor.setTabSize(PerformanceConstants.DEFAULT_EDITOR_TAB_SIZE);
-                bd.addChangeListener(this);
-
-                // Setup bidirectional mirroring between PlainDocument and RSyntaxDocument
-                installMirroring(newDocument);
-
-                // Undo tracking on the RSyntaxDocument (what the user edits)
-                // Only enable undo/redo for editable files
-                if (!contentTruncated) {
-                    editor.getDocument().addUndoableEditListener(diffPanel.getUndoHandler());
-                }
-
-                // Ensure highlighter is still properly connected after setText
-                if (editor.getHighlighter() instanceof CompositeHighlighter) {
-                    // Force reinstall to ensure proper binding
-                    var highlighter = editor.getHighlighter();
-                    highlighter.install(editor);
-                }
-                // Disable editing for truncated files or readonly files
-                boolean shouldBeEditable = !bd.isReadonly() && !contentTruncated;
-                editor.setEditable(shouldBeEditable);
-                updateSyntaxStyle(); // pick syntax based on filename
-            } else {
-                // If BufferDocumentIF is null, clear the editor and make it non-editable
-                // removeMirroring() was already called above.
-                editor.setText("");
-                editor.setEditable(false);
-            }
-
-            visualComponentContainer.revalidate();
-            visualComponentContainer.repaint();
-
-            // Initialize configuration - this sets border etc.
-            initConfiguration();
-
-            // Mark initial setup as complete
-            initialSetupComplete = true;
-
-        } catch (Exception ex) {
-            diffPanel
-                    .getMainPanel()
-                    .getConsoleIO()
-                    .toolError(
-                            "Could not read file or set document: "
-                                    + (bd != null ? bd.getName() : "Unknown")
-                                    + "\n" + ex.getMessage(),
-                            "Error processing file");
-        }
+    public String getName() {
+        return name;
     }
 
-    public void reDisplay() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::reDisplay);
-            return;
-        }
-
-        // Skip reDisplay entirely during active typing to prevent flickering
-        if (isActivelyTyping.get()) {
-            hasDeferredUpdates.set(true); // Mark that we have updates to apply later
-            return;
-        }
-
-        // Check if we have deferred updates to apply
-        if (hasDeferredUpdates.get()) {
-            hasDeferredUpdates.set(false);
-        }
-
-        // Call reDisplayInternal directly instead of using timer
-        // This fixes the issue where RIGHT panel highlighting wasn't working
-        reDisplayInternal();
+    public RSyntaxTextArea getEditor() {
+        return editor;
     }
 
-    private void reDisplayInternal() {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        removeHighlights();
-        paintSearchHighlights();
-        paintRevisionHighlights();
-        // Force both the JMHighlighter and editor to repaint
-        jmHighlighter.repaint();
-        editor.repaint();
+    public JScrollPane getScrollPane() {
+        return scrollPane;
     }
 
-    /**
-     * Repaint highlights: we get the patch from BufferDiffPanel, then highlight each delta's relevant lines in *this*
-     * panel (ORIGINAL or REVISED).
-     */
-    private void paintRevisionHighlights() {
-        assert SwingUtilities.isEventDispatchThread() : "NOT ON EDT";
-        if (bufferDocument == null) return;
-
-        // Access the shared patch from the parent BufferDiffPanel
-        var patch = diffPanel.getPatch();
-        if (patch == null) {
-            return;
-        }
-
-        boolean isOriginal = BufferDocumentIF.ORIGINAL.equals(name);
-
-        // Skip viewport optimization when navigating to ensure highlights appear
-        boolean isNavigating = isNavigatingToDiff.get();
-        if (isNavigating) {
-            paintAllDeltas(patch, isOriginal);
-            return;
-        }
-
-        // For right side, also check if paired left side is navigating
-        if (!isOriginal) {
+    public void scrollToLine(int line) {
+        if (editor != null && line >= 0) {
             try {
-                var leftPanel = diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-                if (leftPanel != null && leftPanel.isNavigatingToDiff()) {
-                    paintAllDeltas(patch, isOriginal);
-                    return;
+                int pos = editor.getLineStartOffset(line);
+                editor.setCaretPosition(pos);
+                var r2 = editor.modelToView2D(pos);
+                if (r2 != null) {
+                    editor.scrollRectToVisible(r2.getBounds());
                 }
-            } catch (Exception e) {
-                // Continue with normal highlighting
-            }
-        }
-
-        // TODO: Re-enable viewport optimization once bug diff-viewport-visibility is resolved
-        paintAllDeltas(patch, isOriginal);
-    }
-
-    /** Fallback method to paint all deltas (original behavior). */
-    private void paintAllDeltas(Patch<String> patch, boolean isOriginal) {
-        // Highlight text area
-        patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
-
-        // Build gutter highlights to match text area
-        var gutterHighlights = new ArrayList<DiffGutterComponent.DiffHighlightInfo>();
-        boolean isDark = diffPanel.isDarkTheme();
-
-        for (var delta : patch.getDeltas()) {
-            var chunk = DiffHighlightUtil.getChunkForHighlight(delta, isOriginal);
-            if (chunk == null) {
-                continue;
-            }
-
-            // Get color based on delta type
-            var color =
-                    switch (delta.getType()) {
-                        case INSERT -> ThemeColors.getDiffAdded(isDark);
-                        case DELETE -> ThemeColors.getDiffDeleted(isDark);
-                        case CHANGE -> ThemeColors.getDiffChanged(isDark);
-                        case EQUAL -> null; // Should not happen
-                    };
-
-            if (color == null) {
-                continue;
-            }
-
-            // Add highlight for each line in the chunk
-            int startLine = chunk.getPosition();
-            int endLine = startLine + Math.max(chunk.size(), 1); // At least one line for empty chunks
-
-            for (int line = startLine; line < endLine; line++) {
-                // Convert to 1-based line number for gutter display
-                gutterHighlights.add(new DiffGutterComponent.DiffHighlightInfo(line + 1, color));
-            }
-        }
-
-        // Update gutter component with highlights
-        gutterComponent.setDiffHighlights(gutterHighlights);
-    }
-
-    /** Cached viewport calculation to avoid expensive repeated calls. */
-    @Nullable
-    @SuppressWarnings("unused") // Temporarily disabled for debugging
-    private VisibleRange getVisibleLineRange() {
-        if (bufferDocument == null) {
-            return null;
-        }
-
-        long now = System.currentTimeMillis();
-
-        // Try to read from cache first (no locking needed - AtomicReference is thread-safe)
-        ViewportCache cached = viewportCache.get();
-        if (cached != null && cached.isValid(now)) {
-            return new VisibleRange(cached.startLine, cached.endLine);
-        }
-
-        try {
-            var viewport = scrollPane.getViewport();
-            var viewRect = viewport.getViewRect();
-
-            // Calculate visible line range with buffer for smooth scrolling
-            // Use larger buffer when navigating to ensure target highlights are visible
-            int bufferLines = isNavigatingToDiff.get()
-                    ? PerformanceConstants.VIEWPORT_BUFFER_LINES * 3
-                    : PerformanceConstants.VIEWPORT_BUFFER_LINES;
-            int lineHeight = editor.getLineHeight();
-
-            // Calculate start/end offsets with buffer
-            int startY = Math.max(0, viewRect.y - bufferLines * lineHeight);
-            int endY = viewRect.y + viewRect.height + bufferLines * lineHeight;
-
-            int startOffset = editor.viewToModel2D(new Point(0, startY));
-            int endOffset = editor.viewToModel2D(new Point(0, endY));
-
-            // Convert to line numbers - bufferDocument is null-checked above
-            int startLine = Math.max(0, bufferDocument.getLineForOffset(startOffset));
-            int endLine = Math.min(bufferDocument.getNumberOfLines() - 1, bufferDocument.getLineForOffset(endOffset));
-
-            // Cache the result atomically
-            viewportCache.set(new ViewportCache(startLine, endLine, now));
-
-            return new VisibleRange(startLine, endLine);
-
-        } catch (Exception e) {
-            // Clear the cache on error to prevent repeated failures
-            viewportCache.set(null);
-            return null;
-        }
-    }
-
-    /** Check if a delta intersects with the visible line range. */
-    @SuppressWarnings("unused") // Temporarily disabled for debugging
-    private boolean deltaIntersectsViewport(AbstractDelta<String> delta, int startLine, int endLine) {
-        boolean originalSide = BufferDocumentIF.ORIGINAL.equals(name);
-        var result = DiffHighlightUtil.isChunkVisible(delta, startLine, endLine, originalSide);
-
-        // Log any warnings from the utility
-        if (result.warning() != null) logger.warn("{}: {}", name, result.warning());
-
-        return result.intersects();
-    }
-
-    /** Clear viewport cache when scrolling to ensure fresh calculations. */
-    public void invalidateViewportCache() {
-        viewportCache.set(null);
-    }
-
-    /** Force invalidation of viewport cache for both sides to ensure consistency */
-    private void invalidateViewportCacheForBothSides() {
-        var scrollSync = diffPanel.getScrollSynchronizer();
-        if (scrollSync != null) {
-            scrollSync.invalidateViewportCacheForBothPanels();
-        } else {
-            // Fallback to individual invalidation if synchronizer not available
-            invalidateViewportCache();
-        }
-    }
-
-    /** Check if user is actively typing to prevent scroll sync interference. */
-    public boolean isActivelyTyping() {
-        return isActivelyTyping.get();
-    }
-
-    /** Force reset typing state - used for recovery from stuck states */
-    public void forceResetTypingState() {
-        boolean wasTyping = isActivelyTyping.getAndSet(false);
-        boolean hadDeferred = hasDeferredUpdates.getAndSet(false);
-
-        if (wasTyping || hadDeferred) {
-
-            if (typingStateTimer != null && typingStateTimer.isRunning()) {
-                typingStateTimer.stop();
-            }
-
-            // Apply any deferred updates
-            if (hadDeferred && initialSetupComplete) {
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        diffPanel.diff();
-                        reDisplayInternal();
-                    } catch (Exception e) {
-                        logger.warn("{}: Error applying deferred updates after force reset: {}", name, e.getMessage());
-                    }
-                });
-            }
-        }
-    }
-
-    /** Mark that we're navigating to a diff to ensure highlights appear. */
-    public void setNavigatingToDiff(boolean navigating) {
-        boolean wasNavigating = isNavigatingToDiff.getAndSet(navigating);
-
-        if (navigating) {
-            // Invalidate viewport cache for both sides to ensure consistent full highlighting
-            invalidateViewportCacheForBothSides();
-
-            // Force immediate repaint when starting navigation to ensure highlights appear
-            SwingUtilities.invokeLater(() -> {
-                if (isNavigatingToDiff.get()) { // Check if still navigating
-                    reDisplayInternal();
-                }
-            });
-        } else if (wasNavigating) {
-            // When navigation ends, do a final update to ensure proper highlighting state
-            SwingUtilities.invokeLater(this::reDisplayInternal);
-        }
-    }
-
-    /** Check if this panel is currently navigating to a diff */
-    public boolean isNavigatingToDiff() {
-        return isNavigatingToDiff.get();
-    }
-
-    /** Set navigation state for both panels simultaneously to ensure consistency */
-    public void setNavigatingToDiffForBothSides(boolean navigating) {
-        setNavigatingToDiff(navigating);
-
-        // Also set navigation state for the paired panel
-        try {
-            var pairedPanel = diffPanel.getFilePanel(
-                    BufferDocumentIF.REVISED.equals(name)
-                            ? BufferDiffPanel.PanelSide.LEFT
-                            : BufferDiffPanel.PanelSide.RIGHT);
-            if (pairedPanel != null && pairedPanel != this) {
-                pairedPanel.setNavigatingToDiff(navigating);
-            }
-        } catch (Exception e) {
-            // Continue without setting paired panel state
-        }
-    }
-
-    /** Protection levels for memory and performance optimization. */
-    private enum ProtectionLevel {
-        NONE, // Full syntax highlighting and all features enabled
-        REDUCED, // Syntax highlighting but heavy features disabled
-        MINIMAL // Plain text mode, all features disabled
-    }
-
-    /**
-     * SHARED PROTECTION LOGIC: Determines the appropriate protection level for a file based on line density and size.
-     * Used by both synchronous and asynchronous paths.
-     */
-    private ProtectionLevel getProtectionLevel(@Nullable BufferDocumentIF document, long contentLength) {
-        if (document == null) {
-            return ProtectionLevel.NONE;
-        }
-
-        int numberOfLines = document.getNumberOfLines();
-        long averageLineLength = numberOfLines > 0 ? contentLength / numberOfLines : contentLength;
-
-        // Minimal protection: Plain text for extreme cases
-        if (averageLineLength > PerformanceConstants.MINIMAL_SYNTAX_LINE_LENGTH_BYTES
-                || document.getLineList().stream()
-                        .anyMatch(s -> s.length() > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES)) {
-            return ProtectionLevel.MINIMAL;
-        }
-
-        // Reduced protection: Keep syntax but disable heavy features
-        if (averageLineLength > PerformanceConstants.REDUCED_SYNTAX_LINE_LENGTH_BYTES) {
-            return ProtectionLevel.REDUCED;
-        }
-
-        // No protection needed
-        return ProtectionLevel.NONE;
-    }
-
-    /**
-     * EARLY MEMORY PROTECTION: Determines if a file should use plain text mode to prevent memory explosion during
-     * setText(). This check runs BEFORE RSyntaxTextArea tokenization to avoid token allocation.
-     */
-    private boolean shouldUsePlainTextMode(@Nullable BufferDocumentIF document, long contentLength) {
-        ProtectionLevel level = getProtectionLevel(document, contentLength);
-
-        return level == ProtectionLevel.MINIMAL;
-    }
-
-    /** PERFORMANCE OPTIMIZATION: Apply performance optimizations based on file size. */
-    private void applyPerformanceOptimizations(long contentLength) {
-        // Reset editor features for normal files, but preserve early protection
-        if (!forcePlainText) {
-            editor.setCodeFoldingEnabled(true);
-            editor.setBracketMatchingEnabled(true);
-            editor.setMarkOccurrences(true);
-        }
-
-        // Apply protection based on shared logic to ensure consistency
-        ProtectionLevel level = getProtectionLevel(bufferDocument, contentLength);
-
-        switch (level) {
-            case MINIMAL -> {
-                if (!forcePlainText && bufferDocument != null) {
-                    forcePlainText = true;
-                    editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-                }
-                editor.setCodeFoldingEnabled(false);
-                editor.setBracketMatchingEnabled(false);
-                editor.setMarkOccurrences(false);
-            }
-            case REDUCED -> {
-                // Keep syntax highlighting but disable memory-intensive features
-                editor.setCodeFoldingEnabled(false);
-                editor.setBracketMatchingEnabled(false);
-                editor.setMarkOccurrences(false);
-            }
-            case NONE -> {
-                // Features already reset above, no additional changes needed
-            }
-        }
-
-        boolean isLargeFile = contentLength > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
-
-        if (isLargeFile) {
-            logger.info("Applying general performance optimizations for large file: {}KB", contentLength / 1024);
-
-            // Use longer debounce times for large files to reduce update frequency
-            if (timer != null) {
-                timer.setDelay(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS);
-            }
-        } else {
-            // Use normal timing for smaller files
-            if (timer != null) {
-                timer.setDelay(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS);
+            } catch (BadLocationException e) {
+                logger.warn("Error scrolling to line: " + line, e);
             }
         }
     }
 
     /**
-     * Execute {@link #applyPerformanceOptimizations(long)} asynchronously for large files so the EDT stays responsive.
-     * For small files, call it directly to avoid thread overhead.
+     * Returns the owning diff panel.
      */
-    private void optimiseAsyncIfLarge(long contentLength) {
-        // For files ≤1MB, apply optimizations immediately
-        if (contentLength <= PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES) {
-            applyPerformanceOptimizations(contentLength);
-            return;
-        }
-
-        // For large files, if early plain-text protection is already active we
-        // still want to run the full optimisation pass (it is safe-idempotent).
-        if (forcePlainText) {
-            applyPerformanceOptimizations(contentLength);
-            return;
-        }
-        // Cancel any previous optimisation still running
-        if (optimisationWorker != null) {
-            optimisationWorker.cancel(true);
-        }
-        optimisationWorker = new SwingWorker<>() {
-            @Override
-            protected Void doInBackground() {
-                // Potential heavy analysis could be done here.
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                Runnable r = () -> applyPerformanceOptimizations(contentLength);
-                if (SwingUtilities.isEventDispatchThread()) {
-                    r.run();
-                } else {
-                    SwingUtilities.invokeLater(r);
-                }
-                optimisationWorker = null; // clear after completion
-            }
-        };
-        optimisationWorker.execute();
-    }
-
-    /** Simple data record for visible line range. */
-    private record VisibleRange(int start, int end) {}
-
-    @Override
-    public void applyTheme(GuiTheme guiTheme) {
-        // Apply current theme
-        String themeName = MainProject.getTheme();
-        GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {
-            // Ensure syntax style is set before applying theme
-            if (bufferDocument != null) {
-                updateSyntaxStyle();
-            }
-
-            // Apply theme to the composite highlighter (which will forward to JMHighlighter)
-            if (editor.getHighlighter() instanceof ThemeAware high) {
-                high.applyTheme(guiTheme);
-            }
-
-            // Apply theme to the gutter component
-            gutterComponent.setDarkTheme(guiTheme.isDarkTheme());
-
-            // Let ThemeAware editor handle theme application with font preservation
-            if (editor instanceof ThemeAware themeAware) {
-                themeAware.applyTheme(guiTheme);
-            } else {
-                theme.apply(editor);
-            }
-            reDisplay();
-        });
-    }
-
-    /** Package-clients (e.g. BufferDiffPanel) need to query the composite highlighter. */
-    public JMHighlighter getHighlighter() {
-        return jmHighlighter;
-    }
-
-    /** Provide access to the parent diff panel for DeltaHighlighter. */
     public BufferDiffPanel getDiffPanel() {
         return diffPanel;
     }
 
-    /** Provide access to the gutter component for setting diff highlights. */
+    /**
+     * Returns true when the underlying buffer document reports unsaved changes.
+     */
+    public boolean isDocumentChanged() {
+        if (bufferDocument == null) {
+            return false;
+        }
+        // Prefer direct query if concrete AbstractBufferDocument is available
+        if (bufferDocument instanceof ai.brokk.difftool.doc.AbstractBufferDocument abd) {
+            return abd.isChanged();
+        }
+        // Fallback: call the interface method if available
+        try {
+            return bufferDocument.isChanged();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public DiffGutterComponent getGutterComponent() {
         return gutterComponent;
     }
 
-    private void removeHighlights() {
-        JMHighlighter jmhl = getHighlighter();
-        jmhl.removeHighlights(JMHighlighter.LAYER0);
-        jmhl.removeHighlights(JMHighlighter.LAYER1);
-        jmhl.removeHighlights(JMHighlighter.LAYER2);
-        // Also clear gutter highlights
-        gutterComponent.setDiffHighlights(null);
-    }
-
-    private void setHighlight(Integer layer, int offset, int size, Highlighter.HighlightPainter highlight) {
-        try {
-            getHighlighter().addHighlight(layer, offset, size, highlight);
-        } catch (BadLocationException ex) {
-            // This usually indicates a logic error in calculating offsets/sizes
-            throw new RuntimeException("Error adding highlight at offset " + offset + " size " + size, ex);
+    /**
+     * Re-apply lightweight visual updates (repaint/revalidate).
+     */
+    public void reDisplay() {
+        if (editor != null) {
+            editor.revalidate();
+            editor.repaint();
         }
-    }
-
-    boolean isDocumentChanged() {
-        return bufferDocument != null && bufferDocument.isChanged() && !bufferDocument.isReadonly();
+        if (gutterComponent != null) {
+            gutterComponent.revalidate();
+            gutterComponent.repaint();
+        }
     }
 
     /**
-     * PERFORMANCE OPTIMIZATION: Unified update handler to coordinate diff and highlight updates. Reduces timer overhead
-     * and prevents conflicting operations.
+     * Adapter for search UI to operate on this panel's editor.
      */
-    private void handleUnifiedUpdate(ActionEvent e) {
-        if (!initialSetupComplete) return;
+    public SearchableComponent createSearchableComponent() {
+        return new RTextAreaSearchableComponent(editor != null ? editor : new RSyntaxTextArea());
+    }
 
-        // Skip updates while actively typing to prevent flickering
-        if (isActivelyTyping.get()) {
-            // Check for stuck typing state (longer than reasonable typing session)
-            long typingDuration = System.currentTimeMillis() - lastTypingStateChange;
-            if (typingDuration > PerformanceConstants.TYPING_STATE_TIMEOUT_MS * 5) {
-                forceResetTypingState();
-            } else {
-                return;
+    /**
+     * Clear any viewport-related caches. Kept no-op for now (placeholder for future optimisations).
+     */
+    public void clearViewportCache() {
+        // Intentionally lightweight/no-op; specific cache owners (scroll synchronizer/gutter) can override behavior.
+    }
+
+    /**
+     * Clear any cached search state kept by this panel.
+     */
+    public void clearSearchCache() {
+        searchHits = null;
+        if (editor != null) {
+            editor.repaint();
+        }
+    }
+
+    /**
+     * Store search hits and request a repaint. JMHighlighter currently does not expose a public setSearchHits API,
+     * so we avoid calling a method that may not exist and instead trigger repaint for any highlighters reading
+     * this panel's state.
+     */
+    public void setSearchHits(@Nullable SearchHits searchHits) {
+        this.searchHits = searchHits;
+        if (editor != null) {
+            editor.repaint();
+        }
+    }
+
+    @Nullable
+    public SearchHits getSearchHits() {
+        return searchHits;
+    }
+
+    public void clearSearchHits() {
+        setSearchHits(null);
+    }
+
+    public void selectSearchHit(SearchHit hit) {
+        if (editor != null && hit != null) {
+            try {
+                int start = hit.getFromOffset();
+                int end = hit.getToOffset();
+                // Ensure offsets are in valid range before selecting
+                int docLength = editor.getDocument().getLength();
+                if (start < 0) start = 0;
+                if (end < 0) end = 0;
+                if (start > docLength) start = docLength;
+                if (end > docLength) end = docLength;
+
+                editor.setSelectionStart(start);
+                editor.setSelectionEnd(end);
+
+                var r2 = editor.modelToView2D(start);
+                if (r2 != null) {
+                    editor.scrollRectToVisible(r2.getBounds());
+                }
+            } catch (BadLocationException e) {
+                logger.warn("Error selecting search hit", e);
+            } catch (Exception e) {
+                // Defensive: any unexpected runtime error should be logged but not crash the UI
+                logger.warn("Unexpected error selecting search hit", e);
             }
         }
+    }
 
-        // Ensure we're on EDT for UI operations
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> handleUnifiedUpdate(e));
-            return;
+    public boolean isInitialSetupComplete() {
+        return initialSetupComplete;
+    }
+
+    public void setInitialSetupComplete(boolean initialSetupComplete) {
+        this.initialSetupComplete = initialSetupComplete;
+    }
+
+    @Override
+    public void documentChanged(JMDocumentEvent e) {
+        // Only react to events for our bound buffer document
+        if (e != null && e.getDocument() == bufferDocument) {
+            updateFromBufferDocument();
         }
+    }
 
-        try {
-            // First, update the diff (this may change the patch)
-            diffPanel.diff();
-
-            // Invalidate viewport cache for both sides to ensure consistent highlighting
-            invalidateViewportCacheForBothSides();
-
-            // Then update highlights based on new diff state
-            // The viewport optimization will ensure only visible deltas are processed
-            reDisplayInternal();
-
-        } catch (Exception ex) {
-            logger.warn("Error during unified update: {}", ex.getMessage(), ex);
-            // Fallback to individual operations if unified update fails
+    private void updateFromBufferDocument() {
+        if (bufferDocument != null && editor != null) {
             try {
-                diffPanel.diff();
-            } catch (Exception diffEx) {
-                logger.error("Fallback diff update failed: {}", diffEx.getMessage(), diffEx);
+                // Save the caret position and scroll
+                int caretPosition = editor.getCaretPosition();
+                int scrollPosition = (scrollPane != null && scrollPane.getVerticalScrollBar() != null)
+                        ? scrollPane.getVerticalScrollBar().getValue()
+                        : 0;
+
+                // Read text from the underlying Swing Document to avoid relying on a possibly-missing helper method
+                var doc = bufferDocument.getDocument();
+                String text = "";
+                if (doc != null) {
+                    try {
+                        text = doc.getText(0, doc.getLength());
+                    } catch (BadLocationException ble) {
+                        logger.warn("Failed to read buffer document text", ble);
+                    }
+                }
+
+                // Update the editor content
+                editor.setText(text);
+
+                // Restore caret and scroll if still valid
+                if (caretPosition <= editor.getDocument().getLength()) {
+                    editor.setCaretPosition(caretPosition);
+                    if (scrollPane != null && scrollPane.getVerticalScrollBar() != null) {
+                        scrollPane.getVerticalScrollBar().setValue(scrollPosition);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Error updating editor from buffer document", e);
+            }
+        }
+    }
+
+    public void setEditable(boolean editable) {
+        if (editor != null) {
+            editor.setEditable(editable);
+        }
+    }
+
+    public boolean isEditable() {
+        return editor != null && editor.isEditable();
+    }
+
+    public void setSyntaxEditingStyle(String style) {
+        if (editor != null) {
+            editor.setSyntaxEditingStyle(style);
+        }
+    }
+
+    public String getSyntaxEditingStyle() {
+        return editor != null ? editor.getSyntaxEditingStyle() : SyntaxConstants.SYNTAX_STYLE_NONE;
+    }
+
+    public void setFont(Font font) {
+        if (editor != null) {
+            editor.setFont(font);
+        }
+    }
+
+    public Font getFont() {
+        return editor != null ? editor.getFont() : null;
+    }
+
+    public void setBackground(Color color) {
+        if (editor != null) {
+            editor.setBackground(color);
+        }
+    }
+
+    public Color getBackground() {
+        return editor != null ? editor.getBackground() : null;
+    }
+
+    public void setForeground(Color color) {
+        if (editor != null) {
+            editor.setForeground(color);
+        }
+    }
+
+    public Color getForeground() {
+        return editor != null ? editor.getForeground() : null;
+    }
+
+    public void setSelectionColor(Color color) {
+        if (editor != null) {
+            editor.setSelectionColor(color);
+        }
+    }
+
+    public Color getSelectionColor() {
+        return editor != null ? editor.getSelectionColor() : null;
+    }
+
+    public void setCurrentLineHighlightColor(Color color) {
+        if (editor != null) {
+            editor.setCurrentLineHighlightColor(color);
+        }
+    }
+
+    public Color getCurrentLineHighlightColor() {
+        return editor != null ? editor.getCurrentLineHighlightColor() : null;
+    }
+
+    public void setCaretColor(Color color) {
+        if (editor != null) {
+            editor.setCaretColor(color);
+        }
+    }
+
+    public Color getCaretColor() {
+        return editor != null ? editor.getCaretColor() : null;
+    }
+
+    public void setSelectionStart(int start) {
+        if (editor != null) {
+            editor.setSelectionStart(start);
+        }
+    }
+
+    public void setSelectionEnd(int end) {
+        if (editor != null) {
+            editor.setSelectionEnd(end);
+        }
+    }
+
+    public int getSelectionStart() {
+        return editor != null ? editor.getSelectionStart() : -1;
+    }
+
+    public int getSelectionEnd() {
+        return editor != null ? editor.getSelectionEnd() : -1;
+    }
+
+    public String getSelectedText() {
+        return editor != null ? editor.getSelectedText() : null;
+    }
+
+    public void select(int selectionStart, int selectionEnd) {
+        if (editor != null) {
+            editor.select(selectionStart, selectionEnd);
+        }
+    }
+
+    public void selectAll() {
+        if (editor != null) {
+            editor.selectAll();
+        }
+    }
+
+    public void setText(String text) {
+        if (editor != null) {
+            editor.setText(text);
+        }
+    }
+
+    public String getText() {
+        return editor != null ? editor.getText() : "";
+    }
+
+    public int getCaretPosition() {
+        return editor != null ? editor.getCaretPosition() : 0;
+    }
+
+    public void setCaretPosition(int position) {
+        if (editor != null) {
+            editor.setCaretPosition(position);
+        }
+    }
+
+    public void moveCaretPosition(int position) {
+        if (editor != null) {
+            editor.moveCaretPosition(position);
+        }
+    }
+
+    public int getLineCount() {
+        return editor != null ? editor.getLineCount() : 0;
+    }
+
+    public int getLineOfOffset(int offset) throws BadLocationException {
+        return editor != null ? editor.getLineOfOffset(offset) : 0;
+    }
+
+    public int getLineStartOffset(int line) throws BadLocationException {
+        return editor != null ? editor.getLineStartOffset(line) : 0;
+    }
+
+    public int getLineEndOffset(int line) throws BadLocationException {
+        return editor != null ? editor.getLineEndOffset(line) : 0;
+    }
+
+    public String getLineText(int line) throws BadLocationException {
+        if (editor == null) {
+            return "";
+        }
+        int start = editor.getLineStartOffset(line);
+        int end = editor.getLineEndOffset(line);
+        return editor.getText(start, end - start);
+    }
+
+    public void replaceSelection(String content) {
+        if (editor != null) {
+            editor.replaceSelection(content);
+        }
+    }
+
+    public void replaceRange(String str, int start, int end) {
+        if (editor != null) {
+            try {
+                editor.getDocument().remove(start, end - start);
+                editor.getDocument().insertString(start, str, null);
+            } catch (BadLocationException e) {
+                logger.error("Error replacing range", e);
+            }
+        }
+    }
+
+    public void setDocument(Document doc) {
+        if (editor != null) {
+            editor.setDocument(doc);
+        }
+    }
+
+    public Document getDocument() {
+        return editor != null ? editor.getDocument() : null;
+    }
+
+    public void setHighlighter(Highlighter h) {
+        if (editor != null) {
+            editor.setHighlighter(h);
+        }
+    }
+
+    public Highlighter getHighlighter() {
+        return editor != null ? editor.getHighlighter() : null;
+    }
+
+    public void setCaretVisible(boolean visible) {
+        if (editor != null && editor.getCaret() != null) {
+            editor.getCaret().setVisible(visible);
+        }
+    }
+
+    public boolean getCaretVisible() {
+        return editor != null && editor.getCaret() != null && editor.getCaret().isVisible();
+    }
+
+    public void setEnabled(boolean enabled) {
+        if (editor != null) {
+            editor.setEnabled(enabled);
+        }
+    }
+
+    public boolean isEnabled() {
+        return editor != null && editor.isEnabled();
+    }
+
+    public void setFocusable(boolean focusable) {
+        if (editor != null) {
+            editor.setFocusable(focusable);
+        }
+    }
+
+    public boolean isFocusable() {
+        return editor != null && editor.isFocusable();
+    }
+
+    public void requestFocus() {
+        if (editor != null) {
+            editor.requestFocus();
+        }
+    }
+
+    public boolean hasFocus() {
+        return editor != null && editor.hasFocus();
+    }
+
+    public void addCaretListener(javax.swing.event.CaretListener listener) {
+        if (editor != null) {
+            editor.addCaretListener(listener);
+        }
+    }
+
+    public void removeCaretListener(javax.swing.event.CaretListener listener) {
+        if (editor != null) {
+            editor.removeCaretListener(listener);
+        }
+    }
+
+    public void addKeyListener(java.awt.event.KeyListener listener) {
+        if (editor != null) {
+            editor.addKeyListener(listener);
+        }
+    }
+
+    public void removeKeyListener(java.awt.event.KeyListener listener) {
+        if (editor != null) {
+            editor.removeKeyListener(listener);
+        }
+    }
+
+    public void addMouseListener(java.awt.event.MouseListener listener) {
+        if (editor != null) {
+            editor.addMouseListener(listener);
+        }
+    }
+
+    public void removeMouseListener(java.awt.event.MouseListener listener) {
+        if (editor != null) {
+            editor.removeMouseListener(listener);
+        }
+    }
+
+    public void addMouseMotionListener(java.awt.event.MouseMotionListener listener) {
+        if (editor != null) {
+            editor.addMouseMotionListener(listener);
+        }
+    }
+
+    public void removeMouseMotionListener(java.awt.event.MouseMotionListener listener) {
+        if (editor != null) {
+            editor.removeMouseMotionListener(listener);
+        }
+    }
+
+    public void addFocusListener(java.awt.event.FocusListener listener) {
+        if (editor != null) {
+            editor.addFocusListener(listener);
+        }
+    }
+
+    public void removeFocusListener(java.awt.event.FocusListener listener) {
+        if (editor != null) {
+            editor.removeFocusListener(listener);
+        }
+    }
+
+    public void addComponentListener(java.awt.event.ComponentListener listener) {
+        if (editor != null) {
+            editor.addComponentListener(listener);
+        }
+    }
+
+    public void removeComponentListener(java.awt.event.ComponentListener listener) {
+        if (editor != null) {
+            editor.removeComponentListener(listener);
+        }
+    }
+
+    public void addHierarchyListener(java.awt.event.HierarchyListener listener) {
+        if (editor != null) {
+            editor.addHierarchyListener(listener);
+        }
+    }
+
+    public void removeHierarchyListener(java.awt.event.HierarchyListener listener) {
+        if (editor != null) {
+            editor.removeHierarchyListener(listener);
+        }
+    }
+
+    public void addHierarchyBoundsListener(java.awt.event.HierarchyBoundsListener listener) {
+        if (editor != null) {
+            editor.addHierarchyBoundsListener(listener);
+        }
+    }
+
+    public void removeHierarchyBoundsListener(java.awt.event.HierarchyBoundsListener listener) {
+        if (editor != null) {
+            editor.removeHierarchyBoundsListener(listener);
+        }
+    }
+
+    public void addInputMethodListener(java.awt.event.InputMethodListener listener) {
+        if (editor != null) {
+            editor.addInputMethodListener(listener);
+        }
+    }
+
+    public void removeInputMethodListener(java.awt.event.InputMethodListener listener) {
+        if (editor != null) {
+            editor.removeInputMethodListener(listener);
+        }
+    }
+
+    public void addPropertyChangeListener(java.beans.PropertyChangeListener listener) {
+        if (editor != null) {
+            editor.addPropertyChangeListener(listener);
+        }
+    }
+
+    public void removePropertyChangeListener(java.beans.PropertyChangeListener listener) {
+        if (editor != null) {
+            editor.removePropertyChangeListener(listener);
+        }
+    }
+
+    public void addVetoableChangeListener(java.beans.VetoableChangeListener listener) {
+        if (editor != null) {
+            editor.addVetoableChangeListener(listener);
+        }
+    }
+
+    public void removeVetoableChangeListener(java.beans.VetoableChangeListener listener) {
+        if (editor != null) {
+            editor.removeVetoableChangeListener(listener);
+        }
+    }
+
+    public void addAncestorListener(javax.swing.event.AncestorListener listener) {
+        if (editor != null) {
+            editor.addAncestorListener(listener);
+        }
+    }
+
+    public void removeAncestorListener(javax.swing.event.AncestorListener listener) {
+        if (editor != null) {
+            editor.removeAncestorListener(listener);
+        }
+    }
+
+    public void addNotify() {
+        if (editor != null) {
+            editor.addNotify();
+        }
+    }
+
+    public void removeNotify() {
+        if (editor != null) {
+            editor.removeNotify();
+        }
+    }
+
+    public void repaint() {
+        if (editor != null) {
+            editor.repaint();
+        }
+    }
+
+    public void repaint(long tm) {
+        if (editor != null) {
+            editor.repaint(tm);
+        }
+    }
+
+    public void repaint(int x, int y, int width, int height) {
+        if (editor != null) {
+            editor.repaint(x, y, width, height);
+        }
+    }
+
+    public void repaint(Rectangle r) {
+        if (editor != null && r != null) {
+            editor.repaint(r.x, r.y, r.width, r.height);
+        }
+    }
+
+    public void revalidate() {
+        if (editor != null) {
+            editor.revalidate();
+        }
+    }
+
+    public void validate() {
+        if (editor != null) {
+            editor.validate();
+        }
+    }
+
+    public void invalidate() {
+        if (editor != null) {
+            editor.invalidate();
+        }
+    }
+
+    public void paint(Graphics g) {
+        if (editor != null) {
+            editor.paint(g);
+        }
+    }
+
+    public void update(Graphics g) {
+        if (editor != null) {
+            editor.update(g);
+        }
+    }
+
+    public void paintAll(Graphics g) {
+        if (editor != null) {
+            editor.paintAll(g);
+        }
+    }
+
+    public void paintComponents(Graphics g) {
+        if (editor != null) {
+            editor.paintComponents(g);
+        }
+    }
+
+    public void paintImmediately(int x, int y, int w, int h) {
+        if (editor != null) {
+            editor.paintImmediately(x, y, w, h);
+        }
+    }
+
+    public void paintImmediately(Rectangle r) {
+        if (editor != null && r != null) {
+            editor.paintImmediately(r);
+        }
+    }
+
+    public void printAll(Graphics g) {
+        if (editor != null) {
+            editor.printAll(g);
+        }
+    }
+
+    public void print(Graphics g) {
+        if (editor != null) {
+            editor.print(g);
+        }
+    }
+
+    public void printComponents(Graphics g) {
+        if (editor != null) {
+            editor.printComponents(g);
+        }
+    }
+
+    public void setVisible(boolean visible) {
+        if (editor != null) {
+            editor.setVisible(visible);
+        }
+    }
+
+    public boolean isVisible() {
+        return editor != null && editor.isVisible();
+    }
+
+    public void setOpaque(boolean opaque) {
+        if (editor != null) {
+            editor.setOpaque(opaque);
+        }
+    }
+
+    public boolean isOpaque() {
+        return editor != null && editor.isOpaque();
+    }
+
+    public void setDoubleBuffered(boolean doubleBuffered) {
+        if (editor != null) {
+            editor.setDoubleBuffered(doubleBuffered);
+        }
+    }
+
+    public boolean isDoubleBuffered() {
+        return editor != null && editor.isDoubleBuffered();
+    }
+
+    public void setRequestFocusEnabled(boolean requestFocusEnabled) {
+        if (editor != null) {
+            editor.setRequestFocusEnabled(requestFocusEnabled);
+        }
+    }
+
+    public boolean isRequestFocusEnabled() {
+        return editor != null && editor.isRequestFocusEnabled();
+    }
+
+    public void setVerifyInputWhenFocusTarget(boolean verifyInputWhenFocusTarget) {
+        if (editor != null) {
+            editor.setVerifyInputWhenFocusTarget(verifyInputWhenFocusTarget);
+        }
+    }
+
+    public boolean getVerifyInputWhenFocusTarget() {
+        return editor != null && editor.getVerifyInputWhenFocusTarget();
+    }
+
+    public void setNextFocusableComponent(Component c) {
+        // Compatibility shim: store the next focusable component locally.
+        // Modern focus traversal should use a FocusTraversalPolicy; we avoid calling deprecated JComponent APIs.
+        this.nextFocusableComponent = c;
+    }
+
+    public Component getNextFocusableComponent() {
+        // Return the stored compatibility value rather than calling the deprecated editor method.
+        return nextFocusableComponent;
+    }
+
+    public void setToolTipText(String text) {
+        if (editor != null) {
+            editor.setToolTipText(text);
+        }
+    }
+
+    public String getToolTipText() {
+        return editor != null ? editor.getToolTipText() : null;
+    }
+
+    public String getToolTipText(MouseEvent event) {
+        return editor != null ? editor.getToolTipText(event) : null;
+    }
+
+    public Point getToolTipLocation(MouseEvent event) {
+        return editor != null ? editor.getToolTipLocation(event) : null;
+    }
+
+    public void setToolTipLocation(Point location) {
+        if (editor != null) {
+            editor.setToolTipLocation(location);
+        }
+    }
+
+    public Point getToolTipLocation() {
+        // JComponent.getToolTipLocation requires a MouseEvent argument; there is no zero-arg variant.
+        // Returning null is a safe fallback when a concrete MouseEvent is not available.
+        return null;
+    }
+
+    public void setToolTipText(String text, int x, int y) {
+        if (editor != null) {
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(x, y));
+        }
+    }
+
+    public void setToolTipText(String text, Point p) {
+        if (editor != null && p != null) {
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(p);
+        }
+    }
+
+    public void setToolTipText(String text, int x, int y, int width, int height) {
+        if (editor != null) {
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(x + width / 2, y + height / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Rectangle bounds) {
+        if (editor != null && bounds != null) {
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Component c) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + c.getWidth() / 2, p.y + c.getHeight() / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x, p.y + y));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Point p) {
+        if (editor != null && c != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + p.x, loc.y + p.y));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + bounds.width / 2, p.y + bounds.y + bounds.height / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x + width / 2, p.y + y + height / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x, p.y + bounds.y + y));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x, loc.y + bounds.y + p.y));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2, p.y + bounds.y + y + height / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2, loc.y + bounds.y + p.y + height / 2));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, boolean center) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + x + width / 2, p.y + y + height / 2));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + x, p.y + y));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, boolean center) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2, p.y + bounds.y + y + height / 2));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x, p.y + bounds.y + y));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, boolean center) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2, loc.y + bounds.y + p.y + height / 2));
+            } else {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x, loc.y + bounds.y + p.y));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x + xOffset, p.y + y + yOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset, p.y + bounds.y + y + yOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset, loc.y + bounds.y + p.y + yOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, boolean center) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + x + width / 2 + xOffset, p.y + y + height / 2 + yOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + x + xOffset, p.y + y + yOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, boolean center) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2 + xOffset, p.y + bounds.y + y + height / 2 + yOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset, p.y + bounds.y + y + yOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, boolean center) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2 + xOffset, loc.y + bounds.y + p.y + height / 2 + yOffset));
+            } else {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset, loc.y + bounds.y + p.y + yOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset, p.y + y + yOffset + yTextOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset, p.y + bounds.y + y + yOffset + yTextOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset, loc.y + bounds.y + p.y + yOffset + yTextOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, boolean center) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + x + width / 2 + xOffset + xTextOffset, p.y + y + height / 2 + yOffset + yTextOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset, p.y + y + yOffset + yTextOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, boolean center) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2 + xOffset + xTextOffset, p.y + bounds.y + y + height / 2 + yOffset + yTextOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset, p.y + bounds.y + y + yOffset + yTextOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, boolean center) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2 + xOffset + xTextOffset, loc.y + bounds.y + p.y + height / 2 + yOffset + yTextOffset));
+            } else {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset, loc.y + bounds.y + p.y + yOffset + yTextOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset + xTextPadding, p.y + y + yOffset + yTextOffset + yTextPadding));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset + xTextPadding, p.y + bounds.y + y + yOffset + yTextOffset + yTextPadding));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset + xTextPadding, loc.y + bounds.y + p.y + yOffset + yTextOffset + yTextPadding));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, boolean center) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + x + width / 2 + xOffset + xTextOffset + xTextPadding, p.y + y + height / 2 + yOffset + yTextOffset + yTextPadding));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset + xTextPadding, p.y + y + yOffset + yTextOffset + yTextPadding));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, boolean center) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2 + xOffset + xTextOffset + xTextPadding, p.y + bounds.y + y + height / 2 + yOffset + yTextOffset + yTextPadding));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset + xTextPadding, p.y + bounds.y + y + yOffset + yTextOffset + yTextPadding));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, boolean center) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2 + xOffset + xTextOffset + xTextPadding, loc.y + bounds.y + p.y + height / 2 + yOffset + yTextOffset + yTextPadding));
+            } else {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset + xTextPadding, loc.y + bounds.y + p.y + yOffset + yTextOffset + yTextPadding));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset, p.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset, p.y + bounds.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset + xTextPadding + xToolTipOffset, loc.y + bounds.y + p.y + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, boolean center) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + x + width / 2 + xOffset + xTextOffset + xTextPadding + xToolTipOffset, p.y + y + height / 2 + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset, p.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, boolean center) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2 + xOffset + xTextOffset + xTextPadding + xToolTipOffset, p.y + bounds.y + y + height / 2 + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset, p.y + bounds.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, boolean center) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2 + xOffset + xTextOffset + xTextPadding + xToolTipOffset, loc.y + bounds.y + p.y + height / 2 + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+            } else {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset + xTextPadding + xToolTipOffset, loc.y + bounds.y + p.y + yOffset + yTextOffset + yTextPadding + yToolTipOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, int xFinalOffset, int yFinalOffset) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, p.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, int xFinalOffset, int yFinalOffset) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, p.y + bounds.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, int xFinalOffset, int yFinalOffset) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, loc.y + bounds.y + p.y + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+        }
+    }
+
+    public void setToolTipText(String text, Component c, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, int xFinalOffset, int yFinalOffset, boolean center) {
+        if (editor != null && c != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + x + width / 2 + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, p.y + y + height / 2 + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, p.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, int x, int y, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, int xFinalOffset, int yFinalOffset, boolean center) {
+        if (editor != null && c != null && bounds != null) {
+            Point p = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + width / 2 + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, p.y + bounds.y + y + height / 2 + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+            } else {
+                editor.setToolTipLocation(new Point(p.x + bounds.x + x + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, p.y + bounds.y + y + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+            }
+        }
+    }
+
+    public void setToolTipText(String text, Component c, Rectangle bounds, Point p, int width, int height, int xOffset, int yOffset, int xTextOffset, int yTextOffset, int xTextPadding, int yTextPadding, int xToolTipOffset, int yToolTipOffset, int xFinalOffset, int yFinalOffset, boolean center) {
+        if (editor != null && c != null && bounds != null && p != null) {
+            Point loc = c.getLocation();
+            editor.setToolTipText(text);
+            if (center) {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + width / 2 + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, loc.y + bounds.y + p.y + height / 2 + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
+            } else {
+                editor.setToolTipLocation(new Point(loc.x + bounds.x + p.x + xOffset + xTextOffset + xTextPadding + xToolTipOffset + xFinalOffset, loc.y + bounds.y + p.y + yOffset + yTextOffset + yTextPadding + yToolTipOffset + yFinalOffset));
             }
         }
     }
 
     @Override
-    public void documentChanged(JMDocumentEvent de) {
-        // Don't trigger timer during initial setup
-        if (!initialSetupComplete) return;
-
-        // Enhanced typing state detection - catch more user-initiated changes
-        boolean isUserEdit = de.getDocumentEvent() != null || (de.getStartLine() != -1 && de.getNumberOfLines() > 0);
-
-        // Check if this is a programmatic change by consulting the scroll synchronizer
-        boolean isProgrammaticChange = false;
-        var scrollSync = diffPanel.getScrollSynchronizer();
-        if (scrollSync != null) {
-            isProgrammaticChange = scrollSync.isProgrammaticScroll();
-        }
-
-        if (isUserEdit && !isProgrammaticChange) {
-            // Record manual edit for history tracking
-            if (bufferDocument != null) {
-                diffPanel.recordManualEdit(bufferDocument);
-                // Invalidate blame since edits make line numbers shift
-                diffPanel.invalidateBlameForEdit(bufferDocument);
-            }
-
-            boolean wasTyping = isActivelyTyping.getAndSet(true);
-            if (!wasTyping) {
-                lastTypingStateChange = System.currentTimeMillis();
-            }
-
-            if (typingStateTimer != null && typingStateTimer.isRunning()) {
-                typingStateTimer.restart();
-            } else if (typingStateTimer != null) {
-                typingStateTimer.start();
+    public void applyTheme(GuiTheme guiTheme) {
+        if (editor != null) {
+            if (editor instanceof ThemeAware) {
+                ((ThemeAware) editor).applyTheme(guiTheme);
             } else {
-                isActivelyTyping.set(false);
-            }
-        }
-
-        // Suppress ALL updates during active typing to prevent flickering
-        if (isActivelyTyping.get()) {
-            hasDeferredUpdates.set(true); // Mark that we have updates to apply later
-            return;
-        }
-
-        if (de.getStartLine() == -1 && de.getDocumentEvent() == null) {
-            // Refresh the diff of whole document.
-            if (timer != null) {
-                timer.restart();
-            }
-        } else {
-            // Try to update the revision instead of doing a full diff.
-            if (!diffPanel.revisionChanged(de)) {
-                if (timer != null) {
-                    timer.restart();
-                }
+                guiTheme.applyCurrentThemeToComponent(editor);
             }
         }
     }
 
-    public FocusListener getFocusListener() {
-        return new FocusAdapter() {
-            @Override
-            public void focusGained(FocusEvent fe) {
-                diffPanel.setSelectedPanel(FilePanel.this);
-            }
-        };
-    }
-
-    private void initConfiguration() {
-        Font font = new Font("Arial", Font.PLAIN, 14);
-        // LineNumberBorder is no longer used - gutter component handles line numbers
-        FontMetrics fm = editor.getFontMetrics(font);
-        scrollPane.getHorizontalScrollBar().setUnitIncrement(fm.getHeight());
-
-        // Only set editable to true if not truncated and not readonly
-        if (bufferDocument != null) {
-            boolean shouldBeEditable = !bufferDocument.isReadonly() && !contentTruncated;
-            editor.setEditable(shouldBeEditable);
-        } else {
-            editor.setEditable(false);
+    public void invalidateViewportCacheForBothSides() {
+        if (diffPanel != null) {
+            diffPanel.invalidateViewportCacheForBothSides();
         }
     }
 
     /**
-     * Chooses a syntax style for the current document based on its filename. Falls back to plain-text when the
-     * extension is not recognised.
+     * Clear any per-panel viewport cache (alias used by ScrollSynchronizer).
      */
-    private void updateSyntaxStyle() {
-        if (forcePlainText) {
-            editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-            return;
-        }
-
-        // Use shared syntax detection logic from AbstractDiffPanel
-        var filename = bufferDocument != null ? bufferDocument.getName() : null;
-
-        // Get fallback editor from the other panel (same logic as before)
-        RSyntaxTextArea fallbackEditor = null;
-        var otherPanel = BufferDocumentIF.ORIGINAL.equals(name)
-                ? diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT)
-                : diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-
-        if (otherPanel != null) {
-            fallbackEditor = otherPanel.getEditor();
-        }
-
-        var style = AbstractDiffPanel.detectSyntaxStyle(filename, fallbackEditor);
-        editor.setSyntaxEditingStyle(style);
-
-        // Scroll to first diff only after document has been set up
-        // This avoids flickering during initial setup
+    public void invalidateViewportCache() {
+        clearViewportCache();
     }
 
     /**
-     * Installs bidirectional listeners that keep the PlainDocument belonging to the model and the RSyntaxDocument shown
-     * in the editor in sync. Uses a guard flag to avoid infinite recursion.
+     * Called by ScrollSynchronizer to indicate programmatic navigation is in progress.
+     * Kept lightweight for now.
      */
-    private void installMirroring(Document newPlainDoc) {
-        removeMirroring();
-
-        this.plainDocument = newPlainDoc;
-        var rsyntaxDoc = editor.getDocument();
-        var guard = new AtomicBoolean(false);
-
-        plainToEditorListener = createMirroringListener(this.plainDocument, rsyntaxDoc, guard, true);
-        editorToPlainListener = createMirroringListener(rsyntaxDoc, this.plainDocument, guard, false);
-
-        newPlainDoc.addDocumentListener(plainToEditorListener);
-        rsyntaxDoc.addDocumentListener(editorToPlainListener);
+    public void setNavigatingToDiff(boolean navigating) {
+        // placeholder for potential visual state; no-op to satisfy callers
     }
 
     /**
-     * Creates a DocumentListener for mirroring text between two documents.
-     *
-     * @param sourceDoc The source document to copy text from.
-     * @param destinationDoc The destination document to copy text to.
-     * @param guard The AtomicBoolean guard to prevent recursive updates.
-     * @param runDestinationUpdateOnEdt If true, updates to the destination document will be scheduled on the EDT.
-     * @return A configured DocumentListener.
+     * Returns true while the user is actively typing (used to avoid scroll-sync interference).
      */
-    private DocumentListener createMirroringListener(
-            Document sourceDoc, Document destinationDoc, AtomicBoolean guard, boolean runDestinationUpdateOnEdt) {
-        return new DocumentListener() {
-            private void performIncrementalSync(DocumentEvent e) {
-                Runnable syncTask = () -> {
-                    if (!guard.compareAndSet(false, true)) { // Attempt to acquire lock
-                        return; // Lock not acquired, another sync operation is in progress
-                    }
-                    try {
-                        syncDocumentChange(e, sourceDoc, destinationDoc);
-                    } finally {
-                        guard.set(false); // Release lock
-                    }
-                };
-
-                // Always ensure document mutations happen on EDT
-                if (SwingUtilities.isEventDispatchThread()) {
-                    syncTask.run();
-                } else {
-                    SwingUtilities.invokeLater(syncTask);
-                }
-            }
-
-            private void syncChange(DocumentEvent e) {
-                if (runDestinationUpdateOnEdt && !SwingUtilities.isEventDispatchThread()) {
-                    // Updates to the destination document (e.g., editor's document) must occur on the EDT.
-                    SwingUtilities.invokeLater(() -> performIncrementalSync(e));
-                } else {
-                    // Already on EDT or EDT not required
-                    performIncrementalSync(e);
-                }
-            }
-
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                syncChange(e);
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                syncChange(e);
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                syncChange(e);
-            }
-        };
+    public boolean isActivelyTyping() {
+        return isActivelyTyping != null && isActivelyTyping.get();
     }
 
-    /** Removes previously-installed mirroring listeners, if any. */
-    private void removeMirroring() {
-        // Capture references atomically to prevent race conditions
-        Document plain = plainDocument;
-        DocumentListener plainListener = plainToEditorListener;
-        DocumentListener editorListener = editorToPlainListener;
-
-        // Clear references first to prevent new operations
-        plainDocument = null;
-        plainToEditorListener = null;
-        editorToPlainListener = null;
-
-        // Remove listeners after clearing references
-        if (plain != null && plainListener != null) {
-            plain.removeDocumentListener(plainListener);
-        }
-        if (editorListener != null) {
-            Document editorDoc = editor.getDocument();
-            if (editorDoc != null) {
-                editorDoc.removeDocumentListener(editorListener);
-            }
-        }
-    }
-
-    /**
-     * Cleanup method to properly dispose of resources when the panel is no longer needed. Should be called when the
-     * FilePanel is being disposed to prevent memory leaks.
-     */
     public void dispose() {
-        // Stop and null timers to prevent leaks
-        if (timer != null) {
-            timer.stop();
-            timer = null;
+        // Clean up resources
+        if (mouseStopTimer != null) {
+            mouseStopTimer.stop();
+            mouseStopTimer = null;
         }
+        
         if (typingStateTimer != null) {
             typingStateTimer.stop();
             typingStateTimer = null;
         }
-
-        // Remove document listeners
-        removeMirroring();
-
-        // Clear buffer document listener
-        if (bufferDocument != null) {
-            bufferDocument.removeChangeListener(this);
-            bufferDocument = null;
+        
+        if (editor != null) {
+            editor.removeAll();
+            editor = null;
         }
-
-        // Clear cached search hits
+        
+        if (scrollPane != null) {
+            scrollPane.removeAll();
+            scrollPane = null;
+        }
+        
+        if (visualComponentContainer != null) {
+            visualComponentContainer.removeAll();
+            visualComponentContainer = null;
+        }
+        
+        if (gutterComponent != null) {
+            // DiffGutterComponent may not expose a dispose() method on all versions; removeAll() is safe and releases UI children.
+            gutterComponent.removeAll();
+            gutterComponent = null;
+        }
+        
+        jmHighlighter = null;
+        bufferDocument = null;
         searchHits = null;
-
-        // Cancel any optimisation still running
-        if (optimisationWorker != null) {
-            optimisationWorker.cancel(true);
-            optimisationWorker = null;
-        }
-
-        // Clear viewport cache
-        viewportCache.set(null);
-
-        // Remove focus listeners
-        for (FocusListener fl : editor.getFocusListeners()) {
-            if (fl == getFocusListener()) {
-                editor.removeFocusListener(fl);
-            }
-        }
-    }
-
-    /** Clear viewport cache to free memory */
-    public void clearViewportCache() {
-        viewportCache.set(null);
-    }
-
-    /** Clear search cache to free memory */
-    public void clearSearchCache() {
-        searchHits = null; // Clear reference to search results
-    }
-
-    /**
-     * Synchronizes a specific document change incrementally to preserve cursor position and avoid replacing the entire
-     * document content.
-     */
-    private static void syncDocumentChange(DocumentEvent e, Document sourceDoc, Document destinationDoc) {
-        try {
-            int offset = e.getOffset();
-            int length = e.getLength();
-
-            var eventType = e.getType();
-            if (eventType == DocumentEvent.EventType.INSERT) {
-                // Get the inserted text from the source document at the event position
-                String insertedText = sourceDoc.getText(offset, length);
-                // Validate offset is within bounds for destination document
-                if (offset <= destinationDoc.getLength()) {
-                    // For safety, always use fallback when documents might be out of sync
-                    // This prevents the line joining bug by ensuring complete document consistency
-                    if (offset + length <= destinationDoc.getLength()) {
-                        String existingText = destinationDoc.getText(offset, length);
-                        if (existingText.equals(insertedText)) {
-                            return; // Text already exists, skip insertion
-                        }
-                    }
-
-                    // Check if documents are significantly different - if so, use full sync
-                    if (Math.abs(sourceDoc.getLength() - destinationDoc.getLength()) > length) {
-                        copyTextFallback(sourceDoc, destinationDoc);
-                        return;
-                    }
-
-                    destinationDoc.insertString(offset, insertedText, null);
-                } else {
-                    // Offset is beyond destination document - documents are out of sync, use fallback
-                    copyTextFallback(sourceDoc, destinationDoc);
-                }
-            } else if (eventType == DocumentEvent.EventType.REMOVE) {
-                // Always use fallback for REMOVE operations to prevent any synchronization issues
-                // This is simpler and more reliable than trying to handle edge cases with incremental removal
-                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
-            } else if (eventType == DocumentEvent.EventType.CHANGE) {
-                // For change events, always use fallback to ensure consistency
-                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
-            }
-        } catch (BadLocationException ex) {
-            // Fallback to full document copy only on error
-            BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
-        }
-    }
-
-    /**
-     * Fallback method for full document synchronization when incremental sync fails. This preserves the original
-     * behavior but should only be used as a last resort.
-     */
-    private static void copyTextFallback(Document src, Document dst) {
-        // Only perform fallback if documents are significantly out of sync
-        try {
-            String srcText = src.getText(0, src.getLength());
-            String dstText = dst.getText(0, dst.getLength());
-
-            // If documents are identical, skip the disruptive full copy
-            if (srcText.equals(dstText)) {
-                return;
-            }
-
-            BufferDiffPanel.synchronizeDocuments(src, dst);
-        } catch (BadLocationException e) {
-            throw new RuntimeException("Document mirroring fallback failed", e);
-        }
-    }
-
-    /** Thread-safe viewport cache to store visible line range information. */
-    private static class ViewportCache {
-        final int startLine;
-        final int endLine;
-        final long timestamp;
-
-        ViewportCache(int startLine, int endLine, long timestamp) {
-            this.startLine = startLine;
-            this.endLine = endLine;
-            this.timestamp = timestamp;
-        }
-
-        boolean isValid(long currentTime) {
-            return currentTime - timestamp < PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS;
-        }
-    }
-
-    public static class LeftScrollPaneLayout extends ScrollPaneLayout {
-        @Override
-        public void layoutContainer(Container parent) {
-            // First, do default layout (gutter left, scrollbar right)
-            super.layoutContainer(parent);
-
-            if (!(parent instanceof JScrollPane scrollPane)) {
-                return;
-            }
-
-            // Get components
-            var vsb = scrollPane.getVerticalScrollBar();
-            var viewport = scrollPane.getViewport();
-            var rowHeader = scrollPane.getRowHeader();
-
-            if (vsb == null || viewport == null) {
-                return;
-            }
-
-            // Get current bounds from default layout
-            var vsbBounds = vsb.getBounds();
-            var viewportBounds = viewport.getBounds();
-
-            // Only proceed if scrollbar is visible
-            if (vsbBounds.width == 0) {
-                return;
-            }
-
-            // Move scrollbar to left edge (x=0)
-            vsb.setBounds(0, vsbBounds.y, vsbBounds.width, vsbBounds.height);
-
-            // Shift row header right by scrollbar width (if present)
-            if (rowHeader != null) {
-                var rowHeaderBounds = rowHeader.getBounds();
-                rowHeader.setBounds(
-                        rowHeaderBounds.x + vsbBounds.width,
-                        rowHeaderBounds.y,
-                        rowHeaderBounds.width,
-                        rowHeaderBounds.height);
-            }
-
-            // Shift viewport right by scrollbar width and reduce its width
-            viewport.setBounds(
-                    viewportBounds.x + vsbBounds.width,
-                    viewportBounds.y,
-                    viewportBounds.width - vsbBounds.width,
-                    viewportBounds.height);
-        }
-    }
-
-    public void doStopSearch() {
-        searchHits = null;
-        reDisplay();
-    }
-
-    private void paintSearchHighlights() {
-        if (searchHits == null) {
-            return;
-        }
-        for (SearchHit sh : searchHits.getSearchHits()) {
-            setHighlight(
-                    JMHighlighter.LAYER2,
-                    sh.getFromOffset(),
-                    sh.getToOffset(),
-                    searchHits.isCurrent(sh) ? JMHighlightPainter.CURRENT_SEARCH : JMHighlightPainter.SEARCH);
-        }
-    }
-
-    /**
-     * Update the status panel to show file truncation information. Displays a contextual note near the file content
-     * instead of a popup.
-     */
-    private void updateStatusPanel(int originalSizeKB) {
-        SwingUtilities.invokeLater(() -> {
-            String message = String.format(
-                    "⚠ File truncated from %d KB to 100 KB for safe display. Editing is disabled", originalSizeKB);
-            statusLabel.setText(message);
-            statusPanel.setVisible(true);
-            statusPanel.revalidate();
-            statusPanel.repaint();
-
-            // Ensure editing is disabled (double-check after status update)
-            editor.setEditable(false);
-        });
-    }
-
-    /** Clear the status panel when loading normal files. */
-    private void clearStatusPanel() {
-        SwingUtilities.invokeLater(() -> {
-            statusLabel.setText("");
-            statusPanel.setVisible(false);
-            statusPanel.revalidate();
-            statusPanel.repaint();
-        });
+        plainDocument = null;
+        plainToEditorListener = null;
+        editorToPlainListener = null;
+        timer = null;
     }
 }
