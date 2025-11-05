@@ -343,7 +343,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
-        modelSelector.getComponent().setFocusable(true);
+        var modelComp = modelSelector.getComponent();
+        modelComp.setFocusable(true);
+        // Pressing space on the model selector should open up the options.
+        if (modelComp instanceof AbstractButton modelButton) {
+            modelComp.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "press");
+            modelComp.getActionMap().put("press", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    modelButton.doClick();
+                }
+            });
+        }
 
         // Initialize TokenUsageBar (left of Attach button)
         tokenUsageBar = new TokenUsageBar(chrome);
@@ -2103,6 +2114,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
             });
 
+            getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("SPACE"), "showMenu");
+            getActionMap().put("showMenu", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    showDropdownMenu();
+                }
+            });
+
             // Change cursor when hovering the dropdown area on the right
             addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
                 @Override
@@ -2329,7 +2348,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 int arc = 12;
                 Color borderColor;
                 if (isFocusOwner()) {
-                    borderColor = new Color(0x1F6FEB);
+                    borderColor = Color.WHITE;
                 } else {
                     borderColor = UIManager.getColor("Component.borderColor");
                     if (borderColor == null) borderColor = Color.GRAY;
