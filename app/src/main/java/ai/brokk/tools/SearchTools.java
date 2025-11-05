@@ -299,25 +299,22 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        classNames.stream()
-                .distinct()
-                .filter(s -> !s.isBlank())
-                .forEach(className -> {
-                    var cuOpt = analyzer.getDefinition(className);
-                    if (cuOpt.isPresent() && cuOpt.get().isClass()) {
-                        var cu = cuOpt.get();
-                        if (added.add(cu.fqName())) {
-                            var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                            var text = fragment.text();
-                            if (!text.isEmpty()) {
-                                if (!result.isEmpty()) {
-                                    result.append("\n\n");
-                                }
-                                result.append(text);
-                            }
+        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(className -> {
+            var cuOpt = analyzer.getDefinition(className);
+            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+                var cu = cuOpt.get();
+                if (added.add(cu.fqName())) {
+                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                    var text = fragment.text();
+                    if (!text.isEmpty()) {
+                        if (!result.isEmpty()) {
+                            result.append("\n\n");
                         }
+                        result.append(text);
                     }
-                });
+                }
+            }
+        });
 
         if (result.isEmpty()) {
             return "No sources found for classes: " + String.join(", ", classNames);
@@ -345,19 +342,16 @@ public class SearchTools {
         List<String> locationMappings = new ArrayList<>();
         List<String> notFound = new ArrayList<>();
 
-        symbols.stream()
-                .distinct()
-                .filter(s -> !s.isBlank())
-                .forEach(symbol -> {
-                    var cuOpt = analyzer.getDefinition(symbol);
-                    if (cuOpt.isPresent()) {
-                        var cu = cuOpt.get();
-                        var filepath = cu.source().toString();
-                        locationMappings.add(symbol + " -> " + filepath);
-                    } else {
-                        notFound.add(symbol);
-                    }
-                });
+        symbols.stream().distinct().filter(s -> !s.isBlank()).forEach(symbol -> {
+            var cuOpt = analyzer.getDefinition(symbol);
+            if (cuOpt.isPresent()) {
+                var cu = cuOpt.get();
+                var filepath = cu.source().toString();
+                locationMappings.add(symbol + " -> " + filepath);
+            } else {
+                notFound.add(symbol);
+            }
+        });
 
         StringBuilder result = new StringBuilder();
         result.append(String.join("\n", locationMappings));
@@ -388,25 +382,22 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        methodNames.stream()
-                .distinct()
-                .filter(s -> !s.isBlank())
-                .forEach(methodName -> {
-                    var cuOpt = analyzer.getDefinition(methodName);
-                    if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                        var cu = cuOpt.get();
-                        if (added.add(cu.fqName())) {
-                            var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                            var text = fragment.text();
-                            if (!text.isEmpty()) {
-                                if (!result.isEmpty()) {
-                                    result.append("\n\n");
-                                }
-                                result.append(text);
-                            }
+        methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
+            var cuOpt = analyzer.getDefinition(methodName);
+            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+                var cu = cuOpt.get();
+                if (added.add(cu.fqName())) {
+                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                    var text = fragment.text();
+                    if (!text.isEmpty()) {
+                        if (!result.isEmpty()) {
+                            result.append("\n\n");
                         }
+                        result.append(text);
                     }
-                });
+                }
+            }
+        });
 
         if (result.isEmpty()) {
             return "No sources found for methods: " + String.join(", ", methodNames);
@@ -607,7 +598,8 @@ public class SearchTools {
                     Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
                     This can be expensive for large files.
                     """)
-    public String getFileContents(@P("List of filenames (relative to project root) to retrieve contents for.") List<String> filenames) {
+    public String getFileContents(
+            @P("List of filenames (relative to project root) to retrieve contents for.") List<String> filenames) {
         if (filenames.isEmpty()) {
             throw new IllegalArgumentException("Cannot get file contents: filenames list is empty");
         }
