@@ -682,7 +682,7 @@ public class Service implements IExceptionReportingService {
      * @param modelName The display name of the model (as shown in settings).
      * @return The maximum input tokens for the model, or a default of 65536 if unknown.
      */
-    public int getMaxInputTokens(String modelName) {
+    public int getMaxInputTokensForModelName(String modelName) {
         var location = modelLocations.get(modelName);
         if (location == null) {
             logger.warn("max_input_tokens requested for unknown model name: {}", modelName);
