@@ -35,7 +35,7 @@ public final class HeadlessExecutorMain {
     private final AtomicReference<String> currentJobId = new AtomicReference<>();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
 
-    /**
+    /*
      * Parse command-line arguments into a map of normalized keys to values.
      * Supports both --key value and --key=value forms.
      * Normalized keys: exec-id, listen-addr, auth-token, workspace-dir, sessions-dir.
@@ -71,7 +71,7 @@ public final class HeadlessExecutorMain {
         return result;
     }
 
-    /**
+    /*
      * Get configuration value from either parsed args or environment variable.
      * Returns null/blank only if both are absent.
      */
@@ -228,7 +228,7 @@ public final class HeadlessExecutorMain {
     /**
      * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
      */
-    private static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
+    static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
         var parts = Splitter.on('/').splitToList(path);
         if (parts.size() >= 4 && "jobs".equals(parts.get(2))) {
             return parts.get(3);
@@ -239,7 +239,7 @@ public final class HeadlessExecutorMain {
     /**
      * Parse query string into a map.
      */
-    private static Map<String, String> parseQueryParams(@org.jetbrains.annotations.Nullable String query) {
+    static Map<String, String> parseQueryParams(@org.jetbrains.annotations.Nullable String query) {
         var params = new HashMap<String, String>();
         if (query == null || query.isBlank()) {
             return params;
@@ -261,7 +261,7 @@ public final class HeadlessExecutorMain {
     /**
      * Route requests to /v1/jobs and sub-paths based on method and path.
      */
-    private void handleJobsRouter(HttpExchange exchange) throws IOException {
+    void handleJobsRouter(HttpExchange exchange) throws IOException {
         var path = exchange.getRequestURI().getPath();
         var method = exchange.getRequestMethod();
 
@@ -313,7 +313,7 @@ public final class HeadlessExecutorMain {
     /**
      * POST /v1/session - Accept zip file, store it, switch ContextManager to the session.
      */
-    private void handlePostSession(HttpExchange exchange) throws IOException {
+    void handlePostSession(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("POST")) {
             SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
             return;
@@ -357,7 +357,7 @@ public final class HeadlessExecutorMain {
      * @throws IOException if writing the zip file fails
      * @throws Exception if switching the session fails
      */
-    private void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
+    void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
         // Write zip file to disk
         var sessionZipPath = sessionsDir.resolve(sessionId + ".zip");
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -373,7 +373,7 @@ public final class HeadlessExecutorMain {
     /**
      * POST /v1/jobs - Create job with idempotency key.
      */
-    private void handlePostJobs(HttpExchange exchange) throws IOException {
+    void handlePostJobs(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("POST")) {
             SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
             return;
@@ -442,7 +442,7 @@ public final class HeadlessExecutorMain {
     /**
      * GET /v1/jobs/{jobId} - Get job status.
      */
-    private void handleGetJob(HttpExchange exchange, String jobId) throws IOException {
+    void handleGetJob(HttpExchange exchange, String jobId) throws IOException {
         try {
 
             var status = jobStore.loadStatus(jobId);
@@ -463,7 +463,7 @@ public final class HeadlessExecutorMain {
     /**
      * GET /v1/jobs/{jobId}/events - Get job events.
      */
-    private void handleGetJobEvents(HttpExchange exchange, String jobId) throws IOException {
+    void handleGetJobEvents(HttpExchange exchange, String jobId) throws IOException {
         try {
 
             // Parse query parameters
@@ -509,7 +509,7 @@ public final class HeadlessExecutorMain {
     /**
      * POST /v1/jobs/{jobId}/cancel - Cancel job execution.
      */
-    private void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
+    void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
         try {
 
             // Request job cancellation via JobRunner
@@ -528,7 +528,7 @@ public final class HeadlessExecutorMain {
     /**
      * GET /v1/jobs/{jobId}/diff - Get git diff for job.
      */
-    private void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
+    void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
         try {
 
             var status = jobStore.loadStatus(jobId);

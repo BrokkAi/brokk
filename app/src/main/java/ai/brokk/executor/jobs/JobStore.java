@@ -39,7 +39,6 @@ public final class JobStore {
     private static final Logger logger = LogManager.getLogger(JobStore.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    private final Path storeDir;
     private final Path jobsDir;
     private final Path idempotencyDir;
     private final Map<String, AtomicLong> jobSequenceCounters;
@@ -51,7 +50,6 @@ public final class JobStore {
      * @throws IOException If directories cannot be created
      */
     public JobStore(Path storeDir) throws IOException {
-        this.storeDir = Objects.requireNonNull(storeDir);
         this.jobsDir = storeDir.resolve("jobs");
         this.idempotencyDir = storeDir.resolve("idempotency");
         this.jobSequenceCounters = new HashMap<>();
