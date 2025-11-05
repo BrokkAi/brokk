@@ -710,6 +710,21 @@ public class Chrome
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
 
+        // Set up focus traversal
+        leftTabbedPanel.setFocusCycleRoot(true);
+        rightTabbedPanel.setFocusCycleRoot(true);
+        workspacePanel.setFocusCycleRoot(true);
+        historyOutputPanel.setFocusCycleRoot(true);
+        var focusOrder = List.of(
+                (Component) instructionsPanel,
+                leftTabbedPanel,
+                workspacePanel,
+                rightTabbedPanel,
+                historyOutputPanel);
+        frame.setFocusTraversalPolicy(new ChromeFocusTraversalPolicy(focusOrder));
+        frame.setFocusCycleRoot(true);
+        frame.setFocusTraversalPolicyProvider(true);
+
         // Complete all layout operations synchronously before showing window
         completeLayoutSynchronously();
 
@@ -3712,5 +3727,61 @@ public class Chrome
         var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
         return dialog;
+    }
+
+    private static class ChromeFocusTraversalPolicy extends java.awt.FocusTraversalPolicy {
+        private final java.util.List<java.awt.Component> order;
+
+        public ChromeFocusTraversalPolicy(java.util.List<java.awt.Component> order) {
+            this.order = new java.util.ArrayList<>(order);
+        }
+
+        private int getIndex(java.awt.Component c) {
+            // Find component or one of its ancestors in the order list
+            for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
+                int i = order.indexOf(comp);
+                if (i != -1) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        private java.awt.Component getComponent(int index) {
+            return order.get(index);
+        }
+
+        @Override
+        public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+            int idx = (getIndex(aComponent) + 1) % order.size();
+            return getComponent(idx);
+        }
+
+        @Override
+        public java.awt.Component getComponentBefore(
+                java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+            int idx = getIndex(aComponent);
+            if (idx == -1) {
+                return getLastComponent(focusCycleRoot);
+            }
+
+            idx = (idx - 1 + order.size()) % order.size();
+            return getComponent(idx);
+        }
+
+        @Override
+        public java.awt.Component getFirstComponent(java.awt.Container focusCycleRoot) {
+            return order.getFirst();
+        }
+
+        @Override
+        public java.awt.Component getLastComponent(java.awt.Container focusCycleRoot) {
+            return order.getLast();
+        }
+
+        @Override
+        public java.awt.Component getDefaultComponent(java.awt.Container focusCycleRoot) {
+            return getFirstComponent(focusCycleRoot);
+        }
     }
 }

@@ -275,10 +275,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
-        // Set up custom focus traversal policy for tab navigation
-        setFocusTraversalPolicy(new InstructionsPanelFocusTraversalPolicy());
+        // This panel is a root for focus traversal. The main Chrome frame will provide the policy
+        // that cycles between this panel and others.
         setFocusCycleRoot(true);
-        setFocusTraversalPolicyProvider(true);
         // Initialize components
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
@@ -2436,73 +2435,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /**
-     * Custom focus traversal policy for InstructionsPanel.
-     * Tab order: instructionsArea → micButton → modelSelector → actionButton → historyDropdown → next.
-     */
-    private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
-        @Override
-        public Component getComponentAfter(Container aContainer, Component aComponent) {
-            if (aComponent == instructionsArea) {
-                return micButton;
-            } else if (aComponent == micButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == modelSelector.getComponent()) {
-                return actionButton;
-            } else if (aComponent == actionButton) {
-                return findHistoryDropdown();
-            } else if (aComponent == findHistoryDropdown()) {
-                return getNextFocusableComponent();
-            }
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getComponentBefore(Container aContainer, Component aComponent) {
-            if (aComponent == micButton) {
-                return instructionsArea;
-            } else if (aComponent == modelSelector.getComponent()) {
-                return micButton;
-            } else if (aComponent == actionButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == findHistoryDropdown()) {
-                return actionButton;
-            } else if (aComponent == getNextFocusableComponent()) {
-                return findHistoryDropdown();
-            }
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getFirstComponent(Container aContainer) {
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getLastComponent(Container aContainer) {
-            return findHistoryDropdown();
-        }
-
-        @Override
-        public Component getDefaultComponent(Container aContainer) {
-            return instructionsArea;
-        }
-
-        private Component findHistoryDropdown() {
-            return historyDropdown;
-        }
-
-        private Component getNextFocusableComponent() {
-            Container parent = InstructionsPanel.this.getParent();
-            while (parent != null && !(parent instanceof Window)) {
-                parent = parent.getParent();
-            }
-            if (parent != null) {
-                return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
-            }
-            return instructionsArea;
-        }
-    }
 
     /**
      * Small square badge that displays the current mode.
