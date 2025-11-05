@@ -93,6 +93,12 @@ public class HeadlessHttpConsole extends MemoryConsole {
         enqueueEvent("LLM_TOKEN", data);
     }
 
+    @Override
+    public void actionComplete() {
+        // MemoryConsole increments the transcript as tokens stream and fences new messages via isNewMessage,
+        // so no additional finalization is required here.
+    }
+
     /**
      * Map notifications to NOTIFICATION event.
      */
