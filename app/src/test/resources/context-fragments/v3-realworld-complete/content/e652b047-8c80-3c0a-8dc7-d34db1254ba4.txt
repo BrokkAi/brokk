@@ -1,0 +1,21 @@
+Reasoning:
+
+Processing **analyzed** and **unanalyzed** files in parallel
+Analyzed files reasoning:
+
+
+```json
+{
+  "tool_calls": [
+    {
+      "name": "recommendContext",
+      "arguments": {
+        "filesToAdd": [
+          "source/blender/bmesh/operators/bmo_dupe.cc"
+        ],
+        "classesToSummarize": []
+      }
+    }
+  ]
+}
+```

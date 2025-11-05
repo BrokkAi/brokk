@@ -1,0 +1,77 @@
+## Overall take
+
+The new approach is a solid improvement for numerical robustness. By:
+- computing an absolute rotation for each step, instead of rotating the previous step’s result, and
+- accumulating the screw translation in double precision,
+
+you remove the classic “incremental drift” that grows with step count. The added regression test captures this well for identity space.
+
+Functionally, the operator still follows the same topology path (duplicate vs extrude and use_merge), but places vertex coordinates by direct assignment using the absolute transform. That’s the right direction to fix the drift.
+
+## Correctness and numerical stability
+
+What’s good:
+- Absolute per-step rotation: angle_i = total_angle * (i/steps) eliminates rotational accumulation error.
+- Double-precision accumulation for screw translation: t_accum = sum_{k=1..i} R_k dvec greatly reduces translation drift.
+- Per-vertex direct positioning instead of chaining rotate/translate operators removes hidden intermediate rounding and avoids repeated conversions through the BMO operator layer.
+- Keeping use_merge logic intact matches prior expectations for full revolutions.
+
+Potential correctness issue to address:
+- Axis vs space mismatch. You convert points and dvec into “space” coordinates (cent_space, dvec_space), but you build rmat_i from axis in object space, then apply rmat_i to vectors already transformed into space. Unless the provided `axis` is already defined in `space`, this is inconsistent.
+
+  Likely fix:
+  - Compute `axis_space = normalize(M3(space) * axis)`.
+  - Use `axis_space` to build `rmat_i`.
+  - Use `axis_space` in the screw accumulation as well.
+
+  Your tests use identity space, so they won’t catch this. Consider adding a test with a non-identity `space` to verify.
+
+Other considerations:
+- Storing the original vertex index in `v->no` is a known hack in this codebase. You made it unconditional at the start (rather than gated on merge), which is fine for this operator, but be aware it scribbles over normals for the entire mesh while the op runs. This is consistent with the previous pattern, but still something to keep in mind.
+
+## Performance implications
+
+Net effect: likely neutral to slightly faster, with a potential memory footprint increase.
+
+What changed:
+- Previously, per step, you invoked BMO rotate/translate ops that iterate over the new verts and do conversions internally. Now you:
+  - Iterate new verts directly and assign coordinates.
+  - Compute rmat_i once per step.
+  - Do two mat4 multiplies per vertex (space, space_inv) and one mat3 multiply per vertex.
+
+This is roughly the same work the rotate/translate operator would perform (it must also convert into/out of space and multiply), but without the overhead of setting up and dispatching nested BMO ops. That can be a measurable win for many small steps.
+
+Overheads introduced:
+- A single allocation for `co_orig` of size `bm->totvert * 3 * sizeof(float)`. This is O(verts of entire mesh), not just the spun selection. For large meshes where only a small subset is spun, this is extra memory and a pass over all verts to fill the array.
+
+Potential micro-optimizations (optional):
+- Only cache coordinates for the originals that will be duplicated/extruded, not all verts. You can build a small mapping from original `BMVert*` (or its index written to `no`) to its original coordinates by walking the input “geom” once and collecting just its vertices. This avoids O(total_verts) memory and iteration.
+- Precompute original positions in space once (co_orig_space and possibly (co_orig_space - cent_space)) to avoid an extra mul_m4 per vertex per step.
+- If `dvec` is zero, skip the screw accumulation logic entirely after detecting it once (you already guard per step, but you could hoist the branch to reduce checks in the loop).
+
+Complexity:
+- Before and after, the dominant cost is still mesh topology operations (duplicate/extrude) and subsequent per-vertex math. Your per-vertex math is O(verts_created) per step, same as before. The direct loop is probably a tiny bit faster due to avoiding BMO op overhead.
+
+## Behavioral parity and edge cases
+
+- use_merge flow: You preserved vtable and the last-step merge behavior. Good.
+- do_dupli vs extrude: You reposition only the newly generated verts each iteration in both paths. Matches prior behavior.
+- use_normal_flip: Still passed to extrude operator; you don’t touch normals during coordinate assignment. Normals are recalculated later anyway.
+- Steps == 0: The code assumes a valid steps >= 1 (as before). If not already validated by the caller, ensure it is.
+
+## Testing
+
+Your new unit test is a strong start:
+- It validates both pure rotation and screw at high step counts.
+- It verifies absolute positioning against analytic targets with tight tolerances.
+
+Gaps to add for confidence:
+- Non-identity `space` (e.g., a rotated/translated space) — this will catch axis-vs-space mismatches.
+- A test for `use_merge` with a full revolution (or near-2π) to ensure the merge path still produces expected results.
+- Extrude path (`use_duplicate = false`) and `use_normal_flip` toggled, to exercise both branches.
+
+## Summary
+
+- Conceptually correct and significantly more numerically stable.
+- Performance: likely similar or modestly better; main potential cost is the O(total_verts) `co_orig` buffer, which you can reduce to O(selected_verts) if desired.
+- One correctness caveat: rotate axis must be expressed in the same coordinate space as the vectors it rotates. Transform `axis` into `space` before building `rmat_i` and doing screw accumulation. Add a non-identity space test to lock this in.

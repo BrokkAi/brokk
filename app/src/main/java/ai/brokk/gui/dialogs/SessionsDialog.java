@@ -190,7 +190,7 @@ public class SessionsDialog extends JDialog {
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
         // Initialize arrow layer UI for activity table
-        this.arrowLayerUI = new ResetArrowLayerUI(this.activityTable, this.activityTableModel);
+        this.arrowLayerUI = new ResetArrowLayerUI(this.activityTable);
 
         // Initialize buttons
         closeButton = new MaterialButton("Close");
@@ -609,14 +609,12 @@ public class SessionsDialog extends JDialog {
     /** A LayerUI that paints reset-from-history arrows over the history table. */
     private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         private final JTable table;
-        private final DefaultTableModel model;
         private List<ContextHistory.ResetEdge> resetEdges = List.of();
         private final Map<ContextHistory.ResetEdge, Integer> edgePaletteIndices = new HashMap<>();
         private int nextPaletteIndex = 0;
 
-        public ResetArrowLayerUI(JTable table, DefaultTableModel model) {
+        public ResetArrowLayerUI(JTable table) {
             this.table = table;
-            this.model = model;
         }
 
         public void setResetEdges(List<ContextHistory.ResetEdge> edges) {

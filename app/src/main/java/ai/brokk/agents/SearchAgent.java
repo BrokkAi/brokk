@@ -14,6 +14,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
+import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -78,7 +79,6 @@ public class SearchAgent {
     private final Set<Terminal> allowedTerminals;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
-    private final ContextManager.TaskScope scope;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -109,7 +109,6 @@ public class SearchAgent {
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
-        this.scope = scope;
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();
@@ -388,24 +387,17 @@ public class SearchAgent {
         // Related identifiers from nearby files
         var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
-            var formatted = related.entrySet().stream()
-                    .sorted(Comparator.comparing(e -> e.getKey().fqName()))
-                    .map(e -> {
-                        var cu = e.getKey();
-                        var subs = e.getValue();
-                        return "- " + cu.fqName() + (subs.isBlank() ? "" : " (members: " + subs + ")");
-                    })
-                    .collect(Collectors.joining("\n"));
+            var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(
                     """
-        <related_classes>
-        These classes (given with the identifiers they declare) MAY be relevant. They are NOT in the Workspace yet.
+        <related_files>
+        These files (with the identifiers they declare) MAY be relevant. They are NOT in the Workspace yet.
         Add summaries or sources if needed; otherwise ignore them.
 
         %s
-        </related_classes>
+        </related_files>
         """
-                            .formatted(formatted)));
+                            .formatted(relatedBlock)));
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
 

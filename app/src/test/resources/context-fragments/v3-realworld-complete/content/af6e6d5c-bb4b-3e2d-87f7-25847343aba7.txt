@@ -1,0 +1,18 @@
+{
+  "bmo_utils.cc [source/blender/bmesh/operators]" : "Utility transform operators; not part of Spin and not needed for diagnosing per-step rotation error.",
+  "bmo_extrude.cc [source/blender/bmesh/operators]" : "Extrude operators implementation; unrelated to Spin rounding defect.",
+  "editmesh_extrude_spin_gizmo.cc [source/blender/editors/mesh]" : "Spin gizmo UI; math issue is in the operator/back-end, not the gizmo.",
+  "editmesh_extrude.cc [source/blender/editors/mesh]" : "Extrude operator UI/ops; unrelated to the Spin operator's rounding behavior.",
+  "Blender spin tool comparison." : "Image reference; not required for code fix once issue is understood.",
+  "Summary of BMesh" : "Summary of BMesh: placeholder summary; not required for the test and distracts from the operator source and test context.",
+  "Summary of BMOperator" : "Summary of BMOperator: generic placeholder; the Code Agent will inspect real headers if needed.",
+  "editmesh_extrude_spin.cc [source/blender/editors/mesh]" : "UI/operator front-end is already correct; the numerical error originates in the BMesh operator backend.",
+  "BLI_math_rotation.h [source/blender/blenlib]" : "Large math header not being modified; we only need to reference functions like pow_qt_fl_normalized and axis/quat helpers, not keep the entire header inline.",
+  "Paste of Spin tool in Blender inaccurate with high step counts, causing rounding errors" : "User-facing issue report; useful for context but not needed for implementation once the backend cause is identified.",
+  "Code Notes" : "Developer 'Code Notes' fragment contains detailed implementation guidance and background for fixing bmo_spin_exec. It is not directly needed to add the requested regression test and is distracting; remove to keep the workspace focused on the editable source file and the test to be added.",
+  "Summary of BMElem" : "Summary of BMElem: generic placeholder not needed for adding the regression test—remove to keep workspace focused on the actual operator and test files.",
+  "Summary of BMFace" : "Summary of BMFace: not relevant to preparing the regression test; remove.",
+  "Summary of BMOpSlot" : "Summary of BMOpSlot: contains more detail than needed for the test; remove to keep workspace minimal.",
+  "Summary of BMEdge" : "Summary of BMEdge: not needed for the test.",
+  "Summary of BMVert" : "Summary of BMVert: not needed for the test."
+}

@@ -5,6 +5,7 @@ import ai.brokk.analyzer.ProjectFile;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Helper utilities for implementing IWatchService.Listener.
@@ -16,9 +17,9 @@ import java.util.stream.Collectors;
 public class FileWatcherHelper {
 
     private final Path projectRoot;
-    private final Path gitRepoRoot;
+    private final @Nullable Path gitRepoRoot;
 
-    public FileWatcherHelper(Path projectRoot, Path gitRepoRoot) {
+    public FileWatcherHelper(Path projectRoot, @Nullable Path gitRepoRoot) {
         this.projectRoot = projectRoot;
         this.gitRepoRoot = gitRepoRoot;
     }
@@ -33,7 +34,6 @@ public class FileWatcherHelper {
         if (gitRepoRoot == null) {
             return false;
         }
-
         Path relativeGitMetaDir = projectRoot.relativize(gitRepoRoot.resolve(".git"));
         return batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
     }
