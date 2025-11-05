@@ -647,7 +647,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         return; // Existing window raised, don't create new one
                     }
 
-                    // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the user's choice when they toggle view (Fixes #1679)
+                    // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
+                    // user's choice when they toggle view (Fixes #1679)
                     var panel = builder.build();
                     panel.showInFrame("Uncommitted Changes Diff");
                 });

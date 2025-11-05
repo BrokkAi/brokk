@@ -1659,7 +1659,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean useUnified = diffUnifiedRadio.isSelected();
         GlobalUiSettings.saveDiffUnifiedView(useUnified);
         logger.debug("Applied Diff View: {}", useUnified ? "Unified" : "Side-by-Side");
-        
+
         // TODO: Immediate application to existing diff panels
         // Currently, newly opened diff panels will use the selected style immediately
         // (BrokkDiffPanel reads GlobalUiSettings.isDiffUnifiedView() on initialization).
