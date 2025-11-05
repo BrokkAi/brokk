@@ -8,7 +8,6 @@ import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
 import com.google.common.base.Splitter;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -22,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Executes long-running Brokk jobs using ContextManager, producing durable events
@@ -137,13 +137,17 @@ public final class JobRunner {
                 final StreamingChatModel architectPlannerModel =
                         mode == Mode.ARCHITECT ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel architectCodeModel = mode == Mode.ARCHITECT
-                        ? (hasCodeModelOverride ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName)) : defaultCodeModel())
+                        ? (hasCodeModelOverride
+                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
+                                : defaultCodeModel())
                         : null;
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel askCodeModel = mode == Mode.ASK ? defaultCodeModel() : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
-                        ? (hasCodeModelOverride ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName)) : defaultCodeModel())
+                        ? (hasCodeModelOverride
+                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
+                                : defaultCodeModel())
                         : null;
 
                 var service = cm.getService();

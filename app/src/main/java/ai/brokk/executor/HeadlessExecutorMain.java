@@ -1,5 +1,7 @@
 package ai.brokk.executor;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.MainProject;
@@ -11,7 +13,6 @@ import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
