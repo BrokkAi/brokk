@@ -137,7 +137,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ServiceWrapper service;
 
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
     private final IProject project;
 
     // Cached exception reporter for this context

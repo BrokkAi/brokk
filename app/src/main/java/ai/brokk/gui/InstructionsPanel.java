@@ -2684,7 +2684,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var data = cm.getTaskList();
 
         // Guard against null task list or null tasks collection
-        if (data == null || data.tasks() == null || data.tasks().isEmpty()) {
+        if (data.tasks().isEmpty()) {
             return;
         }
 
