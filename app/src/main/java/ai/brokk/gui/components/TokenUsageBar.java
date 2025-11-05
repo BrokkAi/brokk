@@ -76,7 +76,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     // Stored warning metadata for tooltip rendering
     private volatile int lastSuccessRate = -1;
-    private volatile boolean withinModelLimit = false;
+    private volatile boolean rateIsTested = false;
 
     public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
@@ -216,13 +216,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Store the success rate, whether tokens are within model limit, and model config for use in tooltip rendering.
+     * Store the success rate, tested flag, and model config for use in tooltip rendering.
      * This is called after the token computation completes to make the metadata available
-     * for display in warning tooltips and limit warnings.
+     * for display in warning tooltips and extrapolation notes.
      */
-    public void setWarningMetadata(int successRate, boolean withinModelLimit, Service.ModelConfig config) {
+    public void setWarningMetadata(int successRate, boolean isTested, Service.ModelConfig config) {
         this.lastSuccessRate = successRate;
-        this.withinModelLimit = withinModelLimit;
+        this.rateIsTested = isTested;
         this.modelConfig = config;
     }
 
@@ -315,26 +315,26 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     public static @Nullable String computeWarningTooltip(
-            boolean withinModelLimit,
+            boolean rateIsTested,
             @Nullable Service.ModelConfig modelConfig,
             WarningLevel warningLevel,
             int successRate,
             int usedTokens,
             @Nullable String unfilledTooltipHtml) {
-        // First priority: show "exceeds model limit" warning if beyond capacity
-        if (!withinModelLimit && modelConfig != null) {
+        // First priority: show "beyond tested range" warning if extrapolated
+        if (!rateIsTested && modelConfig != null) {
             return String.format(
                     "<html><body style='width: 320px'>"
-                            + "<b style='color: #FF4444;'>⚠️ Warning: Exceeds model limit</b><br/><br/>"
+                            + "<b style='color: #FF4444;'>⚠️ Warning: Beyond tested range</b><br/><br/>"
+                            + "Tested up to <b>131,071 tokens</b>.<br/><br/>"
                             + "Your context is <b>%,d tokens</b>.<br/><br/>"
-                            + "<i>This exceeds the model's maximum input token capacity. "
-                            + "Performance may be unreliable or the request may fail.</i>"
+                            + "<i>Performance at this scale is not backed by benchmarks and may be unreliable.</i>"
                             + "</body></html>",
                     usedTokens);
         }
 
-        // Second priority: show performance-based warning if within limits but issue detected
-        if (warningLevel != WarningLevel.NONE && modelConfig != null && withinModelLimit) {
+        // Second priority: show performance-based warning if tested and issue detected
+        if (warningLevel != WarningLevel.NONE && modelConfig != null && rateIsTested) {
             String modelName = modelConfig.name();
             if (modelName.contains("-nothink")) {
                 modelName = modelName.replace("-nothink", "");
@@ -361,7 +361,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Override
     public String getToolTipText(MouseEvent event) {
         String primaryTooltip = computeWarningTooltip(
-                withinModelLimit, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
+                rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
 
         if (primaryTooltip != null) {
             return primaryTooltip;

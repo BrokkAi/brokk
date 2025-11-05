@@ -33,7 +33,7 @@ public class ModelBenchmarkData {
 
     public record ModelKey(String modelName, Service.ReasoningLevel reasoningLevel) {}
 
-    public record SuccessRateResult(int successRate, boolean hasBenchmarkData) {}
+    public record SuccessRateResult(int successRate, boolean isTested) {}
 
     private static final Map<ModelKey, Map<TokenRange, Integer>> BENCHMARK_DATA = new HashMap<>();
 
@@ -144,10 +144,8 @@ public class ModelBenchmarkData {
             normalizedLevel = Service.ReasoningLevel.MEDIUM;
         }
 
-        // Try exact match first
         ModelKey key = new ModelKey(modelName, normalizedLevel);
         Map<TokenRange, Integer> rangeData = BENCHMARK_DATA.get(key);
-
         if (rangeData == null) {
             // Try model name variants/fallbacks
             String fallbackModelName = tryModelNameVariants(modelName, normalizedLevel);
@@ -158,6 +156,9 @@ public class ModelBenchmarkData {
 
             // If still not found, try reasoning level fallback
             if (rangeData == null) {
+                // Try fallback for untested combinations
+                // For Claude models, fall back to MEDIUM (what was actually benchmarked)
+                // For other models, fall back to DEFAULT
                 Service.ReasoningLevel fallbackLevel =
                         modelName.contains("claude") ? Service.ReasoningLevel.MEDIUM : Service.ReasoningLevel.DEFAULT;
 
@@ -239,17 +240,13 @@ public class ModelBenchmarkData {
     public static SuccessRateResult getSuccessRateWithTesting(
             String modelName, Service.ReasoningLevel reasoningLevel, int tokenCount) {
         int successRate = getSuccessRate(modelName, reasoningLevel, tokenCount);
-        // hasBenchmarkData indicates whether we have actual benchmark data for this model/token combination
-        // -1 means no data available; any other value means we have benchmark data
-        boolean hasBenchmarkData = successRate != -1;
-        return new SuccessRateResult(successRate, hasBenchmarkData);
+        boolean isTested = tokenCount <= 131071;
+        return new SuccessRateResult(successRate, isTested);
     }
 
     public static SuccessRateResult getSuccessRateWithTesting(Service.ModelConfig config, int tokenCount) {
         int successRate = getSuccessRate(config, tokenCount);
-        // hasBenchmarkData indicates whether we have actual benchmark data for this model/token combination
-        // -1 means no data available; any other value means we have benchmark data
-        boolean hasBenchmarkData = successRate != -1;
-        return new SuccessRateResult(successRate, hasBenchmarkData);
+        boolean isTested = tokenCount <= 131071;
+        return new SuccessRateResult(successRate, isTested);
     }
 }
