@@ -36,7 +36,7 @@ public final class JobRunner {
     private final JobStore store;
     private final ExecutorService runner;
     private volatile @Nullable HeadlessHttpConsole console;
-    private volatile String activeJobId;
+    private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     private enum Mode {
