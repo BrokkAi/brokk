@@ -859,21 +859,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual
             // signatures.
             // This can be legitimate if they are primarily structural and their children form the content.
+            // For such CUs, we still need to render their children, so don't return early.
             log.trace(
-                    "No direct signatures found for CU: {}. It might be a structural-only CU. Skipping direct rendering in skeleton reconstruction.",
+                    "No direct signatures found for CU: {}. It might be a structural-only CU. Will still render children if present.",
                     cu);
-            return;
-        }
-
-        for (var individualFullSignature : sigList) {
+            // Don't return - continue to render children
+        } else {
+            // Render signatures if present
+            for (var individualFullSignature : sigList) {
             if (individualFullSignature.isBlank()) {
                 log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
                 continue;
             }
-            // Apply indent to each line of the current signature
-            String[] signatureLines = individualFullSignature.split("\n", -1); // Use -1 limit
-            for (var line : signatureLines) {
-                sb.append(indent).append(line).append('\n');
+                // Apply indent to each line of the current signature
+                String[] signatureLines = individualFullSignature.split("\n", -1); // Use -1 limit
+                for (var line : signatureLines) {
+                    sb.append(indent).append(line).append('\n');
+                }
             }
         }
 

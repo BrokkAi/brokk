@@ -241,15 +241,25 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     /**
      * Extracts namespace path for a definition node by traversing up the AST.
-     * Returns namespace chain like "A.B.C" if node is inside nested namespaces.
+     * Returns namespace chain like "A.B.C" if node is inside nested namespaces
+     * but NOT inside a class (classes should keep namespace in their classChain).
      * Handles both "namespace A.B.C { }" (dotted) and nested namespace declarations.
      */
     private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
         var namespaces = new java.util.ArrayList<String>();
         TSNode current = definitionNode.getParent();
+        boolean insideClass = false;
 
         while (current != null && !current.isNull()) {
             String nodeType = current.getType();
+
+            // Check if we're inside a class - if so, stop extracting namespace path
+            // Classes should keep their namespace in the classChain for proper scoping
+            if (getLanguageSyntaxProfile().classLikeNodeTypes().contains(nodeType)
+                    && !"internal_module".equals(nodeType)) {
+                insideClass = true;
+                break;
+            }
 
             if ("internal_module".equals(nodeType)) { // internal_module = namespace in TypeScript grammar
                 TSNode nameNode = current.getChildByFieldName("name");
@@ -269,7 +279,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             current = current.getParent();
         }
 
-        if (namespaces.isEmpty()) {
+        // If we're inside a class, don't use namespace path for package
+        // The namespace will be part of the classChain instead
+        if (insideClass || namespaces.isEmpty()) {
             return Optional.empty();
         }
 
@@ -1041,19 +1053,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return super.extractSimpleName(decl, src);
     }
 
-    @Override
-    protected boolean isClassLike(TSNode node) {
-        if (node.isNull()) {
-            return false;
-        }
-        String nodeType = node.getType();
-        // Exclude namespace nodes (internal_module) from classChain since they're used for packageName
-        // This prevents duplication like "strings.strings.format" when namespace is "strings"
-        if ("internal_module".equals(nodeType)) {
-            return false;
-        }
-        return super.isClassLike(node);
-    }
 
     @Override
     protected void buildFunctionSkeleton(
