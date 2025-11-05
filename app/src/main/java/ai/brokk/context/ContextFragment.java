@@ -1123,6 +1123,29 @@ public interface ContextFragment {
     StringFragmentType DISCARDED_CONTEXT =
             new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
 
+    /**
+     * Maps a description string to its corresponding StringFragmentType if it matches one of the
+     * hardcoded StringFragmentTypes (BUILD_RESULTS, SEARCH_NOTES, DISCARDED_CONTEXT).
+     *
+     * @param description the description to match
+     * @return the matching StringFragmentType, or null if no match found
+     */
+    static @Nullable StringFragmentType getStringFragmentType(String description) {
+        if (description.isBlank()) {
+            return null;
+        }
+        if (BUILD_RESULTS.description().equals(description)) {
+            return BUILD_RESULTS;
+        }
+        if (SEARCH_NOTES.description().equals(description)) {
+            return SEARCH_NOTES;
+        }
+        if (DISCARDED_CONTEXT.description().equals(description)) {
+            return DISCARDED_CONTEXT;
+        }
+        return null;
+    }
+
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
         private final String description;
@@ -1188,6 +1211,20 @@ public interface ContextFragment {
             if (!(other instanceof StringFragment that)) {
                 return false;
             }
+
+            // Special case: if both descriptions match the same StringFragmentTypes entry,
+            // they have the same source regardless of text or syntax style.
+            // This allows hardcoded system fragments (like BUILD_RESULTS, SEARCH_NOTES, etc.)
+            // to be recognized as equivalent even if their content differs.
+            StringFragmentType thisType = getStringFragmentType(this.description);
+            StringFragmentType thatType = getStringFragmentType(that.description);
+
+            if (thisType != null && thatType != null) {
+                // Both descriptions map to StringFragmentTypes entries
+                return thisType == thatType;
+            }
+
+            // Default behavior: compare text and syntax style for non-system fragments
             return text.equals(that.text) && syntaxStyle.equals(that.syntaxStyle);
         }
 

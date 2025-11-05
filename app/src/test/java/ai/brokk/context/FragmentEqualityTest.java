@@ -47,7 +47,7 @@ class FragmentEqualityTest {
     private ai.brokk.IContextManager contextManager;
 
     @BeforeEach
-    void setup() throws IOException {
+    void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         ContextFragment.setMinimumId(1);
     }
@@ -213,7 +213,7 @@ class FragmentEqualityTest {
     @Nested
     class GitFileFragmentEqualityTest {
         @Test
-        void testEqualsIdentity() throws IOException {
+        void testEqualsIdentity() {
             var file = new ProjectFile(tempDir, "src/File.java");
             var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
             var gff2 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
@@ -223,7 +223,7 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testEqualsDifferentRevisions() throws IOException {
+        void testEqualsDifferentRevisions() {
             var file = new ProjectFile(tempDir, "src/File.java");
             var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
             var gff2 = new ContextFragment.GitFileFragment(file, "def456", "content1");
@@ -232,7 +232,7 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testEqualsDifferentContent() throws IOException {
+        void testEqualsDifferentContent() {
             var file = new ProjectFile(tempDir, "src/File.java");
             var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
             var gff2 = new ContextFragment.GitFileFragment(file, "abc123", "content2");
@@ -336,6 +336,101 @@ class FragmentEqualityTest {
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_PYTHON);
 
             assertFalse(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceBuildResultsSystemFragment() {
+            // Both use the hardcoded BUILD_RESULTS description
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager, "build output 1", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager, "build output 2", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            // Despite different text content, they have the same source because both map to BUILD_RESULTS
+            assertTrue(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceSearchNotesSystemFragment() {
+            // Both use the hardcoded SEARCH_NOTES description
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager, "notes 1", "Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager, "notes 2", "Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+
+            // Despite different text content, they have the same source because both map to SEARCH_NOTES
+            assertTrue(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceDiscardedContextSystemFragment() {
+            // Both use the hardcoded DISCARDED_CONTEXT description
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager, "{\"key\": \"value1\"}", "Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager, "{\"key\": \"value2\"}", "Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+
+            // Despite different text content, they have the same source because both map to DISCARDED_CONTEXT
+            assertTrue(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceDifferentSystemFragments() {
+            // One maps to BUILD_RESULTS, the other to SEARCH_NOTES
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager, "build output", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager, "notes", "Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+
+            // Different system fragment types should not have same source
+            assertFalse(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceOneSystemOneRegular() {
+            // One maps to a system fragment type, the other does not
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager, "build output", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager, "custom text", "Custom Description", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            // Mixed: one system, one regular should not have same source
+            assertFalse(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceBothRegularFragments() {
+            // Both have non-system descriptions with same text
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager, "custom text", "Custom Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager, "custom text", "Different Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            // Both are regular (non-system) fragments, so they fall back to text+style comparison
+            // Same text and style means same source
+            assertTrue(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceNullDescription() {
+            // Test with null descriptions (edge case)
+            var sf1 =
+                    new ContextFragment.StringFragment(contextManager, "text1", "", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var sf2 =
+                    new ContextFragment.StringFragment(contextManager, "text2", "", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            // Both have empty descriptions (no system fragment match), so compare text+style
+            assertFalse(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testHasSameSourceCompareAgainstNonStringFragment() {
+            // StringFragment vs different fragment type should not match
+            var sf = new ContextFragment.StringFragment(
+                    contextManager, "text", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var uf = new ContextFragment.UsageFragment(contextManager, "com.example.Class");
+
+            assertFalse(sf.hasSameSource(uf));
         }
     }
 
