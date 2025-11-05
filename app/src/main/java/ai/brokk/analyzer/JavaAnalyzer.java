@@ -428,6 +428,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             return List.of();
         }
 
-        return JavaTypeAnalyzer.compute(cu, tree, src, getTSLanguage(), this::textSlice, this::searchDefinitions);
+        // Get resolved imports for this file from the analyzer pipeline
+        Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
+
+        return JavaTypeAnalyzer.compute(
+                cu, tree, src, getTSLanguage(), this::textSlice, resolvedImports, this::searchDefinitions);
     }
 }

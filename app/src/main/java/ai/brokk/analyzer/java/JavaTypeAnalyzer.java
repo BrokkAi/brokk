@@ -4,14 +4,11 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.TSQueryLoader;
 import com.google.common.base.Joiner;
-import com.google.common.base.Splitter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -32,6 +29,19 @@ public class JavaTypeAnalyzer {
 
     private JavaTypeAnalyzer() {}
 
+    /**
+     * Computes the direct supertypes of a given CodeUnit by analyzing the AST and resolving type names
+     * using the provided resolved imports and global search function.
+     *
+     * @param cu the CodeUnit to analyze (typically a class)
+     * @param tree the Tree-sitter AST for the file containing the CodeUnit
+     * @param src the source code text
+     * @param language the Tree-sitter language instance
+     * @param textSlice function to extract text from AST nodes
+     * @param resolvedImports resolved CodeUnits from import statements for this file
+     * @param searchDefinitions function to search for CodeUnits globally by pattern
+     * @return list of resolved supertype CodeUnits
+     */
     @SuppressWarnings("unused")
     public static List<CodeUnit> compute(
             CodeUnit cu,
@@ -39,6 +49,7 @@ public class JavaTypeAnalyzer {
             String src,
             TSLanguage language,
             BiFunction<TSNode, String, String> textSlice,
+            Set<CodeUnit> resolvedImports,
             Function<String, List<CodeUnit>> searchDefinitions) {
         final TSNode root = tree.getRootNode();
         final String query = TSQueryLoader.loadTypeDeclarationsQuery(languageName);
@@ -54,7 +65,6 @@ public class JavaTypeAnalyzer {
         final Deque<String> typeNameStack = new ArrayDeque<>();
 
         final Set<String> superClassParts = new LinkedHashSet<>();
-        final List<String> importPaths = new ArrayList<>();
 
         while (cursor.nextMatch(match)) {
             TSNode typeDeclNode = null;
@@ -65,14 +75,14 @@ public class JavaTypeAnalyzer {
                 String name = q.getCaptureNameForId(cap.getIndex());
                 switch (name) {
                     case "package.path" -> {
-                        var parts = Splitter.on(".").splitToList(textSlice.apply(cap.getNode(), src));
+                        String pkgText = textSlice.apply(cap.getNode(), src);
+                        // Split by dots to get package parts
+                        String[] parts = pkgText.split("\\.");
                         packageParts.clear();
-                        packageParts.addAll(parts);
-                    }
-                    case "import.path" -> {
-                        String path = textSlice.apply(cap.getNode(), src).strip();
-                        if (!path.isEmpty()) {
-                            importPaths.add(path);
+                        for (String part : parts) {
+                            if (!part.isEmpty()) {
+                                packageParts.add(part);
+                            }
                         }
                     }
                     case "type.decl" -> typeDeclNode = cap.getNode();
@@ -81,7 +91,7 @@ public class JavaTypeAnalyzer {
                 }
             }
 
-            // Skip non-type matches (e.g., package/import patterns)
+            // Skip non-type matches (e.g., package patterns)
             if (typeDeclNode == null) {
                 continue;
             }
@@ -121,71 +131,79 @@ public class JavaTypeAnalyzer {
             typeNameStack.addLast(currentTypeName);
         }
 
-        // Build import resolution helpers
-        Map<String, String> explicitImports = new LinkedHashMap<>(); // simpleName -> FQCN
-        List<String> wildcardPackages = new ArrayList<>();
-        for (String raw : importPaths) {
-            String p = raw.strip();
-            if (p.isEmpty()) continue;
-            int lastDot = p.lastIndexOf('.');
-            if (lastDot < 0) {
-                // treat as a package wildcard root (unlikely but harmless)
-                wildcardPackages.add(p);
-                continue;
-            }
-            String last = p.substring(lastDot + 1);
-            // Heuristic: if last segment starts uppercase, treat as explicit type import; otherwise treat as wildcard
-            // package
-            if (!last.isEmpty() && Character.isUpperCase(last.charAt(0))) {
-                explicitImports.putIfAbsent(last, p);
-            } else {
-                wildcardPackages.add(p);
-            }
-        }
-
         final String currentPackage = cu.packageName();
 
         return superClassParts.stream()
-                .flatMap(rawName -> {
-                    String name =
-                            JavaAnalyzer.stripGenericTypeArguments(rawName).trim();
-                    if (name.isEmpty()) return java.util.stream.Stream.<CodeUnit>empty();
-
-                    // Prepare candidates in priority order
-                    List<String> candidates = new ArrayList<>();
-                    String simple = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : name;
-
-                    if (name.contains(".")) candidates.add(name);
-
-                    String explicit = explicitImports.get(simple);
-                    if (explicit != null && !explicit.isBlank()) candidates.add(explicit);
-
-                    for (String wp : wildcardPackages) {
-                        candidates.add(wp + "." + simple);
-                    }
-
-                    if (!currentPackage.isBlank()) {
-                        candidates.add(currentPackage + "." + simple);
-                    }
-
-                    // Implicit java.lang imports
-                    candidates.add("java.lang." + simple);
-
-                    // Fallbacks
-                    candidates.add(simple);
-
-                    for (String cand : candidates) {
-                        String pattern = ".*(?<!\\w)" + Pattern.quote(cand) + "$";
-                        Optional<CodeUnit> found = searchDefinitions.apply(pattern).stream()
-                                .filter(CodeUnit::isClass)
-                                .findFirst();
-                        if (found.isPresent()) {
-                            return Stream.of(found.get());
-                        }
-                    }
-                    return Stream.empty();
-                })
+                .flatMap(rawName -> resolveSupertype(rawName, currentPackage, resolvedImports, searchDefinitions))
                 .toList();
+    }
+
+    /**
+     * Resolves a single supertype name to a CodeUnit using resolved imports and global search.
+     *
+     * @param rawName the raw supertype name from the AST (may include generic type arguments)
+     * @param currentPackage the package of the class being analyzed
+     * @param resolvedImports the set of CodeUnits resolved from import statements
+     * @param searchDefinitions function to search for CodeUnits globally by pattern
+     * @return a stream containing the resolved CodeUnit, or empty if not found
+     */
+    private static Stream<CodeUnit> resolveSupertype(
+            String rawName,
+            String currentPackage,
+            Set<CodeUnit> resolvedImports,
+            Function<String, List<CodeUnit>> searchDefinitions) {
+        String name = JavaAnalyzer.stripGenericTypeArguments(rawName).trim();
+        if (name.isEmpty()) {
+            return Stream.empty();
+        }
+
+        // If name is fully qualified (contains dot), try it directly
+        if (name.contains(".")) {
+            Optional<CodeUnit> found = searchDefinitions.apply(name).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (found.isPresent()) {
+                return Stream.of(found.get());
+            }
+        }
+
+        // Extract simple name (last component after any dots)
+        String simple = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : name;
+
+        // Try to find in resolved imports by simple name
+        Optional<CodeUnit> foundInImports = resolvedImports.stream()
+                .filter(cu -> cu.isClass() && cu.identifier().equals(simple))
+                .findFirst();
+        if (foundInImports.isPresent()) {
+            return Stream.of(foundInImports.get());
+        }
+
+        // Try same package as current class
+        if (!currentPackage.isBlank()) {
+            String samePackageCandidate = currentPackage + "." + simple;
+            Optional<CodeUnit> foundInPackage = searchDefinitions.apply(samePackageCandidate).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (foundInPackage.isPresent()) {
+                return Stream.of(foundInPackage.get());
+            }
+        }
+
+        // Try implicit java.lang import
+        String javaLangCandidate = "java.lang." + simple;
+        Optional<CodeUnit> foundInJavaLang = searchDefinitions.apply(javaLangCandidate).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
+        if (foundInJavaLang.isPresent()) {
+            return Stream.of(foundInJavaLang.get());
+        }
+
+        // Fallback: global search by simple name pattern
+        String pattern = ".*(?<!\\w)" + Pattern.quote(simple) + "$";
+        Optional<CodeUnit> foundGlobal = searchDefinitions.apply(pattern).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
+        return foundGlobal.stream();
     }
 
     private static boolean isAncestor(@Nullable TSNode ancestor, TSNode node) {

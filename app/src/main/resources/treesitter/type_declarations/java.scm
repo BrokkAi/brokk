@@ -6,14 +6,6 @@
   ] @package.path
 )
 
-; Parse imports
-(import_declaration
-  [
-    (scoped_identifier)
-    (identifier)
-  ] @import.path
-)
-
 (class_declaration
   name: (identifier) @type.name
   superclass: (superclass
