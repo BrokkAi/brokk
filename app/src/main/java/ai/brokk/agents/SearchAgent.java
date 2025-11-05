@@ -1007,6 +1007,7 @@ public class SearchAgent {
 
     private boolean shouldSummarize(String toolName) {
         return Set.of(
+                        "getSymbolLocations",
                         "searchSymbols",
                         "getUsages",
                         "getClassSources",
