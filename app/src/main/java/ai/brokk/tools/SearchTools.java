@@ -298,9 +298,9 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        for (String className : classNames.stream().distinct().toList()) {
+        classNames.stream().distinct().forEach(className -> {
             if (className.isBlank()) {
-                continue;
+                return;
             }
             var cuOpt = analyzer.getDefinition(className);
             if (cuOpt.isPresent() && cuOpt.get().isClass()) {
@@ -316,7 +316,7 @@ public class SearchTools {
                     }
                 }
             }
-        }
+        });
 
         if (result.isEmpty()) {
             return "No sources found for classes: " + String.join(", ", classNames);
@@ -344,9 +344,9 @@ public class SearchTools {
         List<String> locationMappings = new ArrayList<>();
         List<String> notFound = new ArrayList<>();
 
-        for (String symbol : symbols.stream().distinct().toList()) {
+        symbols.stream().distinct().forEach(symbol -> {
             if (symbol.isBlank()) {
-                continue;
+                return;
             }
             var cuOpt = analyzer.getDefinition(symbol);
             if (cuOpt.isPresent()) {
@@ -356,7 +356,7 @@ public class SearchTools {
             } else {
                 notFound.add(symbol);
             }
-        }
+        });
 
         if (locationMappings.isEmpty()) {
             return "No locations found for symbols: " + String.join(", ", symbols);
@@ -391,9 +391,9 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        for (String methodName : methodNames.stream().distinct().toList()) {
+        methodNames.stream().distinct().forEach(methodName -> {
             if (methodName.isBlank()) {
-                continue;
+                return;
             }
             var cuOpt = analyzer.getDefinition(methodName);
             if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
@@ -409,7 +409,7 @@ public class SearchTools {
                     }
                 }
             }
-        }
+        });
 
         if (result.isEmpty()) {
             return "No sources found for methods: " + String.join(", ", methodNames);
