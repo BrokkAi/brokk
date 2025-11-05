@@ -11,6 +11,7 @@ import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -542,9 +543,9 @@ public final class HeadlessExecutorMain {
                 var diff = repo.diff();
 
                 exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=UTF-8");
-                exchange.sendResponseHeaders(200, diff.getBytes().length);
+                exchange.sendResponseHeaders(200, diff.getBytes(UTF_8).length);
                 try (var os = exchange.getResponseBody()) {
-                    os.write(diff.getBytes());
+                    os.write(diff.getBytes(UTF_8));
                 }
                 exchange.close();
             } catch (UnsupportedOperationException e) {
