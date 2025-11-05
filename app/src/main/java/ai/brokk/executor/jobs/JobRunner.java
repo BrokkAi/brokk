@@ -139,13 +139,13 @@ public final class JobRunner {
                 final StreamingChatModel architectPlannerModel =
                         mode == Mode.ARCHITECT ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel architectCodeModel = mode == Mode.ARCHITECT
-                        ? (hasCodeModelOverride ? resolveModelOrThrow(trimmedCodeModelName) : defaultCodeModel())
+                        ? (hasCodeModelOverride ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName)) : defaultCodeModel())
                         : null;
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel askCodeModel = mode == Mode.ASK ? defaultCodeModel() : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
-                        ? (hasCodeModelOverride ? resolveModelOrThrow(trimmedCodeModelName) : defaultCodeModel())
+                        ? (hasCodeModelOverride ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName)) : defaultCodeModel())
                         : null;
 
                 var service = cm.getService();
