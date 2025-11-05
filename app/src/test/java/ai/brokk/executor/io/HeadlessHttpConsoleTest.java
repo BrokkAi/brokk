@@ -248,6 +248,43 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testTranscript_ResetsOnSetLlmAndHistoryOutput() throws Exception {
+        console.llmOutput("Hello", ChatMessageType.AI, true, false);
+        console.llmOutput(" world", ChatMessageType.AI, false, false);
+
+        Thread.sleep(100);
+
+        var seqBefore = console.getLastSeq();
+        assertTrue(seqBefore >= 0L);
+        assertFalse(console.getLlmRawMessages().isEmpty());
+
+        var history = List.of(new TaskEntry(1, null, "task1"));
+        var taskEntry = new TaskEntry(2, null, "task2");
+
+        console.setLlmAndHistoryOutput(history, taskEntry);
+
+        Thread.sleep(100);
+
+        var messages = console.getLlmRawMessages();
+        assertTrue(messages.isEmpty());
+
+        var events = jobStore.readEvents(jobId, seqBefore, 100);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("CONTEXT_BASELINE", event.type());
+        assertEquals(seqBefore + 1, event.seq());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals(history.size() + 1, data.get("count"));
+        var snippet = data.get("snippet").toString();
+        assertFalse(snippet.isEmpty());
+
+        cleanup();
+    }
+
+    @Test
     void testSetLlmAndHistoryOutput_MapsToContextBaselineEvent() throws Exception {
         var history = List.of(new TaskEntry(1, null, "task1"), new TaskEntry(2, null, "task2"));
         var taskEntry = new TaskEntry(3, null, "task3");
