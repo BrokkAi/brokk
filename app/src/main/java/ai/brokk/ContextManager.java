@@ -2579,7 +2579,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * user-action callbacks and background tasks emit events through the replacement console.
      */
     public void setIo(IConsoleIO io) {
-        this.io = requireNonNull(io);
+        this.io = io;
         this.userActions.setIo(this.io);
     }
 
