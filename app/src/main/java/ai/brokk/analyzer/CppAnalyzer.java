@@ -443,6 +443,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @param src the source code
      * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private String buildCppOverloadSuffix(TSNode funcOrDeclNode, String src) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
 
@@ -530,6 +531,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @param node the root node to search within
      * @return the function_declarator node, or null if not found
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private @Nullable TSNode findFunctionDeclaratorRecursive(TSNode node) {
         if (node == null || node.isNull()) {
             return null;
@@ -636,23 +638,23 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         // C++ allows blank names for complex declaration structures where the parser
         // produces empty identifier nodes (common in flexed/generated C code, function pointers,
         // template specializations, macro expansions)
-        return simpleName != null && simpleName.isBlank() && isComplexDeclarationStructure(captureName, nodeType);
+        return simpleName.isBlank() && isComplexDeclarationStructure(nodeType);
     }
 
     @Override
     protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
         // C++ allows NULL names for complex declaration structures like function pointers,
         // template specializations, and macro declarations
-        return isComplexDeclarationStructure(identifierFieldName, nodeType);
+        return isComplexDeclarationStructure(nodeType);
     }
 
     @Override
     protected boolean isNullNameExpectedForExtraction(String nodeType) {
         // Suppress logging for common C++ patterns where null names are expected
-        return isComplexDeclarationStructure(null, nodeType);
+        return isComplexDeclarationStructure(nodeType);
     }
 
-    private boolean isComplexDeclarationStructure(String identifierFieldName, String nodeType) {
+    private boolean isComplexDeclarationStructure(String nodeType) {
         // Common C++ complex declaration patterns that may not have simple name fields
         return "declaration".equals(nodeType)
                 || "function_definition".equals(nodeType)
@@ -689,7 +691,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @param src The source code string
      * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
      */
-    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+    @Override
+    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // Only extract signature for function-like entities
@@ -719,6 +722,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * - reference qualifiers (&& has precedence over &)
      * - complete noexcept clause (including optional parenthesized condition)
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
 
@@ -904,6 +908,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * Scans immediate named children of the given parent node within the [tailStart, tailEnd) byte range
      * for TYPE_QUALIFIER nodes containing the specified qualifier token.
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private boolean scanForQualifier(TSNode parent, int tailStart, int tailEnd, String src, String qualifier) {
         if (parent == null || parent.isNull()) return false;
         int count = parent.getNamedChildCount();

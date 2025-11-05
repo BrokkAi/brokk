@@ -1,0 +1,15 @@
+I can add the regression test, but to ensure it compiles and is picked up by the existing test harness, I need to mirror your current bmesh test conventions and includes.
+
+Please add the following files so I can align the test with your project’s setup:
+- source/blender/bmesh/tests/bmesh_core_test.cc (or any existing test in that folder to mirror includes and helpers)
+- source/blender/bmesh/tests/CMakeLists.txt (to register the new test)
+- source/blender/bmesh/intern/bmesh_operators.h (public BMO API header declaring BMO_op_init/BMO_op_initf/BMO_op_exec/BMO_op_finish)
+- Optionally, any shared test helper header used by bmesh tests (e.g., source/blender/bmesh/tests/bmesh_tests.h) if it exists
+
+Once these are available, I’ll implement the test to:
+- Build a minimal mesh (single edge) and run the spin operator with large step counts.
+- Validate the per-step clones by sorting them by angle around the axis and matching them to step indices 1..S.
+- Compare each clone’s position with the analytical transform using tight epsilons (1e-6 for pure rotation, 1e-5 with screw translation).
+- Add both dvec = 0 and dvec != 0 configurations and multiple step counts (e.g., 200 and 800).
+
+After you provide those files, I will add the new test via SEARCH/REPLACE.

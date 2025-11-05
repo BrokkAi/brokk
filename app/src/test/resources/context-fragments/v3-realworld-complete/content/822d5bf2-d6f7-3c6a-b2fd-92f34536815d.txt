@@ -1,0 +1,6 @@
+Reasoning:
+
+
+**Planning tool calls for tests**
+
+I’m going to call searchFilenames with the pattern "source/blender/bmesh/tests/.*\\.c" to locate existing test files. Once I’ve found those, I want to getFileContents for a representative test file from that directory to showcase how the unit tests are structured. So my plan is clear: first, I’ll search for the test files, then retrieve a few samples if I find any. After that, I might append a note to summarize the actions, but let’s focus on performing searchFilenames first!

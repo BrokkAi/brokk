@@ -1,0 +1,22 @@
+
+**Brokk Search** is preparing the next actions…
+
+
+```json
+{
+  "tool_calls": [
+    {
+      "name": "searchSymbols",
+      "arguments": {
+        "patterns": [
+          ".*bmo_spin_exec.*",
+          ".*bmo_.*spin.*",
+          ".*MESH_OT_spin.*",
+          ".*spin.*"
+        ],
+        "reasoning": "Locate the bmo_spin_exec symbol and any related spin operator or tests to mirror conventions for adding a new regression test."
+      }
+    }
+  ]
+}
+```

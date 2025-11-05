@@ -49,8 +49,6 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.Image;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -1490,8 +1488,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
+        // Load current state from storage to avoid using stale in-memory copy
+        TaskList.TaskListData currentData;
+        try {
+            currentData =
+                    project.getSessionManager().readTaskList(currentSessionId).get();
+        } catch (Exception ex) {
+            logger.debug("Unable to read current task list, using in-memory copy", ex);
+            currentData = taskList;
+        }
+        var currentTasks = currentData != null ? currentData.tasks() : List.<TaskList.TaskItem>of();
+
+        // Collect pre-existing incomplete task texts to pass to UI
+        var preExistingIncompleteTasks = currentTasks.stream()
+                .filter(t -> !t.done())
+                .map(t -> t.text().strip())
+                .filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toSet());
+
         var combined = new ArrayList<TaskList.TaskItem>();
-        combined.addAll(taskList.tasks());
+        combined.addAll(currentTasks);
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
@@ -1500,7 +1516,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Persist via existing SessionManager API (UI DTO)
         project.getSessionManager().writeTaskList(currentSessionId, newData);
         if (io instanceof Chrome chrome) {
-            chrome.refreshTaskListUI();
+            // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
+            chrome.refreshTaskListUI(true, preExistingIncompleteTasks);
         }
 
         io.showNotification(
@@ -2156,10 +2173,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
-        private TaskScope(boolean compressResults) {
-            this(compressResults, null);
-        }
-
         private TaskScope(boolean compressResults, @Nullable String groupLabel) {
             this.compressResults = compressResults;
             this.groupLabel = groupLabel;
@@ -2575,14 +2588,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var restorer = new GitProjectStateRestorer(project, io);
         restorer.restore(gitState);
-    }
-
-    // Convert a throwable to a string with full stack trace
-    private String getStackTraceAsString(Throwable throwable) {
-        var sw = new StringWriter();
-        var pw = new PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
     }
 
     @Override

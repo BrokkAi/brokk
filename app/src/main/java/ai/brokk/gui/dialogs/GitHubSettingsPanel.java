@@ -223,8 +223,6 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
     private void updateGitHubPanelUi() {
         boolean connected = !MainProject.getGitHubToken().trim().isEmpty();
         boolean authInProgress = BackgroundGitHubAuth.isAuthInProgress();
-        boolean wasAuthenticating = authProgressTimer != null;
-        boolean justCompleted = wasAuthenticating && !authInProgress && connected;
 
         if (gitHubStatusLabel != null) {
             if (authInProgress) {

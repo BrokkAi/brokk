@@ -1,0 +1,20 @@
+## Summary of fix
+
+- The build error is due to using a non-existent API function `BMO_slot_mat_get`. Replace it with the correct matrix getter `BMO_slot_mat4_get` to fetch the 4x4 `space` matrix from operator input slots.
+
+## Edits
+
+```
+source/blender/bmesh/operators/bmo_dupe.cc
+<<<<<<< SEARCH
+  float space[4][4];
+  float space_inv[4][4];
+  BMO_slot_mat_get(op->slots_in, "space", space);
+  invert_m4_m4(space_inv, space);
+=======
+  float space[4][4];
+  float space_inv[4][4];
+  BMO_slot_mat4_get(op->slots_in, "space", space);
+  invert_m4_m4(space_inv, space);
+>>>>>>> REPLACE
+```

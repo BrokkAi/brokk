@@ -257,7 +257,7 @@ public class Llm {
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
         var fenceOpen = new AtomicBoolean(false);
-        var elapsedMs = new AtomicReference<Long>(0L);
+        long elapsedMs;
 
         Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
@@ -412,7 +412,7 @@ public class Llm {
 
         // Record elapsed time
         long endTime = System.currentTimeMillis();
-        elapsedMs.set(endTime - startTime);
+        elapsedMs = endTime - startTime;
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
@@ -428,7 +428,7 @@ public class Llm {
             var partialText = accumulatedTextBuilder.toString();
             var partialReasoning = accumulatedReasoningBuilder.toString();
             if (partialText.isEmpty() && partialReasoning.isEmpty()) {
-                return new StreamingResult(null, error, 0, elapsedMs.get());
+                return new StreamingResult(null, error, 0, elapsedMs);
             }
 
             // Construct a ChatResponse from accumulated partial text
@@ -437,7 +437,7 @@ public class Llm {
                     "LLM call resulted in error: {}. Partial text captured: {} chars",
                     error.getMessage(),
                     partialText.length());
-            return new StreamingResult(partialResponse, error, 0, elapsedMs.get());
+            return new StreamingResult(partialResponse, error, 0, elapsedMs);
         }
 
         // Happy path: successful completion, no errors
@@ -446,7 +446,7 @@ public class Llm {
         if (echo) {
             io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
         }
-        return StreamingResult.fromResponse(response, null, elapsedMs.get());
+        return StreamingResult.fromResponse(response, null, elapsedMs);
     }
 
     private long getLlmResponseTimeoutSeconds(boolean firstToken) {

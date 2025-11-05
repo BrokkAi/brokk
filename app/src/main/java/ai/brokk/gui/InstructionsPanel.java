@@ -994,10 +994,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 stat.toolTipHtml);
 
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
-                        modelSelector
-                                .getComponent()
-                                .setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
+                        contextAreaContainer.setToolTipText(sharedTooltip);
+                        modelSelector.getComponent().setToolTipText(sharedTooltip);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -2024,14 +2022,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();
         else SwingUtilities.invokeLater(r);
-    }
-
-    private static int indexOfChild(Container parent, Component child) {
-        int n = parent.getComponentCount();
-        for (int i = 0; i < n; i++) {
-            if (parent.getComponent(i) == child) return i;
-        }
-        return -1;
     }
 
     /**

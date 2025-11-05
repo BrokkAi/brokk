@@ -6,12 +6,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public final class ExecutorServiceUtil {
-
-    private static final Logger logger = LoggerFactory.getLogger(ExecutorServiceUtil.class);
 
     private ExecutorServiceUtil() {}
 

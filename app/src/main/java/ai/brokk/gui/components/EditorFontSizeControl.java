@@ -4,6 +4,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.Font;
 import java.awt.event.KeyEvent;
+import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -17,9 +18,9 @@ public interface EditorFontSizeControl {
     Logger logger = LogManager.getLogger(EditorFontSizeControl.class);
 
     // Font size configuration with predefined sizes (standard sizes with 2pt minimum increments)
-    float[] FONT_SIZES = {8f, 10f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f};
+    List<Float> FONT_SIZES = List.of(8f, 10f, 12f, 14f, 16f, 18f, 20f, 24f, 28f, 32f);
     int DEFAULT_FONT_INDEX = 2; // 12f
-    float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES[DEFAULT_FONT_INDEX];
+    float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES.get(DEFAULT_FONT_INDEX);
 
     /**
      * Get the current font index. Implementations must track this state.
@@ -37,10 +38,10 @@ public interface EditorFontSizeControl {
      */
     default int findClosestFontIndex(float targetSize) {
         int closestIndex = DEFAULT_FONT_INDEX;
-        float minDiff = Math.abs(FONT_SIZES[DEFAULT_FONT_INDEX] - targetSize);
+        float minDiff = Math.abs(FONT_SIZES.get(DEFAULT_FONT_INDEX) - targetSize);
 
-        for (int i = 0; i < FONT_SIZES.length; i++) {
-            float diff = Math.abs(FONT_SIZES[i] - targetSize);
+        for (int i = 0; i < FONT_SIZES.size(); i++) {
+            float diff = Math.abs(FONT_SIZES.get(i) - targetSize);
             if (diff < minDiff) {
                 minDiff = diff;
                 closestIndex = i;
@@ -68,7 +69,7 @@ public interface EditorFontSizeControl {
      */
     default void increaseEditorFont() {
         ensureFontIndexInitialized();
-        if (getCurrentFontIndex() >= FONT_SIZES.length - 1) return; // Already at maximum
+        if (getCurrentFontIndex() >= FONT_SIZES.size() - 1) return; // Already at maximum
         setCurrentFontIndex(getCurrentFontIndex() + 1);
     }
 
@@ -97,8 +98,8 @@ public interface EditorFontSizeControl {
         if (getCurrentFontIndex() < 0) return; // guard
 
         // Ensure index in-range
-        int idx = Math.max(0, Math.min(getCurrentFontIndex(), FONT_SIZES.length - 1));
-        float fontSize = FONT_SIZES[idx];
+        int idx = Math.max(0, Math.min(getCurrentFontIndex(), FONT_SIZES.size() - 1));
+        float fontSize = FONT_SIZES.get(idx);
 
         // Persist chosen font size
         GlobalUiSettings.saveEditorFontSize(fontSize);

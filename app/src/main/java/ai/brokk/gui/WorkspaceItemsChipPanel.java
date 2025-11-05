@@ -374,12 +374,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             }
             if (f.isText()) {
                 String txt = f.text();
-                return txt != null && !txt.trim().isEmpty();
+                return !txt.trim().isEmpty();
             } else {
-                boolean hasImage = f.image() != null;
+                // image() returns non-null Image or throws UnsupportedOperationException
+                f.image(); // Call to check if image is supported; if not, exception is caught below
+                boolean hasImage = true; // If we get here, image exists
                 boolean hasFiles = !f.files().isEmpty();
                 String desc = f.description();
-                boolean hasDesc = desc != null && !desc.trim().isEmpty();
+                boolean hasDesc = !desc.trim().isEmpty();
                 return hasImage || hasFiles || hasDesc;
             }
         } catch (Exception ex) {
@@ -788,6 +790,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             try {
                 dropOther.getAccessibleContext().setAccessibleName("Drop Others");
             } catch (Exception ignored) {
+                // Accessibility support is optional, failure is non-fatal
             }
 
             // Determine enabled state at menu construction time
@@ -977,9 +980,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
     }
 
-    private Component createChip(ContextFragment fragment) {
-        // Defensive pre-checks: guard against nulls and visually-empty fragments.
-        if (fragment == null) return null;
+    private @Nullable Component createChip(ContextFragment fragment) {
+        // Defensive pre-check: guard against visually-empty fragments.
         if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
             logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
             return null;
@@ -1004,17 +1006,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception e) {
             logger.debug("description() threw for fragment {}", fragment, e);
             safeDescription = "";
-        }
-
-        String safeText = "";
-        try {
-            if (fragment.isText()) {
-                var t = fragment.text();
-                safeText = t == null ? "" : t;
-            }
-        } catch (Exception e) {
-            logger.debug("text() threw for fragment {}", fragment, e);
-            safeText = "";
         }
 
         // Last-line safety: re-check that the fragment still has renderable content before building UI.
@@ -1271,8 +1262,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return chip;
     }
 
-    private Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
-        if (summaries == null || summaries.isEmpty()) return null;
+    private @Nullable Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
+        if (summaries.isEmpty()) return null;
 
         // Filter summaries to only those that are renderable unless developer override is enabled.
         var renderableSummaries = summaries.stream()
