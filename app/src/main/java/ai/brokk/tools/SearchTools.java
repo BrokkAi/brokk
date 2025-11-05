@@ -358,10 +358,6 @@ public class SearchTools {
                     }
                 });
 
-        if (locationMappings.isEmpty()) {
-            return "No locations found for symbols: " + String.join(", ", symbols);
-        }
-
         StringBuilder result = new StringBuilder();
         result.append(String.join("\n", locationMappings));
 
