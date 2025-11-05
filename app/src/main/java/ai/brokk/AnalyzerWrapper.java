@@ -195,8 +195,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                 long startTime = System.currentTimeMillis();
                 IAnalyzer result = prev.update();
                 long duration = System.currentTimeMillis() - startTime;
-                logger.info(
-                        "{} overflow analyzer refresh completed in {}ms", getLanguageDescription(), duration);
+                logger.info("{} overflow analyzer refresh completed in {}ms", getLanguageDescription(), duration);
                 return result;
             });
             return; // No need to process individual files after full rebuild
@@ -371,10 +370,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     /** Get a human-readable description of the analyzer languages for logging. */
     private String getLanguageDescription() {
-        return project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Languages.NONE)
-                .map(Language::name)
-                .collect(Collectors.joining("/"));
+        return currentAnalyzer == null
+                ? "Uninitialized"
+                : currentAnalyzer.languages().stream().map(Language::name).collect(Collectors.joining("/"));
     }
 
     /**
