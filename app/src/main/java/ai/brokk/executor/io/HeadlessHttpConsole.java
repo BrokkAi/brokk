@@ -1,9 +1,8 @@
 package ai.brokk.executor.io;
 
-import ai.brokk.IConsoleIO;
-import ai.brokk.cli.MemoryConsole;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
+import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.executor.jobs.JobEvent;
 import ai.brokk.executor.jobs.JobStore;
@@ -108,7 +107,6 @@ public class HeadlessHttpConsole extends MemoryConsole {
         enqueueEvent("NOTIFICATION", data);
     }
 
-
     @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         Objects.requireNonNull(cancelCallback, "cancelCallback");
@@ -136,11 +134,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
         var decision = defaultDecisionFor(optionType);
         emitConfirmRequestEvent(
-                message != null ? message : "",
-                title != null ? title : "",
-                optionType,
-                messageType,
-                decision);
+                message != null ? message : "", title != null ? title : "", optionType, messageType, decision);
         return decision;
     }
 
@@ -273,10 +267,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     @Override
     public void updateContextHistoryTable(Context context) {
-        var data = Map.of(
-                "name", "contextHistoryUpdated",
-                "value", true,
-                "count", context != null ? 1 : 0);
+        var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", context != null ? 1 : 0);
         enqueueEvent("STATE_HINT", data);
     }
 
@@ -350,8 +341,8 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     private static int defaultDecisionFor(int optionType) {
         return switch (optionType) {
-            case javax.swing.JOptionPane.YES_NO_OPTION,
-                    javax.swing.JOptionPane.YES_NO_CANCEL_OPTION -> javax.swing.JOptionPane.YES_OPTION;
+            case javax.swing.JOptionPane.YES_NO_OPTION, javax.swing.JOptionPane.YES_NO_CANCEL_OPTION ->
+                javax.swing.JOptionPane.YES_OPTION;
             case javax.swing.JOptionPane.OK_CANCEL_OPTION -> javax.swing.JOptionPane.OK_OPTION;
             default -> javax.swing.JOptionPane.OK_OPTION;
         };

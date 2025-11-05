@@ -146,12 +146,15 @@ class HeadlessExecutorMainIntegrationTest {
         // First, upload a session
         uploadSession();
 
-        var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of(
-                        "sessionId", UUID.randomUUID().toString(),
-                        "taskInput", "echo hello",
-                        "autoCompress", false,
-                        "plannerModel", "gpt-5");
+        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "echo hello",
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gpt-5");
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -174,11 +177,8 @@ class HeadlessExecutorMainIntegrationTest {
     void testPostJobsEndpoint_RequiresPlannerModel() throws Exception {
         uploadSession();
 
-        var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of(
-                        "sessionId", UUID.randomUUID().toString(),
-                        "taskInput", "echo missing planner",
-                        "autoCompress", false);
+        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+                "sessionId", UUID.randomUUID().toString(), "taskInput", "echo missing planner", "autoCompress", false);
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -213,12 +213,15 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
 
         var invalidPlanner = "does-not-exist-model";
-        var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of(
-                        "sessionId", UUID.randomUUID().toString(),
-                        "taskInput", "echo invalid planner",
-                        "autoCompress", false,
-                        "plannerModel", invalidPlanner);
+        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "echo invalid planner",
+                "autoCompress",
+                false,
+                "plannerModel",
+                invalidPlanner);
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -260,9 +263,7 @@ class HeadlessExecutorMainIntegrationTest {
         }
 
         assertNotNull(error, "Job did not fail with MODEL_UNAVAILABLE within timeout");
-        assertTrue(
-                error.contains("MODEL_UNAVAILABLE"),
-                "Expected MODEL_UNAVAILABLE error, but got: " + error);
+        assertTrue(error.contains("MODEL_UNAVAILABLE"), "Expected MODEL_UNAVAILABLE error, but got: " + error);
     }
 
     @Test
@@ -270,12 +271,15 @@ class HeadlessExecutorMainIntegrationTest {
         // Upload a session
         uploadSession();
 
-        var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of(
-                        "sessionId", UUID.randomUUID().toString(),
-                        "taskInput", "echo hello",
-                        "autoCompress", false,
-                        "plannerModel", "gpt-5");
+        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "echo hello",
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gpt-5");
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();
@@ -409,12 +413,15 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     private String createJob(String idempotencyKey) throws Exception {
-        var jobSpec = (Map<String, Object>) (Map<?, ?>)
-                Map.of(
-                        "sessionId", UUID.randomUUID().toString(),
-                        "taskInput", "echo test",
-                        "autoCompress", false,
-                        "plannerModel", "gpt-5");
+        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "echo test",
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gpt-5");
 
         var url = new URL(baseUrl + "/v1/jobs");
         var conn = (HttpURLConnection) url.openConnection();

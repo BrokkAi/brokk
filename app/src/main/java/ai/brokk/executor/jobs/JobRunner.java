@@ -137,42 +137,38 @@ public final class JobRunner {
 
                 final StreamingChatModel architectPlannerModel =
                         mode == Mode.ARCHITECT ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel architectCodeModel =
-                        mode == Mode.ARCHITECT
-                                ? (hasCodeModelOverride
-                                        ? resolveModelOrThrow(trimmedCodeModelName)
-                                        : defaultCodeModel())
-                                : null;
+                final StreamingChatModel architectCodeModel = mode == Mode.ARCHITECT
+                        ? (hasCodeModelOverride ? resolveModelOrThrow(trimmedCodeModelName) : defaultCodeModel())
+                        : null;
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel askCodeModel =
-                        mode == Mode.ASK ? defaultCodeModel() : null;
-                final StreamingChatModel codeModeModel =
-                        mode == Mode.CODE
-                                ? (hasCodeModelOverride
-                                        ? resolveModelOrThrow(trimmedCodeModelName)
-                                        : defaultCodeModel())
-                                : null;
+                final StreamingChatModel askCodeModel = mode == Mode.ASK ? defaultCodeModel() : null;
+                final StreamingChatModel codeModeModel = mode == Mode.CODE
+                        ? (hasCodeModelOverride ? resolveModelOrThrow(trimmedCodeModelName) : defaultCodeModel())
+                        : null;
 
                 var service = cm.getService();
-                String plannerModelNameForLog = switch (mode) {
-                    case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
-                    case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
-                    case CODE -> {
-                        var plannerName = spec.plannerModel();
-                        yield plannerName == null || plannerName.isBlank() ? "(unused)" : plannerName.trim();
-                    }
-                };
-                String codeModelNameForLog = switch (mode) {
-                    case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
-                    case ASK -> service.nameOf(Objects.requireNonNull(askCodeModel));
-                    case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
-                };
-                boolean usesDefaultCodeModel = switch (mode) {
-                    case ARCHITECT -> !hasCodeModelOverride;
-                    case ASK -> true;
-                    case CODE -> !hasCodeModelOverride;
-                };
+                String plannerModelNameForLog =
+                        switch (mode) {
+                            case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
+                            case CODE -> {
+                                var plannerName = spec.plannerModel();
+                                yield plannerName == null || plannerName.isBlank() ? "(unused)" : plannerName.trim();
+                            }
+                        };
+                String codeModelNameForLog =
+                        switch (mode) {
+                            case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ASK -> service.nameOf(Objects.requireNonNull(askCodeModel));
+                            case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
+                        };
+                boolean usesDefaultCodeModel =
+                        switch (mode) {
+                            case ARCHITECT -> !hasCodeModelOverride;
+                            case ASK -> true;
+                            case CODE -> !hasCodeModelOverride;
+                        };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = mode == Mode.CODE ? "(unused)" : "(unknown)";
                 }
@@ -322,7 +318,8 @@ public final class JobRunner {
                     // Non-critical: shutdown failed
                 }
                 // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
-                // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is restored.
+                // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is
+                // restored.
                 cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);
