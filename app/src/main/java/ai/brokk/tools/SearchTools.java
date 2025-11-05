@@ -298,25 +298,25 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        classNames.stream().distinct().forEach(className -> {
-            if (className.isBlank()) {
-                return;
-            }
-            var cuOpt = analyzer.getDefinition(className);
-            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                    var text = fragment.text();
-                    if (!text.isEmpty()) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
+        classNames.stream()
+                .distinct()
+                .filter(s -> !s.isBlank())
+                .forEach(className -> {
+                    var cuOpt = analyzer.getDefinition(className);
+                    if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+                        var cu = cuOpt.get();
+                        if (added.add(cu.fqName())) {
+                            var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                            var text = fragment.text();
+                            if (!text.isEmpty()) {
+                                if (!result.isEmpty()) {
+                                    result.append("\n\n");
+                                }
+                                result.append(text);
+                            }
                         }
-                        result.append(text);
                     }
-                }
-            }
-        });
+                });
 
         if (result.isEmpty()) {
             return "No sources found for classes: " + String.join(", ", classNames);
@@ -344,19 +344,19 @@ public class SearchTools {
         List<String> locationMappings = new ArrayList<>();
         List<String> notFound = new ArrayList<>();
 
-        symbols.stream().distinct().forEach(symbol -> {
-            if (symbol.isBlank()) {
-                return;
-            }
-            var cuOpt = analyzer.getDefinition(symbol);
-            if (cuOpt.isPresent()) {
-                var cu = cuOpt.get();
-                var filepath = cu.source().toString();
-                locationMappings.add(symbol + " -> " + filepath);
-            } else {
-                notFound.add(symbol);
-            }
-        });
+        symbols.stream()
+                .distinct()
+                .filter(s -> !s.isBlank())
+                .forEach(symbol -> {
+                    var cuOpt = analyzer.getDefinition(symbol);
+                    if (cuOpt.isPresent()) {
+                        var cu = cuOpt.get();
+                        var filepath = cu.source().toString();
+                        locationMappings.add(symbol + " -> " + filepath);
+                    } else {
+                        notFound.add(symbol);
+                    }
+                });
 
         if (locationMappings.isEmpty()) {
             return "No locations found for symbols: " + String.join(", ", symbols);
@@ -391,25 +391,25 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        methodNames.stream().distinct().forEach(methodName -> {
-            if (methodName.isBlank()) {
-                return;
-            }
-            var cuOpt = analyzer.getDefinition(methodName);
-            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                    var text = fragment.text();
-                    if (!text.isEmpty()) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
+        methodNames.stream()
+                .distinct()
+                .filter(s -> !s.isBlank())
+                .forEach(methodName -> {
+                    var cuOpt = analyzer.getDefinition(methodName);
+                    if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+                        var cu = cuOpt.get();
+                        if (added.add(cu.fqName())) {
+                            var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                            var text = fragment.text();
+                            if (!text.isEmpty()) {
+                                if (!result.isEmpty()) {
+                                    result.append("\n\n");
+                                }
+                                result.append(text);
+                            }
                         }
-                        result.append(text);
                     }
-                }
-            }
-        });
+                });
 
         if (result.isEmpty()) {
             return "No sources found for methods: " + String.join(", ", methodNames);
