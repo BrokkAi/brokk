@@ -919,13 +919,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100, true),
+                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100, true, false),
                                 128000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
                                 100,
-                                true);
+                                true,
+                                false);
                     }
 
                     var fullText = new StringBuilder();
@@ -950,17 +951,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                     var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(config, approxTokens);
                     int successRate = rateResult.successRate();
-                    // Treat any token count within the model's max input limit as "tested" for UI purposes.
-                    // This removes the prior hardcoded cap (131,071) and avoids incorrectly flagging large-context
-                    // models.
-                    boolean isWithinModelLimit = approxTokens <= maxTokens;
-                    boolean isTested = isWithinModelLimit;
+                    boolean hasBenchmarkData = rateResult.hasBenchmarkData();
+                    boolean withinModelLimit = approxTokens <= maxTokens;
 
                     TokenUsageBar.WarningLevel warningLevel;
-                    if (!isTested) {
+                    if (!withinModelLimit) {
                         // Exceeds model's supported input tokens — warn RED
                         warningLevel = TokenUsageBar.WarningLevel.RED;
-                    } else if (successRate == -1) {
+                    } else if (!hasBenchmarkData) {
                         // No benchmark data at this token count; do not warn
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     } else if (successRate < 30) {
@@ -971,10 +969,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     }
 
-                    String tooltipHtml =
-                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate, isTested);
+                    String tooltipHtml = buildTokenUsageTooltip(
+                            modelName, maxTokens, costStr, warningLevel, successRate, withinModelLimit, hasBenchmarkData);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
+                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, withinModelLimit, hasBenchmarkData);
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
@@ -984,14 +982,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             return;
                         }
                         // make metadata available to TokenUsageBar for tooltip/warning rendering
-                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
+                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.withinModelLimit, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
                         tokenUsageBar.setMaxTokens(stat.maxTokens);
                         tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
 
                         // Compute shared tooltip for both TokenUsageBar and ModelSelector
                         String sharedTooltip = TokenUsageBar.computeWarningTooltip(
-                                stat.isTested,
+                                stat.withinModelLimit,
                                 stat.config,
                                 stat.warningLevel,
                                 stat.successRate,
@@ -1019,7 +1017,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             TokenUsageBar.WarningLevel warningLevel,
             Service.ModelConfig config,
             int successRate,
-            boolean isTested) {}
+            boolean withinModelLimit,
+            boolean hasBenchmarkData) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
         var pricing = service.getModelPricing(config.name());
@@ -1047,7 +1046,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String costPerRequest,
             TokenUsageBar.WarningLevel warningLevel,
             int successRate,
-            boolean isTested) {
+            boolean withinModelLimit,
+            boolean hasBenchmarkData) {
         StringBuilder body = new StringBuilder();
 
         if (warningLevel != TokenUsageBar.WarningLevel.NONE) {
@@ -1076,7 +1076,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .append("Brokk Power Ranking</a></b></div>");
 
         // Always show success rate line (or Unknown)
-        if (successRate == -1) {
+        if (!hasBenchmarkData) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
         } else {
             body.append("<div style='margin-top: 4px;'>Success rate at this token count: <b>")
@@ -1084,11 +1084,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     .append("%</b></div>");
         }
 
-        // Then separately show either the untested notice or the benchmark context note
-        if (!isTested) {
+        // Show appropriate context message based on both conditions
+        if (!withinModelLimit) {
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
-                    .append("Untested: context exceeds the model's input token limit.</div>");
-        } else if (successRate != -1) {
+                    .append("Context exceeds the model's input token limit.</div>");
+        } else if (hasBenchmarkData) {
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
                     .append("Based on benchmark data for model performance across token ranges.</div>");
         }

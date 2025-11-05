@@ -9,20 +9,22 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for warning level computation logic in InstructionsPanel.updateTokenCostIndicator().
- * Verifies that warning levels are correctly determined based on token count and success rate.
+ * Verifies that warning levels are correctly determined based on whether tokens are within model limit
+ * and whether benchmark data is available.
  */
 class InstructionsPanelIntegrationTest {
 
     /**
-     * Computes the warning level based on token count and success rate.
+     * Computes the warning level based on model limit and benchmark data.
      * This replicates the logic from InstructionsPanel.updateTokenCostIndicator().
      */
-    private TokenUsageBar.WarningLevel computeWarningLevel(int approxTokens, int successRate, boolean isTested) {
-        if (!isTested) {
-            // Untested (extrapolated) token count — always warn RED
+    private TokenUsageBar.WarningLevel computeWarningLevel(
+            boolean withinModelLimit, boolean hasBenchmarkData, int successRate) {
+        if (!withinModelLimit) {
+            // Exceeds model's supported input tokens — warn RED
             return TokenUsageBar.WarningLevel.RED;
-        } else if (successRate == -1) {
-            // Unknown/untested combination: don't warn
+        } else if (!hasBenchmarkData) {
+            // No benchmark data at this token count; do not warn
             return TokenUsageBar.WarningLevel.NONE;
         } else if (successRate < 30) {
             return TokenUsageBar.WarningLevel.RED;
@@ -34,38 +36,52 @@ class InstructionsPanelIntegrationTest {
     }
 
     @Test
-    void extrapolated_exceeding131k_setsRed() {
-        // Setup: 131,072 tokens (beyond tested max of 131,071)
-        int approxTokens = 131_072;
-        var rateResult =
-                ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
+    void exceedsModelLimit_setsRed() {
+        // Setup: tokens exceed model limit (regardless of benchmark data)
+        boolean withinModelLimit = false;
+        boolean hasBenchmarkData = true;  // doesn't matter
+        int successRate = 93;  // doesn't matter
 
-        // Verify: isTested should be false (extrapolated)
-        assertEquals(false, rateResult.isTested(), "Token count 131,072 should be marked as not tested");
+        var warningLevel = computeWarningLevel(withinModelLimit, hasBenchmarkData, successRate);
 
-        // Compute warning level
-        var warningLevel = computeWarningLevel(approxTokens, rateResult.successRate(), rateResult.isTested());
-
-        // Assert: RED warning for extrapolated data
+        // Assert: RED warning when exceeding model limit
         assertEquals(
                 TokenUsageBar.WarningLevel.RED,
                 warningLevel,
-                "Token count 131,072 (beyond tested range) should produce RED warning");
+                "Exceeding model limit should produce RED warning");
+    }
+
+    @Test
+    void withinLimit_noBenchmarkData_setsNone() {
+        // Setup: within model limit but no benchmark data
+        boolean withinModelLimit = true;
+        boolean hasBenchmarkData = false;
+        int successRate = -1;  // unknown
+
+        var warningLevel = computeWarningLevel(withinModelLimit, hasBenchmarkData, successRate);
+
+        // Assert: NONE warning when no benchmark data (we don't know if it's good or bad)
+        assertEquals(
+                TokenUsageBar.WarningLevel.NONE,
+                warningLevel,
+                "No benchmark data should produce NONE warning");
     }
 
     @Test
     void tested_highSuccess93_setsNone() {
         // Setup: gpt-5 DEFAULT @20k tokens has 93% success rate
         int approxTokens = 20_000;
+        int maxTokens = 200_000;  // well within limit
         var rateResult =
                 ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
-        // Verify: within tested range
-        assertEquals(true, rateResult.isTested(), "Token count 20,000 should be marked as tested");
+        // Verify: has benchmark data
+        assertTrue(rateResult.hasBenchmarkData(), "Token count 20,000 should have benchmark data");
         assertEquals(93, rateResult.successRate(), "gpt-5 DEFAULT @20k should be 93% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(approxTokens, rateResult.successRate(), rateResult.isTested());
+        var warningLevel = computeWarningLevel(
+                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: NONE warning (success rate >= 50%)
         assertEquals(
@@ -78,15 +94,17 @@ class InstructionsPanelIntegrationTest {
     void tested_mediumSuccess34_setsYellow() {
         // Setup: gpt-5-mini DEFAULT @70k tokens has 34% success rate
         int approxTokens = 70_000;
+        int maxTokens = 200_000;  // well within limit
         var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
                 "gpt-5-mini", Service.ReasoningLevel.DEFAULT, approxTokens);
 
-        // Verify: within tested range
-        assertEquals(true, rateResult.isTested(), "Token count 70,000 should be marked as tested");
+        // Verify: has benchmark data
+        assertTrue(rateResult.hasBenchmarkData(), "Token count 70,000 should have benchmark data");
         assertEquals(34, rateResult.successRate(), "gpt-5-mini DEFAULT @70k should be 34% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(approxTokens, rateResult.successRate(), rateResult.isTested());
+        var warningLevel = computeWarningLevel(
+                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: YELLOW warning (30% <= rate < 50%)
         assertEquals(
@@ -99,15 +117,17 @@ class InstructionsPanelIntegrationTest {
     void tested_lowSuccess17_setsRed() {
         // Setup: gemini-2.5-flash DEFAULT @70k tokens has 17% success rate
         int approxTokens = 70_000;
+        int maxTokens = 200_000;  // well within limit
         var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(
                 "gemini-2.5-flash", Service.ReasoningLevel.DEFAULT, approxTokens);
 
-        // Verify: within tested range
-        assertEquals(true, rateResult.isTested(), "Token count 70,000 should be marked as tested");
+        // Verify: has benchmark data
+        assertTrue(rateResult.hasBenchmarkData(), "Token count 70,000 should have benchmark data");
         assertEquals(17, rateResult.successRate(), "gemini-2.5-flash DEFAULT @70k should be 17% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(approxTokens, rateResult.successRate(), rateResult.isTested());
+        var warningLevel = computeWarningLevel(
+                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: RED warning (success rate < 30%)
         assertEquals(
@@ -118,44 +138,48 @@ class InstructionsPanelIntegrationTest {
 
     @Test
     void boundary_131071_withSuccess50_setsNone() {
-        // Setup: gpt-5 DEFAULT @131071 tokens (exact boundary, still tested)
+        // Setup: gpt-5 DEFAULT @131071 tokens
         // gpt-5 DEFAULT @131071 falls in 65K-131K range: 50% success rate is at threshold for NONE
         int approxTokens = 131_071;
+        int maxTokens = 200_000;  // well within limit
         var rateResult =
                 ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
-        // Verify: at boundary, should be tested
-        assertEquals(true, rateResult.isTested(), "Token count 131,071 should be marked as tested (at boundary)");
+        // Verify: has benchmark data
+        assertTrue(rateResult.hasBenchmarkData(), "Token count 131,071 should have benchmark data");
         assertEquals(50, rateResult.successRate(), "gpt-5 DEFAULT @131071 should be 50% success rate");
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(approxTokens, rateResult.successRate(), rateResult.isTested());
+        var warningLevel = computeWarningLevel(
+                approxTokens <= maxTokens, rateResult.hasBenchmarkData(), rateResult.successRate());
 
         // Assert: NONE warning (success rate >= 50% threshold)
         assertEquals(
                 TokenUsageBar.WarningLevel.NONE,
                 warningLevel,
-                "At boundary 131,071 tokens (tested), 50% success should produce NONE warning (>= 50% threshold)");
+                "At 131,071 tokens, 50% success should produce NONE warning (>= 50% threshold)");
     }
 
     @Test
     void extrapolated_200k_setsRed() {
-        // Setup: 200,000 tokens (well beyond tested range)
+        // Setup: 200,000 tokens exceeds model limit (e.g., 128k model)
         int approxTokens = 200_000;
+        int maxTokens = 128_000;
         var rateResult =
                 ModelBenchmarkData.getSuccessRateWithTesting("gpt-5", Service.ReasoningLevel.DEFAULT, approxTokens);
 
-        // Verify: isTested should be false (extrapolated)
-        assertEquals(false, rateResult.isTested(), "Token count 200,000 should be marked as not tested");
+        // Even if we have benchmark data, exceeding model limit is RED
+        boolean withinModelLimit = approxTokens <= maxTokens;
 
         // Compute warning level
-        var warningLevel = computeWarningLevel(approxTokens, rateResult.successRate(), rateResult.isTested());
+        var warningLevel = computeWarningLevel(
+                withinModelLimit, rateResult.hasBenchmarkData(), rateResult.successRate());
 
-        // Assert: RED warning for extrapolated data
+        // Assert: RED warning for exceeding model limit
         assertEquals(
                 TokenUsageBar.WarningLevel.RED,
                 warningLevel,
-                "Token count 200,000 (beyond tested range) should produce RED warning");
+                "Token count 200,000 exceeding 128k model limit should produce RED warning");
     }
 
     @Test
@@ -163,22 +187,24 @@ class InstructionsPanelIntegrationTest {
         int approxTokens = 200_000; // above 131,071 but within many large-context models
 
         // Simulate within-limit case for Cerebras (models typically support large contexts)
-        boolean isTested = true;
+        boolean withinModelLimit = true;
         int successRate = -1; // unknown for this model/token combo
+        boolean hasBenchmarkData = false;  // no data for this combo
 
-        var warningLevel = computeWarningLevel(approxTokens, successRate, isTested);
-        // Within model limit should not force RED
-        assertNotEquals(TokenUsageBar.WarningLevel.RED, warningLevel, "Within model limit should not force RED");
+        var warningLevel = computeWarningLevel(withinModelLimit, hasBenchmarkData, successRate);
+        // Within model limit with no benchmark data should be NONE
+        assertEquals(TokenUsageBar.WarningLevel.NONE, warningLevel, "Within model limit with no data should be NONE");
 
         // Build a config for a Cerebras model and compute tooltip
         var config = new Service.ModelConfig("cerebras/qwen3-coder", Service.ReasoningLevel.DEFAULT);
         String tooltip = TokenUsageBar.computeWarningTooltip(
-                isTested, config, warningLevel, successRate, approxTokens, "<html>context</html>");
+                withinModelLimit, config, warningLevel, successRate, approxTokens, "<html>context</html>");
 
         assertNotNull(tooltip, "Tooltip should not be null");
-        // When tested, tooltip should not include 'Untested' messaging
+        // When within limit, tooltip should not include 'exceeds' messaging
         assertFalse(
-                tooltip.toLowerCase().contains("untested"), "Tooltip should reflect tested status (no 'Untested').");
+                tooltip.toLowerCase().contains("exceeds"),
+                "Tooltip should reflect within-limit status (no 'exceeds').");
         // Tooltip should include some reasonable content (the base passed content)
         assertTrue(tooltip.toLowerCase().contains("context"), "Tooltip should include base context content.");
     }

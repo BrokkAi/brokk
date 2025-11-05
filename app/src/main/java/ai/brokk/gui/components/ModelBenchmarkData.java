@@ -33,7 +33,7 @@ public class ModelBenchmarkData {
 
     public record ModelKey(String modelName, Service.ReasoningLevel reasoningLevel) {}
 
-    public record SuccessRateResult(int successRate, boolean isTested) {}
+    public record SuccessRateResult(int successRate, boolean hasBenchmarkData) {}
 
     private static final Map<ModelKey, Map<TokenRange, Integer>> BENCHMARK_DATA = new HashMap<>();
 
@@ -239,13 +239,17 @@ public class ModelBenchmarkData {
     public static SuccessRateResult getSuccessRateWithTesting(
             String modelName, Service.ReasoningLevel reasoningLevel, int tokenCount) {
         int successRate = getSuccessRate(modelName, reasoningLevel, tokenCount);
-        boolean isTested = tokenCount <= 131071;
-        return new SuccessRateResult(successRate, isTested);
+        // hasBenchmarkData indicates whether we have actual benchmark data for this model/token combination
+        // -1 means no data available; any other value means we have benchmark data
+        boolean hasBenchmarkData = successRate != -1;
+        return new SuccessRateResult(successRate, hasBenchmarkData);
     }
 
     public static SuccessRateResult getSuccessRateWithTesting(Service.ModelConfig config, int tokenCount) {
         int successRate = getSuccessRate(config, tokenCount);
-        boolean isTested = tokenCount <= 131071;
-        return new SuccessRateResult(successRate, isTested);
+        // hasBenchmarkData indicates whether we have actual benchmark data for this model/token combination
+        // -1 means no data available; any other value means we have benchmark data
+        boolean hasBenchmarkData = successRate != -1;
+        return new SuccessRateResult(successRate, hasBenchmarkData);
     }
 }
