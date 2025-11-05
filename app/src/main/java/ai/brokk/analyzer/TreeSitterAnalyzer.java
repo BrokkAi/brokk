@@ -407,11 +407,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
-        // Populate supertypes/basetypes after initial parse+ingest
-        this.state = runTypeAnalysis(this.state);
-
         // Resolve imports for all files
         this.state = runImportResolution(this.state);
+
+        // Populate supertypes/basetypes after initial parse+ingest
+        this.state = runTypeAnalysis(this.state);
 
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
