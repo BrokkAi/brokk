@@ -18,10 +18,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
@@ -395,20 +397,32 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            // Parse JobSpec from request body (using jobs package DTO for JobStore compatibility)
-            var jobSpec = SimpleHttpServer.parseJsonRequest(exchange, ai.brokk.executor.jobs.JobSpec.class);
-            if (jobSpec == null) {
+            // Parse JobSpec payload from request body
+            var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
+            if (jobSpecRequest == null) {
                 var error = ErrorPayload.validationError("Invalid JobSpec in request body");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
             }
 
-            var plannerModel = jobSpec.plannerModel();
-            if (plannerModel == null || plannerModel.isBlank()) {
+            var plannerModel = Objects.requireNonNullElse(jobSpecRequest.plannerModel(), "")
+                    .strip();
+            if (plannerModel.isBlank()) {
                 var error = ErrorPayload.validationError("plannerModel is required");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
             }
+
+            var tags = jobSpecRequest.tags();
+            Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
+            var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
+                    jobSpecRequest.sessionId(),
+                    jobSpecRequest.taskInput(),
+                    jobSpecRequest.autoCommit(),
+                    jobSpecRequest.autoCompress(),
+                    plannerModel,
+                    jobSpecRequest.codeModel(),
+                    safeTags);
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -560,6 +574,15 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
+
+    private record JobSpecRequest(
+            String sessionId,
+            String taskInput,
+            boolean autoCommit,
+            boolean autoCompress,
+            @Nullable String plannerModel,
+            @Nullable String codeModel,
+            @Nullable Map<String, String> tags) {}
 
     public static void main(String[] args) {
         try {
