@@ -266,7 +266,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     @Override
     public void updateContextHistoryTable(Context context) {
-        var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", context != null ? 1 : 0);
+        var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", 1);
         enqueueEvent("STATE_HINT", data);
     }
 
