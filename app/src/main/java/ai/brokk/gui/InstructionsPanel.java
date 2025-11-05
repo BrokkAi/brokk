@@ -1510,6 +1510,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
 
+        autoClearCompletedTasks();
+
         submitAction(ACTION_SEARCH, query, scope -> {
             assert !query.isBlank();
 
