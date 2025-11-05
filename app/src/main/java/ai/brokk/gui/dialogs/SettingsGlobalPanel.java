@@ -78,6 +78,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
+    private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
+    private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
