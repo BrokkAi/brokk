@@ -82,10 +82,12 @@ public class KeyboardShortcutUtilTest {
         KeyStroke ks = KeyboardShortcutUtil.createAltShiftShortcut(KeyEvent.VK_3);
         String formatted = KeyboardShortcutUtil.formatKeyStroke(ks);
         assertNotNull(formatted);
-        assertTrue(formatted.contains("3"), "Should contain key '3', got: " + formatted);
         assertTrue(formatted.contains("+"), "Should contain '+' separator, got: " + formatted);
-        int plusCount = formatted.length() - formatted.replace("+", "").length();
-        assertTrue(plusCount >= 2, "Should have at least 2 '+' separators for multiple modifiers, got: " + formatted);
+        // Should have at least 3 parts (modifier1 + modifier2 + key)
+        String[] parts = formatted.split("\\+");
+        assertTrue(parts.length >= 3, "Should have at least 3 parts (modifier1+modifier2+key), got: " + formatted);
+        // Should contain key '3' in one of the parts
+        assertTrue(formatted.contains("3"), "Should contain key '3', got: " + formatted);
     }
 
     @Test
