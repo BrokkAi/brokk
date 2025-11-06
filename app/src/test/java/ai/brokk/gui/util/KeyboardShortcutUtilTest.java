@@ -133,6 +133,9 @@ public class KeyboardShortcutUtilTest {
             }
 
             String formatted = KeyboardShortcutUtil.formatKeyStroke(ks);
+            assertTrue(formatted.contains("+"), "Should contain '+' separator, got: " + formatted);
+            String[] parts = formatted.split("\\+");
+            assertTrue(parts.length >= 2, "Should have at least 2 parts (modifier+key), got: " + formatted);
             assertTrue(formatted.contains(String.valueOf(i)), "Should contain number " + i + ", got: " + formatted);
         }
     }
