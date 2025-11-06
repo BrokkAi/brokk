@@ -1032,7 +1032,7 @@ public class Brokk {
         try {
             Path brokkDir = mainProject.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
             Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = brokkDir.resolve("AGENTS.md");
+            Path agentsFile = mainProject.getMasterRootPathForConfig().resolve("AGENTS.md");
 
             // Check conditions: style.md exists, AGENTS.md doesn't, and user hasn't declined
             if (!Files.exists(styleFile) || Files.exists(agentsFile) || mainProject.getMigrationDeclined()) {
@@ -1055,7 +1055,7 @@ public class Brokk {
             This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
             
             Would you like to migrate `style.md` to `AGENTS.md`? This will:
-            - Rename `.brokk/style.md` to `.brokk/AGENTS.md`
+            - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
             - Stage the change in Git (if the project is a Git repository)
             - You can then review and commit the changes
             """;
