@@ -35,6 +35,9 @@ public record ErrorPayload(String code, String message, @Nullable String details
         public static final String INTERNAL_ERROR = "INTERNAL_ERROR";
         public static final String TIMEOUT = "TIMEOUT";
         public static final String CANCELLED = "CANCELLED";
+        public static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
+        public static final String NOT_FOUND = "NOT_FOUND";
+        public static final String BAD_REQUEST = "BAD_REQUEST";
 
         private Code() {}
     }

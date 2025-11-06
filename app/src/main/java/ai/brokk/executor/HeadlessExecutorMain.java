@@ -141,7 +141,8 @@ public final class HeadlessExecutorMain {
 
     private void handleHealthLive(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("GET")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
 
@@ -152,13 +153,14 @@ public final class HeadlessExecutorMain {
 
     private void handleHealthReady(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("GET")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
 
         var sessionId = currentSessionId.get();
         if (sessionId == null) {
-            var error = Map.of("status", "not_ready", "reason", "No session loaded");
+            var error = ErrorPayload.of("NOT_READY", "No session loaded");
             SimpleHttpServer.sendJsonResponse(exchange, 503, error);
             return;
         }
@@ -170,7 +172,8 @@ public final class HeadlessExecutorMain {
 
     private void handleExecutor(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("GET")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
 
@@ -277,7 +280,8 @@ public final class HeadlessExecutorMain {
         // Extract jobId from path for other operations
         var jobId = extractJobIdFromPath(path);
         if (jobId == null) {
-            SimpleHttpServer.sendErrorResponse(exchange, 400, "Invalid job path");
+            var error = ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid job path");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
             return;
         }
 
@@ -306,7 +310,8 @@ public final class HeadlessExecutorMain {
         }
 
         // Unknown endpoint
-        SimpleHttpServer.sendErrorResponse(exchange, 404, "Not found");
+        var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+        SimpleHttpServer.sendJsonResponse(exchange, 404, error);
     }
 
     // ============================================================================
@@ -318,7 +323,8 @@ public final class HeadlessExecutorMain {
      */
     void handlePostSession(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("POST")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
 
@@ -378,7 +384,8 @@ public final class HeadlessExecutorMain {
      */
     void handlePostJobs(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("POST")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
 
