@@ -114,7 +114,7 @@ public abstract class CodePrompts {
      *
      * Important:
      * - This method only controls what we advertise to the LLM; it does not enforce usage. Resolution of BRK markers
-     *   (if the LLM emits them) occurs during apply via {@link ai.brokk.EditBlock#resolveBrkSnippet(ai.brokk.IContextManager, String)}.
+     *   (if the LLM emits them) occurs during apply via {@link ai.brokk.EditBlock#resolveBrkSnippet(IContextManager, String)}.
      * - There is no automatic fallback from BRK_CLASS/BRK_FUNCTION to plain line-based matching on failure. Instead,
      *   failures are captured per block and surfaced to the LLM by {@link #getApplyFailureMessage(java.util.List, int)}.
      * - See also Issue #1688: “Enable semantic edits for Java”.
@@ -129,22 +129,31 @@ public abstract class CodePrompts {
         // (b) at least one editable file is a Java source, and
         // (c) the project analyzer includes Java (e.g., MultiAnalyzer has a Java delegate).
         var hasAnyEditable = !fileContents.isEmpty();
-        var hasJavaEditable =
-                fileContents.keySet().stream().anyMatch(f -> "java".equalsIgnoreCase(f.extension()));
-        var projectHasJava = project.getAnalyzerLanguages().contains(ai.brokk.analyzer.Languages.JAVA);
+        var hasJavaEditable = fileContents.keySet().stream().anyMatch(f -> "java".equalsIgnoreCase(f.extension()));
+        // Detect Java analyzer presence either via configured analyzer languages or the project's build language.
+        // Some test harnesses (e.g., InlineTestProjectCreator) configure a MultiLanguage build language which may not
+        // be
+        // reflected in getAnalyzerLanguages(), so we check both.
+        var analyzerLangsIncludeJava = project.getAnalyzerLanguages().stream()
+                .anyMatch(lang -> lang.getExtensions().stream().anyMatch("java"::equalsIgnoreCase));
+        var buildLang = project.getBuildLanguage();
+        var buildLangIncludesJava = buildLang.getExtensions().stream().anyMatch("java"::equalsIgnoreCase);
+        var projectHasJava = analyzerLangsIncludeJava || buildLangIncludesJava;
 
         if (hasAnyEditable && hasJavaEditable && projectHasJava) {
             flags.add(InstructionsFlags.SYNTAX_AWARE);
             IContextManager.logger.debug(
                     "Syntax-aware edits enabled for Java in a {}-language workspace: {} editable Java file(s).",
                     project.getAnalyzerLanguages().size(),
-                    fileContents.keySet().stream().filter(f -> "java".equalsIgnoreCase(f.extension())).count());
+                    fileContents.keySet().stream()
+                            .filter(f -> "java".equalsIgnoreCase(f.extension()))
+                            .count());
         } else {
             if (!hasAnyEditable) {
                 IContextManager.logger.debug("Syntax-aware edits disabled: no editable files present.");
             } else if (!hasJavaEditable) {
                 IContextManager.logger.debug("Syntax-aware edits disabled: no editable Java files in workspace.");
-            } else if (!projectHasJava) {
+            } else {
                 IContextManager.logger.debug("Syntax-aware edits disabled: project analyzer does not include Java.");
             }
         }
