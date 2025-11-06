@@ -274,7 +274,8 @@ public final class BlitzForge {
                     : new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
 
             // Build a resulting Context that represents the current topContext with any changed files added as editable
-            var top = cm.topContext();
+            // TaskResult requires a live (unfrozen) context, as enforced by an assertion in its constructor
+            var top = Context.unfreeze(cm.topContext());
             var resultingCtx = top.addPathFragments(cm.toPathFragments(changedFiles));
 
             var meta =
