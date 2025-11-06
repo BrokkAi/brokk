@@ -7,6 +7,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.MainProject;
 import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.model.ErrorPayload;
 import com.google.common.base.Splitter;
@@ -25,20 +26,18 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * HTTP host that delegates all business logic to HeadlessExecutorService.
+ * Keeps request parsing/validation and response writing local to the HTTP layer.
+ */
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
 
     private final UUID execId;
     private final SimpleHttpServer server;
-    private final ContextManager contextManager;
-    private final Path sessionsDir;
-    private final JobStore jobStore;
-    private final SessionManager sessionManager;
-    private final AtomicReference<UUID> currentSessionId = new AtomicReference<>();
-    private final AtomicReference<String> currentJobId = new AtomicReference<>();
-    private final ai.brokk.executor.jobs.JobRunner jobRunner;
+    private final HeadlessExecutorService service;
 
-    /*
+    /**
      * Parse command-line arguments into a map of normalized keys to values.
      * Supports both --key value and --key=value forms.
      * Normalized keys: exec-id, listen-addr, auth-token, workspace-dir, sessions-dir.
@@ -89,7 +88,6 @@ public final class HeadlessExecutorMain {
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, Path workspaceDir, Path sessionsDir)
             throws IOException {
         this.execId = execId;
-        this.sessionsDir = sessionsDir;
 
         // Parse listen address
         var parts = Splitter.on(':').splitToList(listenAddr);
@@ -114,17 +112,8 @@ public final class HeadlessExecutorMain {
         // Ensure sessions directory exists
         Files.createDirectories(sessionsDir);
 
-        // Initialize JobStore and SessionManager
-        this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
-        this.sessionManager = new SessionManager(sessionsDir);
-
-        // Initialize ContextManager
-        var project = new MainProject(workspaceDir);
-        this.contextManager = new ContextManager(project);
-        this.contextManager.createHeadless();
-
-        // Initialize JobRunner
-        this.jobRunner = new ai.brokk.executor.jobs.JobRunner(this.contextManager, this.jobStore);
+        // Initialize service which owns ContextManager, SessionManager, JobStore and JobRunner
+        this.service = new HeadlessExecutorService(execId, workspaceDir, sessionsDir);
 
         // Create HTTP server with authentication
         this.server = new SimpleHttpServer(host, port, authToken, 4);
@@ -156,7 +145,7 @@ public final class HeadlessExecutorMain {
             return;
         }
 
-        var sessionId = currentSessionId.get();
+        var sessionId = this.service.getCurrentSessionId();
         if (sessionId == null) {
             var error = Map.of("status", "not_ready", "reason", "No session loaded");
             SimpleHttpServer.sendJsonResponse(exchange, 503, error);
@@ -179,22 +168,6 @@ public final class HeadlessExecutorMain {
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
-    /**
-     * Asynchronously execute a job. Called after a new job is created.
-     * Delegates to JobRunner and manages currentJobId lifecycle.
-     */
-    private void executeJobAsync(String jobId, ai.brokk.executor.jobs.JobSpec jobSpec) {
-        logger.info("Starting job execution: {}", jobId);
-        jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
-            if (throwable != null) {
-                logger.error("Job {} execution failed", jobId, throwable);
-            } else {
-                logger.info("Job {} execution finished", jobId);
-            }
-            currentJobId.compareAndSet(jobId, null);
-        });
-    }
-
     public void start() {
         this.server.start();
         logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.");
@@ -202,14 +175,9 @@ public final class HeadlessExecutorMain {
 
     public void stop(int delaySeconds) {
         try {
-            this.contextManager.close();
+            this.service.close();
         } catch (Exception e) {
-            logger.warn("Error closing ContextManager", e);
-        }
-        try {
-            this.sessionManager.close();
-        } catch (Exception e) {
-            logger.warn("Error closing SessionManager", e);
+            logger.warn("Error closing HeadlessExecutorService", e);
         }
         this.server.stop(delaySeconds);
         logger.info("HeadlessExecutorMain stopped");
@@ -335,8 +303,8 @@ public final class HeadlessExecutorMain {
                 zipData = requestBody.readAllBytes();
             }
 
-            // Import session and get the imported session ID
-            importSessionZip(zipData, sessionId);
+            // Delegate to service to import and switch
+            this.service.importSessionZip(zipData, sessionId);
 
             var response = Map.of("sessionId", sessionId.toString());
             SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -349,28 +317,6 @@ public final class HeadlessExecutorMain {
             var error = ErrorPayload.internalError("Failed to process session upload", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
-    }
-
-    /**
-     * Import a session zip file by writing it to sessionsDir and switching ContextManager to it.
-     * This helper encapsulates the core session import logic for reusability.
-     *
-     * @param zipData the zip file contents
-     * @param sessionId the UUID for this session
-     * @throws IOException if writing the zip file fails
-     * @throws Exception if switching the session fails
-     */
-    void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
-        // Write zip file to disk
-        var sessionZipPath = sessionsDir.resolve(sessionId + ".zip");
-        Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
-        logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
-
-        // Switch ContextManager to this session
-        contextManager.switchSessionAsync(sessionId).join();
-        currentSessionId.set(sessionId);
-        logger.info("Switched to session: {}", sessionId);
     }
 
     /**
@@ -387,13 +333,6 @@ public final class HeadlessExecutorMain {
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
                 var error = ErrorPayload.validationError("Idempotency-Key header is required");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                return;
-            }
-
-            // Check if a job is already running
-            if (currentJobId.get() != null) {
-                var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
-                SimpleHttpServer.sendJsonResponse(exchange, 409, error);
                 return;
             }
 
@@ -415,7 +354,7 @@ public final class HeadlessExecutorMain {
 
             var tags = jobSpecRequest.tags();
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
-            var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
+            var jobSpec = JobSpec.of(
                     jobSpecRequest.sessionId(),
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
@@ -424,15 +363,24 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.codeModel(),
                     safeTags);
 
-            // Create or get job (idempotent)
-            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            // Delegate creation to service (idempotent)
+            JobStore.JobCreateResult createResult;
+            try {
+                createResult = this.service.createJob(idempotencyKey, jobSpec);
+            } catch (IllegalStateException ise) {
+                // Mirror previous HTTP-layer behavior: conflict when a job is executing
+                var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                return;
+            }
+
             var jobId = createResult.jobId();
             var isNewJob = createResult.isNewJob();
 
             logger.info("Job {}: isNewJob={}, jobId={}", idempotencyKey, isNewJob, jobId);
 
-            // Load job status
-            var status = jobStore.loadStatus(jobId);
+            // Load job status from service
+            var status = this.service.getJobStatus(jobId);
             var state = status != null ? status.state() : "queued";
 
             var response = Map.of(
@@ -442,11 +390,7 @@ public final class HeadlessExecutorMain {
             int statusCode = isNewJob ? 201 : 200;
             SimpleHttpServer.sendJsonResponse(exchange, statusCode, response);
 
-            // If this is a new job, start execution asynchronously
-            if (isNewJob) {
-                currentJobId.set(jobId);
-                executeJobAsync(jobId, jobSpec);
-            }
+            // No further action required: the service has started execution for new jobs.
         } catch (Exception e) {
             logger.error("Error handling POST /v1/jobs", e);
             var error = ErrorPayload.internalError("Failed to create job", e);
@@ -460,7 +404,7 @@ public final class HeadlessExecutorMain {
     void handleGetJob(HttpExchange exchange, String jobId) throws IOException {
         try {
 
-            var status = jobStore.loadStatus(jobId);
+            var status = service.getJobStatus(jobId);
             if (status == null) {
                 var error = ErrorPayload.jobNotFound(jobId);
                 SimpleHttpServer.sendJsonResponse(exchange, 404, error);
@@ -506,12 +450,10 @@ public final class HeadlessExecutorMain {
                 }
             }
 
-            var events = jobStore.readEvents(jobId, afterSeq, limit);
-            long nextAfter = events.isEmpty() ? afterSeq : events.getLast().seq();
-
+            var eventsResult = this.service.getJobEvents(jobId, afterSeq, limit);
             var response = Map.of(
-                    "events", events,
-                    "nextAfter", nextAfter);
+                    "events", eventsResult.events(),
+                    "nextAfter", eventsResult.nextAfter());
 
             SimpleHttpServer.sendJsonResponse(exchange, response);
         } catch (Exception e) {
@@ -527,8 +469,8 @@ public final class HeadlessExecutorMain {
     void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
         try {
 
-            // Request job cancellation via JobRunner
-            jobRunner.cancel(jobId);
+            // Delegate cancellation to service
+            service.cancelJob(jobId);
             logger.info("Cancelled job: {}", jobId);
 
             exchange.sendResponseHeaders(202, 0);
@@ -546,7 +488,7 @@ public final class HeadlessExecutorMain {
     void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
         try {
 
-            var status = jobStore.loadStatus(jobId);
+            var status = service.getJobStatus(jobId);
             if (status == null) {
                 var error = ErrorPayload.jobNotFound(jobId);
                 SimpleHttpServer.sendJsonResponse(exchange, 404, error);
@@ -554,8 +496,7 @@ public final class HeadlessExecutorMain {
             }
 
             try {
-                var repo = contextManager.getProject().getRepo();
-                var diff = repo.diff();
+                var diff = service.getDiff();
 
                 exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=UTF-8");
                 exchange.sendResponseHeaders(200, diff.getBytes(UTF_8).length);
