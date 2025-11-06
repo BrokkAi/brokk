@@ -1,5 +1,6 @@
 package ai.brokk.executor.http;
 
+import ai.brokk.executor.jobs.ErrorPayload;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -61,7 +62,7 @@ public final class SimpleHttpServer {
                 handler.handle(exchange);
             } catch (Exception e) {
                 logger.error("Unhandled exception in handler for {}", path, e);
-                sendErrorResponse(exchange, 500, "Internal server error");
+                sendJsonResponse(exchange, 500, ErrorPayload.internalError("Internal server error", e));
             }
         });
         logger.debug("Registered unauthenticated context: {}", path);
@@ -80,7 +81,7 @@ public final class SimpleHttpServer {
                 var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
                 if (authHeader == null || !authHeader.equals("Bearer " + this.authToken)) {
                     logger.warn("Unauthorized request to {} (missing or invalid Authorization header)", path);
-                    sendErrorResponse(exchange, 401, "Unauthorized");
+                    sendJsonResponse(exchange, 401, ErrorPayload.of(ErrorPayload.Code.UNAUTHORIZED, "Unauthorized"));
                     return;
                 }
 
@@ -88,7 +89,7 @@ public final class SimpleHttpServer {
                 handler.handle(exchange);
             } catch (Exception e) {
                 logger.error("Unhandled exception in handler for {}", path, e);
-                sendErrorResponse(exchange, 500, "Internal server error");
+                sendJsonResponse(exchange, 500, ErrorPayload.internalError("Internal server error", e));
             }
         });
         logger.debug("Registered authenticated context: {}", path);

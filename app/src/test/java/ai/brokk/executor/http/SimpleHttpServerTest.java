@@ -3,6 +3,7 @@ package ai.brokk.executor.http;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.executor.jobs.ErrorPayload;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -138,7 +139,7 @@ class SimpleHttpServerTest {
             if (parsed != null && parsed.containsKey("key")) {
                 SimpleHttpServer.sendJsonResponse(exchange, Map.of("received", "ok"));
             } else {
-                SimpleHttpServer.sendErrorResponse(exchange, 400, "Invalid JSON");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, ErrorPayload.validationError("Invalid JSON"));
             }
         });
 
@@ -159,9 +160,9 @@ class SimpleHttpServerTest {
     }
 
     @Test
-    void testSendErrorResponse() throws Exception {
+    void testStructuredErrorResponse() throws Exception {
         server.registerUnauthenticatedContext("/test/error", exchange -> {
-            SimpleHttpServer.sendErrorResponse(exchange, 404, "Not found");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
         });
 
         var url = new URL("http://127.0.0.1:" + port + "/test/error");
